@@ -1,7 +1,7 @@
 import type { Metadata } from 'next';
 
 import { LoginForm } from '@/app/(auth)/login/LoginForm';
-import { paletteToCssVariables } from '@/lib/branding';
+import { paletteToCSSVars } from '@/lib/branding';
 import { getSchoolByLocationId } from '@/lib/schools';
 import { getTenantFromHeaders } from '@/lib/tenant';
 import type { CSSProperties } from 'react';
@@ -24,7 +24,7 @@ export default async function LoginPage() {
   const school =
     tenant.locationId === null ? null : await getSchoolByLocationId(tenant.locationId);
 
-  const brandStyle = paletteToCssVariables(
+  const brandStyle = paletteToCSSVars(
     school?.colorPalette ?? null,
   ) as unknown as CSSProperties;
 

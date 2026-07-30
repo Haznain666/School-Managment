@@ -2,15 +2,16 @@ import type { CSSProperties, ReactNode } from 'react';
 
 import { Sidebar, type NavItem } from '@/components/layout/Sidebar';
 import { TopBar } from '@/components/layout/TopBar';
-import type { SchoolColorPalette, SchoolModuleFlags } from '@/db/schema';
-import { paletteToCssVariables } from '@/lib/branding';
+import type { Palette } from '@/db/schema';
+import { paletteToCSSVars } from '@/lib/branding';
+import type { SchoolModuleFlags } from '@/lib/platform-modules';
 import type { UserClaimRole } from '@/lib/claims';
 
 export interface PortalShellProps {
   title: string;
   schoolName: string;
   logoUrl: string | null;
-  colorPalette: SchoolColorPalette | null;
+  colorPalette: Palette | null;
   moduleFlags: SchoolModuleFlags;
   navItems: readonly NavItem[];
   role: UserClaimRole;
@@ -38,7 +39,7 @@ export function PortalShell({
   branchName,
   children,
 }: PortalShellProps) {
-  const brandStyle = paletteToCssVariables(colorPalette) as unknown as CSSProperties;
+  const brandStyle = paletteToCSSVars(colorPalette) as unknown as CSSProperties;
 
   return (
     <div style={brandStyle} className="flex h-screen bg-slate-50">

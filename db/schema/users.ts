@@ -11,7 +11,7 @@ import {
 } from 'drizzle-orm/pg-core';
 
 import { branches } from './branches';
-import { schoolSubdomains } from './school-subdomains';
+import { schools } from './schools';
 
 /**
  * Every role the platform recognises. Mirrors `UserClaims['role']` in
@@ -52,7 +52,7 @@ export const users = pgTable(
     id: uuid('id').primaryKey().defaultRandom(),
     locationId: text('location_id')
       .notNull()
-      .references(() => schoolSubdomains.locationId, { onDelete: 'cascade' }),
+      .references(() => schools.locationId, { onDelete: 'cascade' }),
     firebaseUid: text('firebase_uid').notNull().unique(),
     email: text('email').notNull(),
     phone: text('phone'),
@@ -88,7 +88,7 @@ export const userRoles = pgTable(
       .references(() => users.id, { onDelete: 'cascade' }),
     locationId: text('location_id')
       .notNull()
-      .references(() => schoolSubdomains.locationId, { onDelete: 'cascade' }),
+      .references(() => schools.locationId, { onDelete: 'cascade' }),
     role: text('role').notNull().$type<UserRole>(),
     /** NULL = access to every branch of this school. */
     branchId: uuid('branch_id').references(() => branches.id, {

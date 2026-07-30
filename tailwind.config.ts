@@ -19,7 +19,7 @@ const config: Config = {
           primary: 'rgb(var(--brand-primary) / <alpha-value>)',
           secondary: 'rgb(var(--brand-secondary) / <alpha-value>)',
           accent: 'rgb(var(--brand-accent) / <alpha-value>)',
-          surface: 'rgb(var(--brand-surface) / <alpha-value>)',
+          background: 'rgb(var(--brand-background) / <alpha-value>)',
           text: 'rgb(var(--brand-text) / <alpha-value>)',
         },
       },

@@ -11,7 +11,7 @@ import {
 } from 'drizzle-orm/pg-core';
 
 import { branches } from './branches';
-import { schoolSubdomains } from './school-subdomains';
+import { schools } from './schools';
 import { users } from './users';
 
 export const STUDENT_STATUSES = [
@@ -33,7 +33,7 @@ export const students = pgTable(
     id: uuid('id').primaryKey().defaultRandom(),
     locationId: text('location_id')
       .notNull()
-      .references(() => schoolSubdomains.locationId, { onDelete: 'cascade' }),
+      .references(() => schools.locationId, { onDelete: 'cascade' }),
     branchId: uuid('branch_id').references(() => branches.id, {
       onDelete: 'set null',
     }),

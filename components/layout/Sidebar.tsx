@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 
-import type { SchoolModuleFlags } from '@/db/schema';
+import type { SchoolModuleFlags } from '@/lib/platform-modules';
 import type { UserClaimRole } from '@/lib/claims';
 import { cn } from '@/lib/utils';
 

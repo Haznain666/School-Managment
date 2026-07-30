@@ -1,14 +1,38 @@
 import type { ReactNode } from 'react';
 
-import { SuperAdminFrame } from '@/app/(super-admin)/SuperAdminFrame';
+import { SuperAdminSidebar } from '@/components/super-admin/SuperAdminSidebar';
+import { SuperAdminTopBar } from '@/components/super-admin/SuperAdminTopBar';
+import { readSuperAdminSession } from '@/lib/super-admin-guard';
 
 /**
- * Super Admin shell — scaffold only for Sprint 1.
+ * Super Admin shell.
  *
- * This surface is cross-tenant by design: a super_admin has no single
- * location_id to be pinned to. Access is still gated on the `super_admin`
- * claim, checked here for the chrome and again server-side on every API call.
+ * This surface is cross-tenant by design: a Super Admin has no location_id to
+ * be pinned to, so it is gated by the session cookie rather than by Firebase
+ * claims.
+ *
+ * When there is no session the children are rendered bare. In practice that
+ * only ever happens on `/super-admin/login`, because middleware redirects
+ * every other path here to the login page before this layout runs — and the
+ * login form must not appear inside the signed-in chrome.
  */
-export default function SuperAdminLayout({ children }: { children: ReactNode }) {
-  return <SuperAdminFrame>{children}</SuperAdminFrame>;
+export const dynamic = 'force-dynamic';
+
+export default async function SuperAdminLayout({ children }: { children: ReactNode }) {
+  const session = await readSuperAdminSession();
+
+  if (session === null) {
+    return <>{children}</>;
+  }
+
+  return (
+    <div className="flex h-screen bg-slate-50">
+      <SuperAdminSidebar />
+
+      <div className="flex min-w-0 flex-1 flex-col">
+        <SuperAdminTopBar email={session.email} />
+        <main className="flex-1 overflow-y-auto p-6">{children}</main>
+      </div>
+    </div>
+  );
 }

@@ -6,13 +6,14 @@ import { useEffect, type ReactNode } from 'react';
 import { useAuth } from '@/components/auth/AuthProvider';
 import { PortalShell } from '@/components/layout/PortalShell';
 import type { NavItem } from '@/components/layout/Sidebar';
-import type { SchoolColorPalette, SchoolModuleFlags } from '@/db/schema';
+import type { Palette } from '@/db/schema';
+import type { SchoolModuleFlags } from '@/lib/platform-modules';
 
 export interface SchoolPortalFrameProps {
   locationId: string;
   schoolName: string;
   logoUrl: string | null;
-  colorPalette: SchoolColorPalette | null;
+  colorPalette: Palette | null;
   moduleFlags: SchoolModuleFlags;
   title: string;
   children: ReactNode;
@@ -37,7 +38,7 @@ function navItemsFor(locationId: string): readonly NavItem[] {
       label: 'Staff',
       href: `${base}/staff`,
       roles: ['school_admin', 'principal', 'hr_manager'],
-      module: 'hr',
+      module: 'hr_payroll',
     },
     {
       label: 'Accounts',
@@ -45,7 +46,7 @@ function navItemsFor(locationId: string): readonly NavItem[] {
       roles: ['school_admin', 'accountant'],
       module: 'accounts',
     },
-    { label: 'Events', href: `${base}/events`, module: 'events' },
+    { label: 'Events', href: `${base}/events`, module: 'event_mgmt' },
   ];
 }
 

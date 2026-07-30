@@ -1,66 +1,44 @@
 import { eq } from 'drizzle-orm';
 
 import {
-  DEFAULT_MODULE_FLAGS,
-  schoolSubdomains,
-  type SchoolColorPalette,
-  type SchoolModuleFlags,
-  type SchoolStatus,
+  schoolBranding,
+  schoolModules,
+  schools,
+  selectedPaletteOf,
+  type Palette,
 } from '@/db/schema';
 
 import { db } from './drizzle';
+import { emptyModuleFlags, toModuleFlags, type SchoolModuleFlags } from './platform-modules';
+import { isValidSlug } from './slug';
 
 /**
- * Tenant resolution — subdomain -> school.
+ * Tenant resolution — subdomain slug -> school.
  *
- * `school_subdomains` is the only table that may be read without a
- * location_id in hand, because resolving it is *how* we obtain the
- * location_id. Everything downstream is tenant-filtered.
+ * `schools` is the only table that may be read without a location_id in hand,
+ * because resolving it is *how* we obtain the location_id. Everything
+ * downstream is tenant-filtered.
  *
  * This module is Edge-safe (Neon's HTTP driver) so `middleware.ts` can use it.
  */
 
 export interface SchoolRecord {
-  subdomain: string;
+  id: string;
+  slug: string;
   locationId: string;
   schoolName: string;
-  status: SchoolStatus;
+  city: string;
+  isActive: boolean;
   moduleFlags: SchoolModuleFlags;
-  colorPalette: SchoolColorPalette | null;
+  colorPalette: Palette | null;
   logoUrl: string | null;
 }
 
 /**
- * Subdomains that can never belong to a school — they are platform surfaces or
- * conventional infrastructure names.
- */
-export const RESERVED_SUBDOMAINS: ReadonlySet<string> = new Set([
-  'www',
-  'app',
-  'api',
-  'admin',
-  'super-admin',
-  'auth',
-  'login',
-  'static',
-  'assets',
-  'cdn',
-  'mail',
-  'status',
-]);
-
-/** RFC-1123 label: lowercase alphanumerics and hyphens, 1–63 chars. */
-const SUBDOMAIN_PATTERN = /^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$/;
-
-export function isValidSubdomain(candidate: string): boolean {
-  return SUBDOMAIN_PATTERN.test(candidate) && !RESERVED_SUBDOMAINS.has(candidate);
-}
-
-/**
- * Extracts the school subdomain from a Host header.
+ * Extracts the school slug from a Host header.
  *
- * Returns null for the apex domain, `www`, localhost, and any host that is not
- * a direct child of `appDomain`.
+ * Returns null for the apex domain, `www`, and any host that is not a direct
+ * child of `appDomain`.
  */
 export function extractSubdomain(host: string, appDomain: string): string | null {
   const hostname = (host.split(':')[0] ?? '').toLowerCase().trim();
@@ -75,7 +53,7 @@ export function extractSubdomain(host: string, appDomain: string): string | null
   // Only single-label subdomains map to schools: `a.b.platform.com` does not.
   if (label.includes('.')) return null;
 
-  return isValidSubdomain(label) ? label : null;
+  return isValidSlug(label) ? label : null;
 }
 
 /** True for local development and preview hosts, where there is no real subdomain. */
@@ -91,66 +69,88 @@ export function isLocalHost(host: string): boolean {
   );
 }
 
-function toRecord(row: {
-  subdomain: string;
-  locationId: string;
-  schoolName: string;
-  status: SchoolStatus;
-  moduleFlags: SchoolModuleFlags | null;
-  colorPalette: SchoolColorPalette | null;
-  logoUrl: string | null;
-}): SchoolRecord {
+/**
+ * Loads a school plus its module flags and live palette.
+ *
+ * Three small reads rather than one join: the module rows are a one-to-many
+ * and the branding row is optional, so joining would either duplicate the
+ * school row or need a subquery for no real gain at this cardinality.
+ */
+async function hydrate(school: typeof schools.$inferSelect): Promise<SchoolRecord> {
+  const [moduleRows, brandingRows] = await Promise.all([
+    db
+      .select({
+        moduleKey: schoolModules.moduleKey,
+        isEnabled: schoolModules.isEnabled,
+      })
+      .from(schoolModules)
+      .where(eq(schoolModules.locationId, school.locationId)),
+    db
+      .select()
+      .from(schoolBranding)
+      .where(eq(schoolBranding.locationId, school.locationId))
+      .limit(1),
+  ]);
+
+  const branding = brandingRows[0];
+
   return {
-    subdomain: row.subdomain,
-    locationId: row.locationId,
-    schoolName: row.schoolName,
-    status: row.status,
-    moduleFlags: row.moduleFlags ?? DEFAULT_MODULE_FLAGS,
-    colorPalette: row.colorPalette,
-    logoUrl: row.logoUrl,
+    id: school.id,
+    slug: school.slug,
+    locationId: school.locationId,
+    schoolName: school.name,
+    city: school.city,
+    isActive: school.isActive,
+    moduleFlags: moduleRows.length === 0 ? emptyModuleFlags() : toModuleFlags(moduleRows),
+    colorPalette: branding === undefined ? null : selectedPaletteOf(branding),
+    logoUrl: branding?.logoUrl ?? school.logoUrl,
   };
 }
 
-/** Looks a school up by its subdomain. Null when no such school exists. */
-export async function getSchoolBySubdomain(
-  subdomain: string,
-): Promise<SchoolRecord | null> {
-  const rows = await db
-    .select({
-      subdomain: schoolSubdomains.subdomain,
-      locationId: schoolSubdomains.locationId,
-      schoolName: schoolSubdomains.schoolName,
-      status: schoolSubdomains.status,
-      moduleFlags: schoolSubdomains.moduleFlags,
-      colorPalette: schoolSubdomains.colorPalette,
-      logoUrl: schoolSubdomains.logoUrl,
-    })
-    .from(schoolSubdomains)
-    .where(eq(schoolSubdomains.subdomain, subdomain))
-    .limit(1);
-
+/** Looks a school up by its subdomain slug. Null when no such school exists. */
+export async function getSchoolBySlug(slug: string): Promise<SchoolRecord | null> {
+  const rows = await db.select().from(schools).where(eq(schools.slug, slug)).limit(1);
   const row = rows[0];
-  return row === undefined ? null : toRecord(row);
+  return row === undefined ? null : hydrate(row);
 }
+
+/** Sprint 1 name, kept so existing call sites do not need to change. */
+export const getSchoolBySubdomain = getSchoolBySlug;
 
 /** Looks a school up by its GHL Location ID. */
 export async function getSchoolByLocationId(
   locationId: string,
 ): Promise<SchoolRecord | null> {
   const rows = await db
-    .select({
-      subdomain: schoolSubdomains.subdomain,
-      locationId: schoolSubdomains.locationId,
-      schoolName: schoolSubdomains.schoolName,
-      status: schoolSubdomains.status,
-      moduleFlags: schoolSubdomains.moduleFlags,
-      colorPalette: schoolSubdomains.colorPalette,
-      logoUrl: schoolSubdomains.logoUrl,
-    })
-    .from(schoolSubdomains)
-    .where(eq(schoolSubdomains.locationId, locationId))
+    .select()
+    .from(schools)
+    .where(eq(schools.locationId, locationId))
     .limit(1);
 
   const row = rows[0];
-  return row === undefined ? null : toRecord(row);
+  return row === undefined ? null : hydrate(row);
+}
+
+/** Looks a school up by primary key — the Super Admin panel's addressing. */
+export async function getSchoolById(schoolId: string): Promise<SchoolRecord | null> {
+  const rows = await db.select().from(schools).where(eq(schools.id, schoolId)).limit(1);
+  const row = rows[0];
+  return row === undefined ? null : hydrate(row);
+}
+
+/**
+ * Maps a Super Admin URL's schoolId to the tenant key everything else is
+ * filed under. Null when no such school exists.
+ *
+ * The Super Admin panel addresses schools by primary key, but every child
+ * table is keyed by location_id — this is the one hop between the two.
+ */
+export async function resolveLocationId(schoolId: string): Promise<string | null> {
+  const rows = await db
+    .select({ locationId: schools.locationId })
+    .from(schools)
+    .where(eq(schools.id, schoolId))
+    .limit(1);
+
+  return rows[0]?.locationId ?? null;
 }

@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 
 import { Badge } from '@/components/ui/Badge';
 import { Card, CardTitle } from '@/components/ui/Card';
+import { emptyModuleFlags, moduleLabel, PLATFORM_MODULE_KEYS } from '@/lib/platform-modules';
 import { getSchoolByLocationId } from '@/lib/schools';
 
 export const metadata: Metadata = {
@@ -25,7 +26,7 @@ export default async function SchoolDashboardPage({
   const { locationId } = await params;
   const school = await getSchoolByLocationId(locationId);
 
-  const moduleEntries = Object.entries(school?.moduleFlags ?? {});
+  const moduleFlags = school?.moduleFlags ?? emptyModuleFlags();
 
   return (
     <div className="space-y-6">
@@ -44,7 +45,7 @@ export default async function SchoolDashboardPage({
               Subdomain
             </dt>
             <dd className="mt-1 text-sm font-medium text-slate-900">
-              {school?.subdomain ?? '—'}
+              {school?.slug ?? '—'}
             </dd>
           </div>
           <div>
@@ -67,11 +68,11 @@ export default async function SchoolDashboardPage({
         }
       >
         <ul className="flex flex-wrap gap-2">
-          {moduleEntries.map(([name, enabled]) => (
-            <li key={name}>
-              <Badge variant={enabled === true ? 'success' : 'neutral'}>
-                {name}
-                {enabled === true ? ' · on' : ' · off'}
+          {PLATFORM_MODULE_KEYS.map((key) => (
+            <li key={key}>
+              <Badge variant={moduleFlags[key] ? 'success' : 'neutral'}>
+                {moduleLabel(key)}
+                {moduleFlags[key] ? ' · on' : ' · off'}
               </Badge>
             </li>
           ))}

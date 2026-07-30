@@ -1,6 +1,6 @@
 import { index, pgTable, text, timestamp } from 'drizzle-orm/pg-core';
 
-import { schoolSubdomains } from './school-subdomains';
+import { schools } from './schools';
 
 export const GHL_TOKEN_TYPES = ['location', 'company'] as const;
 export type GhlTokenType = (typeof GHL_TOKEN_TYPES)[number];
@@ -17,7 +17,7 @@ export const ghlTokens = pgTable(
   {
     locationId: text('location_id')
       .primaryKey()
-      .references(() => schoolSubdomains.locationId, { onDelete: 'cascade' }),
+      .references(() => schools.locationId, { onDelete: 'cascade' }),
     /** AES-256-GCM ciphertext — NOT the raw token. */
     accessToken: text('access_token').notNull(),
     /** AES-256-GCM ciphertext — NOT the raw token. */

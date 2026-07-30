@@ -4,6 +4,7 @@ import { AuthError } from './auth-middleware';
 import { GhlApiError } from './ghl-client';
 import { GhlTokenError } from './ghl-tokens';
 import { MissingEnvError } from './env';
+import { SuperAdminAuthError } from './super-admin-guard';
 
 /**
  * Uniform JSON envelopes for API routes, plus one error translator so that
@@ -44,6 +45,10 @@ export function apiFailure(
 export function handleApiError(error: unknown): NextResponse<ApiFailure> {
   if (error instanceof AuthError) {
     return apiFailure(error.code, error.message, error.status);
+  }
+
+  if (error instanceof SuperAdminAuthError) {
+    return apiFailure('unauthenticated', error.message, error.status);
   }
 
   if (error instanceof GhlTokenError) {

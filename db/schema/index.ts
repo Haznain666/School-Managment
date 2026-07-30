@@ -3,10 +3,13 @@
  * what `lib/drizzle.ts` passes to the ORM. Every new table must be exported
  * here or it will not appear in generated migrations.
  *
- * Tenancy invariant: every table except `school_subdomains` carries
- * `location_id TEXT NOT NULL` (the GHL Location ID) and is indexed on it.
+ * Tenancy invariant: every table carries `location_id TEXT NOT NULL` (the GHL
+ * Location ID) and is indexed on it. `schools` is the directory that key
+ * refers to; everything else references it.
  */
-export * from './school-subdomains';
+export * from './schools';
+export * from './school-modules';
+export * from './school-branding';
 export * from './ghl-tokens';
 export * from './branches';
 export * from './users';
