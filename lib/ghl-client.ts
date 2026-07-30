@@ -392,3 +392,159 @@ export async function exchangeGhlAuthorizationCode(code: string): Promise<GhlTok
   await writeGhlTokens(tokens);
   return tokens;
 }
+
+// -----------------------------------------------------------------------------
+// Agency-key contact and WhatsApp messaging (Sprint 3)
+// -----------------------------------------------------------------------------
+
+/**
+ * The helpers above authenticate per school with that school's stored OAuth
+ * token. Invitations cannot: a school being invited to may not have completed
+ * the GHL OAuth install yet, and the invite still has to go out.
+ *
+ * So these use the agency-level API key instead, which is authorised across
+ * every sub-account. `locationId` remains an explicit argument on every call —
+ * the key is broad, the calls are not.
+ */
+
+export class GhlAgencyError extends Error {
+  readonly status: number;
+
+  constructor(status: number, message: string) {
+    super(message);
+    this.name = 'GhlAgencyError';
+    this.status = status;
+  }
+}
+
+function agencyHeaders(): Record<string, string> {
+  return {
+    Authorization: `Bearer ${requireServerEnv('GHL_AGENCY_API_KEY')}`,
+    Version: serverEnv('GHL_API_VERSION', DEFAULT_API_VERSION),
+    Accept: 'application/json',
+    'Content-Type': 'application/json',
+  };
+}
+
+async function agencyFetch<T>(
+  path: string,
+  init: { method: 'GET' | 'POST'; body?: unknown; query?: Record<string, string> },
+): Promise<T> {
+  const url = new URL(`${ghlBaseUrl()}${path.startsWith('/') ? path : `/${path}`}`);
+  if (init.query !== undefined) {
+    for (const [key, value] of Object.entries(init.query)) {
+      url.searchParams.set(key, value);
+    }
+  }
+
+  const response = await fetch(url.toString(), {
+    method: init.method,
+    headers: agencyHeaders(),
+    ...(init.body === undefined ? {} : { body: JSON.stringify(init.body) }),
+    cache: 'no-store',
+  });
+
+  const text = await response.text();
+
+  if (!response.ok) {
+    throw new GhlAgencyError(
+      response.status,
+      `GHL ${init.method} ${path} failed with ${response.status}: ${text.slice(0, 300)}`,
+    );
+  }
+
+  return (text.trim() === '' ? undefined : JSON.parse(text)) as T;
+}
+
+export interface GhlContactRef {
+  contactId: string;
+}
+
+interface ContactSearchResponse {
+  contacts?: Array<{ id?: string }>;
+}
+
+interface ContactUpsertResponse {
+  contact?: { id?: string };
+  id?: string;
+}
+
+/**
+ * Finds a contact by phone within one sub-account, creating it if absent.
+ *
+ * Lookup comes first so repeated invitations to the same number reuse the
+ * existing contact rather than fragmenting the school's CRM.
+ */
+export async function findOrCreateContact(
+  locationId: string,
+  contact: { phone: string; name: string; email?: string | undefined },
+): Promise<GhlContactRef> {
+  const found = await agencyFetch<ContactSearchResponse>('/contacts/', {
+    method: 'GET',
+    query: { locationId, query: contact.phone },
+  });
+
+  const existingId = found.contacts?.[0]?.id;
+  if (typeof existingId === 'string' && existingId !== '') {
+    return { contactId: existingId };
+  }
+
+  const [firstName, ...rest] = contact.name.trim().split(/\s+/);
+
+  const created = await agencyFetch<ContactUpsertResponse>('/contacts/', {
+    method: 'POST',
+    body: {
+      locationId,
+      phone: contact.phone,
+      firstName: firstName ?? contact.name,
+      lastName: rest.join(' '),
+      ...(contact.email === undefined ? {} : { email: contact.email }),
+    },
+  });
+
+  const contactId = created.contact?.id ?? created.id;
+  if (typeof contactId !== 'string' || contactId === '') {
+    throw new GhlAgencyError(502, 'GHL did not return a contact id.');
+  }
+
+  return { contactId };
+}
+
+export interface GhlMessageRef {
+  messageId: string;
+}
+
+interface SendMessageResponse {
+  messageId?: string;
+  msg?: { id?: string };
+  conversationId?: string;
+}
+
+/**
+ * Sends a WhatsApp message to a contact.
+ *
+ * GHL creates or reuses the conversation itself when a message is posted with
+ * `type: 'WhatsApp'`, so there is no separate conversation call.
+ */
+export async function sendWhatsAppMessage(
+  locationId: string,
+  contactId: string,
+  messageText: string,
+): Promise<GhlMessageRef> {
+  const sent = await agencyFetch<SendMessageResponse>('/conversations/messages', {
+    method: 'POST',
+    body: {
+      type: 'WhatsApp',
+      contactId,
+      locationId,
+      message: messageText,
+    },
+  });
+
+  const messageId = sent.messageId ?? sent.msg?.id ?? sent.conversationId;
+  if (typeof messageId !== 'string' || messageId === '') {
+    throw new GhlAgencyError(502, 'GHL did not return a message id.');
+  }
+
+  return { messageId };
+}

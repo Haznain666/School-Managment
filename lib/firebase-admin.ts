@@ -1,36 +1,95 @@
 import 'server-only';
 
 /**
- * Firebase ADMIN SDK — server only (CRITICAL RULE #7).
+ * Firebase ADMIN SDK — server only.
  *
- * Used to verify ID tokens and to mint the custom claims that carry tenant
- * identity. Requires the Node.js runtime, so any route handler that touches it
- * must declare `export const runtime = 'nodejs'`.
+ * One Firebase project ("School-Management") serves every school. Tenants are
+ * separated by the `locationId` custom claim, so this module is what mints and
+ * verifies the only credential that carries tenant identity.
+ *
+ * Requires the Node.js runtime: any route handler or layout that touches it
+ * must declare `export const runtime = 'nodejs'`, and it can never be used from
+ * Edge middleware.
  */
 import { cert, getApps, initializeApp, type App } from 'firebase-admin/app';
 import { getAuth, type Auth, type DecodedIdToken } from 'firebase-admin/auth';
 import { getDatabase, type Database } from 'firebase-admin/database';
 import { getStorage, type Storage } from 'firebase-admin/storage';
 
-import { parseUserClaims, type UserClaims } from './claims';
 import { requireServerEnv, serverEnv } from './env';
 
 const ADMIN_APP_NAME = 'sms-platform-admin';
 
-function buildAdminApp(): App {
-  const projectId = requireServerEnv('FIREBASE_ADMIN_PROJECT_ID');
-  const clientEmail = requireServerEnv('FIREBASE_ADMIN_CLIENT_EMAIL');
+interface ServiceAccountJson {
+  project_id?: string;
+  client_email?: string;
+  private_key?: string;
+}
 
-  // Vercel and most CI systems store the PEM with literal "\n" sequences.
-  const privateKey = requireServerEnv('FIREBASE_ADMIN_PRIVATE_KEY').replace(
-    /\\n/g,
-    '\n',
-  );
+/**
+ * Reads credentials, preferring the single base64 service-account blob and
+ * falling back to the three discrete variables.
+ *
+ * Both forms are supported because the discrete variables are how Sprint 1
+ * configured this; a deployment already running on them should not have to be
+ * reconfigured to pick up Sprint 3.
+ */
+function readCredentials(): {
+  projectId: string;
+  clientEmail: string;
+  privateKey: string;
+} {
+  const encoded = process.env['FIREBASE_SERVICE_ACCOUNT_KEY'];
+
+  if (encoded !== undefined && encoded.trim() !== '') {
+    let parsed: ServiceAccountJson;
+    try {
+      parsed = JSON.parse(
+        Buffer.from(encoded, 'base64').toString('utf8'),
+      ) as ServiceAccountJson;
+    } catch {
+      throw new Error(
+        'FIREBASE_SERVICE_ACCOUNT_KEY is not valid base64-encoded JSON. ' +
+          'Generate it with: base64 -w0 service-account.json',
+      );
+    }
+
+    const {
+      project_id: projectId,
+      client_email: clientEmail,
+      private_key: privateKey,
+    } = parsed;
+
+    if (
+      typeof projectId !== 'string' ||
+      typeof clientEmail !== 'string' ||
+      typeof privateKey !== 'string'
+    ) {
+      throw new Error(
+        'FIREBASE_SERVICE_ACCOUNT_KEY is missing project_id, client_email or private_key.',
+      );
+    }
+
+    return { projectId, clientEmail, privateKey: privateKey.replace(/\\n/g, '\n') };
+  }
+
+  return {
+    projectId: requireServerEnv('FIREBASE_ADMIN_PROJECT_ID'),
+    clientEmail: requireServerEnv('FIREBASE_ADMIN_CLIENT_EMAIL'),
+    privateKey: requireServerEnv('FIREBASE_ADMIN_PRIVATE_KEY').replace(/\\n/g, '\n'),
+  };
+}
+
+function buildAdminApp(): App {
+  const { projectId, clientEmail, privateKey } = readCredentials();
 
   return initializeApp(
     {
       credential: cert({ projectId, clientEmail, privateKey }),
-      storageBucket: serverEnv('FIREBASE_ADMIN_STORAGE_BUCKET', `${projectId}.appspot.com`),
+      storageBucket: serverEnv(
+        'FIREBASE_ADMIN_STORAGE_BUCKET',
+        `${projectId}.appspot.com`,
+      ),
       databaseURL: serverEnv(
         'FIREBASE_ADMIN_DATABASE_URL',
         `https://${projectId}-default-rtdb.firebaseio.com`,
@@ -40,7 +99,10 @@ function buildAdminApp(): App {
   );
 }
 
-/** Lazily initialised so that importing this module never throws at build time. */
+/**
+ * Lazily initialised and reused across hot reloads — `initializeApp` throws if
+ * the same app name is registered twice.
+ */
 export function getAdminApp(): App {
   const existing = getApps().find((app) => app.name === ADMIN_APP_NAME);
   return existing ?? buildAdminApp();
@@ -58,46 +120,15 @@ export function getAdminDatabase(): Database {
   return getDatabase(getAdminApp());
 }
 
-/** Re-exported so callers do not need a direct firebase-admin import. */
 export type { DecodedIdToken };
 
 /**
- * Verifies an ID token and returns the decoded payload.
- * `checkRevoked` forces a round-trip to Firebase so that a disabled account or
- * a revoked session is rejected immediately rather than at token expiry.
+ * Verifies an ID token. `checkRevoked` forces a round-trip to Firebase so a
+ * disabled account or revoked session is rejected immediately.
  */
 export async function verifyIdToken(
   idToken: string,
   checkRevoked = true,
 ): Promise<DecodedIdToken> {
   return getAdminAuth().verifyIdToken(idToken, checkRevoked);
-}
-
-/**
- * Writes the tenant claims onto a Firebase user.
- *
- * The user must refresh their ID token (`getIdToken(true)`) before the new
- * claims appear — existing tokens keep the old values until they expire.
- */
-export async function setUserClaims(uid: string, claims: UserClaims): Promise<void> {
-  await getAdminAuth().setCustomUserClaims(uid, {
-    location_id: claims.location_id,
-    role: claims.role,
-    branch_id: claims.branch_id,
-    is_dual_role: claims.is_dual_role,
-  });
-}
-
-/** Reads the tenant claims currently attached to a Firebase user. */
-export async function getUserClaims(uid: string): Promise<UserClaims | null> {
-  const user = await getAdminAuth().getUser(uid);
-  return parseUserClaims(user.customClaims ?? {});
-}
-
-/**
- * Invalidates every outstanding refresh token for a user. Call this whenever
- * their role, branch or school changes so stale claims cannot be replayed.
- */
-export async function revokeUserSessions(uid: string): Promise<void> {
-  await getAdminAuth().revokeRefreshTokens(uid);
 }

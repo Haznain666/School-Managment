@@ -1,6 +1,5 @@
 import { NextResponse } from 'next/server';
 
-import { AuthError } from './auth-middleware';
 import { GhlApiError } from './ghl-client';
 import { GhlTokenError } from './ghl-tokens';
 import { MissingEnvError } from './env';
@@ -43,10 +42,6 @@ export function apiFailure(
  * log, not to the caller.
  */
 export function handleApiError(error: unknown): NextResponse<ApiFailure> {
-  if (error instanceof AuthError) {
-    return apiFailure(error.code, error.message, error.status);
-  }
-
   if (error instanceof SuperAdminAuthError) {
     return apiFailure('unauthenticated', error.message, error.status);
   }

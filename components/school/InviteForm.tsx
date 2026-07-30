@@ -1,0 +1,234 @@
+'use client';
+
+import { useRouter } from 'next/navigation';
+import { useCallback, useState, type FormEvent } from 'react';
+
+import { Button } from '@/components/ui/Button';
+import { Card } from '@/components/ui/Card';
+import { Input } from '@/components/ui/Input';
+import { Select } from '@/components/ui/Select';
+import {
+  BRANCH_REQUIRED_ROLES,
+  ROLE_LABELS,
+  USER_ROLES,
+  isUserRole,
+  type UserRole,
+} from '@/types/school-auth';
+
+export interface InviteFormBranch {
+  id: string;
+  name: string;
+}
+
+export interface InviteFormProps {
+  branches: readonly InviteFormBranch[];
+}
+
+interface InviteResponse {
+  ok: boolean;
+  data?: { delivery: { failures: string[] } };
+  error?: { message: string };
+}
+
+const ROLE_OPTIONS = USER_ROLES.map((role) => ({
+  value: role,
+  label: ROLE_LABELS[role],
+}));
+
+/** Roles normally created by Admissions rather than invited by hand. */
+const ADMISSIONS_ROLES: readonly UserRole[] = ['student', 'parent'];
+
+export function InviteForm({ branches }: InviteFormProps) {
+  const router = useRouter();
+
+  const [name, setName] = useState('');
+  const [phone, setPhone] = useState('');
+  const [email, setEmail] = useState('');
+  const [role, setRole] = useState('');
+  const [branchId, setBranchId] = useState('');
+
+  const [error, setError] = useState<string | null>(null);
+  const [warning, setWarning] = useState<string | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const selectedRole = isUserRole(role) ? role : null;
+  const branchRequired = selectedRole !== null && BRANCH_REQUIRED_ROLES.includes(selectedRole);
+  const showAdmissionsNotice = selectedRole !== null && ADMISSIONS_ROLES.includes(selectedRole);
+
+  const handleSubmit = useCallback(
+    async (event: FormEvent<HTMLFormElement>) => {
+      event.preventDefault();
+      setError(null);
+      setWarning(null);
+
+      if (name.trim() === '') {
+        setError('Enter the person’s full name.');
+        return;
+      }
+      if (phone.trim() === '') {
+        setError('A phone number is required — invitations are sent over WhatsApp.');
+        return;
+      }
+      if (selectedRole === null) {
+        setError('Select a role.');
+        return;
+      }
+      if (branchRequired && branchId === '') {
+        setError('This role must be assigned to a branch.');
+        return;
+      }
+
+      setIsSubmitting(true);
+
+      try {
+        const response = await fetch('/api/school/invitations', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            name: name.trim(),
+            phone: phone.trim(),
+            email: email.trim() === '' ? undefined : email.trim(),
+            role: selectedRole,
+            branchId: branchId === '' ? undefined : branchId,
+          }),
+        });
+
+        const payload = (await response.json()) as InviteResponse;
+
+        if (!response.ok || payload.ok !== true) {
+          setError(payload.error?.message ?? 'The invitation could not be sent.');
+          setIsSubmitting(false);
+          return;
+        }
+
+        // Delivered on at least one channel, but say so if the other failed —
+        // an admin who thinks WhatsApp went out when it did not will wait.
+        const failures = payload.data?.delivery.failures ?? [];
+        if (failures.length > 0) {
+          setWarning(`Invitation sent, with issues: ${failures.join(' ')}`);
+        }
+
+        router.push('/dashboard/users');
+        router.refresh();
+      } catch {
+        setError('The invitation could not be sent. Please try again.');
+        setIsSubmitting(false);
+      }
+    },
+    [name, phone, email, selectedRole, branchRequired, branchId, router],
+  );
+
+  const branchOptions = [
+    { value: '', label: branchRequired ? 'Select a branch' : 'All branches' },
+    ...branches.map((branch) => ({ value: branch.id, label: branch.name })),
+  ];
+
+  return (
+    <form
+      onSubmit={(event) => {
+        void handleSubmit(event);
+      }}
+      className="space-y-6"
+      noValidate
+    >
+      <Card>
+        <div className="grid gap-4 sm:grid-cols-2">
+          <div className="sm:col-span-2">
+            <Input
+              label="Full name"
+              required
+              value={name}
+              onChange={(event) => {
+                setName(event.target.value);
+              }}
+              disabled={isSubmitting}
+            />
+          </div>
+
+          <Input
+            label="Phone number"
+            type="tel"
+            required
+            value={phone}
+            onChange={(event) => {
+              setPhone(event.target.value);
+            }}
+            hint="The invitation is sent here over WhatsApp."
+            placeholder="+92 300 1234567"
+            disabled={isSubmitting}
+          />
+
+          <Input
+            label="Email (optional)"
+            type="email"
+            value={email}
+            onChange={(event) => {
+              setEmail(event.target.value);
+            }}
+            hint="Used as a fallback if WhatsApp cannot deliver."
+            disabled={isSubmitting}
+          />
+
+          <Select
+            label="Role"
+            options={ROLE_OPTIONS}
+            placeholder="Select a role"
+            required
+            value={role}
+            onChange={(event) => {
+              setRole(event.target.value);
+            }}
+            disabled={isSubmitting}
+          />
+
+          <Select
+            label="Branch"
+            options={branchOptions}
+            value={branchId}
+            required={branchRequired}
+            onChange={(event) => {
+              setBranchId(event.target.value);
+            }}
+            hint={branchRequired ? 'Required for this role.' : 'Optional for this role.'}
+            disabled={isSubmitting}
+          />
+
+          {showAdmissionsNotice ? (
+            <div className="sm:col-span-2">
+              <p className="rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-800">
+                These accounts are typically created via the Admissions module.
+                You can still invite manually here.
+              </p>
+            </div>
+          ) : null}
+        </div>
+      </Card>
+
+      {error !== null ? (
+        <p role="alert" className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">
+          {error}
+        </p>
+      ) : null}
+
+      {warning !== null ? (
+        <p className="rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-800">{warning}</p>
+      ) : null}
+
+      <div className="flex gap-3">
+        <Button type="submit" isLoading={isSubmitting}>
+          Send invitation
+        </Button>
+        <Button
+          type="button"
+          variant="secondary"
+          disabled={isSubmitting}
+          onClick={() => {
+            router.back();
+          }}
+        >
+          Cancel
+        </Button>
+      </div>
+    </form>
+  );
+}
