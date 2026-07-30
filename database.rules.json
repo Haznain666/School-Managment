@@ -1,0 +1,73 @@
+{
+  // ===========================================================================
+  // Firebase Realtime Database — tenant isolation by GHL Location ID.
+  //
+  // Every branch is keyed by $locationId. Access requires the caller's
+  // `location_id` custom claim to equal that key; a super_admin may reach any
+  // tenant. The claim is minted server-side by the Admin SDK, so it is the same
+  // trusted tenant key the API and PostgreSQL use.
+  //
+  // Root is denied, and only the two branches below grant access. RTDB rules
+  // cascade on *grant* but never on *deny*, so anything not listed here — any
+  // other path — stays unreachable.
+  // ===========================================================================
+
+  "rules": {
+    ".read": false,
+    ".write": false,
+
+    // /notifications/{locationId}/{userId}/{notificationId}
+    // A user reads only their own inbox. Any member of the same school may
+    // write into it, so a teacher can notify a parent without a server hop.
+    "notifications": {
+      "$locationId": {
+        "$userId": {
+          ".read": "auth != null && (auth.token.role === 'super_admin' || (auth.token.location_id === $locationId && auth.uid === $userId))",
+          ".write": "auth != null && (auth.token.role === 'super_admin' || auth.token.location_id === $locationId)",
+
+          "$notificationId": {
+            ".validate": "newData.hasChildren(['title', 'createdAt'])",
+            "title": { ".validate": "newData.isString() && newData.val().length <= 200" },
+            "body": { ".validate": "newData.isString() && newData.val().length <= 2000" },
+            "type": { ".validate": "newData.isString() && newData.val().length <= 50" },
+            "link": { ".validate": "newData.isString() && newData.val().length <= 500" },
+            "createdAt": { ".validate": "newData.isNumber()" },
+            "readAt": { ".validate": "newData.isNumber()" },
+            "$other": { ".validate": false }
+          }
+        }
+      }
+    },
+
+    // /live_sessions/{locationId}/{sessionId}
+    // Readable by every member of the school; writable only by teaching and
+    // leadership roles. Participants may still update their own presence entry.
+    "live_sessions": {
+      "$locationId": {
+        ".read": "auth != null && (auth.token.role === 'super_admin' || auth.token.location_id === $locationId)",
+        ".write": "auth != null && (auth.token.role === 'super_admin' || (auth.token.location_id === $locationId && auth.token.role.matches(/^(teacher|coordinator|vice_principal|principal|school_admin)$/)))",
+
+        "$sessionId": {
+          "title": { ".validate": "newData.isString() && newData.val().length <= 200" },
+          "status": { ".validate": "newData.isString() && newData.val().matches(/^(scheduled|live|ended)$/)" },
+          "hostUid": { ".validate": "newData.isString()" },
+          "branchId": { ".validate": "newData.isString()" },
+          "startedAt": { ".validate": "newData.isNumber()" },
+          "endedAt": { ".validate": "newData.isNumber()" },
+
+          "participants": {
+            "$uid": {
+              ".write": "auth != null && auth.uid === $uid && auth.token.location_id === $locationId",
+              ".validate": "newData.hasChildren(['joinedAt'])",
+              "joinedAt": { ".validate": "newData.isNumber()" },
+              "leftAt": { ".validate": "newData.isNumber()" },
+              "$other": { ".validate": false }
+            }
+          },
+
+          "$other": { ".validate": false }
+        }
+      }
+    }
+  }
+}

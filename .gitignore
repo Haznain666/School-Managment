@@ -1,0 +1,34 @@
+# dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# next.js
+.next/
+out/
+next-env.d.ts
+*.tsbuildinfo
+
+# production
+build/
+dist/
+
+# env — `.env.local` is committed intentionally as an EMPTY key template.
+.env
+.env.production
+.env*.local
+!.env.local
+
+# firebase
+.firebase/
+firebase-debug.log
+*-debug.log
+serviceAccountKey.json
+
+# vercel
+.vercel
+
+# editor / os
+.DS_Store
+Thumbs.db
+.idea/

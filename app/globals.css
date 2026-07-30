@@ -1,0 +1,36 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  /*
+   * Platform default brand palette. Each school's portal overrides these on the
+   * PortalShell wrapper using its own `color_palette` (see lib/branding.ts),
+   * so components can reference `brand-*` colours without knowing the tenant.
+   * Values are space-separated RGB channels for Tailwind's `/ <alpha-value>`.
+   */
+  :root {
+    --brand-primary: 29 78 216;
+    --brand-secondary: 15 23 42;
+    --brand-accent: 14 165 233;
+    --brand-surface: 248 250 252;
+    --brand-text: 15 23 42;
+  }
+
+  :root {
+    /*
+     * System font stack. Swap in a self-hosted webfont via `next/font/local`
+     * when brand typography is chosen — no config change needed elsewhere.
+     */
+    --font-sans: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto,
+      'Helvetica Neue', Arial, 'Noto Sans', sans-serif;
+  }
+
+  html {
+    -webkit-text-size-adjust: 100%;
+  }
+
+  body {
+    @apply bg-white text-slate-900 antialiased;
+  }
+}
