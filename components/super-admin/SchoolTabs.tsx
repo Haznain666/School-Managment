@@ -24,6 +24,7 @@ export function SchoolTabs({ schoolId }: SchoolTabsProps) {
     { label: 'Modules', href: `${base}/modules` },
     { label: 'Branding', href: `${base}/branding` },
     { label: 'Branches', href: `${base}/branches` },
+    { label: 'Users', href: `${base}/users` },
   ];
 
   return (

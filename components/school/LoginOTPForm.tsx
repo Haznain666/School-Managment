@@ -17,9 +17,13 @@ export interface LoginOTPFormProps {
   schoolSlug: string | null;
 }
 
+type OtpChannel = 'whatsapp' | 'email';
+
 interface RequestData {
   expiresIn: number;
-  maskedPhone: string;
+  channel: OtpChannel;
+  /** Masked phone or email, depending on which channel actually carried it. */
+  maskedContact: string;
 }
 
 interface VerifyData {
@@ -46,7 +50,8 @@ export function LoginOTPForm({ schoolName, schoolSlug }: LoginOTPFormProps) {
 
   const [step, setStep] = useState<'phone' | 'otp'>('phone');
   const [phone, setPhone] = useState('');
-  const [maskedPhone, setMaskedPhone] = useState('');
+  const [maskedContact, setMaskedContact] = useState('');
+  const [channel, setChannel] = useState<OtpChannel>('whatsapp');
   const [otp, setOtp] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -70,7 +75,8 @@ export function LoginOTPForm({ schoolName, schoolSlug }: LoginOTPFormProps) {
           return;
         }
 
-        setMaskedPhone(payload.data.maskedPhone);
+        setMaskedContact(payload.data.maskedContact);
+        setChannel(payload.data.channel);
         setStep('otp');
         if (isResend) setOtp('');
         start();
@@ -206,7 +212,7 @@ export function LoginOTPForm({ schoolName, schoolSlug }: LoginOTPFormProps) {
       <div>
         <h2 className="text-base font-semibold text-slate-900">Enter your OTP</h2>
         <p className="mt-1 text-sm text-slate-500">
-          Sent to {maskedPhone} via WhatsApp
+          Sent to {maskedContact} via {channel === 'whatsapp' ? 'WhatsApp' : 'Email'}
         </p>
       </div>
 

@@ -36,6 +36,13 @@
       "when": 1785448057942,
       "tag": "0004_sprint3_patch_auth_otp_sessions",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1785449053568,
+      "tag": "0005_sprint3_emergency_login_tokens",
+      "breakpoints": true
     }
   ]
 }
