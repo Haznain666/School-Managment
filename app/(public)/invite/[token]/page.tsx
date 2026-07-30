@@ -1,10 +1,11 @@
 import { eq } from 'drizzle-orm';
 import type { Metadata } from 'next';
 
-import { AcceptInviteForm } from '@/app/(public)/invite/[token]/AcceptInviteForm';
+import { InviteOTPForm } from '@/components/school/InviteOTPForm';
 import { branches, schoolBranding, schoolInvitations, schools, selectedPaletteOf } from '@/db/schema';
 import { Card } from '@/components/ui/Card';
 import { paletteToCSSVars } from '@/lib/branding';
+import { isValidPhone, maskPhone, normalizePhone } from '@/lib/phone';
 import { db } from '@/lib/drizzle';
 import { ROLE_LABELS, isUserRole } from '@/types/school-auth';
 import type { CSSProperties } from 'react';
@@ -96,6 +97,17 @@ export default async function InvitePage({
     );
   }
 
+  // The passcode goes to the number on the invitation, so an unusable one has
+  // to be caught here rather than failing mid-signup.
+  if (!isValidPhone(invitation.phone)) {
+    return (
+      <InviteMessage
+        title="This invite cannot be completed"
+        body="The phone number on this invitation is not a valid Pakistani mobile. Ask your admin to resend it."
+      />
+    );
+  }
+
   const brandingRows = await db
     .select()
     .from(schoolBranding)
@@ -132,18 +144,15 @@ export default async function InvitePage({
           )}
 
           <h1 className="text-2xl font-bold text-slate-900">{row.schoolName}</h1>
-          <p className="mt-2 text-sm text-slate-600">
-            You have been invited to join {row.schoolName} as{' '}
-            <strong>{ROLE_LABELS[invitation.role]}</strong>.
-          </p>
-          {row.branchName !== null ? (
-            <p className="mt-1 text-sm text-slate-500">Branch: {row.branchName}</p>
-          ) : null}
         </div>
 
-        <AcceptInviteForm
+        <InviteOTPForm
           token={token}
-          defaultName={invitation.name}
+          inviteeName={invitation.name}
+          maskedPhone={maskPhone(normalizePhone(invitation.phone))}
+          schoolName={row.schoolName}
+          roleName={ROLE_LABELS[invitation.role]}
+          branchName={row.branchName}
           schoolSlug={row.schoolSlug}
         />
       </div>

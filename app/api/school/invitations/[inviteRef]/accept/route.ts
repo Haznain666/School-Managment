@@ -4,82 +4,68 @@ import type { NextRequest } from 'next/server';
 import { schoolInvitations, schoolUsers, schools } from '@/db/schema';
 import { apiFailure, apiSuccess, handleApiError, readJsonBody } from '@/lib/api-response';
 import { db } from '@/lib/drizzle';
-import { getAdminAuth } from '@/lib/firebase-admin';
-import { setSchoolUserClaims } from '@/lib/school-auth';
+import { issueSchoolCustomToken } from '@/lib/firebase-custom-token';
+import { verifyOTPSession } from '@/lib/otp';
+import { InvalidPhoneError, normalizePhone } from '@/lib/phone';
 import { readString } from '@/lib/validation';
 import { isUserRole } from '@/types/school-auth';
 
 /**
  * POST /api/school/invitations/[inviteRef]/accept
  *
- * Unauthenticated by design: the token IS the credential, which is why it is
- * 32 random bytes and expires in 72 hours.
+ * Completes a signup: verifies the WhatsApp passcode, then creates the
+ * Firebase account, stamps the tenant claims onto it, and records the member.
  *
- * Creates the Firebase account, stamps the tenant claims onto it, and records
- * the member — in that order, because the claims are what every later request
- * is authorised against.
+ * Unauthenticated by design — the invite token plus possession of the invited
+ * handset are jointly the credential. There is no password anywhere in this
+ * flow, which is why these accounts have nothing to reset.
+ *
+ * Next.js requires sibling dynamic segments to share one name, so `accept`,
+ * `resend` and `cancel` all sit under `[inviteRef]`. Accept reads it as the
+ * secret token; resend and cancel read it as the invitation's id.
  */
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-const MIN_PASSWORD_LENGTH = 8;
-
-/**
- * Next.js requires sibling dynamic segments to share one name, so `accept`,
- * `resend` and `cancel` all live under `[inviteRef]`. Accept reads it as the
- * secret token; resend and cancel read it as the invitation's id.
- */
 type RouteContext = { params: Promise<{ inviteRef: string }> };
 
 interface AcceptBody {
   name?: unknown;
-  password?: unknown;
-}
-
-/**
- * Invitees without an email get a synthetic one derived from their phone.
- * Firebase requires an email or phone identifier for password sign-in, and a
- * deterministic address means the same person always maps to the same account.
- */
-function syntheticEmail(phone: string, slug: string): string {
-  return `${phone.replace(/\D/g, '')}@${slug}.invalid`;
+  otp?: unknown;
 }
 
 export async function POST(request: NextRequest, context: RouteContext) {
   try {
-    const { inviteRef: token } = await context.params;
-    if (token === '' || token.length < 32) {
-      return apiFailure('invalid_token', 'Invalid or expired invite link.', 404);
-    }
+    const { inviteRef } = await context.params;
 
     const body = await readJsonBody<AcceptBody>(request);
     const name = readString(body?.name);
-    const password = typeof body?.password === 'string' ? body.password : '';
+    const otp = typeof body?.otp === 'string' ? body.otp.trim() : '';
 
     if (name === '') {
       return apiFailure('invalid_body', 'Enter your full name.', 400);
     }
-    if (password.length < MIN_PASSWORD_LENGTH) {
-      return apiFailure(
-        'invalid_body',
-        `Password must be at least ${MIN_PASSWORD_LENGTH} characters.`,
-        400,
-      );
+    if (otp === '') {
+      return apiFailure('invalid_body', 'Enter the code from WhatsApp.', 400);
     }
 
-    const inviteRows = await db
+    const rows = await db
       .select()
       .from(schoolInvitations)
-      .where(eq(schoolInvitations.token, token))
+      .where(eq(schoolInvitations.token, inviteRef))
       .limit(1);
 
-    const invitation = inviteRows[0];
+    const invitation = rows[0];
     if (invitation === undefined) {
-      return apiFailure('invalid_token', 'Invalid or expired invite link.', 404);
+      return apiFailure('invalid_invite', 'Invalid or expired invite link.', 404);
     }
     if (invitation.acceptedAt !== null) {
-      return apiFailure('already_used', 'This invite was already used. Try logging in.', 409);
+      return apiFailure(
+        'already_used',
+        'This invite was already used. Try logging in.',
+        409,
+      );
     }
     if (invitation.expiresAt.getTime() < Date.now()) {
       return apiFailure(
@@ -89,66 +75,76 @@ export async function POST(request: NextRequest, context: RouteContext) {
       );
     }
     if (!isUserRole(invitation.role)) {
-      return apiFailure('invalid_token', 'This invite is no longer valid.', 409);
+      return apiFailure('invalid_invite', 'This invite is no longer valid.', 409);
     }
 
-    const schoolRows = await db
-      .select({ slug: schools.slug, name: schools.name })
-      .from(schools)
-      .where(eq(schools.locationId, invitation.locationId))
-      .limit(1);
-
-    const school = schoolRows[0];
-    if (school === undefined) {
-      return apiFailure('not_found', 'School not found.', 404);
-    }
-
-    const email =
-      invitation.email !== null && invitation.email.trim() !== ''
-        ? invitation.email.trim()
-        : syntheticEmail(invitation.phone, school.slug);
-
-    // -- Create the Firebase account ----------------------------------------
-    let uid: string;
+    let phone: string;
     try {
-      const created = await getAdminAuth().createUser({
-        email,
-        password,
-        displayName: name,
-        ...(invitation.phone.startsWith('+') ? { phoneNumber: invitation.phone } : {}),
-      });
-      uid = created.uid;
+      phone = normalizePhone(invitation.phone);
     } catch (error) {
-      const code = (error as { code?: string }).code;
-      if (code === 'auth/email-already-exists' || code === 'auth/phone-number-already-exists') {
+      if (error instanceof InvalidPhoneError) {
         return apiFailure(
-          'already_registered',
-          'An account already exists for these details. Try logging in.',
+          'invalid_phone',
+          'The phone number on this invitation is not valid. Ask your admin to resend it.',
           409,
         );
       }
       throw error;
     }
 
-    // -- Claims before the DB row: they are what authorises every request ----
-    await setSchoolUserClaims(uid, {
+    const verdict = await verifyOTPSession(db, {
       locationId: invitation.locationId,
-      role: invitation.role,
-      branchId: invitation.branchId,
-      schoolSlug: school.slug,
+      phone,
+      otp,
+      purpose: 'invite_acceptance',
+      inviteToken: inviteRef,
     });
+
+    if (verdict === 'expired') {
+      return apiFailure('otp_expired', 'OTP expired. Request a new one.', 410);
+    }
+    if (verdict === 'max_attempts') {
+      return apiFailure('otp_max_attempts', 'Too many attempts. Request a new OTP.', 429);
+    }
+    if (verdict === 'invalid') {
+      return apiFailure('otp_invalid', 'Incorrect OTP. Try again.', 401);
+    }
+
+    const schoolRows = await db
+      .select({ slug: schools.slug })
+      .from(schools)
+      .where(eq(schools.locationId, invitation.locationId))
+      .limit(1);
+
+    const school = schoolRows[0];
+    if (school === undefined) {
+      return apiFailure('no_school', 'This school portal is unavailable.', 404);
+    }
+
+    // Claims first: they are what every later request is authorised against,
+    // so the account is never usable without a tenant.
+    const { uid, customToken } = await issueSchoolCustomToken(
+      invitation.locationId,
+      phone,
+      {
+        locationId: invitation.locationId,
+        role: invitation.role,
+        branchId: invitation.branchId,
+        schoolSlug: school.slug,
+      },
+    );
 
     const now = new Date();
 
-    // A row may already exist if the member was created directly and then
-    // invited, so attach the Firebase account to it rather than duplicating.
+    // Upsert rather than update: creating an invitation does not create the
+    // member row, but someone added directly and then invited already has one.
     await db
       .insert(schoolUsers)
       .values({
         locationId: invitation.locationId,
         firebaseUid: uid,
         email: invitation.email,
-        phone: invitation.phone,
+        phone,
         name,
         role: invitation.role,
         branchId: invitation.branchId,
@@ -180,14 +176,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
         ),
       );
 
-    // The client signs in with these to obtain an ID token, which it trades
-    // for a session cookie at /api/school/auth/session.
-    return apiSuccess({
-      success: true,
-      email,
-      role: invitation.role,
-      schoolSlug: school.slug,
-    });
+    return apiSuccess({ customToken, role: invitation.role, schoolSlug: school.slug });
   } catch (error) {
     return handleApiError(error);
   }

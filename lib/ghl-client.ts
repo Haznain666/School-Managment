@@ -1,5 +1,10 @@
 import 'server-only';
 
+import { and, eq } from 'drizzle-orm';
+
+import { schools } from '@/db/schema';
+
+import type { Database } from './drizzle';
 import { requireServerEnv, serverEnv } from './env';
 import {
   GhlTokenError,
@@ -407,6 +412,40 @@ export async function exchangeGhlAuthorizationCode(code: string): Promise<GhlTok
  * the key is broad, the calls are not.
  */
 
+/**
+ * Guard for agency-key calls.
+ *
+ * The agency key is authorised across every sub-account, so a wrong or stale
+ * `locationId` would happily reach another school's CRM. Every agency call
+ * therefore proves first that the id belongs to a school that exists and is
+ * active in our own database.
+ *
+ * Results are cached briefly: these calls arrive in bursts (find contact, then
+ * send message) and the check is a guard, not a source of truth.
+ */
+const _validatedSchoolCache = new Map<string, number>();
+const CACHE_TTL_MS = 30_000;
+
+async function validateSchool(db: Database, locationId: string): Promise<void> {
+  const cachedAt = _validatedSchoolCache.get(locationId);
+  if (cachedAt !== undefined && Date.now() - cachedAt < CACHE_TTL_MS) return;
+
+  const rows = await db
+    .select({ id: schools.id })
+    .from(schools)
+    .where(and(eq(schools.locationId, locationId), eq(schools.isActive, true)))
+    .limit(1);
+
+  if (rows[0] === undefined) {
+    throw new GhlAgencyError(
+      403,
+      `GHL agency call blocked: school not found or inactive for locationId ${locationId}`,
+    );
+  }
+
+  _validatedSchoolCache.set(locationId, Date.now());
+}
+
 export class GhlAgencyError extends Error {
   readonly status: number;
 
@@ -476,9 +515,12 @@ interface ContactUpsertResponse {
  * existing contact rather than fragmenting the school's CRM.
  */
 export async function findOrCreateContact(
+  db: Database,
   locationId: string,
   contact: { phone: string; name: string; email?: string | undefined },
 ): Promise<GhlContactRef> {
+  await validateSchool(db, locationId);
+
   const found = await agencyFetch<ContactSearchResponse>('/contacts/', {
     method: 'GET',
     query: { locationId, query: contact.phone },
@@ -527,10 +569,13 @@ interface SendMessageResponse {
  * `type: 'WhatsApp'`, so there is no separate conversation call.
  */
 export async function sendWhatsAppMessage(
+  db: Database,
   locationId: string,
   contactId: string,
   messageText: string,
 ): Promise<GhlMessageRef> {
+  await validateSchool(db, locationId);
+
   const sent = await agencyFetch<SendMessageResponse>('/conversations/messages', {
     method: 'POST',
     body: {

@@ -12,6 +12,7 @@ export * from './school-modules';
 export * from './school-branding';
 export * from './school-users';
 export * from './school-invitations';
+export * from './auth-otp-sessions';
 export * from './ghl-tokens';
 export * from './branches';
 export * from './users';

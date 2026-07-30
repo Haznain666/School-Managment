@@ -1,10 +1,10 @@
 import type { Metadata } from 'next';
 import { redirect } from 'next/navigation';
 
-import { SchoolLoginForm } from '@/app/(public)/login/SchoolLoginForm';
+import { LoginOTPForm } from '@/components/school/LoginOTPForm';
 import { BrandedLoginLayout } from '@/components/school/BrandedLoginLayout';
 import { readSchoolSession } from '@/lib/school-auth';
-import { getSchoolHeaders } from '@/lib/school-tenant';
+import { getSchoolBranding, getSchoolHeaders } from '@/lib/school-tenant';
 import { ROLE_HOME_ROUTES } from '@/types/school-auth';
 
 export const metadata: Metadata = {
@@ -36,11 +36,14 @@ export default async function LoginPage() {
     redirect(ROLE_HOME_ROUTES[existing.role]);
   }
 
+  const school = await getSchoolBranding(locationId);
+
   return (
-    <BrandedLoginLayout subtitle="Sign in to your portal">
-      <SchoolLoginForm schoolSlug={slug} />
+    <BrandedLoginLayout subtitle="Sign in with your mobile number">
+      <LoginOTPForm schoolName={school?.name ?? 'your school'} schoolSlug={slug} />
       <p className="mt-6 text-center text-xs text-slate-400">
-        Trouble signing in? Contact your school administrator.
+        A one-time code is sent to your registered WhatsApp number. No password
+        needed. Trouble signing in? Contact your school administrator.
       </p>
     </BrandedLoginLayout>
   );

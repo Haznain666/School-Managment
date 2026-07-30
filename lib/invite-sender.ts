@@ -5,6 +5,7 @@ import nodemailer from 'nodemailer';
 import type { SchoolInvitation } from '@/db/schema';
 import { ROLE_LABELS, isUserRole } from '@/types/school-auth';
 
+import { db } from './drizzle';
 import { serverEnv } from './env';
 import { findOrCreateContact, sendWhatsAppMessage } from './ghl-client';
 
@@ -104,13 +105,14 @@ export async function sendInvite(input: SendInviteInput): Promise<SendInviteResu
 
   // -- WhatsApp, via the school's GHL sub-account --------------------------
   try {
-    const { contactId } = await findOrCreateContact(input.locationId, {
+    const { contactId } = await findOrCreateContact(db, input.locationId, {
       phone: invitation.phone,
       name: invitation.name,
       email: invitation.email ?? undefined,
     });
 
     const { messageId } = await sendWhatsAppMessage(
+      db,
       input.locationId,
       contactId,
       message,
