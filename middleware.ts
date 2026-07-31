@@ -95,16 +95,46 @@ async function resolveSchoolBySlug(slug: string): Promise<ResolvedSchool | null>
  * Which school is this request for?
  * Development reads `?school=`; production reads the Host header.
  */
+function schoolFromQuery(request: NextRequest): string | null {
+  const fromQuery = request.nextUrl.searchParams.get('school');
+  return fromQuery !== null && fromQuery.trim() !== '' ? fromQuery.trim() : null;
+}
+
 function slugForRequest(request: NextRequest): string | null {
   const host = request.headers.get('host') ?? '';
 
   if (process.env.NODE_ENV === 'development' || isLocalHostname(host)) {
-    const fromQuery = request.nextUrl.searchParams.get('school');
-    return fromQuery !== null && fromQuery.trim() !== '' ? fromQuery.trim() : null;
+    return schoolFromQuery(request);
   }
 
   const baseDomain = process.env['PLATFORM_BASE_DOMAIN'] ?? publicEnv.appDomain;
-  return subdomainFromHost(host, baseDomain);
+
+  const fromHost = subdomainFromHost(host, baseDomain);
+  if (fromHost !== null) return fromHost;
+
+  /**
+   * Deployment hosts that are not part of the platform domain — a bare
+   * `*.vercel.app` preview or alias — have no subdomain to carry a tenant, so
+   * every school page would be unreachable on them. They fall back to
+   * `?school=`, the same mechanism development already uses.
+   *
+   * This cannot widen access on a real tenant host: `<slug>.platform.com`
+   * resolves through `subdomainFromHost` above and returns before reaching
+   * here, so the parameter is never consulted there. The apex itself is
+   * excluded too. And selecting a tenant is not entering it — `withSchoolAuth`
+   * and `requireSchoolRole` still compare the resolved location against the
+   * session's own claims, so a chosen slug grants nothing without a session
+   * minted for that school.
+   *
+   * Remove this once a wildcard domain is attached and school traffic no
+   * longer arrives on a deployment host.
+   */
+  const hostname = (host.split(':')[0] ?? '').toLowerCase();
+  const apex = baseDomain.toLowerCase().trim();
+  const isPlatformHost =
+    apex !== '' && (hostname === apex || hostname.endsWith(`.${apex}`));
+
+  return isPlatformHost ? null : schoolFromQuery(request);
 }
 
 /** Fresh headers with any client-supplied middleware headers stripped. */
