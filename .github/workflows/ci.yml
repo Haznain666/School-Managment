@@ -1,8 +1,12 @@
 name: CI
 
-# Runs on every pull request and every push. A PR branch therefore gets two
-# runs per push (one for each event); the concurrency group below cancels the
-# superseded run so only the newest commit is ever checked.
+# Runs on every pull request and every push, so a PR branch gets two runs per
+# push. The concurrency group below does not collapse that pair — the two
+# events carry different refs (refs/heads/<branch> against refs/pull/<n>/merge)
+# and so land in separate groups. What it does do is cancel the still-running
+# check of a commit that a newer push has already superseded, on the same ref.
+#
+# To get a single run per PR push instead, narrow `push` to `branches: [main]`.
 on:
   pull_request:
   push:
