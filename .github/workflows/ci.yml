@@ -1,0 +1,57 @@
+name: CI
+
+# Runs on every pull request and every push. A PR branch therefore gets two
+# runs per push (one for each event); the concurrency group below cancels the
+# superseded run so only the newest commit is ever checked.
+on:
+  pull_request:
+  push:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: Typecheck, lint and build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+
+      # package.json pins `engines.node: >=20`.
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+
+      # `npm ci` rather than `npm install`: it installs exactly what
+      # package-lock.json specifies and fails if the two have drifted apart,
+      # so CI cannot quietly pass against a different dependency tree than the
+      # one committed.
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      # Lint runs even when the typecheck failed. The two find unrelated
+      # problems, and reporting both in one run saves a round trip.
+      - name: Lint
+        if: '!cancelled()'
+        run: npm run lint
+
+      # Build last: it repeats type checking internally, so running it after a
+      # failed typecheck would only echo errors already reported above.
+      #
+      # No secrets are needed. Every route is `force-dynamic` and the Neon
+      # client is created lazily on first query, so nothing here reaches for
+      # DATABASE_URL at build time. Adding real credentials would be strictly
+      # worse: it would expose them to fork PRs for no benefit.
+      - name: Build
+        run: npm run build
