@@ -67,6 +67,21 @@ export const ADMIN_PORTAL_ROLES: readonly UserRole[] = [
 /** Roles that may invite and manage other users. */
 export const USER_MANAGEMENT_ROLES: readonly UserRole[] = ['school_admin', 'hr_manager'];
 
+/** Roles that may read fee data — challans, reports and the price list. */
+export const FEE_READ_ROLES: readonly UserRole[] = [
+  'school_admin',
+  'branch_admin',
+  'accountant',
+  'hr_manager',
+];
+
+/**
+ * Roles that may change fee data: set prices, raise challans and take money.
+ * Deliberately narrower than the read list — an HR manager has no business
+ * marking a challan paid.
+ */
+export const FEE_WRITE_ROLES: readonly UserRole[] = ['school_admin', 'accountant'];
+
 /** Roles for which a branch assignment is mandatory. */
 export const BRANCH_REQUIRED_ROLES: readonly UserRole[] = [
   'branch_admin',

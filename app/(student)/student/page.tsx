@@ -8,6 +8,8 @@ import {
   getCurrentEnrollment,
   getStudentBySchoolUserId,
 } from '@/lib/admissions-queries';
+import { getStudentFeeSummary } from '@/lib/fee-queries';
+import { formatPkr, toPaise } from '@/lib/money';
 import { requireSchoolRole } from '@/lib/school-guard';
 import { getSchoolUserByUid } from '@/lib/school-queries';
 
@@ -39,10 +41,14 @@ export default async function StudentDashboardPage() {
           getActiveAcademicYear(locationId),
         ]);
 
-  const enrollment =
+  const [enrollment, feeSummary] = await Promise.all([
     student === null || activeYear === null
-      ? null
-      : await getCurrentEnrollment(locationId, student.studentProfileId, activeYear.id);
+      ? Promise.resolve(null)
+      : getCurrentEnrollment(locationId, student.studentProfileId, activeYear.id),
+    student === null
+      ? Promise.resolve(null)
+      : getStudentFeeSummary(locationId, student.studentProfileId),
+  ]);
 
   return (
     <div className="space-y-6">
@@ -100,12 +106,48 @@ export default async function StudentDashboardPage() {
           moduleName="Academics"
           description="Results by subject and term."
         />
-        <PlaceholderModuleCard
-          icon="💳"
-          title="Fee Balance"
-          moduleName="Fee Management"
-          description="What is due, what is paid, and when."
-        />
+        <Card header={<CardTitle title="Fee balance" />}>
+          {feeSummary === null ? (
+            <p className="text-sm text-slate-500">
+              Your fee details appear once your enrolment is complete.
+            </p>
+          ) : (
+            <>
+              <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
+                Outstanding
+              </p>
+              <p
+                className={
+                  toPaise(feeSummary.balance) > 0
+                    ? 'mt-1 text-2xl font-bold text-red-600'
+                    : 'mt-1 text-2xl font-bold text-slate-900'
+                }
+              >
+                {formatPkr(feeSummary.balance)}
+              </p>
+
+              <dl className="mt-3 grid grid-cols-2 gap-x-6 gap-y-2">
+                <Detail label="Billed" value={formatPkr(feeSummary.billed)} />
+                <Detail label="Paid" value={formatPkr(feeSummary.paid)} />
+              </dl>
+
+              {feeSummary.oldestUnpaid === null ? null : (
+                <p className="mt-3 text-xs text-slate-500">
+                  Oldest unpaid challan{' '}
+                  <span className="font-mono">
+                    {feeSummary.oldestUnpaid.challanNumber}
+                  </span>
+                  , due {feeSummary.oldestUnpaid.dueDate}.
+                </p>
+              )}
+
+              <p className="mt-3 text-xs text-slate-500">
+                Contact your school admin for payment — fees cannot be paid
+                through this portal.
+              </p>
+            </>
+          )}
+        </Card>
       </div>
 
       <Card header={<CardTitle title="Announcements" />}>

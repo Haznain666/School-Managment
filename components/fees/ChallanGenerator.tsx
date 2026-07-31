@@ -1,0 +1,628 @@
+'use client';
+
+import { useRouter } from 'next/navigation';
+import { useCallback, useEffect, useState } from 'react';
+
+import { StudentPicker, type PickedStudent } from '@/components/fees/StudentPicker';
+import { Button } from '@/components/ui/Button';
+import { Card, CardTitle } from '@/components/ui/Card';
+import { Input } from '@/components/ui/Input';
+import { Select } from '@/components/ui/Select';
+import { MONTH_NAMES } from '@/db/schema/academic-years';
+import { formatAmount, formatPkr } from '@/lib/money';
+import { schoolErrorMessage, schoolFetch } from '@/lib/school-client';
+import { cn } from '@/lib/utils';
+
+/**
+ * Challan generation, in two modes.
+ *
+ * Single is for the exception — a late admission, a re-issue. Bulk is the
+ * monthly reality: one grade, one click, two hundred bills.
+ *
+ * Both show what will happen before it happens. Bulk in particular says how
+ * many students already hold a challan for the month, because the answer to
+ * "will this bill them twice" needs to be visible, not merely true.
+ */
+
+export interface AcademicYearOption {
+  id: string;
+  name: string;
+  isActive: boolean;
+}
+
+export interface GradeOption {
+  id: string;
+  label: string;
+}
+
+export interface ChallanGeneratorProps {
+  academicYears: readonly AcademicYearOption[];
+  grades: readonly GradeOption[];
+  /** Day of the month challans fall due by default. */
+  defaultDueDay: number;
+}
+
+interface PreviewItem {
+  description: string;
+  amount: string;
+  concessionAmount: string;
+  netAmount: string;
+}
+
+interface SectionOption {
+  id: string;
+  name: string;
+}
+
+interface BulkCandidate {
+  studentProfileId: string;
+  studentName: string;
+  studentId: string;
+  sectionName: string;
+  existingChallanNumber: string | null;
+}
+
+const MONTH_OPTIONS = MONTH_NAMES.map((name, index) => ({
+  value: String(index + 1),
+  label: name,
+}));
+
+/** `YYYY-MM-DD` for the given day of a billing month, clamped into range. */
+function dueDateFor(month: string, year: string, day: number): string {
+  const safeDay = Math.min(Math.max(day, 1), 28);
+  return `${year}-${month.padStart(2, '0')}-${String(safeDay).padStart(2, '0')}`;
+}
+
+type Tab = 'single' | 'bulk';
+
+export function ChallanGenerator({
+  academicYears,
+  grades,
+  defaultDueDay,
+}: ChallanGeneratorProps) {
+  const now = new Date();
+
+  const [tab, setTab] = useState<Tab>('single');
+  const [academicYearId, setAcademicYearId] = useState(
+    academicYears.find((year) => year.isActive)?.id ?? academicYears[0]?.id ?? '',
+  );
+  const [billingMonth, setBillingMonth] = useState(String(now.getMonth() + 1));
+  const [billingYear, setBillingYear] = useState(String(now.getFullYear()));
+  const [dueDate, setDueDate] = useState(
+    dueDateFor(String(now.getMonth() + 1), String(now.getFullYear()), defaultDueDay),
+  );
+
+  // Keeps the due date in step with the billing period until the user edits it
+  // themselves, at which point their choice stands.
+  const [dueDateTouched, setDueDateTouched] = useState(false);
+
+  useEffect(() => {
+    if (dueDateTouched) return;
+    setDueDate(dueDateFor(billingMonth, billingYear, defaultDueDay));
+  }, [billingMonth, billingYear, defaultDueDay, dueDateTouched]);
+
+  return (
+    <div className="space-y-4">
+      <div role="tablist" aria-label="Generation mode" className="flex gap-2">
+        {(['single', 'bulk'] as const).map((value) => (
+          <button
+            key={value}
+            type="button"
+            role="tab"
+            aria-selected={tab === value}
+            className={cn(
+              'rounded-full px-4 py-1.5 text-sm font-medium transition',
+              tab === value
+                ? 'bg-brand-primary text-white'
+                : 'bg-slate-100 text-slate-600 hover:bg-slate-200',
+            )}
+            onClick={() => {
+              setTab(value);
+            }}
+          >
+            {value === 'single' ? 'Single student' : 'Bulk generation'}
+          </button>
+        ))}
+      </div>
+
+      <Card>
+        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+          <Select
+            label="Academic year"
+            options={academicYears.map((year) => ({
+              value: year.id,
+              label: year.isActive ? `${year.name} (active)` : year.name,
+            }))}
+            value={academicYearId}
+            onChange={(event) => {
+              setAcademicYearId(event.target.value);
+            }}
+          />
+
+          <Select
+            label="Billing month"
+            options={MONTH_OPTIONS}
+            value={billingMonth}
+            onChange={(event) => {
+              setBillingMonth(event.target.value);
+            }}
+          />
+
+          <Input
+            label="Billing year"
+            type="number"
+            min={2000}
+            max={2100}
+            value={billingYear}
+            onChange={(event) => {
+              setBillingYear(event.target.value);
+            }}
+          />
+
+          <Input
+            label="Due date"
+            type="date"
+            value={dueDate}
+            hint={dueDateTouched ? undefined : `Defaults to the ${defaultDueDay}th.`}
+            onChange={(event) => {
+              setDueDateTouched(true);
+              setDueDate(event.target.value);
+            }}
+          />
+        </div>
+      </Card>
+
+      {tab === 'single' ? (
+        <SinglePanel
+          academicYearId={academicYearId}
+          billingMonth={billingMonth}
+          billingYear={billingYear}
+          dueDate={dueDate}
+        />
+      ) : (
+        <BulkPanel
+          academicYearId={academicYearId}
+          billingMonth={billingMonth}
+          billingYear={billingYear}
+          dueDate={dueDate}
+          grades={grades}
+        />
+      )}
+    </div>
+  );
+}
+
+interface PanelProps {
+  academicYearId: string;
+  billingMonth: string;
+  billingYear: string;
+  dueDate: string;
+}
+
+function SinglePanel({
+  academicYearId,
+  billingMonth,
+  billingYear,
+  dueDate,
+}: PanelProps) {
+  const router = useRouter();
+
+  const [student, setStudent] = useState<PickedStudent | null>(null);
+  const [items, setItems] = useState<PreviewItem[] | null>(null);
+  const [totals, setTotals] = useState<{
+    subtotal: string;
+    concessionAmount: string;
+    totalAmount: string;
+  } | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [generating, setGenerating] = useState(false);
+
+  const studentProfileId = student?.studentProfileId ?? null;
+
+  const loadPreview = useCallback(async () => {
+    if (studentProfileId === null || academicYearId === '') {
+      setItems(null);
+      setTotals(null);
+      return;
+    }
+
+    setLoading(true);
+    setError(null);
+
+    const query = new URLSearchParams({
+      studentProfileId,
+      academicYearId,
+      billingMonth,
+      billingYear,
+      dueDate,
+    });
+
+    try {
+      const payload = await schoolFetch<{
+        preview: {
+          items: PreviewItem[];
+          subtotal: string;
+          concessionAmount: string;
+          totalAmount: string;
+        };
+      }>(`/api/school/fees/challans/preview?${query.toString()}`);
+
+      setItems(payload.preview.items);
+      setTotals({
+        subtotal: payload.preview.subtotal,
+        concessionAmount: payload.preview.concessionAmount,
+        totalAmount: payload.preview.totalAmount,
+      });
+    } catch (caught) {
+      setItems(null);
+      setTotals(null);
+      setError(schoolErrorMessage(caught, 'Could not price this challan.'));
+    } finally {
+      setLoading(false);
+    }
+  }, [studentProfileId, academicYearId, billingMonth, billingYear, dueDate]);
+
+  useEffect(() => {
+    void loadPreview();
+  }, [loadPreview]);
+
+  const generate = async (): Promise<void> => {
+    if (studentProfileId === null) return;
+
+    setGenerating(true);
+    setError(null);
+
+    try {
+      const payload = await schoolFetch<{ challan: { id: string } }>(
+        '/api/school/fees/challans',
+        {
+          method: 'POST',
+          body: JSON.stringify({
+            studentProfileId,
+            academicYearId,
+            billingMonth: Number(billingMonth),
+            billingYear: Number(billingYear),
+            dueDate,
+          }),
+        },
+      );
+
+      router.push(`/dashboard/fees/challans/${payload.challan.id}`);
+    } catch (caught) {
+      setError(schoolErrorMessage(caught, 'Could not generate the challan.'));
+      setGenerating(false);
+    }
+  };
+
+  return (
+    <div className="space-y-4">
+      <Card header={<CardTitle title="Student" />}>
+        <StudentPicker
+          academicYearId={academicYearId}
+          selected={student}
+          onSelect={(next) => {
+            setStudent(next);
+            setError(null);
+          }}
+        />
+      </Card>
+
+      {error !== null ? (
+        <p role="alert" className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">
+          {error}
+        </p>
+      ) : null}
+
+      {student === null ? null : (
+        <Card
+          header={
+            <CardTitle
+              title="What will be billed"
+              description="Priced from this grade's fee structure, with the student's concessions applied."
+            />
+          }
+        >
+          {loading ? (
+            <p className="text-sm text-slate-500">Pricing…</p>
+          ) : items === null || totals === null ? (
+            <p className="text-sm text-slate-600">
+              Nothing could be priced for this student and period.
+            </p>
+          ) : (
+            <>
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-sm">
+                  <thead className="border-b border-slate-200 text-xs uppercase tracking-wide text-slate-500">
+                    <tr>
+                      <th scope="col" className="py-2 font-medium">Fee head</th>
+                      <th scope="col" className="py-2 text-right font-medium">Amount</th>
+                      <th scope="col" className="py-2 text-right font-medium">Concession</th>
+                      <th scope="col" className="py-2 text-right font-medium">Net</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {items.map((item) => (
+                      <tr key={item.description}>
+                        <td className="py-2 text-slate-900">{item.description}</td>
+                        <td className="py-2 text-right text-slate-600">
+                          {formatAmount(item.amount)}
+                        </td>
+                        <td className="py-2 text-right text-slate-600">
+                          {Number(item.concessionAmount) === 0
+                            ? '—'
+                            : `−${formatAmount(item.concessionAmount)}`}
+                        </td>
+                        <td className="py-2 text-right font-medium text-slate-900">
+                          {formatAmount(item.netAmount)}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                  <tfoot className="border-t border-slate-200">
+                    <tr>
+                      <th scope="row" colSpan={3} className="py-3 text-left font-medium text-slate-600">
+                        Total
+                      </th>
+                      <td className="py-3 text-right text-base font-bold text-slate-900">
+                        {formatPkr(totals.totalAmount)}
+                      </td>
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+
+              <Button
+                className="mt-4"
+                isLoading={generating}
+                onClick={() => {
+                  void generate();
+                }}
+              >
+                Generate challan
+              </Button>
+            </>
+          )}
+        </Card>
+      )}
+    </div>
+  );
+}
+
+function BulkPanel({
+  academicYearId,
+  billingMonth,
+  billingYear,
+  dueDate,
+  grades,
+}: PanelProps & { grades: readonly GradeOption[] }) {
+  const [gradeId, setGradeId] = useState('');
+  const [sectionId, setSectionId] = useState('');
+  const [sections, setSections] = useState<SectionOption[]>([]);
+  const [candidates, setCandidates] = useState<BulkCandidate[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [generating, setGenerating] = useState(false);
+  const [result, setResult] = useState<{
+    generated: number;
+    skipped: number;
+    failed: number;
+    problems: Array<{ studentName: string; reason: string }>;
+  } | null>(null);
+
+  useEffect(() => {
+    if (gradeId === '' || academicYearId === '') {
+      setSections([]);
+      setSectionId('');
+      return;
+    }
+
+    const query = new URLSearchParams({ gradeId, academicYearId });
+
+    schoolFetch<{ sections: SectionOption[] }>(`/api/school/sections?${query.toString()}`)
+      .then((payload) => {
+        setSections(payload.sections);
+      })
+      .catch(() => {
+        setSections([]);
+      });
+  }, [gradeId, academicYearId]);
+
+  const loadCandidates = useCallback(async () => {
+    if (gradeId === '' || academicYearId === '') {
+      setCandidates(null);
+      return;
+    }
+
+    setLoading(true);
+    setError(null);
+
+    const query = new URLSearchParams({
+      gradeId,
+      academicYearId,
+      billingMonth,
+      billingYear,
+    });
+    if (sectionId !== '') query.set('sectionId', sectionId);
+
+    try {
+      const payload = await schoolFetch<{ candidates: BulkCandidate[] }>(
+        `/api/school/fees/challans/bulk-generate?${query.toString()}`,
+      );
+      setCandidates(payload.candidates);
+    } catch (caught) {
+      setCandidates(null);
+      setError(schoolErrorMessage(caught, 'Could not load the student list.'));
+    } finally {
+      setLoading(false);
+    }
+  }, [gradeId, sectionId, academicYearId, billingMonth, billingYear]);
+
+  useEffect(() => {
+    void loadCandidates();
+  }, [loadCandidates]);
+
+  const toGenerate = (candidates ?? []).filter(
+    (row) => row.existingChallanNumber === null,
+  );
+  const alreadyBilled = (candidates ?? []).length - toGenerate.length;
+
+  const generate = async (): Promise<void> => {
+    setGenerating(true);
+    setError(null);
+    setResult(null);
+
+    try {
+      const payload = await schoolFetch<{
+        generated: number;
+        skipped: number;
+        failed: number;
+        problems: Array<{ studentName: string; reason: string }>;
+      }>('/api/school/fees/challans/bulk-generate', {
+        method: 'POST',
+        body: JSON.stringify({
+          gradeId,
+          sectionId: sectionId === '' ? undefined : sectionId,
+          academicYearId,
+          billingMonth: Number(billingMonth),
+          billingYear: Number(billingYear),
+          dueDate,
+        }),
+      });
+
+      setResult(payload);
+      await loadCandidates();
+    } catch (caught) {
+      setError(schoolErrorMessage(caught, 'Could not generate the challans.'));
+    } finally {
+      setGenerating(false);
+    }
+  };
+
+  return (
+    <div className="space-y-4">
+      <Card header={<CardTitle title="Who to bill" />}>
+        <div className="grid gap-4 sm:grid-cols-2">
+          <Select
+            label="Grade"
+            options={[
+              { value: '', label: 'Choose a grade…' },
+              ...grades.map((grade) => ({ value: grade.id, label: grade.label })),
+            ]}
+            value={gradeId}
+            onChange={(event) => {
+              setGradeId(event.target.value);
+              setResult(null);
+            }}
+          />
+
+          <Select
+            label="Section"
+            options={[
+              { value: '', label: 'All sections' },
+              ...sections.map((section) => ({ value: section.id, label: section.name })),
+            ]}
+            value={sectionId}
+            disabled={gradeId === ''}
+            hint="Leave as all sections to bill the whole grade."
+            onChange={(event) => {
+              setSectionId(event.target.value);
+              setResult(null);
+            }}
+          />
+        </div>
+      </Card>
+
+      {error !== null ? (
+        <p role="alert" className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">
+          {error}
+        </p>
+      ) : null}
+
+      {result !== null ? (
+        <Card>
+          <h3 className="text-base font-semibold text-slate-900">Generation complete</h3>
+          <p className="mt-1 text-sm text-slate-600">
+            {result.generated} challan{result.generated === 1 ? '' : 's'} generated,{' '}
+            {result.skipped} skipped because a challan already existed
+            {result.failed > 0 ? `, ${result.failed} failed` : ''}.
+          </p>
+
+          {result.problems.length > 0 ? (
+            <ul className="mt-3 space-y-1 text-sm text-amber-700">
+              {result.problems.map((problem) => (
+                <li key={problem.studentName}>
+                  {problem.studentName}: {problem.reason}
+                </li>
+              ))}
+            </ul>
+          ) : null}
+        </Card>
+      ) : null}
+
+      {gradeId === '' ? null : (
+        <Card
+          header={
+            <CardTitle
+              title="Students"
+              description={
+                loading
+                  ? 'Checking who has already been billed…'
+                  : `${toGenerate.length} to generate · ${alreadyBilled} already billed for this month.`
+              }
+              action={
+                <Button
+                  disabled={toGenerate.length === 0}
+                  isLoading={generating}
+                  onClick={() => {
+                    void generate();
+                  }}
+                >
+                  Generate all ({toGenerate.length})
+                </Button>
+              }
+            />
+          }
+        >
+          {alreadyBilled > 0 ? (
+            <p className="mb-3 rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-800">
+              {alreadyBilled} student{alreadyBilled === 1 ? ' already holds' : 's already hold'}{' '}
+              a challan for this month. They will be skipped, not billed twice.
+            </p>
+          ) : null}
+
+          {candidates === null || candidates.length === 0 ? (
+            <p className="text-sm text-slate-600">
+              {loading
+                ? 'Loading…'
+                : 'No active students are enrolled here for the selected academic year.'}
+            </p>
+          ) : (
+            <ul className="max-h-80 divide-y divide-slate-100 overflow-y-auto text-sm">
+              {candidates.map((candidate) => (
+                <li
+                  key={candidate.studentProfileId}
+                  className="flex items-center justify-between gap-3 py-2"
+                >
+                  <span className="text-slate-900">
+                    {candidate.studentName}{' '}
+                    <span className="text-xs text-slate-500">
+                      ({candidate.sectionName})
+                    </span>
+                  </span>
+                  {candidate.existingChallanNumber === null ? (
+                    <span className="text-xs text-slate-500">Will be billed</span>
+                  ) : (
+                    <span className="font-mono text-xs text-amber-700">
+                      {candidate.existingChallanNumber}
+                    </span>
+                  )}
+                </li>
+              ))}
+            </ul>
+          )}
+        </Card>
+      )}
+    </div>
+  );
+}

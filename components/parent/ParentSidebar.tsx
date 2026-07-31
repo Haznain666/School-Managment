@@ -3,13 +3,13 @@ import { PortalSidebar, type PortalNavItem } from '@/components/school/PortalSid
 /**
  * Parent portal navigation.
  *
- * Everything past the dashboard is marked as a placeholder — those destinations
- * arrive with the Academics and Fee Management modules in later sprints.
+ * Fees is a real destination as of Sprint 5. What remains a placeholder arrives
+ * with the Academics module in a later sprint.
  */
 const ITEMS: readonly PortalNavItem[] = [
   { label: 'My Dashboard', href: '/parent' },
   { label: 'My Children', href: '/parent/children', placeholder: true },
-  { label: 'Fee Status', href: '/parent/fees', placeholder: true },
+  { label: 'Fees', href: '/parent/fees' },
   { label: 'Announcements', href: '/parent/announcements', placeholder: true },
 ];
 

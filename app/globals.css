@@ -34,3 +34,44 @@
     @apply bg-white text-slate-900 antialiased;
   }
 }
+
+/*
+ * Printing a fee challan.
+ *
+ * A challan is handed over a counter, so the printed sheet must carry the slip
+ * and nothing else — not the sidebar, not the navbar, not the action buttons.
+ * Hiding the shell by `visibility` rather than `display` keeps the print
+ * container's own layout intact while everything around it stops painting,
+ * which is what makes the three copies fall on one A4 page.
+ *
+ * `#challan-print` is rendered by `components/fees/ChallanPrintView.tsx` and is
+ * the only element in the application that uses this id.
+ */
+@media print {
+  body * {
+    visibility: hidden;
+  }
+
+  #challan-print,
+  #challan-print * {
+    visibility: visible;
+  }
+
+  #challan-print {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+  }
+
+  /* Cut lines and rules must survive the browser's "background graphics" off. */
+  .challan-copy {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+
+  @page {
+    size: A4 portrait;
+    margin: 8mm;
+  }
+}
