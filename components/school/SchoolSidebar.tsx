@@ -41,7 +41,6 @@ export function SchoolSidebar({ role, moduleFlags }: SchoolSidebarProps) {
   // Module-gated destinations. These land on placeholders until the relevant
   // sprint builds them, but they only appear at all once the module is on.
   const moduleNav: Array<{ key: keyof SchoolModuleFlags; label: string; href: string }> = [
-    { key: 'fee_management', label: 'Fee Management', href: '/dashboard/fees' },
     { key: 'academics', label: 'Academics', href: '/dashboard/academics' },
     { key: 'lms', label: 'LMS', href: '/dashboard/lms' },
     { key: 'hr_payroll', label: 'HR & Payroll', href: '/dashboard/hr' },
@@ -76,6 +75,23 @@ export function SchoolSidebar({ role, moduleFlags }: SchoolSidebarProps) {
         { label: 'Enroll Student', href: '/dashboard/admissions/enroll' },
         { label: 'All Students', href: '/dashboard/admissions/students' },
         { label: 'Applications', href: '/dashboard/admissions/applications' },
+      ],
+    });
+  }
+
+  // Fees is the second module with real screens. Same treatment as Admissions:
+  // its own section, shown only once the school has the module switched on.
+  if (moduleFlags.fee_management && (canSeeModules || role === 'branch_admin')) {
+    sections.push({
+      label: 'Fees',
+      items: [
+        { label: 'Overview', href: '/dashboard/fees' },
+        { label: 'Fee Heads', href: '/dashboard/fees/types' },
+        { label: 'Fee Structure', href: '/dashboard/fees/structures' },
+        { label: 'Concessions', href: '/dashboard/fees/concessions' },
+        { label: 'Challans', href: '/dashboard/fees/challans' },
+        { label: 'Reports', href: '/dashboard/fees/reports' },
+        { label: 'Settings', href: '/dashboard/fees/settings' },
       ],
     });
   }

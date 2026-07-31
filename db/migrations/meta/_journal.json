@@ -50,6 +50,13 @@
       "when": 1785500481662,
       "tag": "0006_sprint4_admissions",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1785527260497,
+      "tag": "0007_sprint5_fee_management",
+      "breakpoints": true
     }
   ]
 }

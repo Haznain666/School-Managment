@@ -2,6 +2,8 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 
 import { Card, CardTitle } from '@/components/ui/Card';
+import { getMonthlyCollection } from '@/lib/fee-queries';
+import { formatPkr } from '@/lib/money';
 import { PLATFORM_MODULES } from '@/lib/platform-modules';
 import { requireSchoolRole } from '@/lib/school-guard';
 import { getDashboardCounts, getModuleFlags } from '@/lib/school-queries';
@@ -61,6 +63,12 @@ export default async function SchoolDashboardPage() {
     getModuleFlags(locationId),
   ]);
 
+  // Only queried when the school bills through the platform — a school without
+  // the module would otherwise get two cards permanently reading zero.
+  const collection = moduleFlags.fee_management
+    ? await getMonthlyCollection(locationId)
+    : null;
+
   const canInvite = USER_MANAGEMENT_ROLES.includes(claims.role);
   const enabledModules = PLATFORM_MODULES.filter((entry) => moduleFlags[entry.key]);
 
@@ -80,6 +88,32 @@ export default async function SchoolDashboardPage() {
         <StatCard label="Active Branches" value={counts.branches} hint="Campuses in use" />
         <StatCard label="Enabled Modules" value={counts.modules} hint="Features switched on" />
       </div>
+
+      {collection === null ? null : (
+        <div className="grid gap-4 sm:grid-cols-2">
+          <Card>
+            <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
+              Fees collected this month
+            </p>
+            <p className="mt-2 text-3xl font-bold text-slate-900">
+              PKR {formatPkr(collection.collectedPaise)}
+            </p>
+            <p className="mt-1 text-xs text-slate-500">Payments recorded this month</p>
+          </Card>
+
+          <Card>
+            <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
+              Outstanding this month
+            </p>
+            <p className="mt-2 text-3xl font-bold text-slate-900">
+              PKR {formatPkr(collection.outstandingPaise)}
+            </p>
+            <p className="mt-1 text-xs text-slate-500">
+              Billed this month, not yet paid
+            </p>
+          </Card>
+        </div>
+      )}
 
       <section className="space-y-3">
         <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">

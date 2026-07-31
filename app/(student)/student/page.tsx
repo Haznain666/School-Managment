@@ -8,8 +8,10 @@ import {
   getCurrentEnrollment,
   getStudentBySchoolUserId,
 } from '@/lib/admissions-queries';
+import { getStudentFeeSummary } from '@/lib/fee-queries';
+import { formatPkr } from '@/lib/money';
 import { requireSchoolRole } from '@/lib/school-guard';
-import { getSchoolUserByUid } from '@/lib/school-queries';
+import { getModuleFlags, getSchoolUserByUid } from '@/lib/school-queries';
 
 export const metadata: Metadata = {
   title: 'Student dashboard',
@@ -39,10 +41,23 @@ export default async function StudentDashboardPage() {
           getActiveAcademicYear(locationId),
         ]);
 
-  const enrollment =
+  const [enrollment, moduleFlags] = await Promise.all([
     student === null || activeYear === null
+      ? Promise.resolve(null)
+      : getCurrentEnrollment(locationId, student.studentProfileId, activeYear.id),
+    getModuleFlags(locationId),
+  ]);
+
+  // Only read fees when the school has the module — a student at a school that
+  // does not bill through the platform should see the placeholder, not a zero.
+  const feeSummary =
+    student === null || !moduleFlags.fee_management
       ? null
-      : await getCurrentEnrollment(locationId, student.studentProfileId, activeYear.id);
+      : await getStudentFeeSummary(
+          locationId,
+          student.studentProfileId,
+          activeYear?.id ?? null,
+        );
 
   return (
     <div className="space-y-6">
@@ -100,12 +115,35 @@ export default async function StudentDashboardPage() {
           moduleName="Academics"
           description="Results by subject and term."
         />
-        <PlaceholderModuleCard
-          icon="💳"
-          title="Fee Balance"
-          moduleName="Fee Management"
-          description="What is due, what is paid, and when."
-        />
+        {moduleFlags.fee_management && feeSummary !== null ? (
+          <Card header={<CardTitle title="Fee balance" />}>
+            <p
+              className={`text-2xl font-bold ${
+                feeSummary.outstandingPaise > 0 ? 'text-red-700' : 'text-slate-900'
+              }`}
+            >
+              PKR {formatPkr(feeSummary.outstandingPaise)}
+            </p>
+            <p className="mt-1 text-sm text-slate-500">
+              {feeSummary.outstandingPaise === 0
+                ? 'Nothing outstanding.'
+                : feeSummary.nextDue === null
+                  ? 'Outstanding across your challans.'
+                  : `Next due ${feeSummary.nextDue.dueDate} · challan ${feeSummary.nextDue.challanNumber}`}
+            </p>
+            <p className="mt-3 text-xs text-slate-500">
+              Contact the school office to pay. Payments are recorded there once
+              received.
+            </p>
+          </Card>
+        ) : (
+          <PlaceholderModuleCard
+            icon="💳"
+            title="Fee Balance"
+            moduleName="Fee Management"
+            description="What is due, what is paid, and when."
+          />
+        )}
       </div>
 
       <Card header={<CardTitle title="Announcements" />}>

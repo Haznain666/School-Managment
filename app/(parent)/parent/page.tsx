@@ -10,8 +10,10 @@ import {
   listChildrenForGuardian,
   type ChildSummary,
 } from '@/lib/admissions-queries';
+import { getStudentFeeSummary } from '@/lib/fee-queries';
+import { formatPkr } from '@/lib/money';
 import { requireSchoolRole } from '@/lib/school-guard';
-import { getSchoolUserByUid } from '@/lib/school-queries';
+import { getModuleFlags, getSchoolUserByUid } from '@/lib/school-queries';
 
 export const metadata: Metadata = {
   title: 'Parent dashboard',
@@ -50,6 +52,18 @@ export default async function ParentDashboardPage({
     children.find((entry) => entry.studentProfileId === requested) ??
     children[0] ??
     null;
+
+  const moduleFlags = await getModuleFlags(locationId);
+
+  // Only read fees when the school bills through the platform.
+  const feeSummary =
+    selected === null || !moduleFlags.fee_management
+      ? null
+      : await getStudentFeeSummary(
+          locationId,
+          selected.studentProfileId,
+          activeYear?.id ?? null,
+        );
 
   return (
     <div className="space-y-6">
@@ -99,12 +113,54 @@ export default async function ParentDashboardPage({
       )}
 
       <div className="grid gap-4 md:grid-cols-2">
-        <PlaceholderModuleCard
-          icon="💳"
-          title="Fee Status"
-          moduleName="Fee Management"
-          description="Invoices, due dates and payment history per child."
-        />
+        {moduleFlags.fee_management && feeSummary !== null && selected !== null ? (
+          <Card
+            header={
+              <CardTitle
+                title="Fee status"
+                description={selected.name}
+                action={
+                  <Link
+                    href={`/parent/fees?child=${selected.studentProfileId}`}
+                    className="text-sm font-medium text-brand-primary hover:underline"
+                  >
+                    View all
+                  </Link>
+                }
+              />
+            }
+          >
+            <p
+              className={`text-2xl font-bold ${
+                feeSummary.outstandingPaise > 0 ? 'text-red-700' : 'text-slate-900'
+              }`}
+            >
+              PKR {formatPkr(feeSummary.outstandingPaise)}
+            </p>
+            <p className="mt-1 text-sm text-slate-500">
+              {feeSummary.outstandingPaise === 0
+                ? 'Nothing outstanding.'
+                : 'Outstanding balance.'}
+            </p>
+
+            {feeSummary.nextDue === null ? null : (
+              <p className="mt-3 rounded-lg bg-slate-50 px-3 py-2 text-sm text-slate-600">
+                Next due <strong>{feeSummary.nextDue.dueDate}</strong> · challan{' '}
+                <span className="font-mono text-xs">
+                  {feeSummary.nextDue.challanNumber}
+                </span>{' '}
+                · PKR {formatPkr(feeSummary.nextDue.balancePaise)}
+              </p>
+            )}
+          </Card>
+        ) : (
+          <PlaceholderModuleCard
+            icon="💳"
+            title="Fee Status"
+            moduleName="Fee Management"
+            description="Invoices, due dates and payment history per child."
+          />
+        )}
         <PlaceholderModuleCard
           icon="✅"
           title="Attendance"

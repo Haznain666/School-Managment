@@ -29,3 +29,13 @@ export * from './student-enrollments';
 export * from './student-guardians';
 export * from './admission-applications';
 export * from './school-id-sequences';
+
+// Sprint 5 — Fee Management.
+export * from './fee-types';
+export * from './fee-structures';
+export * from './student-concessions';
+export * from './fee-challans';
+export * from './fee-challan-items';
+export * from './fee-payments';
+export * from './late-fee-rules';
+export * from './challan-sequences';
