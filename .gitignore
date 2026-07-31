@@ -13,11 +13,12 @@ next-env.d.ts
 build/
 dist/
 
-# env — `.env.local` is committed intentionally as an EMPTY key template.
+# env — never commit these. A committed .env.local is loaded by @next/env at
+# server start and OVERWRITES platform-injected variables (Vercel, Docker, CI),
+# so an empty one silently blanks every secret. Use .env.example as the template.
 .env
 .env.production
 .env*.local
-!.env.local
 
 # firebase
 .firebase/

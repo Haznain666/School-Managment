@@ -43,6 +43,9 @@ beaconhouse.platform.com
 ```bash
 npm install
 cp .env.example .env.local     # then fill in real values
+# .env.local is gitignored and must stay that way: @next/env loads it at
+# server start and OVERWRITES platform-injected variables, so a committed
+# one silently blanks every secret in production.
 
 # Generate an encryption key for GHL tokens at rest
 node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"
@@ -214,7 +217,10 @@ and needs a callback route wired to it.
 
 ## Deployment note
 
-This app lives in the `sms-platform/` subdirectory of a repository whose root is
-a separate Astro site. On Vercel, set the project's **Root Directory** to
-`sms-platform`. Add a wildcard domain (`*.platform.com`) so school subdomains
-resolve, and set every variable from `.env.example` in the project settings.
+On Vercel, leave **Root Directory** at the repository root — the app lives
+there. Add a wildcard domain (`*.platform.com`) so school subdomains resolve,
+and set every variable from `.env.example` in the project settings.
+
+Never commit `.env.local`. Next.js loads it at server start and it overwrites
+platform-injected variables, so a committed file — even one holding only empty
+keys — blanks every secret Vercel provides.
