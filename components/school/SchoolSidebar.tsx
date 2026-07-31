@@ -41,7 +41,6 @@ export function SchoolSidebar({ role, moduleFlags }: SchoolSidebarProps) {
   // Module-gated destinations. These land on placeholders until the relevant
   // sprint builds them, but they only appear at all once the module is on.
   const moduleNav: Array<{ key: keyof SchoolModuleFlags; label: string; href: string }> = [
-    { key: 'fee_management', label: 'Fee Management', href: '/dashboard/fees' },
     { key: 'academics', label: 'Academics', href: '/dashboard/academics' },
     { key: 'lms', label: 'LMS', href: '/dashboard/lms' },
     { key: 'hr_payroll', label: 'HR & Payroll', href: '/dashboard/hr' },
@@ -61,9 +60,9 @@ export function SchoolSidebar({ role, moduleFlags }: SchoolSidebarProps) {
 
   items.push({ label: 'Settings', href: '/dashboard/settings' });
 
-  // Admissions is the first module with real screens, so it gets its own
-  // section rather than a single link. It is built, not a placeholder — and
-  // like every module entry it appears only once the school has it switched on.
+  // Modules with real screens of their own get a section rather than a single
+  // link. They are built, not placeholders — and like every module entry they
+  // appear only once the school has them switched on.
   const sections: PortalNavSection[] = [];
 
   if (moduleFlags.admissions && (canSeeModules || role === 'branch_admin')) {
@@ -76,6 +75,21 @@ export function SchoolSidebar({ role, moduleFlags }: SchoolSidebarProps) {
         { label: 'Enroll Student', href: '/dashboard/admissions/enroll' },
         { label: 'All Students', href: '/dashboard/admissions/students' },
         { label: 'Applications', href: '/dashboard/admissions/applications' },
+      ],
+    });
+  }
+
+  // Fees is gated on the module *and* on the role: a teacher never sees it,
+  // and a branch admin sees it scoped to their own branch's grades.
+  if (moduleFlags.fee_management && (canSeeModules || role === 'branch_admin')) {
+    sections.push({
+      label: 'Fees',
+      items: [
+        { label: 'Overview', href: '/dashboard/fees' },
+        { label: 'Fee Structure', href: '/dashboard/fees/types' },
+        { label: 'Challans', href: '/dashboard/fees/challans' },
+        { label: 'Reports', href: '/dashboard/fees/reports' },
+        { label: 'Settings', href: '/dashboard/fees/settings' },
       ],
     });
   }

@@ -10,6 +10,8 @@ import {
   listChildrenForGuardian,
   type ChildSummary,
 } from '@/lib/admissions-queries';
+import { getStudentFeeSummary, type StudentFeeSummary } from '@/lib/fee-queries';
+import { formatPkr, toPaise } from '@/lib/money';
 import { requireSchoolRole } from '@/lib/school-guard';
 import { getSchoolUserByUid } from '@/lib/school-queries';
 
@@ -50,6 +52,25 @@ export default async function ParentDashboardPage({
     children.find((entry) => entry.studentProfileId === requested) ??
     children[0] ??
     null;
+
+  // One summary per child rather than only the selected one: the fee card below
+  // is about the household, and a parent asking "what do I owe" means all of it.
+  const feeSummaries = new Map<string, StudentFeeSummary>(
+    await Promise.all(
+      children.map(
+        async (child) =>
+          [
+            child.studentProfileId,
+            await getStudentFeeSummary(locationId, child.studentProfileId),
+          ] as const,
+      ),
+    ),
+  );
+
+  const totalBalancePaise = [...feeSummaries.values()].reduce(
+    (sum, summary) => sum + toPaise(summary.balance),
+    0,
+  );
 
   return (
     <div className="space-y-6">
@@ -99,12 +120,74 @@ export default async function ParentDashboardPage({
       )}
 
       <div className="grid gap-4 md:grid-cols-2">
-        <PlaceholderModuleCard
-          icon="💳"
-          title="Fee Status"
-          moduleName="Fee Management"
-          description="Invoices, due dates and payment history per child."
-        />
+        <Card
+          header={
+            <CardTitle
+              title="Fee status"
+              description="What is outstanding, per child."
+              action={
+                <Link
+                  href="/parent/fees"
+                  className="text-sm font-medium text-brand-primary hover:underline"
+                >
+                  All fees
+                </Link>
+              }
+            />
+          }
+        >
+          {children.length === 0 ? (
+            <p className="text-sm text-slate-500">
+              Fee details appear once your children are enrolled.
+            </p>
+          ) : (
+            <>
+              <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
+                Total outstanding
+              </p>
+              <p
+                className={
+                  totalBalancePaise > 0
+                    ? 'mt-1 text-2xl font-bold text-red-600'
+                    : 'mt-1 text-2xl font-bold text-slate-900'
+                }
+              >
+                {formatPkr(totalBalancePaise / 100)}
+              </p>
+
+              <ul className="mt-4 divide-y divide-slate-100">
+                {children.map((child) => {
+                  const summary = feeSummaries.get(child.studentProfileId);
+                  const balance = summary?.balance ?? '0';
+                  const oldest = summary?.oldestUnpaid ?? null;
+
+                  return (
+                    <li key={child.studentProfileId} className="py-2.5">
+                      <div className="flex flex-wrap items-baseline justify-between gap-2">
+                        <span className="text-sm font-medium text-slate-900">
+                          {child.name}
+                        </span>
+                        <span className="text-sm text-slate-700">
+                          {formatPkr(balance)}
+                        </span>
+                      </div>
+                      {oldest === null ? (
+                        <p className="text-xs text-emerald-700">Nothing outstanding.</p>
+                      ) : (
+                        <p className="text-xs text-slate-500">
+                          Oldest unpaid:{' '}
+                          <span className="font-mono">{oldest.challanNumber}</span>, due{' '}
+                          {oldest.dueDate}
+                        </p>
+                      )}
+                    </li>
+                  );
+                })}
+              </ul>
+            </>
+          )}
+        </Card>
+
         <PlaceholderModuleCard
           icon="✅"
           title="Attendance"
