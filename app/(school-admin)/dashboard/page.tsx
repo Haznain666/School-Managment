@@ -67,7 +67,15 @@ export default async function SchoolDashboardPage() {
   return (
     <div className="space-y-6">
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <StatCard label="Total Students" value={counts.students} hint="Active students" />
+        <StatCard
+          label="Total Students"
+          value={counts.students}
+          hint={
+            counts.activeYearName === null
+              ? 'No active academic year'
+              : `Enrolled in ${counts.activeYearName}`
+          }
+        />
         <StatCard label="Total Staff" value={counts.staff} hint="Teachers and administration" />
         <StatCard label="Active Branches" value={counts.branches} hint="Campuses in use" />
         <StatCard label="Enabled Modules" value={counts.modules} hint="Features switched on" />
@@ -98,9 +106,15 @@ export default async function SchoolDashboardPage() {
           {enabledModules.map((entry) => (
             <ActionTile
               key={entry.key}
-              href="/dashboard"
+              // Admissions is the first module with screens of its own; the
+              // rest still land back here until their sprint builds them.
+              href={entry.key === 'admissions' ? '/dashboard/admissions' : '/dashboard'}
               title={entry.label}
-              description={`Phase ${entry.phase} module — screens arrive in a later sprint.`}
+              description={
+                entry.key === 'admissions'
+                  ? 'Enrol students, review applications and set up your academic year.'
+                  : `Phase ${entry.phase} module — screens arrive in a later sprint.`
+              }
             />
           ))}
         </div>

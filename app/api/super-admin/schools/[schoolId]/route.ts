@@ -5,6 +5,7 @@ import { schools } from '@/db/schema';
 import { apiFailure, apiSuccess, handleApiError, readJsonBody } from '@/lib/api-response';
 import { isPakistaniCity } from '@/lib/cities';
 import { db } from '@/lib/drizzle';
+import { deriveSchoolCode, schoolCodeRejectionReason } from '@/lib/school-code';
 import { slugRejectionReason } from '@/lib/slug';
 import { requireSuperAdmin } from '@/lib/super-admin-guard';
 import { isUuid, readOptionalString, readString } from '@/lib/validation';
@@ -50,6 +51,7 @@ export async function GET(_request: NextRequest, context: RouteContext) {
 interface UpdateSchoolBody {
   name?: unknown;
   slug?: unknown;
+  schoolCode?: unknown;
   city?: unknown;
   address?: unknown;
   phone?: unknown;
@@ -100,6 +102,31 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
       }
 
       updates.slug = slug;
+    }
+
+    if (body.schoolCode !== undefined) {
+      const schoolCode = readString(body.schoolCode).toUpperCase();
+      const problem = schoolCodeRejectionReason(schoolCode);
+      if (problem !== null) {
+        return apiFailure('invalid_body', problem, 400);
+      }
+
+      if (schoolCode !== '') {
+        updates.schoolCode = schoolCode;
+      } else {
+        // Blank derives a code rather than clearing it: a school with none
+        // cannot issue student IDs, so there is nothing useful about null here.
+        const existing = await db
+          .select({ name: schools.name })
+          .from(schools)
+          .where(eq(schools.id, schoolId))
+          .limit(1);
+
+        const sourceName = updates.name ?? existing[0]?.name;
+        if (sourceName !== undefined) {
+          updates.schoolCode = deriveSchoolCode(sourceName);
+        }
+      }
     }
 
     if (body.city !== undefined) {

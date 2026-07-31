@@ -6,11 +6,13 @@ import {
   branches,
   schoolModules,
   schoolUsers,
+  studentEnrollments,
   type SchoolUser,
 } from '@/db/schema';
 import { toModuleFlags, type SchoolModuleFlags } from '@/lib/platform-modules';
 import type { UserRole } from '@/types/school-auth';
 
+import { getActiveAcademicYear } from './admissions-queries';
 import { db } from './drizzle';
 
 /**
@@ -164,6 +166,8 @@ export interface DashboardCounts {
   staff: number;
   branches: number;
   modules: number;
+  /** Null when no academic year is active, so the UI can say why. */
+  activeYearName: string | null;
 }
 
 const STAFF_ROLES: readonly UserRole[] = [
@@ -173,19 +177,29 @@ const STAFF_ROLES: readonly UserRole[] = [
   'branch_admin',
 ];
 
-/** Headline counts for the admin dashboard, all scoped to one school. */
+/**
+ * Headline counts for the admin dashboard, all scoped to one school.
+ *
+ * Students are counted from `student_enrollments` in the active academic year
+ * rather than from the directory: a graduated or withdrawn student keeps their
+ * `school_users` row, so counting those would only ever go up.
+ */
 export async function getDashboardCounts(locationId: string): Promise<DashboardCounts> {
+  const activeYear = await getActiveAcademicYear(locationId);
+
   const [studentRows, staffRows, branchRows, moduleRows] = await Promise.all([
-    db
-      .select({ value: count() })
-      .from(schoolUsers)
-      .where(
-        and(
-          eq(schoolUsers.locationId, locationId),
-          eq(schoolUsers.role, 'student'),
-          eq(schoolUsers.isActive, true),
-        ),
-      ),
+    activeYear === null
+      ? Promise.resolve([{ value: 0 }])
+      : db
+          .select({ value: count() })
+          .from(studentEnrollments)
+          .where(
+            and(
+              eq(studentEnrollments.locationId, locationId),
+              eq(studentEnrollments.academicYearId, activeYear.id),
+              eq(studentEnrollments.status, 'active'),
+            ),
+          ),
     db
       .select({ role: schoolUsers.role })
       .from(schoolUsers)
@@ -215,6 +229,7 @@ export async function getDashboardCounts(locationId: string): Promise<DashboardC
     staff,
     branches: branchRows[0]?.value ?? 0,
     modules: moduleRows[0]?.value ?? 0,
+    activeYearName: activeYear?.name ?? null,
   };
 }
 

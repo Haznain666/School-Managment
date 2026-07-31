@@ -28,6 +28,13 @@ export const schools = pgTable(
     name: text('name').notNull(),
     /** Subdomain label: `slug.platform.com`. Lowercase, hyphenated. */
     slug: text('slug').notNull().unique(),
+    /**
+     * Short uppercase code that prefixes every student ID this school issues,
+     * e.g. `GVS` -> `GVS-2025-0001`. Derived from the school name when the
+     * Super Admin leaves it blank. Nullable because schools created before
+     * Sprint 4 have none until they are next edited.
+     */
+    schoolCode: text('school_code'),
     city: text('city').notNull(),
     address: text('address'),
     phone: text('phone'),

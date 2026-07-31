@@ -37,6 +37,7 @@ export default async function EditSchoolPage({
           name: school.name,
           slug: school.slug,
           locationId: school.locationId,
+          schoolCode: school.schoolCode ?? '',
           city: school.city,
           address: school.address ?? '',
           phone: school.phone ?? '',

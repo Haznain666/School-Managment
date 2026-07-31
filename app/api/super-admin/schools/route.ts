@@ -5,6 +5,7 @@ import { schools } from '@/db/schema';
 import { apiFailure, apiSuccess, handleApiError, readJsonBody } from '@/lib/api-response';
 import { isPakistaniCity } from '@/lib/cities';
 import { db } from '@/lib/drizzle';
+import { deriveSchoolCode, schoolCodeRejectionReason } from '@/lib/school-code';
 import { slugRejectionReason } from '@/lib/slug';
 import { requireSuperAdmin } from '@/lib/super-admin-guard';
 import { readOptionalString, readString } from '@/lib/validation';
@@ -62,6 +63,7 @@ interface CreateSchoolBody {
   name?: unknown;
   slug?: unknown;
   locationId?: unknown;
+  schoolCode?: unknown;
   city?: unknown;
   address?: unknown;
   phone?: unknown;
@@ -100,12 +102,25 @@ export async function POST(request: NextRequest) {
       return apiFailure('invalid_body', 'Select a city from the list.', 400);
     }
 
+    // The code prefixes every student ID this school ever issues, so it is
+    // derived from the name rather than left null when nobody supplies one —
+    // a school with no code cannot enrol anyone.
+    const schoolCodeInput = readString(body.schoolCode).toUpperCase();
+    const codeProblem = schoolCodeRejectionReason(schoolCodeInput);
+    if (codeProblem !== null) {
+      return apiFailure('invalid_body', codeProblem, 400);
+    }
+
+    const schoolCode =
+      schoolCodeInput === '' ? deriveSchoolCode(name) : schoolCodeInput;
+
     const inserted = await db
       .insert(schools)
       .values({
         name,
         slug,
         locationId,
+        schoolCode,
         city,
         address: readOptionalString(body.address),
         phone: readOptionalString(body.phone),
