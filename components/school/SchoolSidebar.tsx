@@ -1,4 +1,8 @@
-import { PortalSidebar, type PortalNavItem } from '@/components/school/PortalSidebar';
+import {
+  PortalSidebar,
+  type PortalNavItem,
+  type PortalNavSection,
+} from '@/components/school/PortalSidebar';
 import type { SchoolModuleFlags } from '@/lib/platform-modules';
 import type { UserRole } from '@/types/school-auth';
 
@@ -37,7 +41,6 @@ export function SchoolSidebar({ role, moduleFlags }: SchoolSidebarProps) {
   // Module-gated destinations. These land on placeholders until the relevant
   // sprint builds them, but they only appear at all once the module is on.
   const moduleNav: Array<{ key: keyof SchoolModuleFlags; label: string; href: string }> = [
-    { key: 'admissions', label: 'Admissions', href: '/dashboard/admissions' },
     { key: 'fee_management', label: 'Fee Management', href: '/dashboard/fees' },
     { key: 'academics', label: 'Academics', href: '/dashboard/academics' },
     { key: 'lms', label: 'LMS', href: '/dashboard/lms' },
@@ -45,7 +48,10 @@ export function SchoolSidebar({ role, moduleFlags }: SchoolSidebarProps) {
     { key: 'event_mgmt', label: 'Events', href: '/dashboard/events' },
   ];
 
-  if (role === 'school_admin' || role === 'hr_manager' || role === 'accountant') {
+  const canSeeModules =
+    role === 'school_admin' || role === 'hr_manager' || role === 'accountant';
+
+  if (canSeeModules) {
     for (const entry of moduleNav) {
       if (moduleFlags[entry.key]) {
         items.push({ label: entry.label, href: entry.href, placeholder: true });
@@ -55,5 +61,30 @@ export function SchoolSidebar({ role, moduleFlags }: SchoolSidebarProps) {
 
   items.push({ label: 'Settings', href: '/dashboard/settings' });
 
-  return <PortalSidebar items={items} ariaLabel="School administration navigation" />;
+  // Admissions is the first module with real screens, so it gets its own
+  // section rather than a single link. It is built, not a placeholder — and
+  // like every module entry it appears only once the school has it switched on.
+  const sections: PortalNavSection[] = [];
+
+  if (moduleFlags.admissions && (canSeeModules || role === 'branch_admin')) {
+    sections.push({
+      label: 'Admissions',
+      items: [
+        { label: 'Overview', href: '/dashboard/admissions' },
+        { label: 'Academic Years', href: '/dashboard/admissions/academic-years' },
+        { label: 'Grades & Sections', href: '/dashboard/admissions/grades' },
+        { label: 'Enroll Student', href: '/dashboard/admissions/enroll' },
+        { label: 'All Students', href: '/dashboard/admissions/students' },
+        { label: 'Applications', href: '/dashboard/admissions/applications' },
+      ],
+    });
+  }
+
+  return (
+    <PortalSidebar
+      items={items}
+      sections={sections}
+      ariaLabel="School administration navigation"
+    />
+  );
 }

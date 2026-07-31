@@ -43,6 +43,13 @@
       "when": 1785449053568,
       "tag": "0005_sprint3_emergency_login_tokens",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1785500481662,
+      "tag": "0006_sprint4_admissions",
+      "breakpoints": true
     }
   ]
 }

@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
 import { Input } from '@/components/ui/Input';
 import { slugify } from '@/lib/slug';
+import { deriveSchoolCode, schoolCodeRejectionReason } from '@/lib/school-code';
 import { superAdminFetch, SuperAdminApiError } from '@/lib/super-admin-client';
 
 export interface SchoolFormValues {
@@ -15,6 +16,8 @@ export interface SchoolFormValues {
   name: string;
   slug: string;
   locationId: string;
+  /** Prefix for this school's student IDs, e.g. `GVS` -> `GVS-2025-0001`. */
+  schoolCode: string;
   city: string;
   address: string;
   phone: string;
@@ -32,6 +35,7 @@ const EMPTY: SchoolFormValues = {
   name: '',
   slug: '',
   locationId: '',
+  schoolCode: '',
   city: '',
   address: '',
   phone: '',
@@ -137,9 +141,16 @@ export function SchoolForm({ initial, appDomain }: SchoolFormProps) {
 
       setIsSubmitting(true);
 
+      const codeProblem = schoolCodeRejectionReason(values.schoolCode.trim());
+      if (codeProblem !== null) {
+        setError(codeProblem);
+        return;
+      }
+
       const payload = {
         name: values.name,
         slug: values.slug,
+        schoolCode: values.schoolCode,
         city: values.city,
         address: values.address,
         phone: values.phone,
@@ -175,6 +186,13 @@ export function SchoolForm({ initial, appDomain }: SchoolFormProps) {
     },
     [values, isEdit, initial?.id, slugState, router],
   );
+
+  // Shows what the server will derive when the field is left blank, so the
+  // operator can see the ID format before the school exists.
+  const codePreview =
+    values.schoolCode.trim() === ''
+      ? deriveSchoolCode(values.name === '' ? 'School' : values.name)
+      : values.schoolCode.trim();
 
   const slugHint =
     values.slug === ''
@@ -241,6 +259,24 @@ export function SchoolForm({ initial, appDomain }: SchoolFormProps) {
                 ? 'Fixed after creation — it is the tenant key for all of this school’s data.'
                 : 'The GoHighLevel sub-account ID for this school.'
             }
+          />
+
+          <Input
+            label="School Code (for Student IDs)"
+            value={values.schoolCode}
+            onChange={(event) => {
+              // Uppercased as it is typed: the code is stored and printed in
+              // upper case, and showing it any other way invites a mismatch.
+              setField('schoolCode', event.target.value.toUpperCase());
+            }}
+            disabled={isSubmitting}
+            placeholder="e.g. GVS"
+            maxLength={6}
+            hint={`2–6 uppercase letters. Used to generate student IDs like ${
+              codePreview
+            }-${new Date().getFullYear()}-0001.${
+              values.schoolCode.trim() === '' ? ' Leave blank to derive it from the name.' : ''
+            }`}
           />
 
           <CitySelect

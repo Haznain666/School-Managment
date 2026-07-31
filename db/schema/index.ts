@@ -19,3 +19,13 @@ export * from './branches';
 export * from './users';
 export * from './students';
 export * from './staff';
+
+// Sprint 4 — Admissions.
+export * from './academic-years';
+export * from './grades';
+export * from './sections';
+export * from './student-profiles';
+export * from './student-enrollments';
+export * from './student-guardians';
+export * from './admission-applications';
+export * from './school-id-sequences';
