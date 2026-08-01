@@ -168,11 +168,22 @@ export function SchoolForm({ initial, appDomain }: SchoolFormProps) {
           });
           router.push(`/super-admin/schools/${initial.id}`);
         } else {
-          const created = await superAdminFetch<{ school: { id: string } }>(
-            '/api/super-admin/schools',
-            { method: 'POST', body: JSON.stringify(payload) },
+          const created = await superAdminFetch<{
+            school: { id: string };
+            admin: { status: 'created' | 'exists' | 'skipped' };
+          }>('/api/super-admin/schools', {
+            method: 'POST',
+            body: JSON.stringify(payload),
+          });
+
+          // A school nobody can sign in to is not provisioned, only recorded.
+          // When the principal's number could not become an administrator, land
+          // the operator on Users, where the empty state offers to create one.
+          router.push(
+            created.admin.status === 'created'
+              ? `/super-admin/schools/${created.school.id}`
+              : `/super-admin/schools/${created.school.id}/users`,
           );
-          router.push(`/super-admin/schools/${created.school.id}`);
         }
         router.refresh();
       } catch (caught) {
@@ -295,6 +306,11 @@ export function SchoolForm({ initial, appDomain }: SchoolFormProps) {
               setField('principalName', event.target.value);
             }}
             disabled={isSubmitting}
+            hint={
+              isEdit
+                ? undefined
+                : 'Becomes the school’s first administrator, with the phone below.'
+            }
           />
 
           <Input
@@ -306,6 +322,11 @@ export function SchoolForm({ initial, appDomain }: SchoolFormProps) {
             }}
             disabled={isSubmitting}
             placeholder="+92 21 1234567"
+            hint={
+              isEdit
+                ? undefined
+                : 'This also becomes the principal’s login, so use a mobile that can receive WhatsApp. A landline is accepted but will never get a passcode.'
+            }
           />
 
           <Input

@@ -5,6 +5,7 @@ import { schools } from '@/db/schema';
 import { apiFailure, apiSuccess, handleApiError, readJsonBody } from '@/lib/api-response';
 import { isPakistaniCity } from '@/lib/cities';
 import { db } from '@/lib/drizzle';
+import { createFirstSchoolAdmin } from '@/lib/school-bootstrap';
 import { deriveSchoolCode, schoolCodeRejectionReason } from '@/lib/school-code';
 import { slugRejectionReason } from '@/lib/slug';
 import { requireSuperAdmin } from '@/lib/super-admin-guard';
@@ -69,6 +70,10 @@ interface CreateSchoolBody {
   phone?: unknown;
   email?: unknown;
   principalName?: unknown;
+  /** First administrator. Falls back to the principal's details when absent. */
+  adminName?: unknown;
+  adminPhone?: unknown;
+  adminEmail?: unknown;
 }
 
 export async function POST(request: NextRequest) {
@@ -141,7 +146,28 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    return apiSuccess({ school }, 201);
+    /**
+     * Provision the first administrator alongside the school.
+     *
+     * Without this, a new school is unreachable: every other way to create a
+     * member requires a member to already be signed in. The principal's details
+     * are the fallback because they are what an operator has typically just
+     * typed, but `adminPhone` lets them name someone else.
+     *
+     * This deliberately does not fail the request. The school row is already
+     * committed and is useful on its own, and the most common reason for
+     * skipping — the school's number being a landline — is not an error the
+     * operator should have to undo a provisioning over. The outcome is reported
+     * so the UI can say what happened.
+     */
+    const admin = await createFirstSchoolAdmin(db, {
+      locationId: school.locationId,
+      name: readString(body.adminName) || readString(body.principalName),
+      phone: readString(body.adminPhone) || readString(body.phone),
+      email: readOptionalString(body.adminEmail) ?? readOptionalString(body.email),
+    });
+
+    return apiSuccess({ school, admin }, 201);
   } catch (error) {
     return handleApiError(error);
   }

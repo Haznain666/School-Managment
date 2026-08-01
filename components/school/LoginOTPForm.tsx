@@ -9,6 +9,7 @@ import {
   establishSession,
   useOtpCountdown,
 } from '@/components/school/useOtpCountdown';
+import { withSchoolParam } from '@/lib/school-client';
 import { ROLE_HOME_ROUTES, isUserRole } from '@/types/school-auth';
 
 export interface LoginOTPFormProps {
@@ -62,7 +63,14 @@ export function LoginOTPForm({ schoolName, schoolSlug }: LoginOTPFormProps) {
       setIsLoading(true);
 
       try {
-        const response = await fetch('/api/school/auth/otp/request', {
+        // `withSchoolParam` carries `?school=` through. A relative URL drops the
+        // page's query string, and middleware rewrites any /api/school/* request
+        // it cannot resolve a tenant for to the /school-not-found *page* — so
+        // without this the request comes back as HTML on a deployment host and
+        // `response.json()` below throws into the catch, reporting a connection
+        // problem for what is really a missing tenant. On a real subdomain the
+        // hostname carries the tenant and this is a no-op.
+        const response = await fetch(withSchoolParam('/api/school/auth/otp/request'), {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ phone: phone.trim() }),
@@ -116,7 +124,8 @@ export function LoginOTPForm({ schoolName, schoolSlug }: LoginOTPFormProps) {
       setIsLoading(true);
 
       try {
-        const response = await fetch('/api/school/auth/otp/verify', {
+        // Same tenant-resolution requirement as the request step above.
+        const response = await fetch(withSchoolParam('/api/school/auth/otp/verify'), {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ phone: phone.trim(), otp: otp.trim() }),
