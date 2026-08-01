@@ -57,6 +57,13 @@
       "when": 1785528178841,
       "tag": "0007_sprint5_fee_management",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1785568070310,
+      "tag": "0008_sprint6_academics_timetable",
+      "breakpoints": true
     }
   ]
 }

@@ -3,13 +3,13 @@ import { PortalSidebar, type PortalNavItem } from '@/components/school/PortalSid
 /**
  * Teacher portal navigation.
  *
- * Everything past the dashboard is marked as a placeholder — those destinations
- * arrive with the Academics and Fee Management modules in later sprints.
+ * The timetable and the register are real destinations as of Sprint 6. What
+ * remains a placeholder arrives with a later sprint.
  */
 const ITEMS: readonly PortalNavItem[] = [
   { label: 'My Dashboard', href: '/teacher' },
-  { label: 'My Classes', href: '/teacher/classes', placeholder: true },
-  { label: 'Attendance', href: '/teacher/attendance', placeholder: true },
+  { label: 'My Timetable', href: '/teacher/timetable' },
+  { label: 'Attendance', href: '/teacher/attendance' },
   { label: 'Grades', href: '/teacher/grades', placeholder: true },
 ];
 

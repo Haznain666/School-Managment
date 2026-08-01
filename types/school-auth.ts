@@ -82,6 +82,31 @@ export const FEE_READ_ROLES: readonly UserRole[] = [
  */
 export const FEE_WRITE_ROLES: readonly UserRole[] = ['school_admin', 'accountant'];
 
+/**
+ * Roles that may read academics data — subjects, the timetable and the
+ * register. A teacher is included: they need the timetable they are teaching to
+ * and the class they are marking.
+ */
+export const ACADEMICS_READ_ROLES: readonly UserRole[] = [
+  'school_admin',
+  'branch_admin',
+  'teacher',
+  'hr_manager',
+];
+
+/**
+ * Roles that may change what the school teaches and when. Narrower than the
+ * read list on purpose: a teacher reads the timetable, they do not set it.
+ */
+export const ACADEMICS_WRITE_ROLES: readonly UserRole[] = ['school_admin'];
+
+/** Roles that may take the register. Marking is a teacher's daily job. */
+export const ATTENDANCE_MARK_ROLES: readonly UserRole[] = [
+  'school_admin',
+  'branch_admin',
+  'teacher',
+];
+
 /** Roles for which a branch assignment is mandatory. */
 export const BRANCH_REQUIRED_ROLES: readonly UserRole[] = [
   'branch_admin',
