@@ -27,30 +27,82 @@ interface ServiceAccountJson {
 }
 
 /**
- * Reads credentials, preferring the single base64 service-account blob and
- * falling back to the three discrete variables.
+ * Strips what a dashboard paste box adds around a value: surrounding
+ * whitespace, a UTF-8 BOM, and the matched quotes some editors wrap a value in
+ * when it is copied out of a JSON or .env file.
+ */
+function unwrap(value: string): string {
+  let cleaned = value.trim().replace(/^\uFEFF/, '');
+
+  const quoted =
+    (cleaned.startsWith('"') && cleaned.endsWith('"')) ||
+    (cleaned.startsWith("'") && cleaned.endsWith("'"));
+
+  if (quoted && cleaned.length >= 2) cleaned = cleaned.slice(1, -1).trim();
+
+  return cleaned;
+}
+
+/**
+ * Describes a value that could not be parsed, without disclosing it.
+ *
+ * Length and the first three characters are enough to tell the three real
+ * cases apart — correctly encoded base64 of a service account always begins
+ * `eyJ`, raw JSON begins `{"t`, and a truncated value shows up as a length far
+ * below the ~2.3 kB a real key occupies. None of that is secret: the opening
+ * bytes of every service-account file are identical.
+ */
+function describe(value: string): string {
+  return `length ${value.length}, starts with ${JSON.stringify(value.slice(0, 3))}`;
+}
+
+/**
+ * Reads credentials, preferring the single service-account blob and falling
+ * back to the three discrete variables.
  *
  * Both forms are supported because the discrete variables are how Sprint 1
  * configured this; a deployment already running on them should not have to be
  * reconfigured to pick up Sprint 3.
+ *
+ * ── On accepting more than base64 ────────────────────────────────────────
+ * The variable is named `..._KEY` and documented as base64, but the file it is
+ * made from is JSON — so pasting the file's own contents is the obvious
+ * mistake, and it produced a parse failure indistinguishable from a corrupt
+ * blob. Both forms are now accepted: raw JSON is unambiguous (it starts with
+ * `{`), so taking it costs nothing and removes a whole class of deployment
+ * failure. Base64 is still what the docs recommend, because it survives every
+ * dashboard and shell that mangles newlines.
  */
 function readCredentials(): {
   projectId: string;
   clientEmail: string;
   privateKey: string;
 } {
-  const encoded = process.env['FIREBASE_SERVICE_ACCOUNT_KEY'];
+  const raw = process.env['FIREBASE_SERVICE_ACCOUNT_KEY'];
 
-  if (encoded !== undefined && encoded.trim() !== '') {
+  if (raw !== undefined && raw.trim() !== '') {
+    const value = unwrap(raw);
+
+    // Raw JSON first — it is self-identifying, so there is no ambiguity to
+    // resolve. Anything else is treated as base64, tolerating the whitespace a
+    // line-wrapping encoder leaves behind and the base64url alphabet.
+    const decoded = value.startsWith('{')
+      ? value
+      : Buffer.from(
+          value.replace(/\s+/g, '').replace(/-/g, '+').replace(/_/g, '/'),
+          'base64',
+        ).toString('utf8');
+
     let parsed: ServiceAccountJson;
     try {
-      parsed = JSON.parse(
-        Buffer.from(encoded, 'base64').toString('utf8'),
-      ) as ServiceAccountJson;
+      parsed = JSON.parse(decoded) as ServiceAccountJson;
     } catch {
       throw new Error(
-        'FIREBASE_SERVICE_ACCOUNT_KEY is not valid base64-encoded JSON. ' +
-          'Generate it with: base64 -w0 service-account.json',
+        'FIREBASE_SERVICE_ACCOUNT_KEY could not be read as a service account. ' +
+          'It is neither raw JSON nor base64-encoded JSON ' +
+          `(value: ${describe(value)}; decoded: ${describe(decoded)}). ` +
+          'A correct base64 value starts with "eyJ" and is roughly 2-4 kB; ' +
+          'raw JSON starts with "{". Regenerate with: base64 -w0 service-account.json',
       );
     }
 
@@ -65,8 +117,14 @@ function readCredentials(): {
       typeof clientEmail !== 'string' ||
       typeof privateKey !== 'string'
     ) {
+      // Names which field is absent: the usual cause is a Web app config or an
+      // OAuth client file downloaded instead of a service-account key, and
+      // those are told apart by exactly this.
+      const present = Object.keys(parsed).join(', ') || '(none)';
       throw new Error(
-        'FIREBASE_SERVICE_ACCOUNT_KEY is missing project_id, client_email or private_key.',
+        'FIREBASE_SERVICE_ACCOUNT_KEY parsed as JSON but is not a service ' +
+          `account: project_id, client_email and private_key are required, found: ${present}. ` +
+          'Download one from Firebase Console → Project Settings → Service accounts.',
       );
     }
 
