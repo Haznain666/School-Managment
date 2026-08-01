@@ -128,11 +128,12 @@ export function PlatformLoginClient({ token, schoolSlug }: PlatformLoginClientPr
         ) : (
           <p className="mt-4 text-sm text-slate-500">
             This is not an expired link — a fresh one will fail the same way.
-            Open{' '}
+            The message above names the step that failed. For the full picture,
+            open{' '}
             <span className="font-mono text-xs">
               /api/super-admin/diagnostics/platform-login
             </span>{' '}
-            while signed in to the panel to see which step is failing.
+            in a tab where you are still signed in to the Super Admin panel.
           </p>
         )}
 
