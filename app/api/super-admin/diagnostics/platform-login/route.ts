@@ -75,6 +75,40 @@ function envReport(name: string): { set: boolean; length: number } {
   };
 }
 
+/**
+ * What form the service-account variable is in.
+ *
+ * The opening bytes of every service-account file are identical — base64 of
+ * one always begins `eyJ`, the raw JSON always begins `{"t` — so reporting
+ * three characters distinguishes "correct", "raw JSON", "wrapped in quotes"
+ * and "truncated" while disclosing nothing that varies between projects.
+ */
+function serviceAccountShape(): {
+  set: boolean;
+  length: number;
+  startsWith: string;
+  looksLike: string;
+} {
+  const value = process.env['FIREBASE_SERVICE_ACCOUNT_KEY'];
+
+  if (value === undefined || value.trim() === '') {
+    return { set: false, length: 0, startsWith: '', looksLike: 'absent' };
+  }
+
+  const trimmed = value.trim();
+  const head = trimmed.slice(0, 3);
+
+  const looksLike = trimmed.startsWith('{')
+    ? 'raw JSON'
+    : trimmed.startsWith('eyJ')
+      ? 'base64 of JSON'
+      : trimmed.startsWith('"') || trimmed.startsWith("'")
+        ? 'quoted — the wrapping quotes are part of the value'
+        : 'unrecognised — neither JSON nor base64 of JSON';
+
+  return { set: true, length: trimmed.length, startsWith: head, looksLike };
+}
+
 export async function GET(request: NextRequest) {
   try {
     await requireSuperAdmin();
@@ -90,7 +124,7 @@ export async function GET(request: NextRequest) {
       superAdminJwtSecret: envReport('SUPER_ADMIN_JWT_SECRET'),
       superAdminEmail: envReport('SUPER_ADMIN_EMAIL'),
       superAdminPasswordHash: envReport('SUPER_ADMIN_PASSWORD_HASH'),
-      firebaseServiceAccountKey: envReport('FIREBASE_SERVICE_ACCOUNT_KEY'),
+      firebaseServiceAccountKey: serviceAccountShape(),
       firebaseAdminProjectId: envReport('FIREBASE_ADMIN_PROJECT_ID'),
       firebaseAdminClientEmail: envReport('FIREBASE_ADMIN_CLIENT_EMAIL'),
       firebaseAdminPrivateKey: envReport('FIREBASE_ADMIN_PRIVATE_KEY'),
