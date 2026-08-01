@@ -81,6 +81,10 @@ export async function POST(request: NextRequest, context: RouteContext) {
     // "Something went wrong" as a bad token, which sent debugging in exactly
     // the wrong direction. They get their own code now, and the real cause goes
     // to the server log where an operator can read it.
+    // Names the sub-step in flight, so the failure below can say which one
+    // broke rather than "Firebase, somewhere".
+    let firebaseStep = 'admin-init';
+
     try {
       const auth = getAdminAuth();
 
@@ -88,6 +92,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
       // no email and no password of its own — it is reachable only by a token
       // signed with the platform secret, which is why nothing here is a
       // credential a school member could ever present.
+      firebaseStep = 'get-or-create-user';
       try {
         await auth.getUser(uid);
       } catch (error) {
@@ -105,6 +110,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
 
       // Claims are written before the token is minted, so the ID token the
       // client obtains already carries the tenant and the role.
+      firebaseStep = 'set-custom-claims';
       await auth.setCustomUserClaims(uid, {
         locationId,
         role: 'school_admin',
@@ -117,6 +123,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
         platformAdminEmail: claims.email,
       });
 
+      firebaseStep = 'create-custom-token';
       const customToken = await auth.createCustomToken(uid);
 
       console.info(
@@ -126,16 +133,29 @@ export async function POST(request: NextRequest, context: RouteContext) {
       return apiSuccess({ customToken, schoolSlug: school.slug });
     } catch (error) {
       const code = (error as { code?: unknown }).code;
+      const message = error instanceof Error ? error.message : String(error);
+
       console.error(
-        `[platform-login] Firebase step failed for location ${locationId}:`,
+        `[platform-login] Firebase ${firebaseStep} failed for location ${locationId}:`,
         typeof code === 'string' ? code : '',
         error,
       );
 
+      // ── On returning the detail to the browser ────────────────────────────
+      // Nothing reaches this line without a hand-off token signed by the
+      // platform's own secret, so the only caller who can see this is the
+      // operator. Withholding the reason from them buys no security and costs a
+      // round trip through the server logs — which is exactly what the first
+      // version of this cost.
+      //
+      // Truncated because a stack-laden message is no more useful than its
+      // first line, and the codes and configuration messages we care about
+      // ("not valid base64-encoded JSON", "auth/invalid-credential") are short.
+      const detail = typeof code === 'string' && code !== '' ? code : message;
+
       return apiFailure(
         'firebase_unavailable',
-        'Sign-in could not be completed because the authentication service ' +
-          'rejected the request. Run the platform-login diagnostic for detail.',
+        `Firebase rejected the request at step "${firebaseStep}": ${detail.slice(0, 300)}`,
         503,
       );
     }
