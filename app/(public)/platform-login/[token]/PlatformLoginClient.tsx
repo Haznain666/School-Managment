@@ -18,7 +18,22 @@ interface RedeemData {
 interface Envelope<T> {
   ok: boolean;
   data?: T;
-  error?: { message: string };
+  error?: { code?: string; message: string };
+}
+
+interface RedeemFailure {
+  code: string;
+  message: string;
+}
+
+/**
+ * Only an expired or wrong-school token is worth suggesting a retry for.
+ * Telling an operator to "get a fresh link" when the real fault is a malformed
+ * Firebase key sends them round the same loop indefinitely — which is exactly
+ * what the first version of this screen did.
+ */
+function isRetryable(code: string): boolean {
+  return code === 'invalid_token';
 }
 
 /**
@@ -35,7 +50,7 @@ interface Envelope<T> {
 export function PlatformLoginClient({ token, schoolSlug }: PlatformLoginClientProps) {
   const router = useRouter();
   const hasRun = useRef(false);
-  const [error, setError] = useState<string | null>(null);
+  const [failure, setFailure] = useState<RedeemFailure | null>(null);
 
   useEffect(() => {
     if (hasRun.current) return;
@@ -59,7 +74,10 @@ export function PlatformLoginClient({ token, schoolSlug }: PlatformLoginClientPr
 
         if (!response.ok || payload.ok !== true || payload.data === undefined) {
           if (!cancelled) {
-            setError(payload.error?.message ?? 'This sign-in link cannot be used.');
+            setFailure({
+              code: payload.error?.code ?? 'unknown',
+              message: payload.error?.message ?? 'This sign-in link cannot be used.',
+            });
           }
           return;
         }
@@ -68,7 +86,7 @@ export function PlatformLoginClient({ token, schoolSlug }: PlatformLoginClientPr
         const session = await establishSession(payload.data.customToken, slug);
 
         if ('error' in session) {
-          if (!cancelled) setError(session.error);
+          if (!cancelled) setFailure({ code: 'session_failed', message: session.error });
           return;
         }
 
@@ -78,7 +96,12 @@ export function PlatformLoginClient({ token, schoolSlug }: PlatformLoginClientPr
         );
         router.refresh();
       } catch {
-        if (!cancelled) setError('Could not reach the server. Try again.');
+        if (!cancelled) {
+          setFailure({
+            code: 'network',
+            message: 'Could not reach the server. Try again.',
+          });
+        }
       }
     };
 
@@ -89,16 +112,32 @@ export function PlatformLoginClient({ token, schoolSlug }: PlatformLoginClientPr
     };
   }, [token, schoolSlug, router]);
 
-  if (error !== null) {
+  if (failure !== null) {
     return (
       <div className="rounded-card border border-slate-200 bg-white p-6 text-center shadow-card">
         <h2 className="text-base font-semibold text-slate-900">
           This sign-in link cannot be used
         </h2>
-        <p className="mt-2 text-sm text-slate-600">{error}</p>
-        <p className="mt-4 text-sm text-slate-500">
-          Links expire two minutes after they are issued. Open the school again
-          from the Super Admin panel to get a fresh one.
+        <p className="mt-2 text-sm text-slate-600">{failure.message}</p>
+
+        {isRetryable(failure.code) ? (
+          <p className="mt-4 text-sm text-slate-500">
+            Links expire two minutes after they are issued. Open the school
+            again from the Super Admin panel to get a fresh one.
+          </p>
+        ) : (
+          <p className="mt-4 text-sm text-slate-500">
+            This is not an expired link — a fresh one will fail the same way.
+            Open{' '}
+            <span className="font-mono text-xs">
+              /api/super-admin/diagnostics/platform-login
+            </span>{' '}
+            while signed in to the panel to see which step is failing.
+          </p>
+        )}
+
+        <p className="mt-3 text-xs text-slate-400">
+          Reference: <span className="font-mono">{failure.code}</span>
         </p>
       </div>
     );

@@ -72,49 +72,73 @@ export async function POST(request: NextRequest, context: RouteContext) {
     }
 
     const uid = derivePlatformAdminUid(locationId);
-    const auth = getAdminAuth();
 
-    // The account is created on first hand-off and reused after that. It has no
-    // email and no password of its own — it is reachable only by a token signed
-    // with the platform secret, which is why nothing here is a credential a
-    // school member could ever present.
+    // ── On this try/catch ──────────────────────────────────────────────────
+    // Everything below is Firebase, and Firebase fails for reasons that have
+    // nothing to do with the link the operator clicked: a malformed service
+    // account, a revoked key, an unreachable Identity Platform. Letting those
+    // fall through to `handleApiError` reported them as the same anonymous
+    // "Something went wrong" as a bad token, which sent debugging in exactly
+    // the wrong direction. They get their own code now, and the real cause goes
+    // to the server log where an operator can read it.
     try {
-      await auth.getUser(uid);
-    } catch (error) {
-      if ((error as { code?: unknown }).code !== 'auth/user-not-found') throw error;
+      const auth = getAdminAuth();
 
+      // The account is created on first hand-off and reused after that. It has
+      // no email and no password of its own — it is reachable only by a token
+      // signed with the platform secret, which is why nothing here is a
+      // credential a school member could ever present.
       try {
-        await auth.createUser({ uid, displayName: 'Platform Super Admin' });
-      } catch (createError) {
-        // A concurrent hand-off may have created it in the gap above.
-        if ((createError as { code?: unknown }).code !== 'auth/uid-already-exists') {
-          throw createError;
+        await auth.getUser(uid);
+      } catch (error) {
+        if ((error as { code?: unknown }).code !== 'auth/user-not-found') throw error;
+
+        try {
+          await auth.createUser({ uid, displayName: 'Platform Super Admin' });
+        } catch (createError) {
+          // A concurrent hand-off may have created it in the gap above.
+          if ((createError as { code?: unknown }).code !== 'auth/uid-already-exists') {
+            throw createError;
+          }
         }
       }
+
+      // Claims are written before the token is minted, so the ID token the
+      // client obtains already carries the tenant and the role.
+      await auth.setCustomUserClaims(uid, {
+        locationId,
+        role: 'school_admin',
+        // Platform access is school-wide; it is never scoped to one campus.
+        branchId: null,
+        schoolSlug: school.slug,
+        // What makes this session say so on screen. It grants nothing extra —
+        // `role` above is the whole of the authorisation.
+        platformAdmin: true,
+        platformAdminEmail: claims.email,
+      });
+
+      const customToken = await auth.createCustomToken(uid);
+
+      console.info(
+        `[platform-login] ${claims.email} entered school ${locationId} as school_admin`,
+      );
+
+      return apiSuccess({ customToken, schoolSlug: school.slug });
+    } catch (error) {
+      const code = (error as { code?: unknown }).code;
+      console.error(
+        `[platform-login] Firebase step failed for location ${locationId}:`,
+        typeof code === 'string' ? code : '',
+        error,
+      );
+
+      return apiFailure(
+        'firebase_unavailable',
+        'Sign-in could not be completed because the authentication service ' +
+          'rejected the request. Run the platform-login diagnostic for detail.',
+        503,
+      );
     }
-
-    // Claims are written before the token is minted, so the ID token the client
-    // obtains already carries the tenant and the role.
-    await auth.setCustomUserClaims(uid, {
-      locationId,
-      role: 'school_admin',
-      // Platform access is school-wide; it is never scoped to one campus.
-      branchId: null,
-      schoolSlug: school.slug,
-      // What makes this session say so on screen. It grants nothing extra —
-      // `role` above is the whole of the authorisation.
-      platformAdmin: true,
-      platformAdminEmail: claims.email,
-    });
-
-    console.info(
-      `[platform-login] ${claims.email} entered school ${locationId} as school_admin`,
-    );
-
-    return apiSuccess({
-      customToken: await auth.createCustomToken(uid),
-      schoolSlug: school.slug,
-    });
   } catch (error) {
     return handleApiError(error);
   }
