@@ -23,6 +23,20 @@ export function readOptionalString(value: unknown): string | null {
   return text === '' ? null : text;
 }
 
+const ISO_DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
+
+/**
+ * Guards a calendar date before it reaches a `date` column.
+ * Checks the shape *and* that it is a real day, so `2025-02-31` is refused
+ * rather than silently rolled forward.
+ */
+export function isIsoDate(value: unknown): value is string {
+  if (typeof value !== 'string' || !ISO_DATE_PATTERN.test(value)) return false;
+
+  const parsed = new Date(`${value}T00:00:00Z`);
+  return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value;
+}
+
 /** Reads a boolean field, defaulting when the value is not a boolean. */
 export function readBoolean(value: unknown, fallback: boolean): boolean {
   return typeof value === 'boolean' ? value : fallback;

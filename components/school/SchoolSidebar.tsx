@@ -41,7 +41,6 @@ export function SchoolSidebar({ role, moduleFlags }: SchoolSidebarProps) {
   // Module-gated destinations. These land on placeholders until the relevant
   // sprint builds them, but they only appear at all once the module is on.
   const moduleNav: Array<{ key: keyof SchoolModuleFlags; label: string; href: string }> = [
-    { key: 'academics', label: 'Academics', href: '/dashboard/academics' },
     { key: 'lms', label: 'LMS', href: '/dashboard/lms' },
     { key: 'hr_payroll', label: 'HR & Payroll', href: '/dashboard/hr' },
     { key: 'event_mgmt', label: 'Events', href: '/dashboard/events' },
@@ -75,6 +74,19 @@ export function SchoolSidebar({ role, moduleFlags }: SchoolSidebarProps) {
         { label: 'Enroll Student', href: '/dashboard/admissions/enroll' },
         { label: 'All Students', href: '/dashboard/admissions/students' },
         { label: 'Applications', href: '/dashboard/admissions/applications' },
+      ],
+    });
+  }
+
+  if (moduleFlags.academics && (canSeeModules || role === 'branch_admin')) {
+    sections.push({
+      label: 'Academics',
+      items: [
+        { label: 'Overview', href: '/dashboard/academics' },
+        { label: 'Subjects', href: '/dashboard/academics/subjects' },
+        { label: 'Timetable', href: '/dashboard/academics/timetable' },
+        { label: 'Mark Attendance', href: '/dashboard/academics/attendance' },
+        { label: 'Attendance Reports', href: '/dashboard/academics/attendance/reports' },
       ],
     });
   }

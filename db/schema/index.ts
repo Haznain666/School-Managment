@@ -39,3 +39,9 @@ export * from './fee-challan-items';
 export * from './fee-payments';
 export * from './late-fee-rules';
 export * from './challan-sequences';
+
+// Sprint 6 — Academics & Timetable.
+export * from './subjects';
+export * from './timetable-slots';
+export * from './timetable-entries';
+export * from './attendance-records';
