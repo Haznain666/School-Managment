@@ -40,9 +40,13 @@ export default async function SchoolAdminLayout({ children }: { children: ReactN
         <SchoolNavbar
           schoolName={branding?.name ?? 'School'}
           logoUrl={branding?.logoUrl ?? null}
+          // The platform operator has no `school_users` row here on purpose —
+          // they are not a member of this school — so their address stands in
+          // for the name the directory would otherwise supply.
           userName={profile?.name ?? ''}
           role={claims.role}
           schoolSlug={claims.schoolSlug}
+          platformAdminEmail={claims.platformAdminEmail}
         />
         <main className="flex-1 overflow-y-auto p-6">{children}</main>
       </div>

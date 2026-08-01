@@ -201,6 +201,19 @@ export function SchoolTable() {
                         >
                           Edit
                         </Link>
+                        {/*
+                          Only offered for a live tenant: a deactivated school's
+                          portal is closed to everyone, and the API refuses it
+                          too rather than trusting this to be the only guard.
+                        */}
+                        {school.isActive ? (
+                          <Link
+                            href={`/super-admin/schools/${school.id}/login-as`}
+                            className="text-sm font-medium text-brand-primary hover:underline"
+                          >
+                            Login as Admin
+                          </Link>
+                        ) : null}
                         {school.isActive ? (
                           <Button
                             variant="ghost"
