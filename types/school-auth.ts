@@ -29,10 +29,32 @@ export interface SchoolSessionClaims {
   branchId: string | null;
   /** Subdomain the school is reached on, for building absolute links. */
   schoolSlug: string;
+  /**
+   * True when this session was minted by the platform operator entering the
+   * school through "Login as Admin" rather than by a member of the school.
+   *
+   * It changes nothing about what the session may do — `role` alone decides
+   * that — but the portal says so on screen, because an operator acting inside
+   * a customer's data should never be indistinguishable from the customer.
+   */
+  isPlatformAdmin: boolean;
+  /** The operator's address when `isPlatformAdmin`, otherwise null. */
+  platformAdminEmail: string | null;
 }
 
-/** The claim fields written to Firebase, without the uid Firebase already owns. */
-export type SchoolCustomClaims = Omit<SchoolSessionClaims, 'uid'>;
+/**
+ * The claim fields written to Firebase for a school member, without the uid
+ * Firebase already owns.
+ *
+ * The platform-admin markers are excluded rather than optional: the OTP and
+ * invite flows mint claims for people who work at the school, and neither may
+ * ever set a flag that says otherwise. Only the Super Admin hand-off writes
+ * those, and it does so directly.
+ */
+export type SchoolCustomClaims = Omit<
+  SchoolSessionClaims,
+  'uid' | 'isPlatformAdmin' | 'platformAdminEmail'
+>;
 
 /** Where each role lands after signing in. */
 export const ROLE_HOME_ROUTES: Record<UserRole, string> = {
@@ -132,6 +154,8 @@ export function parseSchoolClaims(
   const role = payload['role'];
   const branchId = payload['branchId'];
   const schoolSlug = payload['schoolSlug'];
+  const platformAdmin = payload['platformAdmin'];
+  const platformAdminEmail = payload['platformAdminEmail'];
 
   if (typeof uid !== 'string' || uid === '') return null;
   if (typeof locationId !== 'string' || locationId === '') return null;
@@ -144,6 +168,13 @@ export function parseSchoolClaims(
     role,
     branchId: typeof branchId === 'string' && branchId !== '' ? branchId : null,
     schoolSlug,
+    // Absent on every session minted before this existed, and on every session
+    // minted by the OTP flow — so the default is the ordinary school user.
+    isPlatformAdmin: platformAdmin === true,
+    platformAdminEmail:
+      platformAdmin === true && typeof platformAdminEmail === 'string'
+        ? platformAdminEmail
+        : null,
   };
 }
 

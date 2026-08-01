@@ -10,6 +10,12 @@ export interface SchoolNavbarProps {
   userName: string;
   role: UserRole;
   schoolSlug: string | null;
+  /**
+   * Set when the platform operator is inside a customer's portal. They hold
+   * ordinary school_admin rights; this only makes that visible, so nobody —
+   * including the operator — mistakes the session for a member of the school.
+   */
+  platformAdminEmail?: string | null;
 }
 
 /** Top bar shared by every school portal. */
@@ -20,7 +26,10 @@ export function SchoolNavbar({
   userName,
   role,
   schoolSlug,
+  platformAdminEmail = null,
 }: SchoolNavbarProps) {
+  const isPlatformSession = platformAdminEmail !== null && platformAdminEmail !== '';
+
   return (
     <header className="flex h-16 shrink-0 items-center justify-between gap-4 border-b border-slate-200 bg-white px-4 sm:px-6">
       <div className="flex min-w-0 items-center gap-3">
@@ -52,9 +61,12 @@ export function SchoolNavbar({
       </div>
 
       <div className="flex items-center gap-3">
+        {isPlatformSession ? (
+          <Badge variant="warning">Platform Super Admin</Badge>
+        ) : null}
         <Badge variant="neutral">{ROLE_LABELS[role]}</Badge>
         <span className="hidden truncate text-sm text-slate-600 sm:inline">
-          {userName}
+          {isPlatformSession ? platformAdminEmail : userName}
         </span>
         <LogoutButton schoolSlug={schoolSlug} />
       </div>
