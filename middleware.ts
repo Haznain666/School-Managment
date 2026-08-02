@@ -39,6 +39,12 @@ import { SUPER_ADMIN_COOKIE, verifySuperAdminJWT } from '@/lib/super-admin-auth'
  * security: nothing renders or returns before the real check runs.
  */
 
+/**
+ * Remembers which school this browser is on, for hosts where the tenant cannot
+ * live in the hostname. See `schoolFromCookie` for why it exists.
+ */
+const SCHOOL_SLUG_COOKIE = 'school_slug';
+
 const SUPER_ADMIN_LOGIN_PATH = '/super-admin/login';
 const SCHOOL_LOGIN_PATH = '/login';
 const SCHOOL_NOT_FOUND_PATH = '/school-not-found';
@@ -100,17 +106,56 @@ function schoolFromQuery(request: NextRequest): string | null {
   return fromQuery !== null && fromQuery.trim() !== '' ? fromQuery.trim() : null;
 }
 
-function slugForRequest(request: NextRequest): string | null {
+/**
+ * The tenant remembered from an earlier request on this host.
+ *
+ * ── Why this is needed ───────────────────────────────────────────────────
+ * Without a wildcard domain the tenant travels in `?school=`, and a query
+ * string survives exactly one navigation. Every in-app link is a bare path —
+ * `<Link href="/dashboard/fees">` — so the first click after signing in
+ * arrived with no tenant, resolved to nothing, and was rewritten to
+ * /school-not-found. The dashboard worked only because the redirect that
+ * landed on it still carried the parameter.
+ *
+ * Threading the parameter through every link in the application would be the
+ * other fix, and a worse one: it is dozens of call sites, each of which is one
+ * forgotten `?school=` away from reintroducing this.
+ *
+ * ── Why it is safe ───────────────────────────────────────────────────────
+ * Same reasoning as the query parameter it backs up: selecting a tenant is not
+ * entering it. `requireSchoolRole` and `withSchoolAuth` compare the resolved
+ * location against the session's own claims, so a stale or forged cookie
+ * cannot open a school the caller has no session for — at worst it bounces
+ * them to login. The query parameter still wins when present, so switching
+ * schools works and refreshes this.
+ */
+function schoolFromCookie(request: NextRequest): string | null {
+  const value = request.cookies.get(SCHOOL_SLUG_COOKIE)?.value;
+  return value !== undefined && value.trim() !== '' ? value.trim() : null;
+}
+
+interface SlugResolution {
+  slug: string | null;
+  /** True when the hostname itself carried the tenant, so nothing is stored. */
+  fromHost: boolean;
+}
+
+function slugForRequest(request: NextRequest): SlugResolution {
   const host = request.headers.get('host') ?? '';
 
   if (process.env.NODE_ENV === 'development' || isLocalHostname(host)) {
-    return schoolFromQuery(request);
+    return {
+      slug: schoolFromQuery(request) ?? schoolFromCookie(request),
+      fromHost: false,
+    };
   }
 
   const baseDomain = process.env['PLATFORM_BASE_DOMAIN'] ?? publicEnv.appDomain;
 
   const fromHost = subdomainFromHost(host, baseDomain);
-  if (fromHost !== null) return fromHost;
+  // The hostname carries the tenant on its own — nothing to remember, and a
+  // remembered value must never be able to override it.
+  if (fromHost !== null) return { slug: fromHost, fromHost: true };
 
   /**
    * Deployment hosts that are not part of the platform domain — a bare
@@ -134,7 +179,12 @@ function slugForRequest(request: NextRequest): string | null {
   const isPlatformHost =
     apex !== '' && (hostname === apex || hostname.endsWith(`.${apex}`));
 
-  return isPlatformHost ? null : schoolFromQuery(request);
+  return {
+    slug: isPlatformHost
+      ? null
+      : (schoolFromQuery(request) ?? schoolFromCookie(request)),
+    fromHost: false,
+  };
 }
 
 /** Fresh headers with any client-supplied middleware headers stripped. */
@@ -211,7 +261,7 @@ export async function middleware(request: NextRequest): Promise<NextResponse> {
   }
 
   // -- Resolve the school ---------------------------------------------------
-  const slug = slugForRequest(request);
+  const { slug, fromHost } = slugForRequest(request);
 
   const isProtected = PROTECTED_PREFIXES.some(
     (prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`),
@@ -251,11 +301,45 @@ export async function middleware(request: NextRequest): Promise<NextResponse> {
     if (session === undefined || session === '') {
       const login = withSchoolParam(new URL(SCHOOL_LOGIN_PATH, request.url), request);
       login.searchParams.set('next', pathname);
-      return NextResponse.redirect(login);
+      return rememberSchool(NextResponse.redirect(login), school.slug, fromHost);
     }
   }
 
-  return NextResponse.next({ request: { headers } });
+  return rememberSchool(
+    NextResponse.next({ request: { headers } }),
+    school.slug,
+    fromHost,
+  );
+}
+
+/**
+ * Stores the resolved tenant so the next bare in-app link still finds it.
+ *
+ * Skipped when the hostname carried the tenant itself: on `<slug>.platform.com`
+ * the subdomain is the authority, and a cookie there could only ever disagree
+ * with it. Refreshed on every request, so switching schools with `?school=`
+ * takes effect immediately rather than being pinned by a stale value.
+ */
+function rememberSchool(
+  response: NextResponse,
+  slug: string,
+  fromHost: boolean,
+): NextResponse {
+  if (fromHost) return response;
+
+  response.cookies.set({
+    name: SCHOOL_SLUG_COOKIE,
+    value: slug,
+    // Not a credential — it selects a tenant, it does not authorise one — but
+    // there is no reason for scripts to read it either.
+    httpOnly: true,
+    sameSite: 'lax',
+    secure: process.env.NODE_ENV === 'production',
+    path: '/',
+    maxAge: 14 * 24 * 60 * 60,
+  });
+
+  return response;
 }
 
 export const config = {
