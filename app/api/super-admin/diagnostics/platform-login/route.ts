@@ -131,6 +131,17 @@ export async function GET(request: NextRequest) {
       platformBaseDomain: serverEnv('PLATFORM_BASE_DOMAIN', ''),
       publicAppDomain: publicEnv.appDomain,
       nodeEnv: process.env.NODE_ENV ?? null,
+      // The browser half of the sign-in. These are inlined into the client
+      // bundle at build time; what is reported here is only whether the
+      // deployment has them at all. Absent here is conclusive — present here
+      // still requires the build to have run after they were set.
+      browserFirebaseConfig: {
+        apiKey: publicEnv.firebase.apiKey !== '',
+        authDomain: publicEnv.firebase.authDomain !== '',
+        projectId: publicEnv.firebase.projectId !== '',
+        appId: publicEnv.firebase.appId !== '',
+        note: 'NEXT_PUBLIC_* values are inlined at build time — set them, then redeploy.',
+      },
     };
 
     // ---- School -----------------------------------------------------------

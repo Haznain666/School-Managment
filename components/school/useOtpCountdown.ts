@@ -38,17 +38,32 @@ export function useOtpCountdown(): {
   return { secondsLeft, canResend: secondsLeft <= 0, start };
 }
 
-/** Exchanges a Firebase custom token for a server session cookie. */
+/**
+ * Exchanges a Firebase custom token for a server session cookie.
+ *
+ * ── On the shape of this try block ───────────────────────────────────────
+ * The two dynamic imports and `getFirebaseClientAuth()` used to sit *above*
+ * the try. Both can throw — a chunk that fails to load, or a browser bundle
+ * built without the `NEXT_PUBLIC_FIREBASE_*` values, which makes
+ * `getFirebaseClientAuth()` throw "Firebase is not configured" — and because
+ * they were outside, that throw escaped this function entirely and surfaced in
+ * each caller's own catch-all as a network error. A misconfigured build
+ * therefore reported itself as "could not reach the server", which is the one
+ * thing it was not.
+ *
+ * Everything that can fail now lives inside, and the real message is returned
+ * rather than replaced with a fixed string.
+ */
 export async function establishSession(
   customToken: string,
   schoolSlug: string | null,
 ): Promise<{ role: string } | { error: string }> {
-  const { signInWithCustomToken } = await import('firebase/auth');
-  const { getFirebaseClientAuth } = await import('@/lib/firebase-client');
-
-  const auth = getFirebaseClientAuth();
-
   try {
+    const { signInWithCustomToken } = await import('firebase/auth');
+    const { getFirebaseClientAuth } = await import('@/lib/firebase-client');
+
+    const auth = getFirebaseClientAuth();
+
     const credential = await signInWithCustomToken(auth, customToken);
     // Force-refresh so the claims minted moments ago are present rather than
     // served from a cached token.
@@ -76,7 +91,11 @@ export async function establishSession(
     }
 
     return { role: payload.data.role };
-  } catch {
-    return { error: 'Could not start your session. Please try again.' };
+  } catch (error) {
+    // The message matters here: "Firebase is not configured" and a Firebase
+    // auth code are different problems with different fixes, and collapsing
+    // both into one sentence is what made this hard to place.
+    const detail = error instanceof Error ? error.message : String(error);
+    return { error: `Could not start your session. ${detail}`.slice(0, 300) };
   }
 }
