@@ -5,7 +5,7 @@ import { schools } from '@/db/schema';
 import { apiSuccess, handleApiError } from '@/lib/api-response';
 import { db } from '@/lib/drizzle';
 import { publicEnv, serverEnv } from '@/lib/env';
-import { getAdminAuth } from '@/lib/firebase-admin';
+import { adminCredentialSummary, getAdminAuth } from '@/lib/firebase-admin';
 import {
   buildHandoffUrl,
   derivePlatformAdminUid,
@@ -237,7 +237,11 @@ export async function GET(request: NextRequest) {
     steps.push(
       await step('firebase-admin-init', async () => {
         const auth = getAdminAuth();
-        return `initialised, app ${auth.app.name}`;
+        // Naming the project is what separates "Authentication was never
+        // enabled" from "enabled, but on a different project than this key" —
+        // the two causes of auth/configuration-not-found.
+        const { projectId, clientEmail } = adminCredentialSummary();
+        return `initialised app ${auth.app.name} for project "${projectId}" (${clientEmail})`;
       }),
     );
 

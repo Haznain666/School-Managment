@@ -4,7 +4,7 @@ import type { NextRequest } from 'next/server';
 import { schools } from '@/db/schema';
 import { apiFailure, apiSuccess, handleApiError } from '@/lib/api-response';
 import { db } from '@/lib/drizzle';
-import { getAdminAuth } from '@/lib/firebase-admin';
+import { adminCredentialSummary, getAdminAuth } from '@/lib/firebase-admin';
 import { derivePlatformAdminUid, verifyHandoffToken } from '@/lib/platform-school-access';
 import { SCHOOL_LOCATION_HEADER } from '@/lib/school-context';
 
@@ -30,6 +30,31 @@ export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 type RouteContext = { params: Promise<{ token: string }> };
+
+/**
+ * Turns a Firebase error code into the thing an operator actually has to go
+ * and do. Only for codes whose name does not say it: `auth/user-not-found`
+ * explains itself, `auth/configuration-not-found` names a condition most
+ * people meet once and have to search for.
+ */
+function explain(code: unknown): string {
+  if (code !== 'auth/configuration-not-found') return '';
+
+  let project = 'the configured project';
+  try {
+    project = `project "${adminCredentialSummary().projectId}"`;
+  } catch {
+    // The summary re-reads the credentials; if that now fails, the code above
+    // is the more useful error anyway.
+  }
+
+  return (
+    ` — Firebase Authentication has not been enabled for ${project}. ` +
+    'Open Firebase Console → Authentication → Get started for that exact ' +
+    'project, then retry. If Authentication is already enabled there, the ' +
+    'service-account key belongs to a different project.'
+  );
+}
 
 export async function POST(request: NextRequest, context: RouteContext) {
   try {
@@ -155,7 +180,8 @@ export async function POST(request: NextRequest, context: RouteContext) {
 
       return apiFailure(
         'firebase_unavailable',
-        `Firebase rejected the request at step "${firebaseStep}": ${detail.slice(0, 300)}`,
+        `Firebase rejected the request at step "${firebaseStep}": ` +
+          `${detail.slice(0, 300)}${explain(code)}`,
         503,
       );
     }
