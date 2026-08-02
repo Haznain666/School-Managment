@@ -28,6 +28,26 @@ export function isFirebaseClientConfigured(): boolean {
   return firebaseConfig.apiKey !== '' && firebaseConfig.projectId !== '';
 }
 
+/**
+ * Which of the browser variables are absent from this bundle.
+ *
+ * `NEXT_PUBLIC_*` values are inlined at build time, not read at runtime — so
+ * an empty one here means it was missing from the environment when the bundle
+ * was compiled, and adding it to the host now changes nothing until a rebuild.
+ * That distinction is the whole reason this list exists: naming the variables
+ * is not enough, the message has to say when they are read.
+ */
+export function missingFirebaseClientKeys(): string[] {
+  const required: ReadonlyArray<[string, string]> = [
+    ['NEXT_PUBLIC_FIREBASE_API_KEY', firebaseConfig.apiKey],
+    ['NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN', firebaseConfig.authDomain],
+    ['NEXT_PUBLIC_FIREBASE_PROJECT_ID', firebaseConfig.projectId],
+    ['NEXT_PUBLIC_FIREBASE_APP_ID', firebaseConfig.appId],
+  ];
+
+  return required.filter(([, value]) => value === '').map(([name]) => name);
+}
+
 export function getFirebaseClientApp(): FirebaseApp {
   if (typeof window === 'undefined') {
     throw new Error(
@@ -36,8 +56,11 @@ export function getFirebaseClientApp(): FirebaseApp {
   }
 
   if (!isFirebaseClientConfigured()) {
+    const missing = missingFirebaseClientKeys();
     throw new Error(
-      'Firebase is not configured. Set the NEXT_PUBLIC_FIREBASE_* variables.',
+      'Firebase browser configuration is missing from this build: ' +
+        `${missing.join(', ')}. These are inlined at build time, so set them ` +
+        'on the host and redeploy — adding them without rebuilding has no effect.',
     );
   }
 

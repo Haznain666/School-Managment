@@ -95,11 +95,18 @@ export function PlatformLoginClient({ token, schoolSlug }: PlatformLoginClientPr
           slug === '' ? '/dashboard' : `/dashboard?school=${encodeURIComponent(slug)}`,
         );
         router.refresh();
-      } catch {
+      } catch (caught) {
+        // Reached only when something outside the guarded paths throws. It is
+        // reported verbatim rather than as "could not reach the server":
+        // labelling every unexpected throw a network fault is what sent the
+        // last round of debugging looking at connectivity.
         if (!cancelled) {
           setFailure({
-            code: 'network',
-            message: 'Could not reach the server. Try again.',
+            code: 'client_error',
+            message:
+              caught instanceof Error
+                ? caught.message.slice(0, 300)
+                : 'Something failed in the browser before the session could start.',
           });
         }
       }
