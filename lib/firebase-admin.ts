@@ -138,6 +138,24 @@ function readCredentials(): {
   };
 }
 
+/**
+ * The non-secret half of the resolved credentials.
+ *
+ * Which project the key actually belongs to is the question behind most
+ * Firebase misconfigurations — `auth/configuration-not-found` means either
+ * "Authentication was never enabled" or "enabled, but on a different project
+ * than this key". Naming the project separates the two, and neither field is
+ * a secret: the id appears in every console URL and the service-account
+ * address in the IAM list. The private key is never returned.
+ */
+export function adminCredentialSummary(): {
+  projectId: string;
+  clientEmail: string;
+} {
+  const { projectId, clientEmail } = readCredentials();
+  return { projectId, clientEmail };
+}
+
 function buildAdminApp(): App {
   const { projectId, clientEmail, privateKey } = readCredentials();
 
