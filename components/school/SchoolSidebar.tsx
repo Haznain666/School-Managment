@@ -42,7 +42,6 @@ export function SchoolSidebar({ role, moduleFlags }: SchoolSidebarProps) {
   // sprint builds them, but they only appear at all once the module is on.
   const moduleNav: Array<{ key: keyof SchoolModuleFlags; label: string; href: string }> = [
     { key: 'lms', label: 'LMS', href: '/dashboard/lms' },
-    { key: 'hr_payroll', label: 'HR & Payroll', href: '/dashboard/hr' },
     { key: 'event_mgmt', label: 'Events', href: '/dashboard/events' },
   ];
 
@@ -104,6 +103,33 @@ export function SchoolSidebar({ role, moduleFlags }: SchoolSidebarProps) {
         { label: 'Settings', href: '/dashboard/fees/settings' },
       ],
     });
+  }
+
+  // HR and Payroll are two sections rather than one, because they have
+  // different audiences: an accountant reconciles the salary bill and belongs
+  // in Payroll, but has no business in a teacher's personnel file, and a branch
+  // admin is the mirror image. The role lists here match the layouts that
+  // enforce them, so a link never leads somewhere the guard will bounce.
+  if (moduleFlags.hr_payroll) {
+    if (role === 'school_admin' || role === 'hr_manager' || role === 'branch_admin') {
+      sections.push({
+        label: 'HR',
+        items: [
+          { label: 'Overview', href: '/dashboard/hr' },
+          { label: 'Staff', href: '/dashboard/hr/staff' },
+          { label: 'Salary Components', href: '/dashboard/hr/salary-components' },
+          { label: 'Leave', href: '/dashboard/hr/leave' },
+          { label: 'Staff Register', href: '/dashboard/hr/attendance' },
+        ],
+      });
+    }
+
+    if (role === 'school_admin' || role === 'hr_manager' || role === 'accountant') {
+      sections.push({
+        label: 'Payroll',
+        items: [{ label: 'Payroll Runs', href: '/dashboard/payroll' }],
+      });
+    }
   }
 
   return (

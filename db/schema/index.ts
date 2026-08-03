@@ -45,3 +45,7 @@ export * from './subjects';
 export * from './timetable-slots';
 export * from './timetable-entries';
 export * from './attendance-records';
+
+// Sprint 7 — HR & Payroll. `./hr` is the barrel for the module's own tables;
+// the employment record itself is `./staff`, exported above.
+export * from './hr';

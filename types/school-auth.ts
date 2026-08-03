@@ -129,6 +129,46 @@ export const ATTENDANCE_MARK_ROLES: readonly UserRole[] = [
   'teacher',
 ];
 
+/**
+ * Roles that may read HR data — the staff directory, leave and the staff
+ * register. A branch admin is included so they can see their own branch's
+ * staff; the routes narrow that to their branch, the role list only opens
+ * the door.
+ */
+export const HR_READ_ROLES: readonly UserRole[] = [
+  'school_admin',
+  'branch_admin',
+  'hr_manager',
+];
+
+/**
+ * Roles that may change HR data: add staff, set salaries, decide leave.
+ * Narrower than the read list on purpose — a branch admin reads their branch's
+ * staff, they do not set anyone's pay.
+ */
+export const HR_WRITE_ROLES: readonly UserRole[] = ['school_admin', 'hr_manager'];
+
+/**
+ * Roles that may read payroll — runs, payslips and the salary bill. The
+ * accountant is included because reconciling the bank against the payroll is
+ * their job.
+ */
+export const PAYROLL_READ_ROLES: readonly UserRole[] = [
+  'school_admin',
+  'hr_manager',
+  'accountant',
+];
+
+/**
+ * Roles that may raise, approve and pay a payroll run.
+ *
+ * Deliberately excludes the accountant: they see the payroll and reconcile it,
+ * but the person who computes what staff are owed and the person who moves the
+ * money should not be the same one. It also excludes the branch admin, who has
+ * no business approving a salary bill at all.
+ */
+export const PAYROLL_WRITE_ROLES: readonly UserRole[] = ['school_admin', 'hr_manager'];
+
 /** Roles for which a branch assignment is mandatory. */
 export const BRANCH_REQUIRED_ROLES: readonly UserRole[] = [
   'branch_admin',
