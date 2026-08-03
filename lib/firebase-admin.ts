@@ -7,6 +7,10 @@ import 'server-only';
  * separated by the `locationId` custom claim, so this module is what mints and
  * verifies the only credential that carries tenant identity.
  *
+ * Storage is deliberately absent: files live in Supabase Storage, because
+ * Firebase Storage requires the Blaze plan while Authentication and the
+ * Realtime Database do not. See `lib/storage.ts`.
+ *
  * Requires the Node.js runtime: any route handler or layout that touches it
  * must declare `export const runtime = 'nodejs'`, and it can never be used from
  * Edge middleware.
@@ -14,7 +18,6 @@ import 'server-only';
 import { cert, getApps, initializeApp, type App } from 'firebase-admin/app';
 import { getAuth, type Auth, type DecodedIdToken } from 'firebase-admin/auth';
 import { getDatabase, type Database } from 'firebase-admin/database';
-import { getStorage, type Storage } from 'firebase-admin/storage';
 
 import { requireServerEnv, serverEnv } from './env';
 
@@ -159,31 +162,9 @@ export function adminCredentialSummary(): {
 function buildAdminApp(): App {
   const { projectId, clientEmail, privateKey } = readCredentials();
 
-  /**
-   * The Storage bucket is set only when it has been named explicitly.
-   *
-   * This used to default to `${projectId}.appspot.com`, which is wrong for
-   * every Firebase project created from 30 October 2024 onwards — those get
-   * `<project-id>.firebasestorage.app` instead. The guess produced uploads
-   * failing against a bucket that had never existed, reported by GCS as "The
-   * specified bucket does not exist" with no bucket named in the message.
-   *
-   * There is no safe default, so there is no default. `lib/storage-bucket.ts`
-   * resolves the real name — from this variable when set, otherwise by probing
-   * both conventions — and every call site passes it explicitly.
-   */
-  const storageBucket = process.env['FIREBASE_ADMIN_STORAGE_BUCKET']
-    ?.trim()
-    .replace(/^["']|["']$/g, '')
-    .replace(/^gs:\/\//i, '')
-    .replace(/\/+$/, '');
-
   return initializeApp(
     {
       credential: cert({ projectId, clientEmail, privateKey }),
-      ...(storageBucket === undefined || storageBucket === ''
-        ? {}
-        : { storageBucket }),
       databaseURL: serverEnv(
         'FIREBASE_ADMIN_DATABASE_URL',
         `https://${projectId}-default-rtdb.firebaseio.com`,
@@ -204,10 +185,6 @@ export function getAdminApp(): App {
 
 export function getAdminAuth(): Auth {
   return getAuth(getAdminApp());
-}
-
-export function getAdminStorage(): Storage {
-  return getStorage(getAdminApp());
 }
 
 export function getAdminDatabase(): Database {

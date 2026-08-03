@@ -13,7 +13,7 @@ import { isUuid } from '@/lib/validation';
 /**
  * POST /api/super-admin/schools/[schoolId]/branding/upload
  *
- * Multipart upload of a school logo. Stores it under
+ * Multipart upload of a school logo. Stores it in Supabase Storage under
  * `/{locationId}/_school/branding/logo.{ext}`, derives three candidate colour
  * palettes from the image, and saves all of it against the school.
  *
@@ -40,7 +40,11 @@ type RouteContext = { params: Promise<{ schoolId: string }> };
 
 export async function POST(request: NextRequest, context: RouteContext) {
   try {
-    const session = await requireSuperAdmin();
+    // Still the gate, even though the operator's address is no longer recorded
+    // on the object — Supabase Storage has no equivalent of GCS custom
+    // metadata on this endpoint, and inventing a side table to hold one string
+    // would be more machinery than the audit trail is worth.
+    await requireSuperAdmin();
 
     const { schoolId } = await context.params;
     if (!isUuid(schoolId)) {
@@ -100,7 +104,6 @@ export async function POST(request: NextRequest, context: RouteContext) {
         storagePath,
         buffer,
         contentType: file.type,
-        metadata: { uploadedBy: session.email, locationId },
       }),
       // SVGs are rasterised by sharp before extraction; if that fails,
       // extractPalettes falls back to defaults rather than throwing.

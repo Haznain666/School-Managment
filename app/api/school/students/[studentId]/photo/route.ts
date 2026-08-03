@@ -11,11 +11,11 @@ import { isUuid } from '@/lib/validation';
 /**
  * POST /api/school/students/[studentId]/photo — multipart photo upload.
  *
- * Uploads run through the server rather than the browser's Firebase SDK for the
- * same reason the logo upload does: the Admin SDK writes a stable download
- * token, and the object path is decided here instead of being trusted from the
- * client. The leading `{locationId}` segment is what `storage.rules` matches
- * on, so a photo can only ever land inside its own school's prefix.
+ * Uploads run through the server rather than the browser for the same reason
+ * the logo upload does: the object path is decided here from verified claims
+ * instead of being trusted from the client, so a photo can only ever land
+ * inside its own school's prefix. The Supabase service-role key never leaves
+ * the server, so no browser can write to Storage directly at all.
  *
  * Called after the student exists, because the path is keyed by their record.
  */
@@ -73,7 +73,6 @@ export const POST = withSchoolAuth<RouteContext>(
         storagePath: `${auth.locationId}/students/${studentId}/photo.${extension}`,
         buffer: Buffer.from(await file.arrayBuffer()),
         contentType: file.type,
-        metadata: { uploadedBy: auth.uid, studentId: student.studentId },
       });
 
       await db

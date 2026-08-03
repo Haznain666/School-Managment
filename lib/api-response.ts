@@ -3,7 +3,7 @@ import { NextResponse } from 'next/server';
 import { GhlApiError } from './ghl-client';
 import { GhlTokenError } from './ghl-tokens';
 import { MissingEnvError } from './env';
-import { StorageConfigError } from './storage-bucket';
+import { StorageConfigError } from './storage';
 import { SuperAdminAuthError } from './super-admin-guard';
 
 /**
