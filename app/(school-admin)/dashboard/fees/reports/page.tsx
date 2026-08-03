@@ -2,8 +2,7 @@ import type { Metadata } from 'next';
 
 import { FeeReports } from '@/components/fees/FeeReports';
 import { listGrades } from '@/lib/admissions-queries';
-import { requireSchoolRole } from '@/lib/school-guard';
-import { FEE_READ_ROLES, FEE_WRITE_ROLES } from '@/types/school-auth';
+import { requireSchoolPermission } from '@/lib/school-guard';
 
 export const metadata: Metadata = {
   title: 'Fee reports',
@@ -13,7 +12,7 @@ export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 
 export default async function FeeReportsPage() {
-  const { claims, locationId } = await requireSchoolRole(FEE_READ_ROLES);
+  const { claims, locationId, permissions } = await requireSchoolPermission('fees.read');
 
   // A branch-scoped admin only ever sees their own branch's grades.
   const grades = await listGrades(locationId, claims.branchId ?? undefined);
@@ -29,7 +28,7 @@ export default async function FeeReportsPage() {
 
       <FeeReports
         grades={grades.map((grade) => ({ id: grade.id, label: grade.label }))}
-        canSendReminders={FEE_WRITE_ROLES.includes(claims.role)}
+        canSendReminders={permissions.includes('fees.write')}
       />
     </div>
   );

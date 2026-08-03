@@ -64,6 +64,20 @@
       "when": 1785568070310,
       "tag": "0008_sprint6_academics_timetable",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1785756979381,
+      "tag": "0009_sprint7_hr_payroll",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1785759630932,
+      "tag": "0010_sprint8_roles_permissions",
+      "breakpoints": true
     }
   ]
 }

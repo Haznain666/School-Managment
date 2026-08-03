@@ -7,8 +7,7 @@ import {
   getActiveAcademicYear,
   listAdmissionsBranches,
 } from '@/lib/admissions-queries';
-import { requireSchoolRole } from '@/lib/school-guard';
-import { ADMIN_PORTAL_ROLES } from '@/types/school-auth';
+import { requireSchoolPermission } from '@/lib/school-guard';
 
 export const metadata: Metadata = {
   title: 'Grades & sections',
@@ -28,7 +27,7 @@ export default async function GradesPage({
 }: {
   searchParams: Promise<{ branch?: string }>;
 }) {
-  const { claims, locationId } = await requireSchoolRole(ADMIN_PORTAL_ROLES);
+  const { claims, locationId } = await requireSchoolPermission('admissions.read');
 
   const [branches, activeYear] = await Promise.all([
     listAdmissionsBranches(locationId),

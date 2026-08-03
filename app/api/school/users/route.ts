@@ -53,7 +53,7 @@ export const GET = withSchoolAuth(
       return handleApiError(error);
     }
   },
-  { allowedRoles: ['school_admin', 'branch_admin', 'hr_manager'] },
+  { permission: 'users.read' },
 );
 
 interface CreateUserBody {
@@ -137,5 +137,5 @@ export const POST = withSchoolAuth(
       return handleApiError(error);
     }
   },
-  { allowedRoles: ['school_admin', 'hr_manager'] },
+  { permission: 'users.write' },
 );

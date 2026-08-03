@@ -5,8 +5,7 @@ import { Card, CardTitle } from '@/components/ui/Card';
 import { getActiveAcademicYear } from '@/lib/admissions-queries';
 import { getFeeOverview } from '@/lib/fee-queries';
 import { formatPkr } from '@/lib/money';
-import { requireSchoolRole } from '@/lib/school-guard';
-import { FEE_READ_ROLES, FEE_WRITE_ROLES } from '@/types/school-auth';
+import { requireSchoolPermission } from '@/lib/school-guard';
 
 export const metadata: Metadata = {
   title: 'Fees',
@@ -68,7 +67,7 @@ const MONTH_LABEL = new Intl.DateTimeFormat('en-GB', {
  * widen it to another tenant.
  */
 export default async function FeesOverviewPage() {
-  const { claims, locationId } = await requireSchoolRole(FEE_READ_ROLES);
+  const { locationId, permissions } = await requireSchoolPermission('fees.read');
 
   const [overview, activeYear] = await Promise.all([
     getFeeOverview(locationId),
@@ -76,7 +75,7 @@ export default async function FeesOverviewPage() {
   ]);
 
   const thisMonth = MONTH_LABEL.format(new Date());
-  const canWrite = FEE_WRITE_ROLES.includes(claims.role);
+  const canWrite = permissions.includes('fees.write');
 
   return (
     <div className="space-y-6">

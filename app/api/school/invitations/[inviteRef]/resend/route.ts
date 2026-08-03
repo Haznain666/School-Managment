@@ -117,5 +117,5 @@ export const POST = withSchoolAuth<RouteContext>(
       return handleApiError(error);
     }
   },
-  { allowedRoles: ['school_admin', 'hr_manager'] },
+  { permission: 'users.write' },
 );

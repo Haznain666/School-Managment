@@ -4,8 +4,7 @@ import Link from 'next/link';
 import { ChallanTable } from '@/components/fees/ChallanTable';
 import { Button } from '@/components/ui/Button';
 import { listAcademicYears, listGrades } from '@/lib/admissions-queries';
-import { requireSchoolRole } from '@/lib/school-guard';
-import { FEE_READ_ROLES, FEE_WRITE_ROLES } from '@/types/school-auth';
+import { requireSchoolPermission } from '@/lib/school-guard';
 
 export const metadata: Metadata = {
   title: 'Challans',
@@ -15,7 +14,7 @@ export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 
 export default async function ChallansPage() {
-  const { claims, locationId } = await requireSchoolRole(FEE_READ_ROLES);
+  const { claims, locationId, permissions } = await requireSchoolPermission('fees.read');
 
   const [academicYears, grades] = await Promise.all([
     listAcademicYears(locationId),
@@ -23,7 +22,7 @@ export default async function ChallansPage() {
     listGrades(locationId, claims.branchId ?? undefined),
   ]);
 
-  const canGenerate = FEE_WRITE_ROLES.includes(claims.role);
+  const canGenerate = permissions.includes('fees.write');
 
   return (
     <div className="space-y-6">

@@ -6,7 +6,6 @@ import { apiFailure, apiSuccess, handleApiError, readJsonBody } from '@/lib/api-
 import { getSubject } from '@/lib/academics-queries';
 import { db } from '@/lib/drizzle';
 import { isUuid, readBoolean, readOptionalString, readString } from '@/lib/validation';
-import { ACADEMICS_READ_ROLES, ACADEMICS_WRITE_ROLES } from '@/types/school-auth';
 
 /**
  * /api/school/subjects/[id]
@@ -40,7 +39,7 @@ export const GET = withSchoolAuth<RouteContext>(
       return handleApiError(error);
     }
   },
-  { allowedRoles: ACADEMICS_READ_ROLES },
+  { permission: 'academics.read' },
 );
 
 interface UpdateSubjectBody {
@@ -137,7 +136,7 @@ export const PUT = withSchoolAuth<RouteContext>(
       return handleApiError(error);
     }
   },
-  { allowedRoles: ACADEMICS_WRITE_ROLES },
+  { permission: 'academics.write' },
 );
 
 export const DELETE = withSchoolAuth<RouteContext>(
@@ -161,5 +160,5 @@ export const DELETE = withSchoolAuth<RouteContext>(
       return handleApiError(error);
     }
   },
-  { allowedRoles: ACADEMICS_WRITE_ROLES },
+  { permission: 'academics.write' },
 );

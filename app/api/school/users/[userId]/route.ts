@@ -45,7 +45,7 @@ export const GET = withSchoolAuth<RouteContext>(
       return handleApiError(error);
     }
   },
-  { allowedRoles: ['school_admin', 'branch_admin', 'hr_manager'] },
+  { permission: 'users.read' },
 );
 
 interface UpdateUserBody {
@@ -175,7 +175,7 @@ export const PATCH = withSchoolAuth<RouteContext>(
       return handleApiError(error);
     }
   },
-  { allowedRoles: ['school_admin', 'hr_manager'] },
+  { permission: 'users.write' },
 );
 
 export const DELETE = withSchoolAuth(
@@ -185,5 +185,5 @@ export const DELETE = withSchoolAuth(
       'Users are deactivated, not deleted. PATCH with isActive: false.',
       405,
     ),
-  { allowedRoles: ['school_admin', 'hr_manager'] },
+  { permission: 'users.write' },
 );

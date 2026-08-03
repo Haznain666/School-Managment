@@ -5,7 +5,6 @@ import { db } from '@/lib/drizzle';
 import { DEFAULT_DUE_DAY, getLateFeeRule } from '@/lib/fee-queries';
 import { paiseToNumeric, toPaise } from '@/lib/money';
 import { readBoolean } from '@/lib/validation';
-import { FEE_READ_ROLES } from '@/types/school-auth';
 
 /**
  * /api/school/fees/settings
@@ -46,7 +45,7 @@ export const GET = withSchoolAuth(
       return handleApiError(error);
     }
   },
-  { allowedRoles: FEE_READ_ROLES },
+  { permission: 'fees.read' },
 );
 
 interface UpdateSettingsBody {
@@ -167,5 +166,5 @@ export const PATCH = withSchoolAuth(
       return handleApiError(error);
     }
   },
-  { allowedRoles: ['school_admin'] },
+  { permission: 'fees.write' },
 );

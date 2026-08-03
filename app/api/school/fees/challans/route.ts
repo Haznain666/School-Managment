@@ -5,7 +5,6 @@ import { ChallanGenerationError, generateChallan } from '@/lib/fee-challans';
 import { listChallans } from '@/lib/fee-queries';
 import { ChallanNumberError } from '@/lib/challan-number';
 import { isUuid, readOptionalString } from '@/lib/validation';
-import { FEE_READ_ROLES, FEE_WRITE_ROLES } from '@/types/school-auth';
 
 /**
  * /api/school/fees/challans
@@ -56,7 +55,7 @@ export const GET = withSchoolAuth(
       return handleApiError(error);
     }
   },
-  { allowedRoles: FEE_READ_ROLES },
+  { permission: 'fees.read' },
 );
 
 interface CreateChallanBody {
@@ -131,5 +130,5 @@ export const POST = withSchoolAuth(
       return handleApiError(error);
     }
   },
-  { allowedRoles: FEE_WRITE_ROLES },
+  { permission: 'fees.write' },
 );

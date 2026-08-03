@@ -13,7 +13,6 @@ import { listSectionRegister, teacherTeachesSection } from '@/lib/academics-quer
 import { db } from '@/lib/drizzle';
 import { getSchoolUserByUid } from '@/lib/school-queries';
 import { isIsoDate, isUuid, readOptionalString } from '@/lib/validation';
-import { ACADEMICS_READ_ROLES, ATTENDANCE_MARK_ROLES } from '@/types/school-auth';
 
 /**
  * /api/school/attendance
@@ -85,7 +84,7 @@ export const GET = withSchoolAuth(
       return handleApiError(error);
     }
   },
-  { allowedRoles: ACADEMICS_READ_ROLES },
+  { permission: 'academics.read' },
 );
 
 interface MarkRecordBody {
@@ -233,5 +232,5 @@ export const POST = withSchoolAuth(
       return handleApiError(error);
     }
   },
-  { allowedRoles: ATTENDANCE_MARK_ROLES },
+  { permission: 'attendance.mark' },
 );

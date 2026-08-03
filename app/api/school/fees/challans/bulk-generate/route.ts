@@ -8,7 +8,6 @@ import {
   listBulkCandidates,
 } from '@/lib/fee-challans';
 import { isUuid } from '@/lib/validation';
-import { FEE_READ_ROLES, FEE_WRITE_ROLES } from '@/types/school-auth';
 
 /**
  * /api/school/fees/challans/bulk-generate
@@ -110,7 +109,7 @@ export const GET = withSchoolAuth(
       return handleApiError(error);
     }
   },
-  { allowedRoles: FEE_READ_ROLES },
+  { permission: 'fees.read' },
 );
 
 export const POST = withSchoolAuth(
@@ -158,5 +157,5 @@ export const POST = withSchoolAuth(
       return handleApiError(error);
     }
   },
-  { allowedRoles: FEE_WRITE_ROLES },
+  { permission: 'fees.write' },
 );

@@ -10,7 +10,6 @@ import { getChallanDetail } from '@/lib/fee-queries';
 import { sendPaymentConfirmationWhatsApp } from '@/lib/ghl-fees';
 import { formatAmount, paiseToNumeric, toPaise } from '@/lib/money';
 import { isUuid, readOptionalString } from '@/lib/validation';
-import { FEE_READ_ROLES, FEE_WRITE_ROLES } from '@/types/school-auth';
 
 /**
  * /api/school/fees/challans/[challanId]/payments
@@ -68,7 +67,7 @@ export const GET = withSchoolAuth<RouteContext>(
       return handleApiError(error);
     }
   },
-  { allowedRoles: FEE_READ_ROLES },
+  { permission: 'fees.read' },
 );
 
 interface RecordPaymentBody {
@@ -216,5 +215,5 @@ export const POST = withSchoolAuth<RouteContext>(
       return handleApiError(error);
     }
   },
-  { allowedRoles: FEE_WRITE_ROLES },
+  { permission: 'fees.write' },
 );

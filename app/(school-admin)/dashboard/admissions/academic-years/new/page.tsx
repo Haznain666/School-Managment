@@ -2,7 +2,7 @@ import type { Metadata } from 'next';
 
 import { AcademicYearForm } from '@/components/admissions/AcademicYearForm';
 import { getActiveAcademicYear } from '@/lib/admissions-queries';
-import { requireSchoolRole } from '@/lib/school-guard';
+import { requireSchoolPermission } from '@/lib/school-guard';
 
 export const metadata: Metadata = {
   title: 'New academic year',
@@ -12,7 +12,7 @@ export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 
 export default async function NewAcademicYearPage() {
-  const { locationId } = await requireSchoolRole(['school_admin']);
+  const { locationId } = await requireSchoolPermission('admissions.write');
   const activeYear = await getActiveAcademicYear(locationId);
 
   return (

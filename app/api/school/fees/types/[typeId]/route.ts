@@ -6,7 +6,6 @@ import { apiFailure, apiSuccess, handleApiError, readJsonBody } from '@/lib/api-
 import { db } from '@/lib/drizzle';
 import { getFeeType } from '@/lib/fee-queries';
 import { isUuid, readBoolean, readOptionalString, readString } from '@/lib/validation';
-import { FEE_READ_ROLES, FEE_WRITE_ROLES } from '@/types/school-auth';
 
 /**
  * /api/school/fees/types/[typeId]
@@ -38,7 +37,7 @@ export const GET = withSchoolAuth<RouteContext>(
       return handleApiError(error);
     }
   },
-  { allowedRoles: FEE_READ_ROLES },
+  { permission: 'fees.read' },
 );
 
 interface UpdateFeeTypeBody {
@@ -127,5 +126,5 @@ export const PATCH = withSchoolAuth<RouteContext>(
       return handleApiError(error);
     }
   },
-  { allowedRoles: FEE_WRITE_ROLES },
+  { permission: 'fees.write' },
 );

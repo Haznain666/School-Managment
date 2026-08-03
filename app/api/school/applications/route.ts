@@ -37,5 +37,5 @@ export const GET = withSchoolAuth(
       return handleApiError(error);
     }
   },
-  { allowedRoles: ['school_admin', 'branch_admin', 'hr_manager'] },
+  { permission: 'admissions.read' },
 );

@@ -4,8 +4,7 @@ import Link from 'next/link';
 import { Badge } from '@/components/ui/Badge';
 import { Card, CardTitle } from '@/components/ui/Card';
 import { listSubjects } from '@/lib/academics-queries';
-import { requireSchoolRole } from '@/lib/school-guard';
-import { ACADEMICS_WRITE_ROLES, ADMIN_PORTAL_ROLES } from '@/types/school-auth';
+import { requireSchoolPermission } from '@/lib/school-guard';
 
 export const metadata: Metadata = {
   title: 'Subjects',
@@ -15,10 +14,10 @@ export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 
 export default async function SubjectsPage() {
-  const { claims, locationId } = await requireSchoolRole(ADMIN_PORTAL_ROLES);
+  const { locationId, permissions } = await requireSchoolPermission('academics.read');
   const subjects = await listSubjects(locationId);
 
-  const canEdit = ACADEMICS_WRITE_ROLES.includes(claims.role);
+  const canEdit = permissions.includes('academics.write');
 
   return (
     <div className="space-y-6">

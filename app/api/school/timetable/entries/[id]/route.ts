@@ -5,7 +5,6 @@ import { withSchoolAuth } from '@/lib/api-auth';
 import { apiFailure, apiSuccess, handleApiError } from '@/lib/api-response';
 import { db } from '@/lib/drizzle';
 import { isUuid } from '@/lib/validation';
-import { ACADEMICS_WRITE_ROLES } from '@/types/school-auth';
 
 /**
  * /api/school/timetable/entries/[id]
@@ -48,5 +47,5 @@ export const DELETE = withSchoolAuth<RouteContext>(
       return handleApiError(error);
     }
   },
-  { allowedRoles: ACADEMICS_WRITE_ROLES },
+  { permission: 'academics.write' },
 );

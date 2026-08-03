@@ -3,8 +3,7 @@ import type { Metadata } from 'next';
 import { AttendanceReports } from '@/components/academics/AttendanceReports';
 import { listAcademicYearOptions } from '@/lib/academics-queries';
 import { listGrades, listSections } from '@/lib/admissions-queries';
-import { requireSchoolRole } from '@/lib/school-guard';
-import { ADMIN_PORTAL_ROLES } from '@/types/school-auth';
+import { requireSchoolPermission } from '@/lib/school-guard';
 
 export const metadata: Metadata = {
   title: 'Attendance reports',
@@ -14,7 +13,7 @@ export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 
 export default async function AttendanceReportsPage() {
-  const { claims, locationId } = await requireSchoolRole(ADMIN_PORTAL_ROLES);
+  const { claims, locationId } = await requireSchoolPermission('academics.read');
 
   const [academicYears, grades, sections] = await Promise.all([
     listAcademicYearOptions(locationId),

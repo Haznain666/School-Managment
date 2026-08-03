@@ -2,8 +2,7 @@ import type { Metadata } from 'next';
 
 import { FeeSetupNav } from '@/components/fees/FeeSetupNav';
 import { FeeTypeManager } from '@/components/fees/FeeTypeManager';
-import { requireSchoolRole } from '@/lib/school-guard';
-import { FEE_READ_ROLES, FEE_WRITE_ROLES } from '@/types/school-auth';
+import { requireSchoolPermission } from '@/lib/school-guard';
 
 export const metadata: Metadata = {
   title: 'Fee types',
@@ -13,7 +12,7 @@ export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 
 export default async function FeeTypesPage() {
-  const { claims } = await requireSchoolRole(FEE_READ_ROLES);
+  const { permissions } = await requireSchoolPermission('fees.read');
 
   return (
     <div className="space-y-6">
@@ -27,7 +26,7 @@ export default async function FeeTypesPage() {
 
       <FeeSetupNav />
 
-      <FeeTypeManager canEdit={FEE_WRITE_ROLES.includes(claims.role)} />
+      <FeeTypeManager canEdit={permissions.includes('fees.write')} />
     </div>
   );
 }

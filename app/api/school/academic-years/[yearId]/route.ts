@@ -27,8 +27,6 @@ export const dynamic = 'force-dynamic';
 
 type RouteContext = { params: Promise<{ yearId: string }> };
 
-const READ_ROLES = ['school_admin', 'branch_admin', 'hr_manager', 'accountant'] as const;
-const WRITE_ROLES = ['school_admin'] as const;
 
 export const GET = withSchoolAuth<RouteContext>(
   async (_request, auth, context) => {
@@ -48,7 +46,7 @@ export const GET = withSchoolAuth<RouteContext>(
       return handleApiError(error);
     }
   },
-  { allowedRoles: READ_ROLES },
+  { permission: 'admissions.read' },
 );
 
 interface UpdateYearBody {
@@ -121,7 +119,7 @@ export const PATCH = withSchoolAuth<RouteContext>(
       return handleApiError(error);
     }
   },
-  { allowedRoles: WRITE_ROLES },
+  { permission: 'admissions.write' },
 );
 
 export const DELETE = withSchoolAuth<RouteContext>(
@@ -159,5 +157,5 @@ export const DELETE = withSchoolAuth<RouteContext>(
       return handleApiError(error);
     }
   },
-  { allowedRoles: WRITE_ROLES },
+  { permission: 'admissions.write' },
 );

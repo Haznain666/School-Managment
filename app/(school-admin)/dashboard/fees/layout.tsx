@@ -3,8 +3,7 @@ import type { ReactNode } from 'react';
 
 import { Card } from '@/components/ui/Card';
 import { getModuleFlags } from '@/lib/school-queries';
-import { requireSchoolRole } from '@/lib/school-guard';
-import { FEE_READ_ROLES } from '@/types/school-auth';
+import { requireSchoolPermission } from '@/lib/school-guard';
 
 /**
  * Module gate for every Fee Management screen.
@@ -20,7 +19,7 @@ export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 
 export default async function FeesLayout({ children }: { children: ReactNode }) {
-  const { locationId } = await requireSchoolRole(FEE_READ_ROLES);
+  const { locationId } = await requireSchoolPermission('fees.read');
   const moduleFlags = await getModuleFlags(locationId);
 
   if (!moduleFlags.fee_management) {

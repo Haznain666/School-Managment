@@ -4,8 +4,7 @@ import Link from 'next/link';
 import { AcademicYearTable } from '@/components/admissions/AcademicYearTable';
 import { Button } from '@/components/ui/Button';
 import { listAcademicYears } from '@/lib/admissions-queries';
-import { requireSchoolRole } from '@/lib/school-guard';
-import { ADMIN_PORTAL_ROLES } from '@/types/school-auth';
+import { requireSchoolPermission } from '@/lib/school-guard';
 
 export const metadata: Metadata = {
   title: 'Academic years',
@@ -15,7 +14,7 @@ export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 
 export default async function AcademicYearsPage() {
-  const { claims, locationId } = await requireSchoolRole(ADMIN_PORTAL_ROLES);
+  const { claims, locationId } = await requireSchoolPermission('admissions.read');
   const years = await listAcademicYears(locationId);
 
   const canEdit = claims.role === 'school_admin';

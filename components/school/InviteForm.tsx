@@ -9,8 +9,9 @@ import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
 import {
   BRANCH_REQUIRED_ROLES,
+  INVITABLE_ROLES,
+  ROLE_DESCRIPTIONS,
   ROLE_LABELS,
-  USER_ROLES,
   isUserRole,
   type UserRole,
 } from '@/types/school-auth';
@@ -30,7 +31,10 @@ interface InviteResponse {
   error?: { message: string };
 }
 
-const ROLE_OPTIONS = USER_ROLES.map((role) => ({
+// Students and parents are absent on purpose: those accounts come from the
+// admissions flow alongside a student record, and a bare "student" invite
+// produces a login that can see nothing.
+const ROLE_OPTIONS = INVITABLE_ROLES.map((role) => ({
   value: role,
   label: ROLE_LABELS[role],
 }));
@@ -175,6 +179,13 @@ export function InviteForm({ branches }: InviteFormProps) {
             placeholder="Select a role"
             required
             value={role}
+            // What a role may actually do is per school, so the one-liner is
+            // the honest summary rather than a promise about specific screens.
+            hint={
+              selectedRole === null
+                ? 'What each role may do is set under Settings → Permissions.'
+                : ROLE_DESCRIPTIONS[selectedRole]
+            }
             onChange={(event) => {
               setRole(event.target.value);
             }}

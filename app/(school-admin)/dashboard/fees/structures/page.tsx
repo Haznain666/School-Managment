@@ -5,8 +5,7 @@ import { FeeSetupNav } from '@/components/fees/FeeSetupNav';
 import { FeeStructureMatrix } from '@/components/fees/FeeStructureMatrix';
 import { Card } from '@/components/ui/Card';
 import { listAcademicYears, listAdmissionsBranches } from '@/lib/admissions-queries';
-import { requireSchoolRole } from '@/lib/school-guard';
-import { FEE_READ_ROLES, FEE_WRITE_ROLES } from '@/types/school-auth';
+import { requireSchoolPermission } from '@/lib/school-guard';
 
 export const metadata: Metadata = {
   title: 'Fee structure',
@@ -16,7 +15,7 @@ export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 
 export default async function FeeStructuresPage() {
-  const { claims, locationId } = await requireSchoolRole(FEE_READ_ROLES);
+  const { claims, locationId, permissions } = await requireSchoolPermission('fees.read');
 
   const [branches, academicYears] = await Promise.all([
     listAdmissionsBranches(locationId),
@@ -54,7 +53,7 @@ export default async function FeeStructuresPage() {
           branches={branches}
           academicYears={academicYears}
           lockedBranchId={claims.branchId}
-          canEdit={FEE_WRITE_ROLES.includes(claims.role)}
+          canEdit={permissions.includes('fees.write')}
         />
       )}
     </div>

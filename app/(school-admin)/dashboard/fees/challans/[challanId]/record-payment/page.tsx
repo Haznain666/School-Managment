@@ -7,9 +7,8 @@ import { Card } from '@/components/ui/Card';
 import { CHALLAN_STATUS_LABELS } from '@/db/schema/fee-challans';
 import { remainingBalance } from '@/lib/fee-calculator';
 import { getChallanDetail } from '@/lib/fee-queries';
-import { requireSchoolRole } from '@/lib/school-guard';
+import { requireSchoolPermission } from '@/lib/school-guard';
 import { isUuid } from '@/lib/validation';
-import { FEE_WRITE_ROLES } from '@/types/school-auth';
 
 export const metadata: Metadata = {
   title: 'Record payment',
@@ -23,7 +22,7 @@ export default async function RecordPaymentPage({
 }: {
   params: Promise<{ challanId: string }>;
 }) {
-  const { locationId } = await requireSchoolRole(FEE_WRITE_ROLES);
+  const { locationId } = await requireSchoolPermission('fees.write');
   const { challanId } = await params;
 
   if (!isUuid(challanId)) notFound();

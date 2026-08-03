@@ -15,9 +15,8 @@ import { PAYMENT_METHOD_LABELS } from '@/db/schema/fee-payments';
 import { daysOverdue } from '@/lib/fee-calculator';
 import { getChallanDetail, getLateFeeRule } from '@/lib/fee-queries';
 import { amountInWords, formatAmount, formatPkr, toPaise } from '@/lib/money';
-import { requireSchoolRole } from '@/lib/school-guard';
+import { requireSchoolPermission } from '@/lib/school-guard';
 import { isUuid } from '@/lib/validation';
-import { FEE_READ_ROLES, FEE_WRITE_ROLES } from '@/types/school-auth';
 
 export const metadata: Metadata = {
   title: 'Challan',
@@ -46,7 +45,7 @@ export default async function ChallanDetailPage({
 }: {
   params: Promise<{ challanId: string }>;
 }) {
-  const { claims, locationId } = await requireSchoolRole(FEE_READ_ROLES);
+  const { locationId, permissions } = await requireSchoolPermission('fees.read');
   const { challanId } = await params;
 
   if (!isUuid(challanId)) notFound();
@@ -112,7 +111,7 @@ export default async function ChallanDetailPage({
           status={challan.status}
           hasPayments={challan.payments.length > 0}
           hasGuardian={challan.guardian !== null}
-          canWrite={FEE_WRITE_ROLES.includes(claims.role)}
+          canWrite={permissions.includes('fees.write')}
           lateFeesEnabled={lateFeeRule?.isEnabled === true}
           isOverdue={overdueDays > 0}
         />

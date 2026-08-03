@@ -12,7 +12,7 @@ import {
 } from '@/lib/admissions-queries';
 import { db } from '@/lib/drizzle';
 import { MAX_GUARDIANS } from '@/lib/enrollment';
-import { requireSchoolRole } from '@/lib/school-guard';
+import { requireSchoolPermission } from '@/lib/school-guard';
 import { previewNextStudentId } from '@/lib/student-id';
 import { isUuid } from '@/lib/validation';
 
@@ -37,10 +37,7 @@ export default async function EnrollStudentPage({
 }: {
   searchParams: Promise<{ fromApplication?: string }>;
 }) {
-  const { claims, locationId } = await requireSchoolRole([
-    'school_admin',
-    'branch_admin',
-  ]);
+  const { claims, locationId } = await requireSchoolPermission('admissions.write');
 
   const [branches, activeYear, schoolRows] = await Promise.all([
     listAdmissionsBranches(locationId),

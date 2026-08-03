@@ -51,7 +51,7 @@ export const GET = withSchoolAuth<RouteContext>(
       return handleApiError(error);
     }
   },
-  { allowedRoles: ['school_admin', 'branch_admin', 'hr_manager'] },
+  { permission: 'admissions.read' },
 );
 
 interface UpdateApplicationBody {
@@ -192,5 +192,5 @@ export const PATCH = withSchoolAuth<RouteContext>(
       return handleApiError(error);
     }
   },
-  { allowedRoles: ['school_admin', 'branch_admin'] },
+  { permission: 'admissions.write' },
 );

@@ -4,8 +4,7 @@ import Link from 'next/link';
 import { Card } from '@/components/ui/Card';
 import { listSubjects, listTimetableSlots } from '@/lib/academics-queries';
 import { getActiveAcademicYear } from '@/lib/admissions-queries';
-import { requireSchoolRole } from '@/lib/school-guard';
-import { ADMIN_PORTAL_ROLES } from '@/types/school-auth';
+import { requireSchoolPermission } from '@/lib/school-guard';
 
 export const metadata: Metadata = {
   title: 'Academics',
@@ -54,7 +53,7 @@ function ActionTile({
  * to another tenant.
  */
 export default async function AcademicsOverviewPage() {
-  const { locationId } = await requireSchoolRole(ADMIN_PORTAL_ROLES);
+  const { locationId } = await requireSchoolPermission('academics.read');
 
   const [subjects, slots, activeYear] = await Promise.all([
     listSubjects(locationId, { activeOnly: true }),

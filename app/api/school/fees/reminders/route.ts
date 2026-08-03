@@ -8,7 +8,6 @@ import { primaryGuardiansFor } from '@/lib/fee-queries';
 import { sendFeeReminderWhatsApp } from '@/lib/ghl-fees';
 import { toPaise } from '@/lib/money';
 import { isUuid } from '@/lib/validation';
-import { FEE_WRITE_ROLES } from '@/types/school-auth';
 
 /**
  * POST /api/school/fees/reminders
@@ -132,5 +131,5 @@ export const POST = withSchoolAuth(
       return handleApiError(error);
     }
   },
-  { allowedRoles: FEE_WRITE_ROLES },
+  { permission: 'fees.write' },
 );

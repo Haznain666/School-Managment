@@ -17,7 +17,6 @@ import {
 } from '@/lib/academics-queries';
 import { db } from '@/lib/drizzle';
 import { isUuid, readOptionalString } from '@/lib/validation';
-import { ACADEMICS_READ_ROLES, ACADEMICS_WRITE_ROLES } from '@/types/school-auth';
 
 /**
  * /api/school/timetable/entries
@@ -59,7 +58,7 @@ export const GET = withSchoolAuth(
       return handleApiError(error);
     }
   },
-  { allowedRoles: ACADEMICS_READ_ROLES },
+  { permission: 'academics.read' },
 );
 
 interface UpsertEntryBody {
@@ -242,5 +241,5 @@ export const POST = withSchoolAuth(
       return handleApiError(error);
     }
   },
-  { allowedRoles: ACADEMICS_WRITE_ROLES },
+  { permission: 'academics.write' },
 );

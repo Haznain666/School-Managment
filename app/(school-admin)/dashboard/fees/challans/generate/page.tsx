@@ -5,8 +5,7 @@ import { ChallanGenerator } from '@/components/fees/ChallanGenerator';
 import { Card } from '@/components/ui/Card';
 import { listAcademicYears, listGrades } from '@/lib/admissions-queries';
 import { getDueDay, listFeeTypes } from '@/lib/fee-queries';
-import { requireSchoolRole } from '@/lib/school-guard';
-import { FEE_WRITE_ROLES } from '@/types/school-auth';
+import { requireSchoolPermission } from '@/lib/school-guard';
 
 export const metadata: Metadata = {
   title: 'Generate challans',
@@ -16,7 +15,7 @@ export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 
 export default async function GenerateChallansPage() {
-  const { claims, locationId } = await requireSchoolRole(FEE_WRITE_ROLES);
+  const { claims, locationId } = await requireSchoolPermission('fees.write');
 
   const [academicYears, grades, feeTypes, dueDay] = await Promise.all([
     listAcademicYears(locationId),
