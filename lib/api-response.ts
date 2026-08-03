@@ -3,6 +3,7 @@ import { NextResponse } from 'next/server';
 import { GhlApiError } from './ghl-client';
 import { GhlTokenError } from './ghl-tokens';
 import { MissingEnvError } from './env';
+import { StorageConfigError } from './storage-bucket';
 import { SuperAdminAuthError } from './super-admin-guard';
 
 /**
@@ -54,6 +55,16 @@ export function handleApiError(error: unknown): NextResponse<ApiFailure> {
     // Pass rate limiting through so clients can back off; collapse the rest.
     const status = error.status === 429 ? 429 : 502;
     return apiFailure('ghl_request_failed', 'The GoHighLevel request failed.', status);
+  }
+
+  // The message is deliberately passed through rather than collapsed into
+  // "something went wrong": it names the buckets that were tried and the
+  // console page that fixes it, and the person who sees it is a school
+  // administrator who cannot upload a logo. Nothing in it is a secret — a
+  // bucket name appears in every download URL this app already serves.
+  if (error instanceof StorageConfigError) {
+    console.error('[api] storage misconfigured:', error.message);
+    return apiFailure('storage_not_configured', error.message, 503);
   }
 
   if (error instanceof MissingEnvError) {

@@ -159,13 +159,31 @@ export function adminCredentialSummary(): {
 function buildAdminApp(): App {
   const { projectId, clientEmail, privateKey } = readCredentials();
 
+  /**
+   * The Storage bucket is set only when it has been named explicitly.
+   *
+   * This used to default to `${projectId}.appspot.com`, which is wrong for
+   * every Firebase project created from 30 October 2024 onwards — those get
+   * `<project-id>.firebasestorage.app` instead. The guess produced uploads
+   * failing against a bucket that had never existed, reported by GCS as "The
+   * specified bucket does not exist" with no bucket named in the message.
+   *
+   * There is no safe default, so there is no default. `lib/storage-bucket.ts`
+   * resolves the real name — from this variable when set, otherwise by probing
+   * both conventions — and every call site passes it explicitly.
+   */
+  const storageBucket = process.env['FIREBASE_ADMIN_STORAGE_BUCKET']
+    ?.trim()
+    .replace(/^["']|["']$/g, '')
+    .replace(/^gs:\/\//i, '')
+    .replace(/\/+$/, '');
+
   return initializeApp(
     {
       credential: cert({ projectId, clientEmail, privateKey }),
-      storageBucket: serverEnv(
-        'FIREBASE_ADMIN_STORAGE_BUCKET',
-        `${projectId}.appspot.com`,
-      ),
+      ...(storageBucket === undefined || storageBucket === ''
+        ? {}
+        : { storageBucket }),
       databaseURL: serverEnv(
         'FIREBASE_ADMIN_DATABASE_URL',
         `https://${projectId}-default-rtdb.firebaseio.com`,
