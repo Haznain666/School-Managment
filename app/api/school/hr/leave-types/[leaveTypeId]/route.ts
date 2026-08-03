@@ -6,7 +6,6 @@ import { apiFailure, apiSuccess, handleApiError, readJsonBody } from '@/lib/api-
 import { db } from '@/lib/drizzle';
 import { getLeaveType } from '@/lib/hr-queries';
 import { isUuid, readBoolean, readOptionalString, readString } from '@/lib/validation';
-import { HR_WRITE_ROLES } from '@/types/school-auth';
 
 /**
  * PATCH /api/school/hr/leave-types/[leaveTypeId]
@@ -124,5 +123,5 @@ export const PATCH = withSchoolAuth<RouteContext>(
       return handleApiError(error);
     }
   },
-  { allowedRoles: HR_WRITE_ROLES },
+  { permission: 'hr.write' },
 );

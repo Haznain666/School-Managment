@@ -9,12 +9,7 @@ import { Card, CardTitle } from '@/components/ui/Card';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
 import { Toggle } from '@/components/ui/Toggle';
-import {
-  BRANCH_REQUIRED_ROLES,
-  ROLE_LABELS,
-  USER_ROLES,
-  isUserRole,
-} from '@/types/school-auth';
+import { BRANCH_REQUIRED_ROLES, ROLE_LABELS, USER_ROLES, isUserRole } from '@/types/school-auth';
 
 export interface UserDetail {
   id: string;

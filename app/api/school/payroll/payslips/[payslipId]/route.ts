@@ -6,7 +6,6 @@ import { apiFailure, apiSuccess, handleApiError, readJsonBody } from '@/lib/api-
 import { db } from '@/lib/drizzle';
 import { getPayslipDetail } from '@/lib/hr-queries';
 import { isIsoDate, isUuid, readOptionalString } from '@/lib/validation';
-import { PAYROLL_READ_ROLES, PAYROLL_WRITE_ROLES } from '@/types/school-auth';
 
 /**
  * /api/school/payroll/payslips/[payslipId]
@@ -49,7 +48,7 @@ export const GET = withSchoolAuth<RouteContext>(
       return handleApiError(error);
     }
   },
-  { allowedRoles: PAYROLL_READ_ROLES },
+  { permission: 'payroll.read' },
 );
 
 interface UpdatePayslipBody {
@@ -145,5 +144,5 @@ export const PATCH = withSchoolAuth<RouteContext>(
       return handleApiError(error);
     }
   },
-  { allowedRoles: PAYROLL_WRITE_ROLES },
+  { permission: 'payroll.write' },
 );

@@ -3,8 +3,7 @@ import type { ReactNode } from 'react';
 
 import { Card } from '@/components/ui/Card';
 import { getModuleFlags } from '@/lib/school-queries';
-import { requireSchoolRole } from '@/lib/school-guard';
-import { HR_READ_ROLES } from '@/types/school-auth';
+import { requireSchoolPermission } from '@/lib/school-guard';
 
 /**
  * Module gate for every HR screen.
@@ -21,7 +20,7 @@ export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 
 export default async function HrLayout({ children }: { children: ReactNode }) {
-  const { locationId } = await requireSchoolRole(HR_READ_ROLES);
+  const { locationId } = await requireSchoolPermission('hr.read');
   const moduleFlags = await getModuleFlags(locationId);
 
   if (!moduleFlags.hr_payroll) {

@@ -137,7 +137,7 @@ export const PATCH = withSchoolAuth<RouteContext>(
       return handleApiError(error);
     }
   },
-  { allowedRoles: ['school_admin', 'branch_admin'] },
+  { permission: 'admissions.write' },
 );
 
 export const DELETE = withSchoolAuth<RouteContext>(
@@ -201,5 +201,5 @@ export const DELETE = withSchoolAuth<RouteContext>(
       return handleApiError(error);
     }
   },
-  { allowedRoles: ['school_admin', 'branch_admin'] },
+  { permission: 'admissions.write' },
 );

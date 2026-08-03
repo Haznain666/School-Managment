@@ -32,13 +32,6 @@ export const dynamic = 'force-dynamic';
 
 type RouteContext = { params: Promise<{ studentId: string }> };
 
-const READ_ROLES = [
-  'school_admin',
-  'branch_admin',
-  'teacher',
-  'hr_manager',
-  'accountant',
-] as const;
 
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -65,7 +58,7 @@ export const GET = withSchoolAuth<RouteContext>(
       return handleApiError(error);
     }
   },
-  { allowedRoles: READ_ROLES },
+  { permission: 'admissions.read' },
 );
 
 interface UpdateStudentBody {
@@ -168,5 +161,5 @@ export const PATCH = withSchoolAuth<RouteContext>(
       return handleApiError(error);
     }
   },
-  { allowedRoles: ['school_admin', 'branch_admin'] },
+  { permission: 'admissions.write' },
 );

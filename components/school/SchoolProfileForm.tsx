@@ -1,0 +1,177 @@
+'use client';
+
+import { useState } from 'react';
+
+import { Button } from '@/components/ui/Button';
+import { Card, CardTitle } from '@/components/ui/Card';
+import { Input } from '@/components/ui/Input';
+import { Textarea } from '@/components/ui/Textarea';
+import { schoolErrorMessage, schoolFetch } from '@/lib/school-client';
+
+/**
+ * The school's own contact details, edited by the school.
+ *
+ * The platform-owned fields — name, subdomain, school code, city — are shown
+ * beside the editable ones rather than hidden, with one line saying who to ask.
+ * A settings screen that simply omits them leaves an administrator wondering
+ * where their school code went; showing them read-only answers the question
+ * before it is asked.
+ */
+
+export interface SchoolProfileFormProps {
+  /** Platform-owned, shown for reference only. */
+  readOnly: {
+    name: string;
+    slug: string;
+    city: string;
+    schoolCode: string | null;
+  };
+  initial: {
+    phone: string | null;
+    email: string | null;
+    address: string | null;
+    principalName: string | null;
+  };
+  canEdit: boolean;
+}
+
+export function SchoolProfileForm({ readOnly, initial, canEdit }: SchoolProfileFormProps) {
+  const [phone, setPhone] = useState(initial.phone ?? '');
+  const [email, setEmail] = useState(initial.email ?? '');
+  const [address, setAddress] = useState(initial.address ?? '');
+  const [principalName, setPrincipalName] = useState(initial.principalName ?? '');
+  const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  const save = async (): Promise<void> => {
+    setBusy(true);
+    setError(null);
+    setNotice(null);
+
+    try {
+      await schoolFetch('/api/school/settings', {
+        method: 'PATCH',
+        body: JSON.stringify({
+          phone: phone.trim(),
+          email: email.trim(),
+          address: address.trim(),
+          principalName: principalName.trim(),
+        }),
+      });
+      setNotice('School details saved.');
+    } catch (caught) {
+      setError(schoolErrorMessage(caught, 'Could not save the school details.'));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Card
+      header={
+        <CardTitle
+          title="School profile"
+          description="Your contact details, kept by you rather than by the platform."
+        />
+      }
+    >
+      {error !== null ? (
+        <p
+          role="alert"
+          className="mb-4 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700"
+        >
+          {error}
+        </p>
+      ) : null}
+
+      {notice !== null ? (
+        <p className="mb-4 rounded-lg bg-emerald-50 px-3 py-2 text-sm text-emerald-700">
+          {notice}
+        </p>
+      ) : null}
+
+      <dl className="mb-6 grid gap-4 rounded-lg bg-slate-50 p-4 sm:grid-cols-2 lg:grid-cols-4">
+        {[
+          { label: 'Name', value: readOnly.name },
+          { label: 'Subdomain', value: readOnly.slug },
+          { label: 'City', value: readOnly.city },
+          { label: 'School code', value: readOnly.schoolCode },
+        ].map((field) => (
+          <div key={field.label}>
+            <dt className="text-xs uppercase tracking-wide text-slate-500">
+              {field.label}
+            </dt>
+            <dd className="mt-1 break-words text-sm text-slate-900">
+              {field.value === null || field.value === '' ? (
+                <span className="text-slate-400">Not set</span>
+              ) : (
+                field.value
+              )}
+            </dd>
+          </div>
+        ))}
+
+        <p className="text-xs text-slate-500 sm:col-span-2 lg:col-span-4">
+          These are set by the platform administrator. The school code prefixes
+          every student ID, challan and payslip number already issued, so
+          changing it is not something a school does to itself.
+        </p>
+      </dl>
+
+      <div className="grid gap-4 sm:grid-cols-2">
+        <Input
+          label="Phone"
+          value={phone}
+          disabled={!canEdit}
+          placeholder="042 35300000"
+          onChange={(event) => {
+            setPhone(event.target.value);
+          }}
+        />
+        <Input
+          label="Email"
+          type="email"
+          value={email}
+          disabled={!canEdit}
+          onChange={(event) => {
+            setEmail(event.target.value);
+          }}
+        />
+        <Input
+          label="Principal name"
+          value={principalName}
+          disabled={!canEdit}
+          hint="Printed as the head of school on challans and payslips."
+          onChange={(event) => {
+            setPrincipalName(event.target.value);
+          }}
+        />
+        <div className="sm:col-span-2">
+          <Textarea
+            label="Address"
+            rows={2}
+            value={address}
+            disabled={!canEdit}
+            onChange={(event) => {
+              setAddress(event.target.value);
+            }}
+          />
+        </div>
+      </div>
+
+      {canEdit ? (
+        <div className="mt-4">
+          <Button
+            isLoading={busy}
+            onClick={() => {
+              void save();
+            }}
+          >
+            Save details
+          </Button>
+        </div>
+      ) : null}
+    </Card>
+  );
+}

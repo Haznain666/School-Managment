@@ -3,96 +3,104 @@ import {
   type PortalNavItem,
   type PortalNavSection,
 } from '@/components/school/PortalSidebar';
+import type { Permission } from '@/lib/permissions';
 import type { SchoolModuleFlags } from '@/lib/platform-modules';
 import type { UserRole } from '@/types/school-auth';
 
 export interface SchoolSidebarProps {
   role: UserRole;
+  /** Resolved against this school's own matrix by the portal shell. */
+  permissions: readonly Permission[];
   moduleFlags: SchoolModuleFlags;
 }
 
 /**
- * Administrative sidebar, assembled server-side from the caller's role and the
- * school's enabled modules.
+ * Administrative sidebar, assembled server-side from the caller's permissions
+ * and the school's enabled modules.
  *
- * Modules the school has not enabled are omitted from the list rather than
- * shown disabled: an admin should not be advertised features their school has
- * not bought.
+ * Two independent gates, and they answer different questions. Modules the
+ * school has not enabled are omitted because the school has not bought them.
+ * Sections the caller cannot open are omitted because their role does not hold
+ * the permission — and since Sprint 8 that is per school, so the same role can
+ * see different things at two different schools running this same build.
+ *
+ * Every entry below is gated on the *read* permission its layout enforces, so
+ * a link in this sidebar never leads somewhere the guard will bounce. Write
+ * permissions decide what appears on the page, not what appears here.
  */
-export function SchoolSidebar({ role, moduleFlags }: SchoolSidebarProps) {
+export function SchoolSidebar({ role, permissions, moduleFlags }: SchoolSidebarProps) {
+  const can = (permission: Permission): boolean => permissions.includes(permission);
+
   const items: PortalNavItem[] = [{ label: 'Dashboard', href: '/dashboard' }];
 
-  if (role === 'school_admin' || role === 'hr_manager') {
-    items.push({ label: 'Users & Staff', href: '/dashboard/users' });
-  }
-
-  if (role === 'branch_admin') {
-    items.push({ label: 'My Branch Staff', href: '/dashboard/users' });
+  if (can('users.read')) {
+    items.push({
+      // A branch admin sees only their own branch's people, and saying so is
+      // more useful than a generic label they will misread as the whole school.
+      label: role === 'branch_admin' ? 'My Branch Staff' : 'Users & Staff',
+      href: '/dashboard/users',
+    });
   }
 
   if (role === 'school_admin') {
     items.push({ label: 'Branches', href: '/dashboard/branches', placeholder: true });
   }
 
-  if (role === 'accountant') {
+  if (can('fees.write') && role === 'accountant') {
     items.push({ label: 'Finance', href: '/dashboard/finance', placeholder: true });
   }
 
-  // Module-gated destinations. These land on placeholders until the relevant
-  // sprint builds them, but they only appear at all once the module is on.
+  // Module-gated destinations that land on placeholders until the relevant
+  // sprint builds them. They appear only once the module is on.
   const moduleNav: Array<{ key: keyof SchoolModuleFlags; label: string; href: string }> = [
     { key: 'lms', label: 'LMS', href: '/dashboard/lms' },
     { key: 'event_mgmt', label: 'Events', href: '/dashboard/events' },
   ];
 
-  const canSeeModules =
-    role === 'school_admin' || role === 'hr_manager' || role === 'accountant';
-
-  if (canSeeModules) {
-    for (const entry of moduleNav) {
-      if (moduleFlags[entry.key]) {
-        items.push({ label: entry.label, href: entry.href, placeholder: true });
-      }
+  for (const entry of moduleNav) {
+    if (moduleFlags[entry.key] && can('academics.read')) {
+      items.push({ label: entry.label, href: entry.href, placeholder: true });
     }
   }
 
   items.push({ label: 'Settings', href: '/dashboard/settings' });
 
   // Modules with real screens of their own get a section rather than a single
-  // link. They are built, not placeholders — and like every module entry they
-  // appear only once the school has them switched on.
+  // link. They are built, not placeholders.
   const sections: PortalNavSection[] = [];
 
-  if (moduleFlags.admissions && (canSeeModules || role === 'branch_admin')) {
+  if (moduleFlags.admissions && can('admissions.read')) {
     sections.push({
       label: 'Admissions',
       items: [
         { label: 'Overview', href: '/dashboard/admissions' },
         { label: 'Academic Years', href: '/dashboard/admissions/academic-years' },
         { label: 'Grades & Sections', href: '/dashboard/admissions/grades' },
-        { label: 'Enroll Student', href: '/dashboard/admissions/enroll' },
+        ...(can('admissions.write')
+          ? [{ label: 'Enroll Student', href: '/dashboard/admissions/enroll' }]
+          : []),
         { label: 'All Students', href: '/dashboard/admissions/students' },
         { label: 'Applications', href: '/dashboard/admissions/applications' },
       ],
     });
   }
 
-  if (moduleFlags.academics && (canSeeModules || role === 'branch_admin')) {
+  if (moduleFlags.academics && can('academics.read')) {
     sections.push({
       label: 'Academics',
       items: [
         { label: 'Overview', href: '/dashboard/academics' },
         { label: 'Subjects', href: '/dashboard/academics/subjects' },
         { label: 'Timetable', href: '/dashboard/academics/timetable' },
-        { label: 'Mark Attendance', href: '/dashboard/academics/attendance' },
+        ...(can('attendance.mark')
+          ? [{ label: 'Mark Attendance', href: '/dashboard/academics/attendance' }]
+          : []),
         { label: 'Attendance Reports', href: '/dashboard/academics/attendance/reports' },
       ],
     });
   }
 
-  // Fees is gated on the module *and* on the role: a teacher never sees it,
-  // and a branch admin sees it scoped to their own branch's grades.
-  if (moduleFlags.fee_management && (canSeeModules || role === 'branch_admin')) {
+  if (moduleFlags.fee_management && can('fees.read')) {
     sections.push({
       label: 'Fees',
       items: [
@@ -100,36 +108,31 @@ export function SchoolSidebar({ role, moduleFlags }: SchoolSidebarProps) {
         { label: 'Fee Structure', href: '/dashboard/fees/types' },
         { label: 'Challans', href: '/dashboard/fees/challans' },
         { label: 'Reports', href: '/dashboard/fees/reports' },
-        { label: 'Settings', href: '/dashboard/fees/settings' },
+        ...(can('fees.write')
+          ? [{ label: 'Settings', href: '/dashboard/fees/settings' }]
+          : []),
       ],
     });
   }
 
-  // HR and Payroll are two sections rather than one, because they have
-  // different audiences: an accountant reconciles the salary bill and belongs
-  // in Payroll, but has no business in a teacher's personnel file, and a branch
-  // admin is the mirror image. The role lists here match the layouts that
-  // enforce them, so a link never leads somewhere the guard will bounce.
-  if (moduleFlags.hr_payroll) {
-    if (role === 'school_admin' || role === 'hr_manager' || role === 'branch_admin') {
-      sections.push({
-        label: 'HR',
-        items: [
-          { label: 'Overview', href: '/dashboard/hr' },
-          { label: 'Staff', href: '/dashboard/hr/staff' },
-          { label: 'Salary Components', href: '/dashboard/hr/salary-components' },
-          { label: 'Leave', href: '/dashboard/hr/leave' },
-          { label: 'Staff Register', href: '/dashboard/hr/attendance' },
-        ],
-      });
-    }
+  if (moduleFlags.hr_payroll && can('hr.read')) {
+    sections.push({
+      label: 'HR',
+      items: [
+        { label: 'Overview', href: '/dashboard/hr' },
+        { label: 'Staff', href: '/dashboard/hr/staff' },
+        { label: 'Salary Components', href: '/dashboard/hr/salary-components' },
+        { label: 'Leave', href: '/dashboard/hr/leave' },
+        { label: 'Staff Register', href: '/dashboard/hr/attendance' },
+      ],
+    });
+  }
 
-    if (role === 'school_admin' || role === 'hr_manager' || role === 'accountant') {
-      sections.push({
-        label: 'Payroll',
-        items: [{ label: 'Payroll Runs', href: '/dashboard/payroll' }],
-      });
-    }
+  if (moduleFlags.hr_payroll && can('payroll.read')) {
+    sections.push({
+      label: 'Payroll',
+      items: [{ label: 'Payroll Runs', href: '/dashboard/payroll' }],
+    });
   }
 
   return (

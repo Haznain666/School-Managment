@@ -3,7 +3,6 @@ import { apiSuccess, handleApiError } from '@/lib/api-response';
 import { listOutstandingChallans } from '@/lib/fee-queries';
 import { maskPhone } from '@/lib/phone';
 import { toPaise } from '@/lib/money';
-import { FEE_READ_ROLES } from '@/types/school-auth';
 
 /**
  * GET /api/school/fees/reports/defaulters
@@ -51,5 +50,5 @@ export const GET = withSchoolAuth(
       return handleApiError(error);
     }
   },
-  { allowedRoles: FEE_READ_ROLES },
+  { permission: 'fees.read' },
 );

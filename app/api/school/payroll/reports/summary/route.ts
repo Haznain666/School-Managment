@@ -4,7 +4,6 @@ import { payrollRuns, payslipItems, payslips } from '@/db/schema';
 import { withSchoolAuth } from '@/lib/api-auth';
 import { apiFailure, apiSuccess, handleApiError } from '@/lib/api-response';
 import { db } from '@/lib/drizzle';
-import { PAYROLL_READ_ROLES } from '@/types/school-auth';
 
 /**
  * GET /api/school/payroll/reports/summary?year=2025
@@ -96,5 +95,5 @@ export const GET = withSchoolAuth(
       return handleApiError(error);
     }
   },
-  { allowedRoles: PAYROLL_READ_ROLES },
+  { permission: 'payroll.read' },
 );

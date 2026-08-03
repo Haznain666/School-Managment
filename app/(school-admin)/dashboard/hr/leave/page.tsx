@@ -2,8 +2,7 @@ import type { Metadata } from 'next';
 
 import { HrNav } from '@/components/hr/HrNav';
 import { LeaveManager } from '@/components/hr/LeaveManager';
-import { requireSchoolRole } from '@/lib/school-guard';
-import { HR_READ_ROLES, HR_WRITE_ROLES } from '@/types/school-auth';
+import { requireSchoolPermission } from '@/lib/school-guard';
 
 export const metadata: Metadata = {
   title: 'Leave',
@@ -13,7 +12,7 @@ export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 
 export default async function LeavePage() {
-  const { claims } = await requireSchoolRole(HR_READ_ROLES);
+  const { permissions } = await requireSchoolPermission('hr.read');
 
   return (
     <div className="space-y-6">
@@ -27,7 +26,7 @@ export default async function LeavePage() {
 
       <HrNav />
 
-      <LeaveManager canEdit={HR_WRITE_ROLES.includes(claims.role)} />
+      <LeaveManager canEdit={permissions.includes('hr.write')} />
     </div>
   );
 }

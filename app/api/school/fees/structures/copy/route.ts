@@ -6,7 +6,6 @@ import { withSchoolAuth } from '@/lib/api-auth';
 import { apiFailure, apiSuccess, handleApiError, readJsonBody } from '@/lib/api-response';
 import { db } from '@/lib/drizzle';
 import { isUuid } from '@/lib/validation';
-import { FEE_WRITE_ROLES } from '@/types/school-auth';
 
 /**
  * POST /api/school/fees/structures/copy
@@ -124,5 +123,5 @@ export const POST = withSchoolAuth(
       return handleApiError(error);
     }
   },
-  { allowedRoles: FEE_WRITE_ROLES },
+  { permission: 'fees.write' },
 );

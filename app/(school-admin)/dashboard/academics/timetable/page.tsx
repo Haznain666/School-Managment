@@ -8,8 +8,7 @@ import {
   listTeacherOptions,
 } from '@/lib/academics-queries';
 import { listGrades, listSections } from '@/lib/admissions-queries';
-import { requireSchoolRole } from '@/lib/school-guard';
-import { ACADEMICS_WRITE_ROLES, ADMIN_PORTAL_ROLES } from '@/types/school-auth';
+import { requireSchoolPermission } from '@/lib/school-guard';
 
 export const metadata: Metadata = {
   title: 'Timetable',
@@ -25,7 +24,7 @@ export const runtime = 'nodejs';
  * browser sends.
  */
 export default async function TimetablePage() {
-  const { claims, locationId } = await requireSchoolRole(ADMIN_PORTAL_ROLES);
+  const { claims, locationId, permissions } = await requireSchoolPermission('academics.read');
 
   const [academicYears, grades, sections, subjects, teachers] = await Promise.all([
     listAcademicYearOptions(locationId),
@@ -67,7 +66,7 @@ export default async function TimetablePage() {
         teachers={teachers}
       />
 
-      <SlotManager canEdit={ACADEMICS_WRITE_ROLES.includes(claims.role)} />
+      <SlotManager canEdit={permissions.includes('academics.write')} />
     </div>
   );
 }

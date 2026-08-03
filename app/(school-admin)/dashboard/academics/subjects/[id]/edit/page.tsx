@@ -3,9 +3,8 @@ import { notFound } from 'next/navigation';
 
 import { SubjectForm } from '@/components/academics/SubjectForm';
 import { getSubject } from '@/lib/academics-queries';
-import { requireSchoolRole } from '@/lib/school-guard';
+import { requireSchoolPermission } from '@/lib/school-guard';
 import { isUuid } from '@/lib/validation';
-import { ACADEMICS_WRITE_ROLES } from '@/types/school-auth';
 
 export const metadata: Metadata = {
   title: 'Edit subject',
@@ -24,7 +23,7 @@ export default async function EditSubjectPage({
 }: {
   params: Promise<{ id: string }>;
 }) {
-  const { locationId } = await requireSchoolRole(ACADEMICS_WRITE_ROLES);
+  const { locationId } = await requireSchoolPermission('academics.write');
   const { id } = await params;
 
   if (!isUuid(id)) notFound();

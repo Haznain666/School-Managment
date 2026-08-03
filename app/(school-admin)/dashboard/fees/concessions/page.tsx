@@ -3,8 +3,7 @@ import type { Metadata } from 'next';
 import { ConcessionManager } from '@/components/fees/ConcessionManager';
 import { FeeSetupNav } from '@/components/fees/FeeSetupNav';
 import { listFeeTypes } from '@/lib/fee-queries';
-import { requireSchoolRole } from '@/lib/school-guard';
-import { FEE_READ_ROLES, FEE_WRITE_ROLES } from '@/types/school-auth';
+import { requireSchoolPermission } from '@/lib/school-guard';
 
 export const metadata: Metadata = {
   title: 'Concessions',
@@ -14,7 +13,7 @@ export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 
 export default async function ConcessionsPage() {
-  const { claims, locationId } = await requireSchoolRole(FEE_READ_ROLES);
+  const { locationId, permissions } = await requireSchoolPermission('fees.read');
   const feeTypes = await listFeeTypes(locationId, { activeOnly: true });
 
   return (
@@ -32,7 +31,7 @@ export default async function ConcessionsPage() {
 
       <ConcessionManager
         feeTypes={feeTypes.map((feeType) => ({ id: feeType.id, name: feeType.name }))}
-        canEdit={FEE_WRITE_ROLES.includes(claims.role)}
+        canEdit={permissions.includes('fees.write')}
       />
     </div>
   );

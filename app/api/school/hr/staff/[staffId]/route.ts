@@ -6,7 +6,6 @@ import { apiFailure, apiSuccess, handleApiError, readJsonBody } from '@/lib/api-
 import { db } from '@/lib/drizzle';
 import { getStaff, getStaffSalaryStructure } from '@/lib/hr-queries';
 import { isIsoDate, isUuid, readOptionalString, readString } from '@/lib/validation';
-import { HR_READ_ROLES, HR_WRITE_ROLES } from '@/types/school-auth';
 
 /**
  * /api/school/hr/staff/[staffId]
@@ -52,7 +51,7 @@ export const GET = withSchoolAuth<RouteContext>(
       return handleApiError(error);
     }
   },
-  { allowedRoles: HR_READ_ROLES },
+  { permission: 'hr.read' },
 );
 
 interface UpdateStaffBody {
@@ -208,5 +207,5 @@ export const PATCH = withSchoolAuth<RouteContext>(
       return handleApiError(error);
     }
   },
-  { allowedRoles: HR_WRITE_ROLES },
+  { permission: 'hr.write' },
 );

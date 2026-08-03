@@ -4,9 +4,8 @@ import Link from 'next/link';
 import { PendingInvitesTable } from '@/components/school/PendingInvitesTable';
 import { UserTable } from '@/components/school/UserTable';
 import { Button } from '@/components/ui/Button';
-import { requireSchoolRole } from '@/lib/school-guard';
+import { requireSchoolPermission } from '@/lib/school-guard';
 import { listBranchOptions } from '@/lib/school-queries';
-import { USER_MANAGEMENT_ROLES } from '@/types/school-auth';
 
 export const metadata: Metadata = {
   title: 'Users & Staff',
@@ -16,14 +15,11 @@ export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 
 export default async function UsersPage() {
-  const { claims, locationId } = await requireSchoolRole([
-    'school_admin',
-    'branch_admin',
-    'hr_manager',
-  ]);
+  const { claims, locationId, permissions } =
+    await requireSchoolPermission('users.read');
 
   const branches = await listBranchOptions(locationId);
-  const canInvite = USER_MANAGEMENT_ROLES.includes(claims.role);
+  const canInvite = permissions.includes('users.write');
 
   return (
     <div className="space-y-6">

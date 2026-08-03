@@ -12,9 +12,8 @@ import {
   listGuardians,
 } from '@/lib/admissions-queries';
 import { MAX_GUARDIANS } from '@/lib/enrollment';
-import { requireSchoolRole } from '@/lib/school-guard';
+import { requireSchoolPermission } from '@/lib/school-guard';
 import { isUuid } from '@/lib/validation';
-import { ADMIN_PORTAL_ROLES } from '@/types/school-auth';
 
 export const metadata: Metadata = {
   title: 'Student profile',
@@ -35,7 +34,7 @@ export default async function StudentProfilePage({
 }: {
   params: Promise<{ studentId: string }>;
 }) {
-  const { claims, locationId } = await requireSchoolRole(ADMIN_PORTAL_ROLES);
+  const { claims, locationId } = await requireSchoolPermission('admissions.read');
 
   const { studentId } = await params;
   if (!isUuid(studentId)) notFound();

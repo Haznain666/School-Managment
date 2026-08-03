@@ -1,7 +1,6 @@
 import { withSchoolAuth } from '@/lib/api-auth';
 import { apiSuccess, handleApiError } from '@/lib/api-response';
 import { listOutstandingChallans } from '@/lib/fee-queries';
-import { FEE_READ_ROLES } from '@/types/school-auth';
 
 /**
  * GET /api/school/fees/reports/outstanding
@@ -38,5 +37,5 @@ export const GET = withSchoolAuth(
       return handleApiError(error);
     }
   },
-  { allowedRoles: FEE_READ_ROLES },
+  { permission: 'fees.read' },
 );

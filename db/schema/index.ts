@@ -49,3 +49,6 @@ export * from './attendance-records';
 // Sprint 7 — HR & Payroll. `./hr` is the barrel for the module's own tables;
 // the employment record itself is `./staff`, exported above.
 export * from './hr';
+
+// Sprint 8 — per-school overrides of the default access model.
+export * from './role-permissions';

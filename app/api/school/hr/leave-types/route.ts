@@ -6,7 +6,6 @@ import { apiFailure, apiSuccess, handleApiError, readJsonBody } from '@/lib/api-
 import { db } from '@/lib/drizzle';
 import { listLeaveTypes } from '@/lib/hr-queries';
 import { readBoolean, readOptionalString, readString } from '@/lib/validation';
-import { HR_READ_ROLES, HR_WRITE_ROLES } from '@/types/school-auth';
 
 /**
  * /api/school/hr/leave-types
@@ -37,7 +36,7 @@ export const GET = withSchoolAuth(
       return handleApiError(error);
     }
   },
-  { allowedRoles: HR_READ_ROLES },
+  { permission: 'hr.read' },
 );
 
 interface CreateLeaveTypeBody {
@@ -130,5 +129,5 @@ export const POST = withSchoolAuth(
       return handleApiError(error);
     }
   },
-  { allowedRoles: HR_WRITE_ROLES },
+  { permission: 'hr.write' },
 );

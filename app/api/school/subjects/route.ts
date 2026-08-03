@@ -4,7 +4,6 @@ import { apiFailure, apiSuccess, handleApiError, readJsonBody } from '@/lib/api-
 import { listSubjects } from '@/lib/academics-queries';
 import { db } from '@/lib/drizzle';
 import { readOptionalString, readString } from '@/lib/validation';
-import { ACADEMICS_READ_ROLES, ACADEMICS_WRITE_ROLES } from '@/types/school-auth';
 
 /**
  * /api/school/subjects
@@ -31,7 +30,7 @@ export const GET = withSchoolAuth(
       return handleApiError(error);
     }
   },
-  { allowedRoles: ACADEMICS_READ_ROLES },
+  { permission: 'academics.read' },
 );
 
 interface CreateSubjectBody {
@@ -92,5 +91,5 @@ export const POST = withSchoolAuth(
       return handleApiError(error);
     }
   },
-  { allowedRoles: ACADEMICS_WRITE_ROLES },
+  { permission: 'academics.write' },
 );

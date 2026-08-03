@@ -5,7 +5,6 @@ import { withSchoolAuth } from '@/lib/api-auth';
 import { apiFailure, apiSuccess, handleApiError, readJsonBody } from '@/lib/api-response';
 import { db } from '@/lib/drizzle';
 import { isUuid, readOptionalString, readString } from '@/lib/validation';
-import { FEE_WRITE_ROLES } from '@/types/school-auth';
 
 /**
  * /api/school/fees/concessions/[concessionId]
@@ -151,7 +150,7 @@ export const PATCH = withSchoolAuth<RouteContext>(
       return handleApiError(error);
     }
   },
-  { allowedRoles: FEE_WRITE_ROLES },
+  { permission: 'fees.write' },
 );
 
 export const DELETE = withSchoolAuth<RouteContext>(
@@ -181,5 +180,5 @@ export const DELETE = withSchoolAuth<RouteContext>(
       return handleApiError(error);
     }
   },
-  { allowedRoles: FEE_WRITE_ROLES },
+  { permission: 'fees.write' },
 );

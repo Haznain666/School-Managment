@@ -3,7 +3,6 @@ import { apiFailure, apiSuccess, handleApiError } from '@/lib/api-response';
 import { db } from '@/lib/drizzle';
 import { ChallanGenerationError, previewChallan } from '@/lib/fee-challans';
 import { isUuid } from '@/lib/validation';
-import { FEE_READ_ROLES } from '@/types/school-auth';
 
 /**
  * GET /api/school/fees/challans/preview
@@ -70,5 +69,5 @@ export const GET = withSchoolAuth(
       return handleApiError(error);
     }
   },
-  { allowedRoles: FEE_READ_ROLES },
+  { permission: 'fees.read' },
 );

@@ -7,7 +7,6 @@ import { db } from '@/lib/drizzle';
 import { listConcessions } from '@/lib/fee-queries';
 import { paiseToNumeric, toPaise } from '@/lib/money';
 import { isUuid, readOptionalString, readString } from '@/lib/validation';
-import { FEE_READ_ROLES, FEE_WRITE_ROLES } from '@/types/school-auth';
 
 /**
  * /api/school/fees/concessions
@@ -47,7 +46,7 @@ export const GET = withSchoolAuth(
       return handleApiError(error);
     }
   },
-  { allowedRoles: FEE_READ_ROLES },
+  { permission: 'fees.read' },
 );
 
 interface CreateConcessionBody {
@@ -183,5 +182,5 @@ export const POST = withSchoolAuth(
       return handleApiError(error);
     }
   },
-  { allowedRoles: FEE_WRITE_ROLES },
+  { permission: 'fees.write' },
 );

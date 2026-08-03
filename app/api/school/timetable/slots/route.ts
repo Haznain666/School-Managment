@@ -4,7 +4,6 @@ import { apiFailure, apiSuccess, handleApiError, readJsonBody } from '@/lib/api-
 import { listTimetableSlots } from '@/lib/academics-queries';
 import { db } from '@/lib/drizzle';
 import { readBoolean, readString } from '@/lib/validation';
-import { ACADEMICS_READ_ROLES, ACADEMICS_WRITE_ROLES } from '@/types/school-auth';
 
 /**
  * /api/school/timetable/slots
@@ -31,7 +30,7 @@ export const GET = withSchoolAuth(
       return handleApiError(error);
     }
   },
-  { allowedRoles: ACADEMICS_READ_ROLES },
+  { permission: 'academics.read' },
 );
 
 interface CreateSlotBody {
@@ -105,5 +104,5 @@ export const POST = withSchoolAuth(
       return handleApiError(error);
     }
   },
-  { allowedRoles: ACADEMICS_WRITE_ROLES },
+  { permission: 'academics.write' },
 );

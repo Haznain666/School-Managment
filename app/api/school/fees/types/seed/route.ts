@@ -3,7 +3,6 @@ import { withSchoolAuth } from '@/lib/api-auth';
 import { apiSuccess, handleApiError } from '@/lib/api-response';
 import { db } from '@/lib/drizzle';
 import { listFeeTypes } from '@/lib/fee-queries';
-import { FEE_WRITE_ROLES } from '@/types/school-auth';
 
 /**
  * POST /api/school/fees/types/seed
@@ -48,5 +47,5 @@ export const POST = withSchoolAuth(
       return handleApiError(error);
     }
   },
-  { allowedRoles: FEE_WRITE_ROLES },
+  { permission: 'fees.write' },
 );

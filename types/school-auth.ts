@@ -7,14 +7,32 @@
  * session cookie, so it is the only trustworthy source of tenant identity.
  */
 
+/**
+ * Every role the school portal recognises.
+ *
+ * This list is the authority: `school_users.role` derives its CHECK constraint
+ * from it, `parseSchoolClaims` refuses a session whose role is not in it, and
+ * `lib/permissions.ts` keys its default grants off it. A role missing from here
+ * cannot sign in at all, however many other tables mention it.
+ *
+ * `principal`, `vice_principal`, `coordinator` and `marketing` were named in
+ * `db/schema/users.ts` from Sprint 1 but never added here, which is why nobody
+ * holding one could open the portal. There is deliberately no cap on how many
+ * people hold any of them: a school with three campuses has three principals,
+ * and each is scoped by `branchId` (null = the whole school).
+ */
 export const USER_ROLES = [
   'school_admin',
   'branch_admin',
+  'principal',
+  'vice_principal',
+  'coordinator',
   'teacher',
   'student',
   'parent',
   'accountant',
   'hr_manager',
+  'marketing',
 ] as const;
 
 export type UserRole = (typeof USER_ROLES)[number];
@@ -60,8 +78,12 @@ export type SchoolCustomClaims = Omit<
 export const ROLE_HOME_ROUTES: Record<UserRole, string> = {
   school_admin: '/dashboard',
   branch_admin: '/dashboard',
+  principal: '/dashboard',
+  vice_principal: '/dashboard',
+  coordinator: '/dashboard',
   accountant: '/dashboard',
   hr_manager: '/dashboard',
+  marketing: '/dashboard',
   teacher: '/teacher',
   student: '/student',
   parent: '/parent',
@@ -71,103 +93,86 @@ export const ROLE_HOME_ROUTES: Record<UserRole, string> = {
 export const ROLE_LABELS: Record<UserRole, string> = {
   school_admin: 'School Administrator',
   branch_admin: 'Branch Administrator',
+  principal: 'Principal',
+  vice_principal: 'Vice Principal',
+  coordinator: 'Coordinator',
   teacher: 'Teacher',
   student: 'Student',
   parent: 'Parent',
   accountant: 'Accountant',
   hr_manager: 'HR Manager',
+  marketing: 'Marketing',
 };
 
-/** Roles that share the administrative dashboard at /dashboard. */
+/**
+ * One line explaining what each role is for, shown beside the toggles on the
+ * permissions screen and in the invite form. A school administrator choosing
+ * between "Coordinator" and "Vice Principal" should not have to guess.
+ */
+export const ROLE_DESCRIPTIONS: Record<UserRole, string> = {
+  school_admin: 'Full access, including who else can do what.',
+  branch_admin: 'Runs one campus. Sees only their own branch.',
+  principal: 'Heads the school or a campus. Oversight across every module.',
+  vice_principal: 'Deputises for the principal. Oversight without payroll.',
+  coordinator: 'Runs the timetable and the register for their section.',
+  teacher: 'Teaches classes and takes the register.',
+  student: 'Sees their own timetable, attendance and fees.',
+  parent: 'Sees their children’s attendance and fee challans.',
+  accountant: 'Handles fee collection and reconciles the salary bill.',
+  hr_manager: 'Handles staff records, leave and payroll.',
+  marketing: 'Handles admission enquiries and applications.',
+};
+
+/**
+ * Roles that share the administrative dashboard at /dashboard.
+ *
+ * Membership here decides only which shell someone lands in — not what they may
+ * do inside it. That is `lib/permissions.ts`, and it is per school.
+ */
 export const ADMIN_PORTAL_ROLES: readonly UserRole[] = [
   'school_admin',
   'branch_admin',
+  'principal',
+  'vice_principal',
+  'coordinator',
   'accountant',
   'hr_manager',
-];
-
-/** Roles that may invite and manage other users. */
-export const USER_MANAGEMENT_ROLES: readonly UserRole[] = ['school_admin', 'hr_manager'];
-
-/** Roles that may read fee data — challans, reports and the price list. */
-export const FEE_READ_ROLES: readonly UserRole[] = [
-  'school_admin',
-  'branch_admin',
-  'accountant',
-  'hr_manager',
+  'marketing',
 ];
 
 /**
- * Roles that may change fee data: set prices, raise challans and take money.
- * Deliberately narrower than the read list — an HR manager has no business
- * marking a challan paid.
- */
-export const FEE_WRITE_ROLES: readonly UserRole[] = ['school_admin', 'accountant'];
-
-/**
- * Roles that may read academics data — subjects, the timetable and the
- * register. A teacher is included: they need the timetable they are teaching to
- * and the class they are marking.
- */
-export const ACADEMICS_READ_ROLES: readonly UserRole[] = [
-  'school_admin',
-  'branch_admin',
-  'teacher',
-  'hr_manager',
-];
-
-/**
- * Roles that may change what the school teaches and when. Narrower than the
- * read list on purpose: a teacher reads the timetable, they do not set it.
- */
-export const ACADEMICS_WRITE_ROLES: readonly UserRole[] = ['school_admin'];
-
-/** Roles that may take the register. Marking is a teacher's daily job. */
-export const ATTENDANCE_MARK_ROLES: readonly UserRole[] = [
-  'school_admin',
-  'branch_admin',
-  'teacher',
-];
-
-/**
- * Roles that may read HR data — the staff directory, leave and the staff
- * register. A branch admin is included so they can see their own branch's
- * staff; the routes narrow that to their branch, the role list only opens
- * the door.
- */
-export const HR_READ_ROLES: readonly UserRole[] = [
-  'school_admin',
-  'branch_admin',
-  'hr_manager',
-];
-
-/**
- * Roles that may change HR data: add staff, set salaries, decide leave.
- * Narrower than the read list on purpose — a branch admin reads their branch's
- * staff, they do not set anyone's pay.
- */
-export const HR_WRITE_ROLES: readonly UserRole[] = ['school_admin', 'hr_manager'];
-
-/**
- * Roles that may read payroll — runs, payslips and the salary bill. The
- * accountant is included because reconciling the bank against the payroll is
- * their job.
- */
-export const PAYROLL_READ_ROLES: readonly UserRole[] = [
-  'school_admin',
-  'hr_manager',
-  'accountant',
-];
-
-/**
- * Roles that may raise, approve and pay a payroll run.
+ * Roles a school administrator may hand out from the invite screen.
  *
- * Deliberately excludes the accountant: they see the payroll and reconcile it,
- * but the person who computes what staff are owed and the person who moves the
- * money should not be the same one. It also excludes the branch admin, who has
- * no business approving a salary bill at all.
+ * Students and parents are excluded: those accounts are created by the
+ * admissions flow alongside a student record, and inviting a bare "student"
+ * with no enrolment behind them produces an account that can see nothing.
  */
-export const PAYROLL_WRITE_ROLES: readonly UserRole[] = ['school_admin', 'hr_manager'];
+export const INVITABLE_ROLES: readonly UserRole[] = [
+  'school_admin',
+  'branch_admin',
+  'principal',
+  'vice_principal',
+  'coordinator',
+  'teacher',
+  'accountant',
+  'hr_manager',
+  'marketing',
+];
+
+/**
+ * What each role may *do* is no longer a constant.
+ *
+ * Sprint 8 moved it to `lib/permissions.ts`, where a code-defined catalogue of
+ * permissions meets a per-school override table. The lists that used to live
+ * here — FEE_READ_ROLES and the rest — became `DEFAULT_ROLE_PERMISSIONS` there,
+ * unchanged in substance: they are still exactly what a school gets before it
+ * touches anything.
+ *
+ * They were removed rather than deprecated in place, because a stale
+ * `FEE_WRITE_ROLES.includes(role)` left in a route would keep answering the old
+ * question forever, silently ignoring whatever the school had configured. A
+ * compile error is the only reliable way to find every such site.
+ */
 
 /** Roles for which a branch assignment is mandatory. */
 export const BRANCH_REQUIRED_ROLES: readonly UserRole[] = [

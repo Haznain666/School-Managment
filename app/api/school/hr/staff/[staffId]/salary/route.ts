@@ -8,7 +8,6 @@ import { db } from '@/lib/drizzle';
 import { getStaff, getStaffSalaryStructure, listSalaryComponents } from '@/lib/hr-queries';
 import { paiseToNumeric, toPaise } from '@/lib/money';
 import { isUuid } from '@/lib/validation';
-import { HR_READ_ROLES, HR_WRITE_ROLES } from '@/types/school-auth';
 
 /**
  * /api/school/hr/staff/[staffId]/salary
@@ -64,7 +63,7 @@ export const GET = withSchoolAuth<RouteContext>(
       return handleApiError(error);
     }
   },
-  { allowedRoles: HR_READ_ROLES },
+  { permission: 'hr.read' },
 );
 
 interface AssignmentInput {
@@ -208,5 +207,5 @@ export const PATCH = withSchoolAuth<RouteContext>(
       return handleApiError(error);
     }
   },
-  { allowedRoles: HR_WRITE_ROLES },
+  { permission: 'hr.write' },
 );

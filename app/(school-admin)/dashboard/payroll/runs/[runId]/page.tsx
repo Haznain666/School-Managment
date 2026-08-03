@@ -5,9 +5,8 @@ import { notFound } from 'next/navigation';
 import { PayrollRunDetail } from '@/components/hr/PayrollRunDetail';
 import { formatPayrollPeriod } from '@/db/schema/payroll-runs';
 import { getPayrollRun } from '@/lib/hr-queries';
-import { requireSchoolRole } from '@/lib/school-guard';
+import { requireSchoolPermission } from '@/lib/school-guard';
 import { isUuid } from '@/lib/validation';
-import { PAYROLL_READ_ROLES, PAYROLL_WRITE_ROLES } from '@/types/school-auth';
 
 export const metadata: Metadata = {
   title: 'Payroll run',
@@ -22,7 +21,7 @@ export default async function PayrollRunPage({
   params: Promise<{ runId: string }>;
 }) {
   const { runId } = await params;
-  const { claims, locationId } = await requireSchoolRole(PAYROLL_READ_ROLES);
+  const { locationId, permissions } = await requireSchoolPermission('payroll.read');
 
   if (!isUuid(runId)) notFound();
 
@@ -45,7 +44,7 @@ export default async function PayrollRunPage({
 
       <PayrollRunDetail
         runId={runId}
-        canEdit={PAYROLL_WRITE_ROLES.includes(claims.role)}
+        canEdit={permissions.includes('payroll.write')}
       />
     </div>
   );

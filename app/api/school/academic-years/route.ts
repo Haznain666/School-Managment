@@ -24,8 +24,6 @@ import { readBoolean } from '@/lib/validation';
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-const READ_ROLES = ['school_admin', 'branch_admin', 'hr_manager', 'accountant'] as const;
-const WRITE_ROLES = ['school_admin'] as const;
 
 export const GET = withSchoolAuth(
   async (_request, auth) => {
@@ -35,7 +33,7 @@ export const GET = withSchoolAuth(
       return handleApiError(error);
     }
   },
-  { allowedRoles: READ_ROLES },
+  { permission: 'admissions.read' },
 );
 
 interface CreateYearBody {
@@ -111,5 +109,5 @@ export const POST = withSchoolAuth(
       return handleApiError(error);
     }
   },
-  { allowedRoles: WRITE_ROLES },
+  { permission: 'admissions.write' },
 );

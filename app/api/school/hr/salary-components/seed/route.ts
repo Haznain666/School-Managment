@@ -5,7 +5,6 @@ import { withSchoolAuth } from '@/lib/api-auth';
 import { apiSuccess, handleApiError } from '@/lib/api-response';
 import { db } from '@/lib/drizzle';
 import { listSalaryComponents } from '@/lib/hr-queries';
-import { HR_WRITE_ROLES } from '@/types/school-auth';
 
 /**
  * POST /api/school/hr/salary-components/seed
@@ -55,5 +54,5 @@ export const POST = withSchoolAuth(
       return handleApiError(error);
     }
   },
-  { allowedRoles: HR_WRITE_ROLES },
+  { permission: 'hr.write' },
 );

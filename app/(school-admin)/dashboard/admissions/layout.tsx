@@ -3,8 +3,7 @@ import type { ReactNode } from 'react';
 
 import { Card } from '@/components/ui/Card';
 import { getModuleFlags } from '@/lib/school-queries';
-import { requireSchoolRole } from '@/lib/school-guard';
-import { ADMIN_PORTAL_ROLES } from '@/types/school-auth';
+import { requireSchoolPermission } from '@/lib/school-guard';
 
 /**
  * Module gate for every Admissions screen.
@@ -20,7 +19,7 @@ export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 
 export default async function AdmissionsLayout({ children }: { children: ReactNode }) {
-  const { locationId } = await requireSchoolRole(ADMIN_PORTAL_ROLES);
+  const { locationId } = await requireSchoolPermission('admissions.read');
   const moduleFlags = await getModuleFlags(locationId);
 
   if (!moduleFlags.admissions) {

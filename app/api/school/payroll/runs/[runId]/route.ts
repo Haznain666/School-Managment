@@ -17,7 +17,6 @@ import {
 } from '@/lib/payroll-generation';
 import { PayslipNumberError } from '@/lib/payslip-number';
 import { isUuid, readOptionalString } from '@/lib/validation';
-import { PAYROLL_READ_ROLES, PAYROLL_WRITE_ROLES } from '@/types/school-auth';
 
 /**
  * /api/school/payroll/runs/[runId]
@@ -64,7 +63,7 @@ export const GET = withSchoolAuth<RouteContext>(
       return handleApiError(error);
     }
   },
-  { allowedRoles: PAYROLL_READ_ROLES },
+  { permission: 'payroll.read' },
 );
 
 interface UpdateRunBody {
@@ -257,5 +256,5 @@ export const PATCH = withSchoolAuth<RouteContext>(
       return handleApiError(error);
     }
   },
-  { allowedRoles: PAYROLL_WRITE_ROLES },
+  { permission: 'payroll.write' },
 );

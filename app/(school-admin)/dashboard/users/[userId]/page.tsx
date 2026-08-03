@@ -3,10 +3,10 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 
 import { UserDetailPanel } from '@/components/school/UserDetailPanel';
-import { requireSchoolRole } from '@/lib/school-guard';
+import { requireSchoolPermission } from '@/lib/school-guard';
 import { getSchoolUserById, listBranchOptions } from '@/lib/school-queries';
 import { isUuid } from '@/lib/validation';
-import { ROLE_LABELS, USER_MANAGEMENT_ROLES, isUserRole } from '@/types/school-auth';
+import { ROLE_LABELS, isUserRole } from '@/types/school-auth';
 
 export const metadata: Metadata = {
   title: 'User profile',
@@ -23,11 +23,8 @@ export default async function UserDetailPage({
   const { userId } = await params;
   if (!isUuid(userId)) notFound();
 
-  const { claims, locationId } = await requireSchoolRole([
-    'school_admin',
-    'branch_admin',
-    'hr_manager',
-  ]);
+  const { claims, locationId, permissions } =
+    await requireSchoolPermission('users.read');
 
   const user = await getSchoolUserById(locationId, userId);
   if (user === null) notFound();
@@ -38,7 +35,7 @@ export default async function UserDetailPage({
   }
 
   const branches = await listBranchOptions(locationId);
-  const canEdit = USER_MANAGEMENT_ROLES.includes(claims.role);
+  const canEdit = permissions.includes('users.write');
 
   return (
     <div className="max-w-4xl space-y-6">

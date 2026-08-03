@@ -2,8 +2,7 @@ import type { Metadata } from 'next';
 
 import { LateFeeSettingsForm } from '@/components/fees/LateFeeSettingsForm';
 import { DEFAULT_DUE_DAY, getLateFeeRule } from '@/lib/fee-queries';
-import { requireSchoolRole } from '@/lib/school-guard';
-import { FEE_READ_ROLES } from '@/types/school-auth';
+import { requireSchoolPermission } from '@/lib/school-guard';
 
 export const metadata: Metadata = {
   title: 'Fee settings',
@@ -13,7 +12,7 @@ export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 
 export default async function FeeSettingsPage() {
-  const { claims, locationId } = await requireSchoolRole(FEE_READ_ROLES);
+  const { claims, locationId } = await requireSchoolPermission('fees.read');
   const rule = await getLateFeeRule(locationId);
 
   return (

@@ -32,13 +32,6 @@ import { StudentIdError } from '@/lib/student-id';
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-const READ_ROLES = [
-  'school_admin',
-  'branch_admin',
-  'teacher',
-  'hr_manager',
-  'accountant',
-] as const;
 
 export const GET = withSchoolAuth(
   async (request, auth) => {
@@ -67,7 +60,7 @@ export const GET = withSchoolAuth(
       return handleApiError(error);
     }
   },
-  { allowedRoles: READ_ROLES },
+  { permission: 'admissions.read' },
 );
 
 export const POST = withSchoolAuth(
@@ -131,5 +124,5 @@ export const POST = withSchoolAuth(
       return handleApiError(error);
     }
   },
-  { allowedRoles: ['school_admin', 'branch_admin'] },
+  { permission: 'admissions.write' },
 );

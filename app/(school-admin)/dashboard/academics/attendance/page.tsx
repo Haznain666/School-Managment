@@ -3,8 +3,7 @@ import type { Metadata } from 'next';
 import { AttendanceMarker } from '@/components/academics/AttendanceMarker';
 import { listAcademicYearOptions } from '@/lib/academics-queries';
 import { listGrades, listSections } from '@/lib/admissions-queries';
-import { requireSchoolRole } from '@/lib/school-guard';
-import { ADMIN_PORTAL_ROLES } from '@/types/school-auth';
+import { requireSchoolPermission } from '@/lib/school-guard';
 
 export const metadata: Metadata = {
   title: 'Mark attendance',
@@ -14,7 +13,7 @@ export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 
 export default async function MarkAttendancePage() {
-  const { claims, locationId } = await requireSchoolRole(ADMIN_PORTAL_ROLES);
+  const { claims, locationId } = await requireSchoolPermission('attendance.mark');
 
   const [academicYears, grades, sections] = await Promise.all([
     listAcademicYearOptions(locationId),

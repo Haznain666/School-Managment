@@ -4,9 +4,8 @@ import { notFound } from 'next/navigation';
 
 import { StaffDetailPanel } from '@/components/hr/StaffDetailPanel';
 import { getStaff } from '@/lib/hr-queries';
-import { requireSchoolRole } from '@/lib/school-guard';
+import { requireSchoolPermission } from '@/lib/school-guard';
 import { isUuid } from '@/lib/validation';
-import { HR_READ_ROLES, HR_WRITE_ROLES } from '@/types/school-auth';
 
 export const metadata: Metadata = {
   title: 'Staff member',
@@ -21,7 +20,7 @@ export default async function StaffDetailPage({
   params: Promise<{ staffId: string }>;
 }) {
   const { staffId } = await params;
-  const { claims, locationId } = await requireSchoolRole(HR_READ_ROLES);
+  const { locationId, permissions } = await requireSchoolPermission('hr.read');
 
   if (!isUuid(staffId)) notFound();
 
@@ -49,7 +48,7 @@ export default async function StaffDetailPage({
 
       <StaffDetailPanel
         staffId={staffId}
-        canEdit={HR_WRITE_ROLES.includes(claims.role)}
+        canEdit={permissions.includes('hr.write')}
       />
     </div>
   );

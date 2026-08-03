@@ -1,8 +1,7 @@
 import type { Metadata } from 'next';
 
 import { SubjectForm } from '@/components/academics/SubjectForm';
-import { requireSchoolRole } from '@/lib/school-guard';
-import { ACADEMICS_WRITE_ROLES } from '@/types/school-auth';
+import { requireSchoolPermission } from '@/lib/school-guard';
 
 export const metadata: Metadata = {
   title: 'New subject',
@@ -12,7 +11,7 @@ export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 
 export default async function NewSubjectPage() {
-  await requireSchoolRole(ACADEMICS_WRITE_ROLES);
+  await requireSchoolPermission('academics.write');
 
   return (
     <div className="max-w-3xl space-y-6">

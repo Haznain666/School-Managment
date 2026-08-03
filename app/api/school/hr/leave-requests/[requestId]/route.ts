@@ -6,7 +6,6 @@ import { apiFailure, apiSuccess, handleApiError, readJsonBody } from '@/lib/api-
 import { db } from '@/lib/drizzle';
 import { getLeaveRequest } from '@/lib/hr-queries';
 import { isUuid, readOptionalString, readString } from '@/lib/validation';
-import { HR_READ_ROLES, HR_WRITE_ROLES } from '@/types/school-auth';
 
 /**
  * /api/school/hr/leave-requests/[requestId]
@@ -56,7 +55,7 @@ export const GET = withSchoolAuth<RouteContext>(
       return handleApiError(error);
     }
   },
-  { allowedRoles: HR_READ_ROLES },
+  { permission: 'hr.read' },
 );
 
 interface DecideLeaveBody {
@@ -154,5 +153,5 @@ export const PATCH = withSchoolAuth<RouteContext>(
       return handleApiError(error);
     }
   },
-  { allowedRoles: HR_WRITE_ROLES },
+  { permission: 'hr.write' },
 );

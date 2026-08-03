@@ -2,8 +2,7 @@ import type { Metadata } from 'next';
 
 import { HrNav } from '@/components/hr/HrNav';
 import { PayrollRunManager } from '@/components/hr/PayrollRunManager';
-import { requireSchoolRole } from '@/lib/school-guard';
-import { PAYROLL_READ_ROLES, PAYROLL_WRITE_ROLES } from '@/types/school-auth';
+import { requireSchoolPermission } from '@/lib/school-guard';
 
 export const metadata: Metadata = {
   title: 'Payroll',
@@ -13,7 +12,7 @@ export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 
 export default async function PayrollPage() {
-  const { claims } = await requireSchoolRole(PAYROLL_READ_ROLES);
+  const { permissions } = await requireSchoolPermission('payroll.read');
 
   return (
     <div className="space-y-6">
@@ -27,7 +26,7 @@ export default async function PayrollPage() {
 
       <HrNav />
 
-      <PayrollRunManager canEdit={PAYROLL_WRITE_ROLES.includes(claims.role)} />
+      <PayrollRunManager canEdit={permissions.includes('payroll.write')} />
     </div>
   );
 }

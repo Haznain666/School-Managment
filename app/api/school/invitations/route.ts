@@ -67,7 +67,7 @@ export const GET = withSchoolAuth(
       return handleApiError(error);
     }
   },
-  { allowedRoles: ['school_admin', 'hr_manager'] },
+  { permission: 'users.write' },
 );
 
 interface CreateInviteBody {
@@ -189,5 +189,5 @@ export const POST = withSchoolAuth(
       return handleApiError(error);
     }
   },
-  { allowedRoles: ['school_admin', 'hr_manager'] },
+  { permission: 'users.write' },
 );

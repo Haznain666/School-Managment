@@ -5,8 +5,7 @@ import { StudentTable } from '@/components/admissions/StudentTable';
 import { Button } from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
 import { listAcademicYears, listAdmissionsBranches } from '@/lib/admissions-queries';
-import { requireSchoolRole } from '@/lib/school-guard';
-import { ADMIN_PORTAL_ROLES } from '@/types/school-auth';
+import { requireSchoolPermission } from '@/lib/school-guard';
 
 export const metadata: Metadata = {
   title: 'Students',
@@ -16,7 +15,7 @@ export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 
 export default async function StudentsPage() {
-  const { claims, locationId } = await requireSchoolRole(ADMIN_PORTAL_ROLES);
+  const { claims, locationId } = await requireSchoolPermission('admissions.read');
 
   const [branches, academicYears] = await Promise.all([
     listAdmissionsBranches(locationId),

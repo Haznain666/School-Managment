@@ -2,7 +2,6 @@ import { withSchoolAuth } from '@/lib/api-auth';
 import { apiFailure, apiSuccess, handleApiError } from '@/lib/api-response';
 import { getCollectionSummary } from '@/lib/fee-queries';
 import { toPaise } from '@/lib/money';
-import { FEE_READ_ROLES } from '@/types/school-auth';
 
 /**
  * GET /api/school/fees/reports/collection
@@ -60,5 +59,5 @@ export const GET = withSchoolAuth(
       return handleApiError(error);
     }
   },
-  { allowedRoles: FEE_READ_ROLES },
+  { permission: 'fees.read' },
 );

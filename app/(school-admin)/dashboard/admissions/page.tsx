@@ -4,8 +4,7 @@ import Link from 'next/link';
 import { Badge } from '@/components/ui/Badge';
 import { Card, CardTitle } from '@/components/ui/Card';
 import { getAdmissionsOverview } from '@/lib/admissions-queries';
-import { requireSchoolRole } from '@/lib/school-guard';
-import { ADMIN_PORTAL_ROLES } from '@/types/school-auth';
+import { requireSchoolPermission } from '@/lib/school-guard';
 
 export const metadata: Metadata = {
   title: 'Admissions',
@@ -54,7 +53,7 @@ function ActionTile({
  * request parameter that could widen it to another tenant.
  */
 export default async function AdmissionsOverviewPage() {
-  const { locationId } = await requireSchoolRole(ADMIN_PORTAL_ROLES);
+  const { locationId } = await requireSchoolPermission('admissions.read');
   const overview = await getAdmissionsOverview(locationId);
 
   return (

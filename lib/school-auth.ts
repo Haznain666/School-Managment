@@ -2,11 +2,7 @@ import 'server-only';
 
 import { cookies } from 'next/headers';
 
-import {
-  parseSchoolClaims,
-  type SchoolCustomClaims,
-  type SchoolSessionClaims,
-} from '@/types/school-auth';
+import { parseSchoolClaims, type SchoolCustomClaims, type SchoolSessionClaims } from '@/types/school-auth';
 
 import { getAdminAuth, verifyIdToken } from './firebase-admin';
 import { serverEnv } from './env';

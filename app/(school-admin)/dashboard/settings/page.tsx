@@ -1,12 +1,13 @@
 import { eq } from 'drizzle-orm';
 import type { Metadata } from 'next';
+import Link from 'next/link';
 
 import { schools } from '@/db/schema';
-import { PaletteSwatches } from '@/components/super-admin/PalettePreview';
+import { SchoolBrandingForm } from '@/components/school/SchoolBrandingForm';
+import { SchoolProfileForm } from '@/components/school/SchoolProfileForm';
 import { Card, CardTitle } from '@/components/ui/Card';
 import { db } from '@/lib/drizzle';
-import { requireSchoolRole } from '@/lib/school-guard';
-import { getSchoolBranding } from '@/lib/school-tenant';
+import { requireSchoolPermission } from '@/lib/school-guard';
 
 export const metadata: Metadata = {
   title: 'Settings',
@@ -15,101 +16,92 @@ export const metadata: Metadata = {
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 
-function Field({ label, value }: { label: string; value: string | null }) {
-  return (
-    <div>
-      <dt className="text-xs uppercase tracking-wide text-slate-500">{label}</dt>
-      <dd className="mt-1 break-words text-sm text-slate-900">
-        {value === null || value === '' ? (
-          <span className="text-slate-400">Not set</span>
-        ) : (
-          value
-        )}
-      </dd>
-    </div>
-  );
-}
-
 /**
- * School settings — read-only.
+ * School settings — self-serve.
  *
- * School details and branding are owned by the platform administrator, not by
- * the school, so this page reports rather than edits. Making that explicit is
- * kinder than showing disabled inputs.
+ * Through Sprint 7 this page reported and did not edit: school details and
+ * branding were the platform operator's to change, and a school wanting a new
+ * logo raised a ticket. That was the wrong owner for the wrong things. Contact
+ * details and branding are exactly what a school is the authority on, and
+ * exactly what changes often enough for a ticket to be a poor answer.
+ *
+ * What did *not* move is the small set of fields that would break something
+ * outside the school if it changed — the subdomain, the school code, the
+ * billing state. `app/api/school/settings/route.ts` documents why.
  */
 export default async function SchoolSettingsPage() {
-  const { locationId } = await requireSchoolRole(['school_admin', 'branch_admin']);
+  const { locationId, permissions } = await requireSchoolPermission('settings.read');
 
-  const [rows, branding] = await Promise.all([
-    db
-      .select({
-        name: schools.name,
-        city: schools.city,
-        slug: schools.slug,
-        phone: schools.phone,
-        email: schools.email,
-        principalName: schools.principalName,
-      })
-      .from(schools)
-      .where(eq(schools.locationId, locationId))
-      .limit(1),
-    getSchoolBranding(locationId),
-  ]);
+  const rows = await db
+    .select({
+      name: schools.name,
+      city: schools.city,
+      slug: schools.slug,
+      schoolCode: schools.schoolCode,
+      phone: schools.phone,
+      email: schools.email,
+      address: schools.address,
+      principalName: schools.principalName,
+    })
+    .from(schools)
+    .where(eq(schools.locationId, locationId))
+    .limit(1);
 
   const school = rows[0];
+
+  if (school === undefined) {
+    return (
+      <Card>
+        <p className="text-sm text-slate-600">This school could not be loaded.</p>
+      </Card>
+    );
+  }
+
+  const canEdit = permissions.includes('settings.write');
 
   return (
     <div className="space-y-6">
       <div>
         <h2 className="text-xl font-semibold text-slate-900">Settings</h2>
         <p className="mt-1 text-sm text-slate-500">
-          Your school profile and branding, as configured by the platform.
+          {canEdit
+            ? 'Your school profile and branding. Changes here apply to everyone at your school straight away.'
+            : 'Your school profile and branding. Your role can see these but not change them.'}
         </p>
       </div>
 
-      <Card header={<CardTitle title="School profile" />}>
-        <dl className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          <Field label="Name" value={school?.name ?? null} />
-          <Field label="City" value={school?.city ?? null} />
-          <Field label="Subdomain" value={school?.slug ?? null} />
-          <Field label="Phone" value={school?.phone ?? null} />
-          <Field label="Email" value={school?.email ?? null} />
-          <Field label="Principal" value={school?.principalName ?? null} />
-        </dl>
+      <SchoolProfileForm
+        readOnly={{
+          name: school.name,
+          slug: school.slug,
+          city: school.city,
+          schoolCode: school.schoolCode,
+        }}
+        initial={{
+          phone: school.phone,
+          email: school.email,
+          address: school.address,
+          principalName: school.principalName,
+        }}
+        canEdit={canEdit}
+      />
 
-        <p className="mt-4 text-xs text-slate-500">
-          To update school details, contact your platform administrator.
-        </p>
-      </Card>
+      <SchoolBrandingForm schoolName={school.name} canEdit={canEdit} />
 
-      <Card header={<CardTitle title="Active branding" />}>
-        <div className="flex flex-wrap items-start gap-6">
-          {branding?.logoUrl != null && branding.logoUrl !== '' ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img
-              src={branding.logoUrl}
-              alt={`${branding.name} logo`}
-              className="h-20 w-20 rounded-lg border border-slate-200 bg-white object-contain p-1"
-            />
-          ) : (
-            <div className="flex h-20 w-20 items-center justify-center rounded-lg border border-dashed border-slate-300 text-xs text-slate-400">
-              No logo
-            </div>
-          )}
-
-          <div className="min-w-[16rem] flex-1">
-            {branding?.palette != null ? (
-              <PaletteSwatches palette={branding.palette} />
-            ) : (
-              <p className="text-sm text-slate-500">No palette has been set.</p>
-            )}
-          </div>
-        </div>
-
-        <p className="mt-4 text-xs text-slate-500">
-          To change branding, contact your platform administrator.
-        </p>
-      </Card>
+      {permissions.includes('permissions.manage') ? (
+        <Card header={<CardTitle title="Roles and permissions" />}>
+          <p className="text-sm text-slate-600">
+            Decide what each role at your school may do — who can take a payment,
+            who can approve payroll, who can see a personnel file.
+          </p>
+          <Link
+            href="/dashboard/settings/permissions"
+            className="mt-3 inline-block text-sm font-medium text-brand-primary hover:underline"
+          >
+            Manage permissions
+          </Link>
+        </Card>
+      ) : null}
 
       <Card header={<CardTitle title="Notification preferences" />}>
         <p className="text-sm text-slate-500">Coming soon.</p>

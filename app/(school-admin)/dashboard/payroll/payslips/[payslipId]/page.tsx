@@ -4,9 +4,8 @@ import { notFound } from 'next/navigation';
 
 import { PayslipView } from '@/components/hr/PayslipView';
 import { getPayslipDetail } from '@/lib/hr-queries';
-import { requireSchoolRole } from '@/lib/school-guard';
+import { requireSchoolPermission } from '@/lib/school-guard';
 import { isUuid } from '@/lib/validation';
-import { PAYROLL_READ_ROLES, PAYROLL_WRITE_ROLES } from '@/types/school-auth';
 
 export const metadata: Metadata = {
   title: 'Payslip',
@@ -21,7 +20,7 @@ export default async function PayslipPage({
   params: Promise<{ payslipId: string }>;
 }) {
   const { payslipId } = await params;
-  const { claims, locationId } = await requireSchoolRole(PAYROLL_READ_ROLES);
+  const { locationId, permissions } = await requireSchoolPermission('payroll.read');
 
   if (!isUuid(payslipId)) notFound();
 
@@ -41,7 +40,7 @@ export default async function PayslipPage({
 
       <PayslipView
         payslipId={payslipId}
-        canEdit={PAYROLL_WRITE_ROLES.includes(claims.role)}
+        canEdit={permissions.includes('payroll.write')}
       />
     </div>
   );

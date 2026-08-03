@@ -40,7 +40,7 @@ export const GET = withSchoolAuth<RouteContext>(
     }
   },
   {
-    allowedRoles: ['school_admin', 'branch_admin', 'teacher', 'hr_manager', 'accountant'],
+    permission: 'admissions.read',
   },
 );
 
@@ -192,5 +192,5 @@ export const POST = withSchoolAuth<RouteContext>(
       return handleApiError(error);
     }
   },
-  { allowedRoles: ['school_admin', 'branch_admin'] },
+  { permission: 'admissions.write' },
 );

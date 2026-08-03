@@ -4,7 +4,6 @@ import { apiFailure, apiSuccess, handleApiError, readJsonBody } from '@/lib/api-
 import { db } from '@/lib/drizzle';
 import { getLeaveType, getStaff, listLeaveRequests } from '@/lib/hr-queries';
 import { isIsoDate, isUuid, readOptionalString } from '@/lib/validation';
-import { HR_READ_ROLES, HR_WRITE_ROLES } from '@/types/school-auth';
 
 /**
  * /api/school/hr/leave-requests
@@ -46,7 +45,7 @@ export const GET = withSchoolAuth(
       return handleApiError(error);
     }
   },
-  { allowedRoles: HR_READ_ROLES },
+  { permission: 'hr.read' },
 );
 
 interface CreateLeaveRequestBody {
@@ -154,5 +153,5 @@ export const POST = withSchoolAuth(
       return handleApiError(error);
     }
   },
-  { allowedRoles: HR_WRITE_ROLES },
+  { permission: 'hr.write' },
 );

@@ -4,8 +4,7 @@ import Link from 'next/link';
 import { HrNav } from '@/components/hr/HrNav';
 import { Card, CardTitle } from '@/components/ui/Card';
 import { getHrSummary } from '@/lib/hr-queries';
-import { requireSchoolRole } from '@/lib/school-guard';
-import { HR_READ_ROLES } from '@/types/school-auth';
+import { requireSchoolPermission } from '@/lib/school-guard';
 
 export const metadata: Metadata = {
   title: 'HR',
@@ -24,7 +23,7 @@ export const runtime = 'nodejs';
  * answer before they click "Run payroll", not after.
  */
 export default async function HrOverviewPage() {
-  const { locationId } = await requireSchoolRole(HR_READ_ROLES);
+  const { locationId } = await requireSchoolPermission('hr.read');
   const summary = await getHrSummary(locationId);
 
   const tiles: ReadonlyArray<{

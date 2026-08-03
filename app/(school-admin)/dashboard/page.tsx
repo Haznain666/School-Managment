@@ -6,12 +6,9 @@ import { getFeeOverview } from '@/lib/fee-queries';
 import { formatPkr } from '@/lib/money';
 import { PLATFORM_MODULES } from '@/lib/platform-modules';
 import { requireSchoolRole } from '@/lib/school-guard';
+import { permissionsForRole } from '@/lib/permission-queries';
 import { getDashboardCounts, getModuleFlags } from '@/lib/school-queries';
-import {
-  ADMIN_PORTAL_ROLES,
-  FEE_READ_ROLES,
-  USER_MANAGEMENT_ROLES,
-} from '@/types/school-auth';
+import { ADMIN_PORTAL_ROLES } from '@/types/school-auth';
 
 export const metadata: Metadata = {
   title: 'Dashboard',
@@ -81,17 +78,18 @@ const MODULE_DESCRIPTIONS: Partial<Record<string, string>> = {
 export default async function SchoolDashboardPage() {
   const { claims, locationId } = await requireSchoolRole(ADMIN_PORTAL_ROLES);
 
-  const [counts, moduleFlags] = await Promise.all([
+  const [counts, moduleFlags, permissions] = await Promise.all([
     getDashboardCounts(locationId),
     getModuleFlags(locationId),
+    permissionsForRole(locationId, claims.role),
   ]);
 
-  const canInvite = USER_MANAGEMENT_ROLES.includes(claims.role);
+  const canInvite = permissions.includes('users.write');
   const enabledModules = PLATFORM_MODULES.filter((entry) => moduleFlags[entry.key]);
 
   // Fee figures are read only when the module is on and the caller may see
   // them, so a school without Fee Management does not pay for the queries.
-  const showFees = moduleFlags.fee_management && FEE_READ_ROLES.includes(claims.role);
+  const showFees = moduleFlags.fee_management && permissions.includes('fees.read');
   const fees = showFees ? await getFeeOverview(locationId) : null;
 
   return (

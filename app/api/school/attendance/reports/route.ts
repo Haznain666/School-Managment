@@ -2,7 +2,6 @@ import { withSchoolAuth } from '@/lib/api-auth';
 import { apiFailure, apiSuccess, handleApiError } from '@/lib/api-response';
 import { getSectionAttendanceReport } from '@/lib/academics-queries';
 import { isUuid } from '@/lib/validation';
-import { ACADEMICS_READ_ROLES } from '@/types/school-auth';
 
 /**
  * /api/school/attendance/reports
@@ -60,5 +59,5 @@ export const GET = withSchoolAuth(
       return handleApiError(error);
     }
   },
-  { allowedRoles: ACADEMICS_READ_ROLES },
+  { permission: 'academics.read' },
 );
