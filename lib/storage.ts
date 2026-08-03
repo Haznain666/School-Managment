@@ -2,7 +2,7 @@ import 'server-only';
 
 import { randomUUID } from 'node:crypto';
 
-import { getAdminStorage } from './firebase-admin';
+import { getStorageBucket } from './storage-bucket';
 
 /**
  * Server-side uploads to Firebase Storage.
@@ -12,6 +12,10 @@ import { getAdminStorage } from './firebase-admin';
  * with `_school` standing in for branchId when a file belongs to the school as
  * a whole rather than one campus. The leading `{locationId}` segment is what
  * `storage.rules` matches on, so this shape is what keeps tenants isolated.
+ *
+ * Which bucket those paths live in is `lib/storage-bucket.ts`, which exists
+ * because the answer is not the same for every Firebase project — see the note
+ * there.
  */
 
 export interface UploadResult {
@@ -53,7 +57,7 @@ export async function uploadBuffer(params: {
   /** Extra metadata for auditing, e.g. who uploaded it. */
   metadata?: Record<string, string>;
 }): Promise<UploadResult> {
-  const bucket = getAdminStorage().bucket();
+  const bucket = await getStorageBucket();
   const file = bucket.file(params.storagePath);
   const downloadToken = randomUUID();
 
@@ -82,6 +86,6 @@ export async function uploadBuffer(params: {
 
 /** Removes an object. Missing files are not an error. */
 export async function deleteObject(storagePath: string): Promise<void> {
-  const bucket = getAdminStorage().bucket();
+  const bucket = await getStorageBucket();
   await bucket.file(storagePath).delete({ ignoreNotFound: true });
 }
