@@ -14,7 +14,6 @@
 import { getApp, getApps, initializeApp, type FirebaseApp } from 'firebase/app';
 import { getAuth, type Auth } from 'firebase/auth';
 import { getDatabase, type Database } from 'firebase/database';
-import { getStorage, type FirebaseStorage } from 'firebase/storage';
 
 import { publicEnv } from './env';
 
@@ -22,7 +21,6 @@ const firebaseConfig = {
   apiKey: publicEnv.firebase.apiKey,
   authDomain: publicEnv.firebase.authDomain,
   projectId: publicEnv.firebase.projectId,
-  storageBucket: publicEnv.firebase.storageBucket,
   messagingSenderId: publicEnv.firebase.messagingSenderId,
   appId: publicEnv.firebase.appId,
   databaseURL: publicEnv.firebase.databaseURL,
@@ -49,11 +47,6 @@ export function getFirebaseApp(): FirebaseApp {
 /** Email/password authentication. ID tokens carry the tenant custom claims. */
 export function getFirebaseAuth(): Auth {
   return getAuth(getFirebaseApp());
-}
-
-/** Files live under /{locationId}/... — see storage.rules. */
-export function getFirebaseStorage(): FirebaseStorage {
-  return getStorage(getFirebaseApp());
 }
 
 /** Notifications and live sessions — see database.rules.json. */

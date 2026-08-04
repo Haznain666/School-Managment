@@ -10,16 +10,17 @@ import { buildStoragePath, deleteObject, uploadBuffer } from '@/lib/storage';
 /**
  * POST /api/school/branding/upload
  *
- * Multipart upload of the school's own logo, by the school. Stores it under
- * `/{locationId}/_school/branding/logo.{ext}`, derives three candidate colour
- * palettes, and saves all of it against the tenant on the session.
+ * Multipart upload of the school's own logo, by the school. Stores it in
+ * Supabase Storage under `/{locationId}/_school/branding/logo.{ext}`, derives
+ * three candidate colour palettes, and saves all of it against the tenant on
+ * the session.
  *
  * ── Why this exists beside the Super Admin route ─────────────────────────
  * Both write the same row through the same helpers. The difference is the
  * tenant: this one takes it from verified claims, so the storage path a school
  * can write to is fixed by their session and cannot be redirected at another
- * school's folder by editing a request. That is also exactly what
- * `storage.rules` matches on, so the two agree.
+ * school's folder by editing a request. No browser holds a Storage credential
+ * at all — the service-role key stays on the server.
  *
  * The palettes are generated here rather than on demand because extraction
  * costs an image decode; doing it once at upload keeps every later page render
@@ -91,7 +92,6 @@ export const POST = withSchoolAuth(
           storagePath,
           buffer,
           contentType: file.type,
-          metadata: { uploadedByUid: auth.uid, locationId: auth.locationId },
         }),
         // SVGs are rasterised by sharp before extraction; if that fails,
         // extractPalettes falls back to defaults rather than throwing.
