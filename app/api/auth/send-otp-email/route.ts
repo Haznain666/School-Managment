@@ -90,7 +90,6 @@ export async function POST(request: NextRequest) {
     await sendSchoolEmailQuietly({
       locationId: tenant.locationId,
       to: email,
-      fromName: tenant.name,
       ...otpLoginEmailTemplate({
         schoolName: tenant.name,
         otp: issued.otp,

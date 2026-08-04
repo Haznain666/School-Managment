@@ -1,23 +1,20 @@
 import 'server-only';
 
 import { db } from './drizzle';
-import {
-  findOrCreateContactByEmail,
-  sendGhlEmail,
-  GhlAgencyError,
-  GhlApiError,
-} from './ghl-client';
+import { findOrCreateContactByEmail, sendGhlEmail, GhlApiError } from './ghl-client';
 import { GhlTokenError } from './ghl-tokens';
 
 /**
  * White-label email, sent from each school's own GoHighLevel sub-account.
  *
- * Every send is tenant-scoped: the `locationId` selects the sub-account, and
- * GHL resolves the sending domain, the branding and the sender identity from
- * it. A parent at Beaconhouse receives mail from Beaconhouse, not from this
- * platform. There is no ambient "from" address anywhere in this module and no
- * shared sender — the tenant is a required argument, so the wrong one is a
- * compile error rather than a silent cross-brand send.
+ * Every send is tenant-scoped: the `locationId` selects the sub-account, its
+ * OAuth token authorises both calls, and GHL resolves the sending domain and
+ * the sender identity from that sub-account's LC Email configuration. A parent
+ * at Beaconhouse receives mail from Beaconhouse, not from this platform.
+ *
+ * This module names no sender. There is no `from` parameter to pass and no
+ * agency-key path to fall back to, because either would be a shared sender —
+ * the one thing a white-label system must never produce.
  *
  * ── Why a contact is created first ───────────────────────────────────────
  * GHL has no "send to an address" endpoint. Every message belongs to a
@@ -49,10 +46,9 @@ export interface SendSchoolEmailParams {
   to: string;
   subject: string;
   html: string;
-  /** Display name on the envelope. The school's name, normally. */
-  fromName?: string | undefined;
-  /** Recipient's name, used only if a GHL contact has to be created. */
-  toName?: string | undefined;
+  /** Recipient's names, used only if a GHL contact has to be created. */
+  firstName?: string | undefined;
+  lastName?: string | undefined;
 }
 
 /**
@@ -62,7 +58,7 @@ export interface SendSchoolEmailParams {
  *   sub-account could not be reached.
  */
 export async function sendSchoolEmail(params: SendSchoolEmailParams): Promise<void> {
-  const { locationId, to, subject, html, fromName, toName } = params;
+  const { locationId, to, subject, html, firstName, lastName } = params;
 
   if (locationId.trim() === '') {
     throw new EmailDeliveryError(locationId, 'no school was resolved for this send');
@@ -72,9 +68,13 @@ export async function sendSchoolEmail(params: SendSchoolEmailParams): Promise<vo
   }
 
   try {
+    // GHL attaches every message to a conversation and every conversation to
+    // a contact, so the contact has to exist before the message can be sent.
+    // This is the same order `sendWhatsAppMessage` uses.
     const { contactId } = await findOrCreateContactByEmail(db, locationId, {
       email: to,
-      name: toName,
+      firstName,
+      lastName,
     });
 
     await sendGhlEmail(db, locationId, {
@@ -82,7 +82,6 @@ export async function sendSchoolEmail(params: SendSchoolEmailParams): Promise<vo
       subject,
       html,
       text: htmlToPlainText(html),
-      fromName,
     });
   } catch (error) {
     throw new EmailDeliveryError(locationId, describe(error));
@@ -116,15 +115,28 @@ export async function sendSchoolEmailQuietly(
   }
 }
 
+/**
+ * Splits a stored full name into the first/last pair GHL wants on a contact.
+ *
+ * Only ever used to label a contact that has to be created. Nothing downstream
+ * depends on the split being right for names that do not follow the pattern —
+ * a mononym becomes a first name and that is fine.
+ */
+export function splitName(full: string | null | undefined): {
+  firstName?: string;
+  lastName?: string;
+} {
+  const parts = (full ?? '').trim().split(/\s+/).filter((part) => part !== '');
+  if (parts.length === 0) return {};
+  return { firstName: parts[0] ?? '', lastName: parts.slice(1).join(' ') };
+}
+
 function describe(error: unknown): string {
   if (error instanceof GhlTokenError) {
     return 'this school has not connected its GoHighLevel account';
   }
   if (error instanceof GhlApiError) {
-    return `GHL returned ${error.status}`;
-  }
-  if (error instanceof GhlAgencyError) {
-    return `GHL agency call returned ${error.status}`;
+    return `GHL ${error.endpoint} returned ${error.status}: ${error.body.slice(0, 200)}`;
   }
   return error instanceof Error ? error.message : 'unknown error';
 }

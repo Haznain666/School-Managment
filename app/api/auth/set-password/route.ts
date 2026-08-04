@@ -1,7 +1,7 @@
 import { and, eq } from 'drizzle-orm';
 import type { NextRequest, NextResponse } from 'next/server';
 
-import { schoolUsers, SET_PASSWORD_GRACE_MINUTES } from '@/db/schema';
+import { schoolUsers, schools, SET_PASSWORD_GRACE_MINUTES } from '@/db/schema';
 import { apiFailure, apiSuccess, handleApiError, readJsonBody } from '@/lib/api-response';
 import { db } from '@/lib/drizzle';
 import {
@@ -18,11 +18,15 @@ import {
   getOrCreateEmailFirebaseUser,
   loadMemberIdentity,
 } from '@/lib/email-session';
+import { sendSchoolEmailQuietly, splitName } from '@/lib/email-sender';
+import { welcomeEmailTemplate } from '@/lib/email-templates';
 import {
   deleteVerification,
   findVerificationByToken,
   resolvePublicTenant,
 } from '@/lib/email-verifications';
+import { buildSchoolLoginUrl } from '@/lib/invite-links';
+import { ROLE_LABELS } from '@/types/school-auth';
 
 /**
  * POST /api/auth/set-password
@@ -118,7 +122,11 @@ export async function POST(request: NextRequest) {
     }
 
     const memberRows = await db
-      .select({ id: schoolUsers.id, firebaseUid: schoolUsers.firebaseUid })
+      .select({
+        id: schoolUsers.id,
+        firebaseUid: schoolUsers.firebaseUid,
+        name: schoolUsers.name,
+      })
       .from(schoolUsers)
       .where(
         and(eq(schoolUsers.locationId, tenant.locationId), eq(schoolUsers.email, email)),
@@ -168,6 +176,29 @@ export async function POST(request: NextRequest) {
         'Your password is set, but your account is not active yet. Contact your school administrator.',
         403,
       );
+    }
+
+    // Fire-and-forget: the account is live either way, and a mail failure must
+    // not turn a completed setup into an error on the screen in front of them.
+    const schoolRows = await db
+      .select({ slug: schools.slug })
+      .from(schools)
+      .where(eq(schools.locationId, tenant.locationId))
+      .limit(1);
+
+    const slug = schoolRows[0]?.slug;
+    if (slug !== undefined) {
+      await sendSchoolEmailQuietly({
+        locationId: tenant.locationId,
+        to: email,
+        ...splitName(member.name),
+        ...welcomeEmailTemplate({
+          schoolName: tenant.name,
+          recipientName: member.name,
+          role: ROLE_LABELS[identity.role],
+          loginUrl: buildSchoolLoginUrl(slug),
+        }),
+      });
     }
 
     const session = await establishEmailSession(tenant.locationId, identity);

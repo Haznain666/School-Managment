@@ -75,3 +75,33 @@ export function buildEmailVerifyUrl(params: EmailVerifyUrlParams): string {
 
   return url.toString();
 }
+
+/**
+ * Absolute URL of a school's sign-in page, for links inside email.
+ *
+ * Same host resolution as `buildEmailVerifyUrl`: the subdomain in production,
+ * `?school=` where no wildcard domain exists.
+ */
+export function buildSchoolLoginUrl(schoolSlug: string): string {
+  const configured =
+    serverEnv('NEXT_PUBLIC_APP_URL', '').trim() ||
+    serverEnv('INVITE_LINK_BASE_URL', '').trim();
+
+  const isDevelopment = process.env.NODE_ENV === 'development';
+  const origin = configured === '' ? 'http://localhost:3000' : configured;
+
+  if (isDevelopment || configured === '') {
+    const url = new URL(origin.replace(/\/+$/, ''));
+    url.pathname = '/login';
+    url.search = '';
+    url.searchParams.set('school', schoolSlug);
+    return url.toString();
+  }
+
+  const url = new URL(origin);
+  const baseDomain = serverEnv('PLATFORM_BASE_DOMAIN', url.hostname);
+  url.hostname = `${schoolSlug}.${baseDomain}`;
+  url.pathname = '/login';
+  url.search = '';
+  return url.toString();
+}

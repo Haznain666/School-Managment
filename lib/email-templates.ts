@@ -1,5 +1,6 @@
 /**
- * HTML for the three transactional emails email authentication sends.
+ * HTML for the transactional emails email authentication sends: invitation,
+ * sign-in code, password reset code, password-changed notice and welcome.
  *
  * Written for mail clients rather than browsers, which is why they look dated:
  * a table for layout, inline styles on every element, no external stylesheet
@@ -62,8 +63,14 @@ function layout(params: {
   preheader: string;
   body: string;
   securityNote: string;
+  /** Adds "nobody will ask you for this code". Omit on messages with no code. */
+  hasCode?: boolean;
 }): string {
   const school = escapeHtml(params.schoolName);
+  const codeWarning =
+    params.hasCode === true
+      ? ` Nobody from ${school} will ever ask you for this code.`
+      : '';
 
   return `<!DOCTYPE html>
 <html lang="en">
@@ -99,8 +106,7 @@ function layout(params: {
             <tr>
               <td style="padding:20px 32px;background-color:#f8fafc;border-top:1px solid ${BORDER_COLOR};color:${MUTED_COLOR};font-size:12px;line-height:1.6;">
                 <strong style="color:#0f172a;">Security notice.</strong>
-                ${escapeHtml(params.securityNote)}
-                Nobody from ${school} will ever ask you for this code.
+                ${escapeHtml(params.securityNote)}${codeWarning}
               </td>
             </tr>
           </table>
@@ -190,6 +196,7 @@ export function invitationEmailTemplate(params: InvitationEmailParams): EmailTem
     html: layout({
       schoolName: params.schoolName,
       preheader: `Set up your ${params.schoolName} account — code ${params.otp}`,
+      hasCode: true,
       body,
       securityNote:
         'If you were not expecting this invitation, you can ignore this email and no account will be created.',
@@ -230,6 +237,7 @@ export function forgotPasswordEmailTemplate(
     html: layout({
       schoolName: params.schoolName,
       preheader: `Password reset code ${params.otp}`,
+      hasCode: true,
       body,
       securityNote:
         'If you did not ask to reset your password, ignore this email — your current password still works and nothing has changed.',
@@ -263,9 +271,90 @@ export function otpLoginEmailTemplate(params: OtpLoginEmailParams): EmailTemplat
     html: layout({
       schoolName: params.schoolName,
       preheader: `Sign-in code ${params.otp}`,
+      hasCode: true,
       body,
       securityNote:
         'If you did not try to sign in, ignore this email and consider changing your password.',
+    }),
+  };
+}
+
+export interface PasswordChangedEmailParams {
+  schoolName: string;
+  recipientName: string;
+}
+
+/**
+ * Sent after a password reset completes.
+ *
+ * The only one of these messages that carries no code and asks for no action,
+ * and the one most worth sending: it is how someone finds out that their
+ * password was changed by somebody else. A reset flow without this notice is
+ * silent about the exact event a victim needs to hear about first.
+ */
+export function passwordChangedEmailTemplate(
+  params: PasswordChangedEmailParams,
+): EmailTemplate {
+  const body = `
+    <p style="margin:0 0 16px;">Hello ${escapeHtml(params.recipientName)},</p>
+
+    <p style="margin:0 0 16px;">
+      The password on your <strong>${escapeHtml(params.schoolName)}</strong>
+      account has just been changed. You have been signed out on every device
+      and will need to sign in again with the new password.
+    </p>
+
+    <p style="margin:0;color:${MUTED_COLOR};font-size:13px;">
+      No action is needed if this was you.
+    </p>`;
+
+  return {
+    subject: `Your ${params.schoolName} password was changed`,
+    html: layout({
+      schoolName: params.schoolName,
+      preheader: 'Your password was changed',
+      body,
+      securityNote:
+        'If you did not change your password, someone else has access to your account. Contact your school administrator immediately.',
+    }),
+  };
+}
+
+export interface WelcomeEmailParams {
+  schoolName: string;
+  recipientName: string;
+  role: string;
+  /** Absolute URL of the school's sign-in page. */
+  loginUrl: string;
+}
+
+/** Sent once, when an invitation has been accepted and the account is live. */
+export function welcomeEmailTemplate(params: WelcomeEmailParams): EmailTemplate {
+  const school = escapeHtml(params.schoolName);
+
+  const body = `
+    <p style="margin:0 0 16px;">Hello ${escapeHtml(params.recipientName)},</p>
+
+    <p style="margin:0 0 16px;">
+      Your <strong>${school}</strong> account is ready. You are set up as
+      <strong>${escapeHtml(params.role)}</strong>, and you can sign in from now
+      on with your email address and the password you just chose.
+    </p>
+
+    ${button(`Go to ${params.schoolName}`, params.loginUrl)}
+
+    <p style="margin:0;color:${MUTED_COLOR};font-size:13px;">
+      Keep this address handy — it is also where password reset codes are sent.
+    </p>`;
+
+  return {
+    subject: `Welcome to ${params.schoolName}`,
+    html: layout({
+      schoolName: params.schoolName,
+      preheader: `Your ${params.schoolName} account is ready`,
+      body,
+      securityNote:
+        'If you did not set up this account, contact your school administrator.',
     }),
   };
 }

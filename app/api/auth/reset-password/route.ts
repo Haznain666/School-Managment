@@ -1,6 +1,11 @@
+import { and, eq } from 'drizzle-orm';
 import type { NextRequest, NextResponse } from 'next/server';
 
+import { schoolUsers } from '@/db/schema';
 import { apiFailure, apiSuccess, handleApiError, readJsonBody } from '@/lib/api-response';
+import { db } from '@/lib/drizzle';
+import { sendSchoolEmailQuietly, splitName } from '@/lib/email-sender';
+import { passwordChangedEmailTemplate } from '@/lib/email-templates';
 import {
   hashPassword,
   isValidEmail,
@@ -117,6 +122,31 @@ export async function POST(request: NextRequest) {
       // here would tell the user the reset did not happen when it did.
       console.error('[reset-password] could not revoke existing sessions:', error);
     }
+
+    // The notice nobody asks for and everybody needs: this is how a person
+    // finds out their password was changed by somebody else. Fire-and-forget,
+    // because the reset has already succeeded and a mail failure must not
+    // report otherwise.
+    const nameRows = await db
+      .select({ name: schoolUsers.name })
+      .from(schoolUsers)
+      .where(
+        and(
+          eq(schoolUsers.locationId, tenant.locationId),
+          eq(schoolUsers.firebaseUid, record.firebaseUid),
+        ),
+      )
+      .limit(1);
+
+    await sendSchoolEmailQuietly({
+      locationId: tenant.locationId,
+      to: email,
+      ...splitName(nameRows[0]?.name),
+      ...passwordChangedEmailTemplate({
+        schoolName: tenant.name,
+        recipientName: nameRows[0]?.name ?? 'there',
+      }),
+    });
 
     const response = apiSuccess({
       message: 'Password updated. Please log in with your new password.',

@@ -6,7 +6,7 @@ import { apiFailure, apiSuccess, handleApiError, readJsonBody } from '@/lib/api-
 import { db } from '@/lib/drizzle';
 import { isValidEmail, normalizeEmail } from '@/lib/email-auth';
 import { findPasswordRecord } from '@/lib/email-credentials';
-import { sendSchoolEmailQuietly } from '@/lib/email-sender';
+import { sendSchoolEmailQuietly, splitName } from '@/lib/email-sender';
 import { forgotPasswordEmailTemplate } from '@/lib/email-templates';
 import { issueEmailVerification, resolvePublicTenant } from '@/lib/email-verifications';
 
@@ -86,8 +86,7 @@ export async function POST(request: NextRequest) {
     await sendSchoolEmailQuietly({
       locationId: tenant.locationId,
       to: email,
-      fromName: tenant.name,
-      toName: nameRows[0]?.name,
+      ...splitName(nameRows[0]?.name),
       ...forgotPasswordEmailTemplate({
         schoolName: tenant.name,
         recipientName: nameRows[0]?.name ?? 'there',
