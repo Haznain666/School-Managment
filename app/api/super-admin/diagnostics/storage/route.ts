@@ -30,14 +30,18 @@ export async function GET() {
 
     const diagnostics = await inspectStorage();
 
-    const ok =
+    const storageReady =
       diagnostics.bucketExists === true &&
       diagnostics.bucketIsPublic === true &&
       diagnostics.serviceKeyLooksCorrect === true;
 
+    // Named `storageReady`, not `ok`. The envelope already carries an `ok`
+    // meaning "the request succeeded", and a diagnostic that reports a
+    // failure is still a successful request — nesting a second `ok` inside
+    // the first read as a contradiction to everyone who saw it.
     return apiSuccess({
       ...diagnostics,
-      ok,
+      storageReady,
       advice: buildAdvice(diagnostics),
     });
   } catch (error) {
@@ -57,8 +61,12 @@ function buildAdvice(
     return 'SUPABASE_SERVICE_ROLE_KEY is not set. Add it in Vercel: Supabase → Project Settings → API keys → service_role.';
   }
 
-  if (diagnostics.serviceKeyLooksCorrect === false) {
-    return 'SUPABASE_SERVICE_ROLE_KEY does not carry the service_role claim — the anon key was probably pasted instead. Uploads will be refused by Storage policies.';
+  if (diagnostics.keyKind === 'publishable' || diagnostics.keyKind === 'jwt_anon') {
+    return `SUPABASE_SERVICE_ROLE_KEY holds a ${diagnostics.keyKind === 'publishable' ? 'publishable (sb_publishable_…)' : 'legacy anon'} key. That one is meant for browsers and Storage policies will refuse it. Use the secret key: Supabase → Project Settings → API keys → Secret keys.`;
+  }
+
+  if (diagnostics.keyKind === 'unrecognised') {
+    return 'SUPABASE_SERVICE_ROLE_KEY is in no recognised format. Expected either "sb_secret_…" (current) or a JWT beginning "eyJ" (legacy). Check for a truncated paste or surrounding quotes.';
   }
 
   if (diagnostics.bucketExists === false) {
@@ -66,7 +74,19 @@ function buildAdvice(
   }
 
   if (diagnostics.bucketExists === null) {
-    return `Could not read the bucket: ${diagnostics.error ?? 'unknown error'}. Check that SUPABASE_URL points at the same project the key belongs to.`;
+    const body = diagnostics.errorBody ?? '';
+
+    // Supabase's own words, when it gave any. "HTTP 400" alone once sent a
+    // real investigation after the wrong cause; the body named it exactly.
+    if (/no api key found/i.test(body)) {
+      return 'Supabase rejected the request before it reached Storage: "No API key found in request". The deployment is running a build from before the apikey-header fix — redeploy the latest main.';
+    }
+
+    if (/invalid.*(jwt|token|signature)/i.test(body)) {
+      return `Supabase refused the credential: ${body}. Check that SUPABASE_SERVICE_ROLE_KEY belongs to the project at SUPABASE_URL — a valid key from a different project fails exactly this way.`;
+    }
+
+    return `Could not read the bucket: ${diagnostics.error ?? 'unknown error'}${body === '' ? '' : ` — ${body}`}. Check that SUPABASE_URL points at the same project the key belongs to.`;
   }
 
   if (diagnostics.bucketIsPublic === false) {
