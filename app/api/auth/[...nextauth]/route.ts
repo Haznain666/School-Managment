@@ -100,7 +100,12 @@ async function handleResolveIdentifier(request: NextRequest) {
       ),
     );
 
-  const match = candidates.find((row) => row.phone.replace(/\D/g, '').endsWith(digits));
+  // A member invited by email has no number on file, so there is nothing here
+  // for a phone lookup to match — skip them rather than treat the absence as a
+  // match on the empty string.
+  const match = candidates.find(
+    (row) => row.phone !== null && row.phone.replace(/\D/g, '').endsWith(digits),
+  );
 
   if (match === undefined || match.email === null || match.email === '') {
     return apiFailure('not_found', 'No matching account.', 404);

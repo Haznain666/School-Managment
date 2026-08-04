@@ -1,5 +1,7 @@
 import { NextResponse } from 'next/server';
 
+import { EmailDeliveryError } from './email-sender';
+import { EmailSessionError } from './email-session';
 import { GhlApiError } from './ghl-client';
 import { GhlTokenError } from './ghl-tokens';
 import { MissingEnvError } from './env';
@@ -45,6 +47,25 @@ export function apiFailure(
 export function handleApiError(error: unknown): NextResponse<ApiFailure> {
   if (error instanceof SuperAdminAuthError) {
     return apiFailure('unauthenticated', error.message, error.status);
+  }
+
+  // Sign-in could not be completed for a reason on our side — a missing
+  // Firebase Web API key, a disabled provider. The detail is already in the
+  // log; the caller gets the sentence they can act on, which is "try again".
+  if (error instanceof EmailSessionError) {
+    return apiFailure(error.code, error.message, 503);
+  }
+
+  // The message names the school and the upstream failure, so it stays in the
+  // log. A person who cannot receive their code needs to be told to try again
+  // or ask their administrator, not why GHL said no.
+  if (error instanceof EmailDeliveryError) {
+    console.error('[api] email delivery failed:', error.message);
+    return apiFailure(
+      'email_delivery_failed',
+      'We could not send that email right now. Please try again, or contact your school administrator.',
+      503,
+    );
   }
 
   if (error instanceof GhlTokenError) {

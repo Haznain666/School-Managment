@@ -52,3 +52,7 @@ export * from './hr';
 
 // Sprint 8 — per-school overrides of the default access model.
 export * from './role-permissions';
+
+// Email-based authentication — passwords and the short-lived proofs
+// (invitation, OTP login, forgotten password) that lead to one.
+export * from './email-auth';

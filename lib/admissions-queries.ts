@@ -560,7 +560,8 @@ export interface StudentDetail {
   studentId: string;
   schoolUserId: string;
   name: string;
-  phone: string;
+  /** Null for an account created from an email address alone. */
+  phone: string | null;
   email: string | null;
   isActive: boolean;
   branchId: string | null;

@@ -15,7 +15,8 @@ export interface UserDetail {
   id: string;
   name: string;
   email: string | null;
-  phone: string;
+  /** Null for a member invited by email address alone. */
+  phone: string | null;
   role: string;
   branchId: string | null;
   branchName: string | null;
@@ -146,7 +147,9 @@ export function UserDetailPanel({ user, branches, canEdit }: UserDetailPanelProp
         <dl className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           <div>
             <dt className="text-xs uppercase tracking-wide text-slate-500">Phone</dt>
-            <dd className="mt-1 font-mono text-sm text-slate-900">{user.phone}</dd>
+            <dd className="mt-1 font-mono text-sm text-slate-900">
+              {user.phone ?? <span className="font-sans text-slate-400">Not set</span>}
+            </dd>
           </div>
           <div>
             <dt className="text-xs uppercase tracking-wide text-slate-500">Email</dt>
@@ -176,7 +179,12 @@ export function UserDetailPanel({ user, branches, canEdit }: UserDetailPanelProp
           </div>
         </dl>
 
-        {user.joinedAt === null && canEdit ? (
+        {/*
+          Only for members who have a number: this button drives the WhatsApp
+          invitation flow, which has nowhere to send an invite without one.
+          Email invitations are resent from the users list instead.
+        */}
+        {user.joinedAt === null && canEdit && user.phone !== null ? (
           <div className="mt-4">
             <Button
               variant="secondary"

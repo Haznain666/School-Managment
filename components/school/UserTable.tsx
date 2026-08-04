@@ -14,7 +14,8 @@ export interface UserRow {
   id: string;
   name: string;
   email: string | null;
-  phone: string;
+  /** Null for a member invited by email address alone. */
+  phone: string | null;
   role: string;
   branchId: string | null;
   branchName: string | null;
@@ -113,7 +114,7 @@ export function UserTable({ branches, lockedBranchId }: UserTableProps) {
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <Input
           label="Search"
-          placeholder="Name or phone"
+          placeholder="Name, phone or email"
           value={search}
           onChange={(event) => {
             setPage(1);
@@ -174,7 +175,7 @@ export function UserTable({ branches, lockedBranchId }: UserTableProps) {
                     <th scope="col" className="px-4 py-3 font-medium">Name</th>
                     <th scope="col" className="px-4 py-3 font-medium">Role</th>
                     <th scope="col" className="px-4 py-3 font-medium">Branch</th>
-                    <th scope="col" className="px-4 py-3 font-medium">Phone</th>
+                    <th scope="col" className="px-4 py-3 font-medium">Contact</th>
                     <th scope="col" className="px-4 py-3 font-medium">Status</th>
                     <th scope="col" className="px-4 py-3 font-medium">Actions</th>
                   </tr>
@@ -190,7 +191,11 @@ export function UserTable({ branches, lockedBranchId }: UserTableProps) {
                         {user.branchName ?? 'All branches'}
                       </td>
                       <td className="px-4 py-3 font-mono text-xs text-slate-600">
-                        {user.phone}
+                        {user.phone ?? (
+                          <span className="font-sans text-slate-600">
+                            {user.email ?? '—'}
+                          </span>
+                        )}
                       </td>
                       <td className="px-4 py-3">
                         {user.joinedAt === null ? (

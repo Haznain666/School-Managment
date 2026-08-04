@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 
+import { EmailInvitePanel } from '@/components/school/EmailInvitePanel';
 import { PendingInvitesTable } from '@/components/school/PendingInvitesTable';
 import { UserTable } from '@/components/school/UserTable';
 import { Button } from '@/components/ui/Button';
@@ -37,13 +38,20 @@ export default async function UsersPage() {
 
         {canInvite ? (
           <Link href="/dashboard/users/invite">
-            <Button>Invite Staff</Button>
+            <Button variant="secondary">Invite by WhatsApp</Button>
           </Link>
         ) : null}
       </div>
 
+      {canInvite ? <EmailInvitePanel branches={branches} /> : null}
+
       <UserTable branches={branches} lockedBranchId={claims.branchId} />
 
+      {/*
+        The WhatsApp invitation list. Kept alongside the email one rather than
+        replaced: invitations sent before the switch are still outstanding, and
+        their accept flow is untouched.
+      */}
       {canInvite ? <PendingInvitesTable /> : null}
     </div>
   );

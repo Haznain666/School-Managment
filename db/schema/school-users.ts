@@ -36,8 +36,14 @@ export const schoolUsers = pgTable(
     /** Null until the invite is accepted. */
     firebaseUid: text('firebase_uid').unique(),
     email: text('email'),
-    /** Required: the WhatsApp channel for invitations. */
-    phone: text('phone').notNull(),
+    /**
+     * The WhatsApp channel, when there is one.
+     *
+     * Nullable since email authentication: a member invited by email address
+     * alone has no number on file, and requiring a placeholder here would put
+     * a value in the column that no channel can actually reach.
+     */
+    phone: text('phone'),
     name: text('name').notNull(),
     role: text('role').notNull(),
     branchId: uuid('branch_id').references(() => branches.id, {

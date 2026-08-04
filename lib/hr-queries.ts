@@ -209,7 +209,7 @@ export async function getStaff(
 /** Portal accounts not yet attached to an employment record, for the link picker. */
 export async function listUnlinkedSchoolUsers(
   locationId: string,
-): Promise<Array<{ id: string; name: string; role: string; phone: string }>> {
+): Promise<Array<{ id: string; name: string; role: string; phone: string | null }>> {
   const linked = await db
     .select({ schoolUserId: staff.schoolUserId })
     .from(staff)

@@ -28,7 +28,8 @@ export interface SchoolUserRow {
   firebaseUid: string | null;
   name: string;
   email: string | null;
-  phone: string;
+  /** Null for an account invited by email address alone. */
+  phone: string | null;
   role: string;
   branchId: string | null;
   branchName: string | null;
@@ -80,7 +81,13 @@ export async function listSchoolUsers(
   }
   if (filters.search !== undefined && filters.search.trim() !== '') {
     const pattern = `%${filters.search.trim()}%`;
-    const matches = or(ilike(schoolUsers.name, pattern), ilike(schoolUsers.phone, pattern));
+    // Email is searched as well as phone: a member invited by email has no
+    // number, so without this there is no string that finds them.
+    const matches = or(
+      ilike(schoolUsers.name, pattern),
+      ilike(schoolUsers.phone, pattern),
+      ilike(schoolUsers.email, pattern),
+    );
     if (matches !== undefined) conditions.push(matches);
   }
 
