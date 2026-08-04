@@ -24,9 +24,37 @@ let cachedClient: NeonQueryFunction<false, false> | null = null;
  */
 export function getSql(): NeonQueryFunction<false, false> {
   if (cachedClient === null) {
-    cachedClient = neon(requireServerEnv('DATABASE_URL'));
+    const url = requireServerEnv('DATABASE_URL');
+    logConnectionTarget(url);
+    cachedClient = neon(url);
   }
   return cachedClient;
+}
+
+/**
+ * Names the database this process is about to talk to, once per cold start.
+ *
+ * "The table exists in Neon but the app cannot see it" is always the same
+ * thing: two different databases. Neon gives every branch its own `ep-…`
+ * endpoint, so the host is what tells them apart — and having it in the log
+ * immediately above the `relation … does not exist` error turns a hunt through
+ * three environments into reading two lines.
+ *
+ * Host and database name only. `url.username` and `url.password` are never
+ * read, so no credential can reach the log even if the whole URL is malformed.
+ */
+function logConnectionTarget(raw: string): void {
+  try {
+    const url = new URL(raw);
+    console.info(
+      `[neon] connected to ${url.host}/${url.pathname.replace(/^\//, '')} ` +
+        `(env: ${process.env['VERCEL_ENV'] ?? process.env.NODE_ENV ?? 'unknown'})`,
+    );
+  } catch {
+    // A malformed URL is about to fail loudly on its own; say nothing that
+    // might quote part of it.
+    console.warn('[neon] DATABASE_URL is not a parseable connection string.');
+  }
 }
 
 export type { NeonQueryFunction };
