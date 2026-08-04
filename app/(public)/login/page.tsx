@@ -1,8 +1,11 @@
 import type { Metadata } from 'next';
 import { redirect } from 'next/navigation';
 
+import { Suspense } from 'react';
+
 import { EmailLoginForm } from '@/components/school/EmailLoginForm';
 import { BrandedLoginLayout } from '@/components/school/BrandedLoginLayout';
+import { QueryNotice } from '@/components/school/QueryNotice';
 import { readSchoolSession } from '@/lib/school-auth';
 import { getSchoolBranding, getSchoolHeaders } from '@/lib/school-tenant';
 import { ROLE_HOME_ROUTES } from '@/types/school-auth';
@@ -46,6 +49,15 @@ export default async function LoginPage() {
 
   return (
     <BrandedLoginLayout subtitle="Sign in with your email address">
+      {/* `useSearchParams` opts its subtree into client rendering; the Suspense
+          boundary keeps that from deopting the whole page. */}
+      <Suspense fallback={null}>
+        <QueryNotice
+          param="reset"
+          message="Your password has been updated. Sign in with your new password."
+        />
+      </Suspense>
+
       <EmailLoginForm
         schoolName={school?.name ?? 'your school'}
         locationId={locationId}

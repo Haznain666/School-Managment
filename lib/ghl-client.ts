@@ -552,6 +552,56 @@ export async function findOrCreateContact(
   return { contactId };
 }
 
+/**
+ * Finds a contact by email within one sub-account, creating it if absent.
+ *
+ * The email counterpart of `findOrCreateContact`, and it exists for the same
+ * reason: GHL attaches every message to a conversation, and a conversation
+ * belongs to a contact. There is no way to post a message to a bare address.
+ *
+ * Lookup comes first so repeated mail to the same person reuses their contact
+ * rather than fragmenting the school's CRM.
+ */
+export async function findOrCreateContactByEmail(
+  db: Database,
+  locationId: string,
+  contact: { email: string; name?: string | undefined },
+): Promise<GhlContactRef> {
+  await validateSchool(db, locationId);
+
+  const found = await agencyFetch<ContactSearchResponse>('/contacts/', {
+    method: 'GET',
+    query: { locationId, query: contact.email },
+  });
+
+  const existingId = found.contacts?.[0]?.id;
+  if (typeof existingId === 'string' && existingId !== '') {
+    return { contactId: existingId };
+  }
+
+  // Falls back to the local part of the address, so a contact created for a
+  // password reset is not a nameless row in the school's CRM.
+  const displayName = (contact.name ?? '').trim() || (contact.email.split('@')[0] ?? '');
+  const [firstName, ...rest] = displayName.split(/\s+/);
+
+  const created = await agencyFetch<ContactUpsertResponse>('/contacts/', {
+    method: 'POST',
+    body: {
+      locationId,
+      email: contact.email,
+      firstName: firstName ?? displayName,
+      lastName: rest.join(' '),
+    },
+  });
+
+  const contactId = created.contact?.id ?? created.id;
+  if (typeof contactId !== 'string' || contactId === '') {
+    throw new GhlAgencyError(502, 'GHL did not return a contact id.');
+  }
+
+  return { contactId };
+}
+
 export interface GhlMessageRef {
   messageId: string;
 }
@@ -585,6 +635,79 @@ export async function sendWhatsAppMessage(
       message: messageText,
     },
   });
+
+  const messageId = sent.messageId ?? sent.msg?.id ?? sent.conversationId;
+  if (typeof messageId !== 'string' || messageId === '') {
+    throw new GhlAgencyError(502, 'GHL did not return a message id.');
+  }
+
+  return { messageId };
+}
+
+export interface GhlEmailPayload {
+  contactId: string;
+  subject: string;
+  html: string;
+  /** text/plain alternative. Spam filters score a multipart message better. */
+  text: string;
+  /** Display name on the envelope. GHL may override it per sub-account. */
+  fromName?: string | undefined;
+}
+
+/**
+ * Sends an email to a contact from one school's sub-account.
+ *
+ * ── Why two transports ───────────────────────────────────────────────────
+ * The school's own OAuth token is tried first, because that is the truest form
+ * of "this school sent it": GHL resolves the sending domain, the branding and
+ * the sender identity from the sub-account whose token authorised the call,
+ * with no platform-level key involved at all.
+ *
+ * The agency key is the fallback, for the same reason invitations already use
+ * it — a school that has not finished connecting GHL has no token yet, and the
+ * first mail it needs to send is the one inviting its administrator. The
+ * `locationId` in the body still scopes the send to that sub-account, so the
+ * recipient sees the school either way; what changes is which credential
+ * authorised it, not who the mail is from.
+ *
+ * There is no path here that sends from a shared address.
+ */
+export async function sendGhlEmail(
+  db: Database,
+  locationId: string,
+  payload: GhlEmailPayload,
+): Promise<GhlMessageRef> {
+  await validateSchool(db, locationId);
+
+  const body = {
+    type: 'Email',
+    locationId,
+    contactId: payload.contactId,
+    subject: payload.subject,
+    html: payload.html,
+    message: payload.text,
+    ...(payload.fromName === undefined || payload.fromName === ''
+      ? {}
+      : { emailFromName: payload.fromName }),
+  };
+
+  let sent: SendMessageResponse;
+
+  try {
+    sent = await ghlFetch<SendMessageResponse>('/conversations/messages', locationId, {
+      method: 'POST',
+      body,
+    });
+  } catch (error) {
+    // Only "this school has not connected GHL" falls back. A 4xx from a school
+    // that *is* connected is a real failure and must surface as one.
+    if (!(error instanceof GhlTokenError)) throw error;
+
+    sent = await agencyFetch<SendMessageResponse>('/conversations/messages', {
+      method: 'POST',
+      body,
+    });
+  }
 
   const messageId = sent.messageId ?? sent.msg?.id ?? sent.conversationId;
   if (typeof messageId !== 'string' || messageId === '') {

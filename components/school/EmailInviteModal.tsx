@@ -184,8 +184,11 @@ export function EmailInviteModal({ branches, onSent, onClose }: EmailInviteModal
                 label: ROLE_LABELS[option],
               }))}
               onChange={(event) => {
-                setRole(event.target.value);
-                if (!BRANCH_REQUIRED_ROLES.includes(event.target.value as never)) {
+                const next = event.target.value;
+                setRole(next);
+                // A role that does not take a branch must not carry one over
+                // from the role that was selected a moment ago.
+                if (!(isUserRole(next) && BRANCH_REQUIRED_ROLES.includes(next))) {
                   setBranchId('');
                 }
               }}
@@ -198,11 +201,17 @@ export function EmailInviteModal({ branches, onSent, onClose }: EmailInviteModal
                 label={branchRequired ? 'Branch' : 'Branch (optional)'}
                 name="branchId"
                 value={branchId}
-                placeholder={branchRequired ? 'Select a branch' : 'All branches'}
-                options={branches.map((branch) => ({
-                  value: branch.id,
-                  label: branch.name,
-                }))}
+                // `placeholder` renders a *disabled* option, which is right for
+                // a required choice and wrong for an optional one — it would
+                // make "All branches" unreachable once a branch was picked.
+                {...(branchRequired ? { placeholder: 'Select a branch' } : {})}
+                options={[
+                  ...(branchRequired ? [] : [{ value: '', label: 'All branches' }]),
+                  ...branches.map((branch) => ({
+                    value: branch.id,
+                    label: branch.name,
+                  })),
+                ]}
                 onChange={(event) => {
                   setBranchId(event.target.value);
                 }}

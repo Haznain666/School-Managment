@@ -1,17 +1,29 @@
 import 'server-only';
 
-import { ghlFetch, GhlApiError } from './ghl-client';
+import { db } from './drizzle';
+import {
+  findOrCreateContactByEmail,
+  sendGhlEmail,
+  GhlAgencyError,
+  GhlApiError,
+} from './ghl-client';
 import { GhlTokenError } from './ghl-tokens';
 
 /**
  * White-label email, sent from each school's own GoHighLevel sub-account.
  *
- * Every call goes through `ghlFetch(endpoint, locationId, ...)`, which selects
- * the OAuth token belonging to that one school. GHL then applies that
- * sub-account's own sending domain and branding, so a parent at Beaconhouse
- * receives mail from Beaconhouse rather than from this platform. There is no
- * ambient "from" address anywhere in this module — the tenant is an argument,
- * and the wrong one is a compile error rather than a silent cross-brand send.
+ * Every send is tenant-scoped: the `locationId` selects the sub-account, and
+ * GHL resolves the sending domain, the branding and the sender identity from
+ * it. A parent at Beaconhouse receives mail from Beaconhouse, not from this
+ * platform. There is no ambient "from" address anywhere in this module and no
+ * shared sender — the tenant is a required argument, so the wrong one is a
+ * compile error rather than a silent cross-brand send.
+ *
+ * ── Why a contact is created first ───────────────────────────────────────
+ * GHL has no "send to an address" endpoint. Every message belongs to a
+ * conversation and every conversation belongs to a contact, which is why
+ * `sendWhatsAppMessage` resolves a contact before posting and why this does
+ * too. Posting a message with no `contactId` is rejected.
  *
  * Two delivery contracts, because two kinds of mail fail differently:
  *
@@ -39,23 +51,18 @@ export interface SendSchoolEmailParams {
   html: string;
   /** Display name on the envelope. The school's name, normally. */
   fromName?: string | undefined;
-}
-
-interface GhlSendMessageResponse {
-  messageId?: string;
-  emailMessageId?: string;
-  msg?: { id?: string };
-  conversationId?: string;
+  /** Recipient's name, used only if a GHL contact has to be created. */
+  toName?: string | undefined;
 }
 
 /**
- * Posts one email through the school's GHL Conversations API.
+ * Sends one email through the school's GHL sub-account.
  *
- * @throws {EmailDeliveryError} when GHL refused the message or the school has
- *   not connected its GHL sub-account.
+ * @throws {EmailDeliveryError} when GHL refused the message or the school's
+ *   sub-account could not be reached.
  */
 export async function sendSchoolEmail(params: SendSchoolEmailParams): Promise<void> {
-  const { locationId, to, subject, html, fromName } = params;
+  const { locationId, to, subject, html, fromName, toName } = params;
 
   if (locationId.trim() === '') {
     throw new EmailDeliveryError(locationId, 'no school was resolved for this send');
@@ -65,47 +72,33 @@ export async function sendSchoolEmail(params: SendSchoolEmailParams): Promise<vo
   }
 
   try {
-    await ghlFetch<GhlSendMessageResponse>('/conversations/messages', locationId, {
-      method: 'POST',
-      body: {
-        type: 'Email',
-        locationId,
-        emailTo: to,
-        subject,
-        html,
-        ...(fromName === undefined || fromName === ''
-          ? {}
-          : { fromName, emailFromName: fromName }),
-        // Spam filters score a multipart message better than an HTML-only one,
-        // and some clients still show the text part.
-        message: htmlToPlainText(html),
-      },
+    const { contactId } = await findOrCreateContactByEmail(db, locationId, {
+      email: to,
+      name: toName,
+    });
+
+    await sendGhlEmail(db, locationId, {
+      contactId,
+      subject,
+      html,
+      text: htmlToPlainText(html),
+      fromName,
     });
   } catch (error) {
-    if (error instanceof GhlTokenError) {
-      throw new EmailDeliveryError(
-        locationId,
-        'this school has not connected its GoHighLevel account',
-      );
-    }
-
-    if (error instanceof GhlApiError) {
-      throw new EmailDeliveryError(locationId, `GHL returned ${error.status}`);
-    }
-
-    throw new EmailDeliveryError(
-      locationId,
-      error instanceof Error ? error.message : 'unknown error',
-    );
+    throw new EmailDeliveryError(locationId, describe(error));
   }
 }
 
 /**
  * Fire-and-forget variant.
  *
- * Returns whether the mail went out, so a caller that wants to say "we have
- * sent you a code" only when it is true still can — but never throws, so a
- * school with a broken GHL connection cannot turn a working request into a 500.
+ * Returns whether the mail went out, so a caller that wants to distinguish the
+ * two still can — but never throws, so a school with a broken GHL connection
+ * cannot turn a working request into a 500.
+ *
+ * Callers on the sign-in and reset paths deliberately ignore the return value:
+ * telling the browser whether delivery succeeded would tell it whether the
+ * address exists.
  */
 export async function sendSchoolEmailQuietly(
   params: SendSchoolEmailParams,
@@ -121,6 +114,19 @@ export async function sendSchoolEmailQuietly(
     );
     return false;
   }
+}
+
+function describe(error: unknown): string {
+  if (error instanceof GhlTokenError) {
+    return 'this school has not connected its GoHighLevel account';
+  }
+  if (error instanceof GhlApiError) {
+    return `GHL returned ${error.status}`;
+  }
+  if (error instanceof GhlAgencyError) {
+    return `GHL agency call returned ${error.status}`;
+  }
+  return error instanceof Error ? error.message : 'unknown error';
 }
 
 /**

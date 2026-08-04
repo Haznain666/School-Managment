@@ -34,6 +34,9 @@ interface SendOtpBody {
 const NEUTRAL_MESSAGE =
   'If that address has an account, a sign-in code is on its way. It expires in 10 minutes.';
 
+/** Also said whether or not anything was sent. See the note at the null check. */
+const SENT_RESPONSE_EXPIRES_IN = OTP_LOGIN_EXPIRY_MINUTES * 60;
+
 export async function POST(request: NextRequest) {
   try {
     const body = await readJsonBody<SendOtpBody>(request);
@@ -50,11 +53,12 @@ export async function POST(request: NextRequest) {
 
     const record = await findPasswordRecord(email, tenant.locationId);
 
-    // No account: stop here, and say the same thing as the success path. The
-    // rate limiter is not consulted either, so an unknown address cannot be
-    // told apart by whether it can be retried.
+    // No account: stop here, and return a byte-identical response to the
+    // success path. `expiresIn` is part of that — a 0 here and a 600 below
+    // would answer "does this address have an account" in a single request,
+    // which is the exact question the shared message exists to refuse.
     if (record === null) {
-      return apiSuccess({ message: NEUTRAL_MESSAGE, expiresIn: 0 });
+      return apiSuccess({ message: NEUTRAL_MESSAGE, expiresIn: SENT_RESPONSE_EXPIRES_IN });
     }
 
     const issued = await issueEmailVerification({
@@ -64,16 +68,25 @@ export async function POST(request: NextRequest) {
       expiryMinutes: OTP_LOGIN_EXPIRY_MINUTES,
     });
 
+    /**
+     * Over the send allowance: no new code is issued and no mail goes out, but
+     * the reply is the neutral one rather than a 429.
+     *
+     * A 429 here would be an enumeration oracle of exactly the kind the shared
+     * message exists to close — it is only ever reachable for an address that
+     * has an account, so four requests would answer the question that one
+     * request no longer does.
+     *
+     * Nobody is stranded by the silence: the code from the previous send is
+     * still live and still in their inbox, because a refused send leaves the
+     * existing row untouched. "A code is on its way" remains true.
+     */
     if (issued.status === 'rate_limited') {
-      // The one case that must be distinguishable, because the person is
-      // waiting and needs to know to stop pressing the button.
-      return apiFailure(
-        'rate_limited',
-        `Too many codes requested. Try again in ${Math.ceil(issued.retryAfterSeconds / 60)} minute(s).`,
-        429,
-      );
+      return apiSuccess({ message: NEUTRAL_MESSAGE, expiresIn: SENT_RESPONSE_EXPIRES_IN });
     }
 
+    // Return value ignored on purpose: reporting whether delivery succeeded
+    // would report whether there was anyone to deliver to.
     await sendSchoolEmailQuietly({
       locationId: tenant.locationId,
       to: email,
@@ -87,7 +100,7 @@ export async function POST(request: NextRequest) {
 
     return apiSuccess({
       message: NEUTRAL_MESSAGE,
-      expiresIn: OTP_LOGIN_EXPIRY_MINUTES * 60,
+      expiresIn: SENT_RESPONSE_EXPIRES_IN,
     });
   } catch (error) {
     return handleApiError(error);

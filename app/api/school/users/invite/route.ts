@@ -271,6 +271,7 @@ export const POST = withSchoolAuth(
           locationId: auth.locationId,
           to: email,
           fromName: school.name,
+          toName: name,
           ...invitationEmailTemplate({
             schoolName: school.name,
             recipientName: firstName,

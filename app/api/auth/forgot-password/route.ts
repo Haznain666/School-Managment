@@ -58,12 +58,14 @@ export async function POST(request: NextRequest) {
       expiryMinutes: FORGOT_PASSWORD_EXPIRY_MINUTES,
     });
 
+    /**
+     * Over the send allowance: no new code, no mail, and the neutral reply
+     * rather than a 429 — a status only reachable for a real account would
+     * answer in four requests what the shared message refuses to answer in
+     * one. The previous code is still live in their inbox.
+     */
     if (issued.status === 'rate_limited') {
-      return apiFailure(
-        'rate_limited',
-        `Too many reset codes requested. Try again in ${Math.ceil(issued.retryAfterSeconds / 60)} minute(s).`,
-        429,
-      );
+      return apiSuccess({ message: NEUTRAL_MESSAGE });
     }
 
     // Only for the greeting. A missing name is not a reason to withhold the
@@ -79,10 +81,13 @@ export async function POST(request: NextRequest) {
       )
       .limit(1);
 
+    // Return value ignored on purpose: reporting whether delivery succeeded
+    // would report whether there was anyone to deliver to.
     await sendSchoolEmailQuietly({
       locationId: tenant.locationId,
       to: email,
       fromName: tenant.name,
+      toName: nameRows[0]?.name,
       ...forgotPasswordEmailTemplate({
         schoolName: tenant.name,
         recipientName: nameRows[0]?.name ?? 'there',

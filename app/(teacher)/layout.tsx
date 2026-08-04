@@ -1,7 +1,8 @@
-import type { CSSProperties, ReactNode } from 'react';
+import { Suspense, type CSSProperties, type ReactNode } from 'react';
 
 import { TeacherNavbar } from '@/components/teacher/TeacherNavbar';
 import { TeacherSidebar } from '@/components/teacher/TeacherSidebar';
+import { QueryNotice } from '@/components/school/QueryNotice';
 import { paletteToCSSVars } from '@/lib/branding';
 import { requireSchoolRole } from '@/lib/school-guard';
 import { getSchoolUserByUid } from '@/lib/school-queries';
@@ -41,7 +42,17 @@ export default async function TeacherLayout({ children }: { children: ReactNode 
           role={claims.role}
           schoolSlug={claims.schoolSlug}
         />
-        <main className="flex-1 overflow-y-auto p-6">{children}</main>
+        <main className="flex-1 overflow-y-auto p-6">
+          {/* Shown once, after an invitation is accepted. `useSearchParams`
+              needs a Suspense boundary so it does not deopt the layout. */}
+          <Suspense fallback={null}>
+            <QueryNotice
+              param="welcome"
+              message="Welcome — your account is ready. This is your portal."
+            />
+          </Suspense>
+          {children}
+        </main>
       </div>
     </div>
   );
