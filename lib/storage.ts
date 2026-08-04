@@ -90,6 +90,93 @@ function serviceRoleKey(): string {
   return requireServerEnv('SUPABASE_SERVICE_ROLE_KEY').trim();
 }
 
+/**
+ * The headers every Supabase Storage request needs.
+ *
+ * ── Why `apikey` as well as `Authorization` ──────────────────────────────
+ * Both. Supabase's API gateway authenticates on the `apikey` header; the
+ * Storage service behind it reads `Authorization` to decide the caller's role.
+ * `supabase-js` sends both on every request, and so must anything speaking to
+ * the REST API directly.
+ *
+ * Sending only `Authorization` happens to work with a legacy `service_role`
+ * JWT, because the gateway will accept a JWT there in place of `apikey`. It
+ * does not work with the newer `sb_secret_…` keys, which the gateway resolves
+ * from `apikey` alone — the request is rejected before Storage ever sees it,
+ * and the reply is a bare HTTP 400 whose body says "No API key found in
+ * request". That is the failure this function exists to prevent, and it was a
+ * real bug: the first cut of this module sent `Authorization` only.
+ */
+function storageHeaders(extra: Record<string, string> = {}): Record<string, string> {
+  const key = serviceRoleKey();
+
+  return {
+    apikey: key,
+    Authorization: `Bearer ${key}`,
+    ...extra,
+  };
+}
+
+/**
+ * Which kind of credential `SUPABASE_SERVICE_ROLE_KEY` holds.
+ *
+ * Supabase issues two generations of key. The legacy pair are JWTs whose
+ * payload names the role (`anon` or `service_role`); the current pair are
+ * opaque strings prefixed `sb_publishable_` and `sb_secret_`. Both generations
+ * are accepted here — a project on either should work without touching code.
+ *
+ * The distinction that matters is not old versus new but public versus
+ * secret: `anon` and `sb_publishable_` are meant to ship to browsers and are
+ * refused by Storage policies, while `service_role` and `sb_secret_` carry
+ * full access. Naming the kind lets the diagnostic say which mistake was made
+ * rather than "the key is wrong".
+ */
+export type SupabaseKeyKind =
+  | 'secret'
+  | 'publishable'
+  | 'jwt_service_role'
+  | 'jwt_anon'
+  | 'jwt_unknown_role'
+  | 'unrecognised';
+
+/** Reads the `role` claim out of a JWT without verifying its signature. */
+function jwtRole(key: string): string | null {
+  const payload = key.split('.')[1];
+  if (payload === undefined) return null;
+
+  try {
+    const json = JSON.parse(
+      Buffer.from(
+        payload.replace(/-/g, '+').replace(/_/g, '/'),
+        'base64',
+      ).toString('utf8'),
+    ) as { role?: unknown };
+
+    return typeof json.role === 'string' ? json.role : null;
+  } catch {
+    return null;
+  }
+}
+
+export function classifyKey(key: string): SupabaseKeyKind {
+  if (key.startsWith('sb_secret_')) return 'secret';
+  if (key.startsWith('sb_publishable_')) return 'publishable';
+
+  if (key.startsWith('eyJ')) {
+    const role = jwtRole(key);
+    if (role === 'service_role') return 'jwt_service_role';
+    if (role === 'anon') return 'jwt_anon';
+    return 'jwt_unknown_role';
+  }
+
+  return 'unrecognised';
+}
+
+/** Whether the key can actually write to Storage. */
+export function keyGrantsFullAccess(kind: SupabaseKeyKind): boolean {
+  return kind === 'secret' || kind === 'jwt_service_role';
+}
+
 /** The bucket every upload lands in. */
 export function bucketName(): string {
   return serverEnv('SUPABASE_STORAGE_BUCKET', DEFAULT_BUCKET).trim();
@@ -201,12 +288,11 @@ export async function uploadBuffer(params: {
 
   const response = await fetch(endpoint, {
     method: 'POST',
-    headers: {
-      Authorization: `Bearer ${serviceRoleKey()}`,
+    headers: storageHeaders({
       'Content-Type': params.contentType,
       'cache-control': 'public, max-age=3600',
       'x-upsert': 'true',
-    },
+    }),
     // A Buffer is a Uint8Array, which fetch accepts as a body directly.
     body: new Uint8Array(params.buffer),
   });
@@ -225,7 +311,7 @@ export async function deleteObject(storagePath: string): Promise<void> {
 
   const response = await fetch(endpoint, {
     method: 'DELETE',
-    headers: { Authorization: `Bearer ${serviceRoleKey()}` },
+    headers: storageHeaders(),
   });
 
   // 404 means the object is already gone, which is the state the caller wanted.
@@ -244,37 +330,22 @@ export interface StorageDiagnostics {
   supabaseUrl: string | null;
   bucket: string;
   serviceKeyPresent: boolean;
-  /** True when the key is a service_role JWT rather than the anon key. */
+  /** Which generation and privilege of key was supplied. */
+  keyKind: SupabaseKeyKind | null;
+  /** True when the key can write to Storage — secret or service_role. */
   serviceKeyLooksCorrect: boolean | null;
   bucketExists: boolean | null;
   bucketIsPublic: boolean | null;
   error: string | null;
-}
-
-/**
- * Reads the `role` claim out of the key without verifying it.
- *
- * Pasting the anon key where the service_role key belongs is the single most
- * likely misconfiguration — the two sit side by side in the Supabase dashboard
- * and look alike. Both are JWTs whose payload names the role in clear, so
- * telling them apart needs no signature check and no secret.
- */
-function keyRole(key: string): string | null {
-  const payload = key.split('.')[1];
-  if (payload === undefined) return null;
-
-  try {
-    const json = JSON.parse(
-      Buffer.from(
-        payload.replace(/-/g, '+').replace(/_/g, '/'),
-        'base64',
-      ).toString('utf8'),
-    ) as { role?: unknown };
-
-    return typeof json.role === 'string' ? json.role : null;
-  } catch {
-    return null;
-  }
+  /**
+   * Supabase's own response body when the bucket read failed.
+   *
+   * "HTTP 400" alone sent a real investigation down the wrong path once: the
+   * body said "No API key found in request", which names the cause exactly,
+   * and discarding it turned a one-line fix into a guess. Storage error
+   * bodies carry no credentials.
+   */
+  errorBody: string | null;
 }
 
 export async function inspectStorage(): Promise<StorageDiagnostics> {
@@ -291,19 +362,22 @@ export async function inspectStorage(): Promise<StorageDiagnostics> {
       supabaseUrl: url,
       bucket,
       serviceKeyPresent: key !== '',
+      keyKind: null,
       serviceKeyLooksCorrect: null,
       bucketExists: null,
       bucketIsPublic: null,
       error: error instanceof Error ? error.message : String(error),
+      errorBody: null,
     };
   }
 
-  const looksCorrect = keyRole(key) === 'service_role';
+  const keyKind = classifyKey(key);
+  const looksCorrect = keyGrantsFullAccess(keyKind);
 
   try {
     const response = await fetch(
       `${url}/storage/v1/bucket/${encodeURIComponent(bucket)}`,
-      { method: 'GET', headers: { Authorization: `Bearer ${key}` } },
+      { method: 'GET', headers: storageHeaders() },
     );
 
     if (response.status === 404) {
@@ -311,22 +385,33 @@ export async function inspectStorage(): Promise<StorageDiagnostics> {
         supabaseUrl: url,
         bucket,
         serviceKeyPresent: true,
+        keyKind,
         serviceKeyLooksCorrect: looksCorrect,
         bucketExists: false,
         bucketIsPublic: null,
         error: `Bucket "${bucket}" does not exist in this project.`,
+        errorBody: null,
       };
     }
 
     if (!response.ok) {
+      let errorBody: string;
+      try {
+        errorBody = (await response.text()).slice(0, 300);
+      } catch {
+        errorBody = '(no response body)';
+      }
+
       return {
         supabaseUrl: url,
         bucket,
         serviceKeyPresent: true,
+        keyKind,
         serviceKeyLooksCorrect: looksCorrect,
         bucketExists: null,
         bucketIsPublic: null,
         error: `Supabase returned HTTP ${response.status} when reading the bucket.`,
+        errorBody,
       };
     }
 
@@ -336,20 +421,24 @@ export async function inspectStorage(): Promise<StorageDiagnostics> {
       supabaseUrl: url,
       bucket,
       serviceKeyPresent: true,
+      keyKind,
       serviceKeyLooksCorrect: looksCorrect,
       bucketExists: true,
       bucketIsPublic: body.public === true,
       error: null,
+      errorBody: null,
     };
   } catch (error) {
     return {
       supabaseUrl: url,
       bucket,
       serviceKeyPresent: true,
+      keyKind,
       serviceKeyLooksCorrect: looksCorrect,
       bucketExists: null,
       bucketIsPublic: null,
       error: error instanceof Error ? error.message : String(error),
+      errorBody: null,
     };
   }
 }
