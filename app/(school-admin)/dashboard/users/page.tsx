@@ -2,11 +2,16 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 
 import { EmailInvitePanel } from '@/components/school/EmailInvitePanel';
-import { PendingInvitesTable } from '@/components/school/PendingInvitesTable';
 import { UserTable } from '@/components/school/UserTable';
 import { Button } from '@/components/ui/Button';
 import { requireSchoolPermission } from '@/lib/school-guard';
 import { listBranchOptions } from '@/lib/school-queries';
+
+/* WHATSAPP_DISABLED_START */
+// WhatsApp auth temporarily disabled - re-enable when Meta template approved
+//
+// import { PendingInvitesTable } from '@/components/school/PendingInvitesTable';
+/* WHATSAPP_DISABLED_END */
 
 export const metadata: Metadata = {
   title: 'Users & Staff',
@@ -36,9 +41,11 @@ export default async function UsersPage() {
           </p>
         </div>
 
+        {/* One way to invite someone. The full-page form and the modal below
+            render the same component and post to the same endpoint. */}
         {canInvite ? (
           <Link href="/dashboard/users/invite">
-            <Button variant="secondary">Invite by WhatsApp</Button>
+            <Button>Invite User</Button>
           </Link>
         ) : null}
       </div>
@@ -47,12 +54,19 @@ export default async function UsersPage() {
 
       <UserTable branches={branches} lockedBranchId={claims.branchId} />
 
+      {/* WHATSAPP_DISABLED_START */}
       {/*
-        The WhatsApp invitation list. Kept alongside the email one rather than
-        replaced: invitations sent before the switch are still outstanding, and
-        their accept flow is untouched.
+        WhatsApp auth temporarily disabled - re-enable when Meta template approved
+
+        The pending-WhatsApp-invitation list, with its resend and cancel
+        controls. Hidden because resending would send a WhatsApp message, and
+        POST /api/school/invitations is disabled. Invitations sent before the
+        switch can still be accepted — /invite/[token] is untouched — they just
+        cannot be created or resent from here.
+
+        {canInvite ? <PendingInvitesTable /> : null}
       */}
-      {canInvite ? <PendingInvitesTable /> : null}
+      {/* WHATSAPP_DISABLED_END */}
     </div>
   );
 }

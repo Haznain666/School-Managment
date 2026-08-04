@@ -104,15 +104,17 @@ export function UserDetailPanel({ user, branches, canEdit }: UserDetailPanelProp
     setNotice(null);
 
     try {
-      // Re-inviting an unjoined member reuses the invitation flow rather than
-      // creating a second account for the same phone number.
-      const response = await fetch('/api/school/invitations', {
+      // Re-inviting the same address supersedes the pending invitation rather
+      // than creating a second one, so this endpoint *is* the resend.
+      const [firstName, ...rest] = user.name.trim().split(/\s+/);
+
+      const response = await fetch('/api/school/users/invite', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          name: user.name,
-          phone: user.phone,
-          email: user.email ?? undefined,
+          email: user.email,
+          firstName: firstName ?? user.name,
+          lastName: rest.join(' '),
           role: user.role,
           branchId: user.branchId ?? undefined,
         }),
@@ -128,13 +130,58 @@ export function UserDetailPanel({ user, branches, canEdit }: UserDetailPanelProp
         return;
       }
 
-      setNotice('Invitation sent again.');
+      setNotice(`Invitation emailed to ${user.email ?? 'them'} again.`);
     } catch {
       setError('Could not resend the invitation.');
     } finally {
       setIsResending(false);
     }
   }, [user]);
+
+/* WHATSAPP_DISABLED_START */
+// WhatsApp auth temporarily disabled - re-enable when Meta template approved
+//
+// The original, which posted to /api/school/invitations to send the link over
+// WhatsApp. That endpoint's POST is disabled; restore both together.
+//
+//   const resendInvite = useCallback(async () => {
+//     setIsResending(true);
+//     setError(null);
+//     setNotice(null);
+//
+//     try {
+//       // Re-inviting an unjoined member reuses the invitation flow rather than
+//       // creating a second account for the same phone number.
+//       const response = await fetch('/api/school/invitations', {
+//         method: 'POST',
+//         headers: { 'Content-Type': 'application/json' },
+//         body: JSON.stringify({
+//           name: user.name,
+//           phone: user.phone,
+//           email: user.email ?? undefined,
+//           role: user.role,
+//           branchId: user.branchId ?? undefined,
+//         }),
+//       });
+//
+//       const payload = (await response.json()) as {
+//         ok: boolean;
+//         error?: { message: string };
+//       };
+//
+//       if (!response.ok || payload.ok !== true) {
+//         setError(payload.error?.message ?? 'Could not resend the invitation.');
+//         return;
+//       }
+//
+//       setNotice('Invitation sent again.');
+//     } catch {
+//       setError('Could not resend the invitation.');
+//     } finally {
+//       setIsResending(false);
+//     }
+//   }, [user]);
+/* WHATSAPP_DISABLED_END */
 
   const branchOptions = [
     { value: '', label: branchRequired ? 'Select a branch' : 'All branches' },
@@ -180,11 +227,10 @@ export function UserDetailPanel({ user, branches, canEdit }: UserDetailPanelProp
         </dl>
 
         {/*
-          Only for members who have a number: this button drives the WhatsApp
-          invitation flow, which has nowhere to send an invite without one.
-          Email invitations are resent from the users list instead.
+          Only for members who have an address: the invitation is an email now,
+          and there is nowhere to send one without it.
         */}
-        {user.joinedAt === null && canEdit && user.phone !== null ? (
+        {user.joinedAt === null && canEdit && user.email !== null && user.email !== '' ? (
           <div className="mt-4">
             <Button
               variant="secondary"
@@ -194,7 +240,7 @@ export function UserDetailPanel({ user, branches, canEdit }: UserDetailPanelProp
                 void resendInvite();
               }}
             >
-              Resend invite
+              Resend email invitation
             </Button>
           </div>
         ) : null}
