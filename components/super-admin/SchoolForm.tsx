@@ -258,17 +258,18 @@ export function SchoolForm({ initial, appDomain }: SchoolFormProps) {
           </div>
 
           <Input
-            label="GHL Location ID"
+            label="GHL Sub-Account (Location ID)"
             required={!isEdit}
             value={values.locationId}
             onChange={(event) => {
-              setField('locationId', event.target.value);
+              setField('locationId', event.target.value.trim());
             }}
             disabled={isSubmitting || isEdit}
+            placeholder="t2T2zqVGyxzuxclj66fN"
             hint={
               isEdit
                 ? 'Fixed after creation — it is the tenant key for all of this school’s data.'
-                : 'The GoHighLevel sub-account ID for this school.'
+                : 'GoHighLevel → Sub-Accounts → this school → Settings → Business Info. This is the one-time GHL setup: every email this school sends goes out through this sub-account and its own domain.'
             }
           />
 

@@ -2,13 +2,11 @@ import { count, eq } from 'drizzle-orm';
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
-import { Suspense } from 'react';
 
 import { branches, schoolModules, schools } from '@/db/schema';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { Card, CardTitle } from '@/components/ui/Card';
-import { GhlConnectionCard } from '@/components/super-admin/GhlConnectionCard';
 import { db } from '@/lib/drizzle';
 import { publicEnv } from '@/lib/env';
 import { isUuid } from '@/lib/validation';
@@ -81,7 +79,7 @@ export default async function SchoolOverviewPage({
           <Field label="Email" value={school.email} />
           <Field label="Address" value={school.address} />
           <Field label="Portal" value={`${school.slug}.${publicEnv.appDomain}`} />
-          <Field label="GHL Location ID" value={school.locationId} />
+          <Field label="GHL Sub-Account (Location ID)" value={school.locationId} />
           <div>
             <dt className="text-xs uppercase tracking-wide text-slate-500">Status</dt>
             <dd className="mt-1">
@@ -92,11 +90,6 @@ export default async function SchoolOverviewPage({
           </div>
         </dl>
       </Card>
-
-      {/* Reads `?ghl=` from the install callback, so it needs a boundary. */}
-      <Suspense fallback={null}>
-        <GhlConnectionCard schoolId={school.id} locationId={school.locationId} />
-      </Suspense>
 
       <div className="grid gap-4 sm:grid-cols-2">
         <Card

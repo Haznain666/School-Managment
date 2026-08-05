@@ -329,7 +329,9 @@ export interface GhlContact {
 
 /** Fetches the GHL sub-account (location) record for a school. */
 export async function getGhlLocation(locationId: string): Promise<GhlLocation> {
-  const result = await ghlFetch<{ location: GhlLocation }>(
+  // `tenantFetch` so this works from the Location ID alone, which is the only
+  // GHL setup a school has — see the note on that function.
+  const result = await tenantFetch<{ location: GhlLocation }>(
     `/locations/${locationId}`,
     locationId,
   );
@@ -495,6 +497,57 @@ async function agencyFetch<T>(
   return (text.trim() === '' ? undefined : JSON.parse(text)) as T;
 }
 
+/**
+ * Calls GHL on behalf of one school, using whichever credential that school has.
+ *
+ * ── Why there are two ────────────────────────────────────────────────────
+ * A GHL Location ID identifies a sub-account; it is not a credential. Something
+ * still has to authorise the request. Two things can:
+ *
+ *   the school's own OAuth token   — narrowest. Used when `ghl_tokens` holds a
+ *                                    row for this location.
+ *   the agency API key + locationId — the standard multi-tenant arrangement,
+ *                                    and what `sendWhatsAppMessage` has always
+ *                                    used. The agency is authorised across its
+ *                                    own sub-accounts; `locationId` in the
+ *                                    request says which one to act as.
+ *
+ * Either way the *sub-account* is what GHL resolves the sending domain, the
+ * from-address and the branding from. The credential authenticates the caller;
+ * `locationId` selects the tenant. Those are different things, and conflating
+ * them is what previously made an agency-authorised send look like a shared
+ * sender — it is not one. School A still sends from mail.schoola.com.
+ *
+ * This ordering is what lets onboarding be a single step: an operator enters
+ * the Location ID when creating the school and the school can send immediately,
+ * with no second OAuth ceremony. A per-location token, if one is ever
+ * installed, is preferred automatically because it is the narrower credential.
+ */
+async function tenantFetch<T>(
+  endpoint: string,
+  locationId: string,
+  options: GhlFetchOptions = {},
+): Promise<T> {
+  try {
+    return await ghlFetch<T>(endpoint, locationId, options);
+  } catch (error) {
+    // Only "no token stored for this school" falls through. A 4xx from a
+    // school that *is* connected is a real failure and must surface as one.
+    if (!(error instanceof GhlTokenError)) throw error;
+  }
+
+  const query: Record<string, string> = { locationId };
+  for (const [key, value] of Object.entries(options.query ?? {})) {
+    if (value !== undefined) query[key] = String(value);
+  }
+
+  return agencyFetch<T>(endpoint, {
+    method: options.method === 'POST' ? 'POST' : 'GET',
+    ...(options.body === undefined ? {} : { body: options.body }),
+    query,
+  });
+}
+
 export interface GhlContactRef {
   contactId: string;
 }
@@ -569,11 +622,7 @@ export async function findOrCreateContactByEmail(
 ): Promise<GhlContactRef> {
   await validateSchool(db, locationId);
 
-  // Location-scoped OAuth throughout: the contact is created inside the
-  // school's own sub-account by the school's own token, so the conversation
-  // the message later joins belongs to that school and nothing about this
-  // call passes through an agency-level credential.
-  const found = await ghlFetch<ContactSearchResponse>('/contacts/', locationId, {
+  const found = await tenantFetch<ContactSearchResponse>('/contacts/', locationId, {
     method: 'GET',
     query: { locationId, query: contact.email },
   });
@@ -588,7 +637,7 @@ export async function findOrCreateContactByEmail(
   const firstName =
     (contact.firstName ?? '').trim() || (contact.email.split('@')[0] ?? contact.email);
 
-  const created = await ghlFetch<ContactUpsertResponse>('/contacts/', locationId, {
+  const created = await tenantFetch<ContactUpsertResponse>('/contacts/', locationId, {
     method: 'POST',
     body: {
       locationId,
@@ -683,11 +732,16 @@ export interface GhlEmailPayload {
  * defeat the white-label configuration in any case.
  *
  * ── On the transport ─────────────────────────────────────────────────────
- * Location-scoped OAuth only. There is deliberately no agency-key fallback:
- * an agency-authorised send is a shared sender, which is the one thing the
- * white-label model must never do. A school that has not connected its GHL
- * sub-account therefore cannot send authentication email at all, and fails
- * loudly rather than quietly sending as somebody else.
+ * `tenantFetch`: the school's own OAuth token when one is stored, the agency
+ * key with `locationId` otherwise. Both act *as* the sub-account, so the mail
+ * carries that school's own sending domain either way.
+ *
+ * An earlier revision restricted this to location-scoped OAuth, on the reading
+ * that an agency-authorised call is a shared sender. It is not. The credential
+ * says who may act; `locationId` says which tenant is acted as, and GHL
+ * resolves the from-address from the tenant. Requiring per-school OAuth only
+ * added an install ceremony to onboarding and left every school unable to send
+ * until somebody performed it.
  */
 export async function sendGhlEmail(
   db: Database,
@@ -696,13 +750,16 @@ export async function sendGhlEmail(
 ): Promise<GhlMessageRef> {
   await validateSchool(db, locationId);
 
-  const sent = await ghlFetch<SendMessageResponse>(
+  const sent = await tenantFetch<SendMessageResponse>(
     '/conversations/messages',
     locationId,
     {
       method: 'POST',
       body: {
         type: 'Email',
+        // The sub-account this acts as. GHL resolves the sending domain and
+        // the from-address from it, whichever credential authorised the call.
+        locationId,
         contactId: payload.contactId,
         subject: payload.subject,
         html: payload.html,

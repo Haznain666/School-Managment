@@ -3,35 +3,31 @@ import { eq } from 'drizzle-orm';
 import { ghlTokens, schools } from '@/db/schema';
 import { apiFailure, apiSuccess, handleApiError } from '@/lib/api-response';
 import { db } from '@/lib/drizzle';
-import { deleteGhlTokens } from '@/lib/ghl-tokens';
+import { GhlAgencyError, GhlApiError, getGhlLocation } from '@/lib/ghl-client';
+import { GhlTokenError } from '@/lib/ghl-tokens';
 import { requireSuperAdmin } from '@/lib/super-admin-guard';
 import { isUuid } from '@/lib/validation';
 
 /**
- * /api/super-admin/schools/[schoolId]/ghl
+ * GET /api/super-admin/schools/[schoolId]/ghl
  *
- * GET     is this school connected, and when does its token expire
- * DELETE  disconnect
+ * Verifies that the Location ID stored on a school actually resolves to a
+ * reachable GHL sub-account.
  *
- * Reads `ghl_tokens` for metadata only — never the token columns themselves,
- * which are ciphertext and have no business leaving the server even encrypted.
- * `lib/ghl-tokens.ts` owns every read that decrypts.
+ * There is no "connect" step to report on. A school's GHL setup is the Location
+ * ID entered when it was created, and the agency credential is what authorises
+ * calls against it — so the only question worth asking is whether that pairing
+ * works, which is answered by making a real call rather than by inspecting a
+ * table.
+ *
+ * `reachable: false` after creating a school almost always means the Location
+ * ID was mistyped, or the sub-account is not one this agency administers.
  */
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 type RouteContext = { params: Promise<{ schoolId: string }> };
-
-async function locationForSchool(schoolId: string): Promise<string | null> {
-  const rows = await db
-    .select({ locationId: schools.locationId })
-    .from(schools)
-    .where(eq(schools.id, schoolId))
-    .limit(1);
-
-  return rows[0]?.locationId ?? null;
-}
 
 export async function GET(_request: Request, context: RouteContext) {
   try {
@@ -42,54 +38,63 @@ export async function GET(_request: Request, context: RouteContext) {
       return apiFailure('not_found', 'School not found.', 404);
     }
 
-    const locationId = await locationForSchool(schoolId);
-    if (locationId === null) {
-      return apiFailure('not_found', 'School not found.', 404);
-    }
-
     const rows = await db
-      .select({
-        expiresAt: ghlTokens.expiresAt,
-        tokenType: ghlTokens.tokenType,
-        updatedAt: ghlTokens.updatedAt,
-      })
-      .from(ghlTokens)
-      .where(eq(ghlTokens.locationId, locationId))
+      .select({ locationId: schools.locationId, name: schools.name })
+      .from(schools)
+      .where(eq(schools.id, schoolId))
       .limit(1);
 
-    const row = rows[0];
+    const school = rows[0];
+    if (school === undefined) {
+      return apiFailure('not_found', 'School not found.', 404);
+    }
+
+    // Metadata only — never the token columns, which are ciphertext and have no
+    // business leaving the server even encrypted. A row here is optional: it
+    // exists only where a narrower per-location token has been installed.
+    const tokenRows = await db
+      .select({ expiresAt: ghlTokens.expiresAt, tokenType: ghlTokens.tokenType })
+      .from(ghlTokens)
+      .where(eq(ghlTokens.locationId, school.locationId))
+      .limit(1);
+
+    let reachable = false;
+    let ghlName: string | null = null;
+    let reason: string | null = null;
+
+    try {
+      const location = await getGhlLocation(school.locationId);
+      reachable = true;
+      ghlName = location.name;
+    } catch (error) {
+      if (error instanceof GhlApiError) {
+        reason =
+          error.status === 404
+            ? 'GoHighLevel does not recognise this Location ID.'
+            : `GoHighLevel returned ${error.status}.`;
+      } else if (error instanceof GhlAgencyError) {
+        reason = `GoHighLevel returned ${error.status} for the agency credential.`;
+      } else if (error instanceof GhlTokenError) {
+        reason = 'No credential is configured for this sub-account.';
+      } else {
+        reason = 'The GoHighLevel check could not be completed.';
+      }
+
+      console.warn(
+        `[ghl-verify] ${school.locationId} unreachable:`,
+        error instanceof Error ? error.message : error,
+      );
+    }
 
     return apiSuccess({
-      locationId,
-      connected: row !== undefined,
-      // Not the same as disconnected: a lapsed token refreshes on next use,
-      // and only fails if GHL has also revoked the refresh token.
-      expiresAt: row?.expiresAt.toISOString() ?? null,
-      expired: row === undefined ? null : row.expiresAt.getTime() <= Date.now(),
-      tokenType: row?.tokenType ?? null,
-      connectedAt: row?.updatedAt.toISOString() ?? null,
+      locationId: school.locationId,
+      reachable,
+      // The sub-account's own name in GHL. When it does not look like the
+      // school, the Location ID belongs to somebody else.
+      ghlLocationName: ghlName,
+      reason,
+      credential: tokenRows[0] === undefined ? 'agency' : 'location_oauth',
     });
-  } catch (error) {
-    return handleApiError(error);
-  }
-}
-
-export async function DELETE(_request: Request, context: RouteContext) {
-  try {
-    await requireSuperAdmin();
-
-    const { schoolId } = await context.params;
-    if (!isUuid(schoolId)) {
-      return apiFailure('not_found', 'School not found.', 404);
-    }
-
-    const locationId = await locationForSchool(schoolId);
-    if (locationId === null) {
-      return apiFailure('not_found', 'School not found.', 404);
-    }
-
-    await deleteGhlTokens(locationId);
-    return apiSuccess({ disconnected: true });
   } catch (error) {
     return handleApiError(error);
   }
