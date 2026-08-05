@@ -2,11 +2,13 @@ import { count, eq } from 'drizzle-orm';
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
+import { Suspense } from 'react';
 
 import { branches, schoolModules, schools } from '@/db/schema';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { Card, CardTitle } from '@/components/ui/Card';
+import { GhlConnectionCard } from '@/components/super-admin/GhlConnectionCard';
 import { db } from '@/lib/drizzle';
 import { publicEnv } from '@/lib/env';
 import { isUuid } from '@/lib/validation';
@@ -90,6 +92,11 @@ export default async function SchoolOverviewPage({
           </div>
         </dl>
       </Card>
+
+      {/* Reads `?ghl=` from the install callback, so it needs a boundary. */}
+      <Suspense fallback={null}>
+        <GhlConnectionCard schoolId={school.id} locationId={school.locationId} />
+      </Suspense>
 
       <div className="grid gap-4 sm:grid-cols-2">
         <Card
