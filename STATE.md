@@ -605,8 +605,8 @@ lives in the main repo rather than the worktree, and the URL in it ends in
 `:6543` (transaction pooling) where migrations need `:5432` (session). One
 command that handles all three without you touching the password:
 
-```
-cd "D:/School-Management-System/.claude/worktrees/stage-4-state-md-100f15" && DATABASE_URL="$(grep '^DATABASE_URL=' /d/School-Management-System/.env.local   | cut -d= -f2- | tr -d "\"'" | sed 's/:6543\//:5432\//')" npx drizzle-kit migrate
+```bash
+cd "D:/School-Management-System/.claude/worktrees/stage-4-state-md-100f15" && DATABASE_URL="$(grep '^DATABASE_URL=' /d/School-Management-System/.env.local | cut -d= -f2- | tr -d "\"'" | sed 's/:6543\//:5432\//')" npx drizzle-kit migrate
 ```
 
 `drizzle.config.ts` used to recommend the direct connection
