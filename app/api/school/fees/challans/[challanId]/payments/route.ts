@@ -6,7 +6,7 @@ import { apiFailure, apiSuccess, handleApiError, readJsonBody } from '@/lib/api-
 import { batch, db, type Tx } from '@/lib/drizzle';
 import { challanStatusFor, remainingBalance } from '@/lib/fee-calculator';
 import { getChallanDetail } from '@/lib/fee-queries';
-import { sendPaymentConfirmationWhatsApp } from '@/lib/ghl-fees';
+import { sendPaymentConfirmation } from '@/lib/ghl-fees';
 import { formatAmount, paiseToNumeric, toPaise } from '@/lib/money';
 import { isUuid, readOptionalString } from '@/lib/validation';
 
@@ -191,11 +191,13 @@ export const POST = withSchoolAuth<RouteContext>(
       await batch(db, (tx) => statements.map((statement) => statement(tx)));
 
       // Fired, not awaited. The money is already recorded; a slow or broken
-      // GHL must not turn a successful payment into a failed request.
+      // GHL or SMTP must not turn a successful payment into a failed request.
+      // Unlike the reminders route, an unreachable guardian is not reported
+      // back here: the payment succeeded either way, and the person who would
+      // read the message is standing at the counter holding a receipt.
       if (challan.guardian !== null) {
-        void sendPaymentConfirmationWhatsApp(db, auth.locationId, {
-          guardianName: challan.guardian.name,
-          guardianPhone: challan.guardian.phone,
+        void sendPaymentConfirmation(db, auth.locationId, {
+          guardian: challan.guardian,
           studentName: challan.studentName,
           challanNumber: challan.challanNumber,
           amountPaid: amountPaise / 100,

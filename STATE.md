@@ -4,14 +4,15 @@
 resume without re-deriving context. Updated at the end of every development
 step, before the session ends.
 
-**Last updated:** 2026-08-08 (second session)
+**Last updated:** 2026-08-08 (third session)
 **Branch:** `claude/stage-4-state-md-100f15` (worktree) — fast-forwarded from
 `claude/school-management-system-access-92a218`, so it carries Stages 1 and 3.
 **Main branch:** `main` — last commit `81d0cfc` (send apikey header, accept `sb_secret_` keys)
 
-> **Stage 4 (§5b) is code-complete except for WhatsApp gating (step 8), and
-> has never been run against the live database.** Read §5d before touching
-> `lib/school-auth.ts` — the claims design differs from what §5b describes.
+> **Stage 4 (§5b) is code-complete. Nothing in it has ever run against the
+> live database.** Migrations 0011 and 0012 are unapplied and Supabase Auth is
+> unconfigured — see §5d. Read §5d before touching `lib/school-auth.ts`; the
+> claims design differs from what §5b describes.
 
 ---
 
@@ -457,7 +458,7 @@ are still worth lifting individually, since they are provider-agnostic.
 | 5. Auth routes | ✅ done, routes and UI |
 | 6. Layouts (5) + `api-auth` + `school-guard` | ✅ done |
 | 7. `firebase_uid` → `auth_user_id` + migration | ✅ done — `0011_stage4_supabase_auth.sql` |
-| 8. Gate WhatsApp behind `school_modules` | ⬜ **not started** |
+| 8. Gate WhatsApp behind `school_modules` | ✅ done |
 | 9. Delete Firebase | ✅ done — no Firebase left in the repo |
 | 10. typecheck + lint + build | ✅ all three green |
 
@@ -529,24 +530,69 @@ never accepted. Both `app/api/school/invitations/route.ts` and
 invitation rows with a null email cannot be accepted** — there are none in
 development, but re-issue any that appear.
 
-### ⚠️ What is NOT done — read before calling Stage 4 finished
+### WhatsApp gating (step 8) — done 2026-08-08
 
-**1. WhatsApp gating (step 8) not started.** Unchanged from §5b: add
+**The switch.** One flag, `whatsapp`, stored in `school_modules` — same table,
+same upsert route, same audit breadcrumb as the product modules — but declared
+in `PLATFORM_CHANNELS` rather than `PLATFORM_MODULES`, so it renders in its own
+"Channels" section on the Super Admin school page instead of as a toggle beside
+Hostel Management. A channel is not a module. `db/migrations/0012` widens the
+CHECK constraint; no rows are inserted, so **every school starts with WhatsApp
+off** and email carrying everything.
+
+Read it with `isWhatsAppEnabled(locationId)` from `lib/channels.ts` —
+request-memoised, fails closed. A "send all reminders" loop over 300 challans
+asks once.
+
+**The plan said four sender files. It was six places, and one was already dead:**
+
+| Where | Now |
+| --- | --- |
+| `lib/ghl-fees.ts` | Both channels when available; see below |
+| `lib/invite-sender.ts` | Email must work, WhatsApp is an extra — the reverse of before |
+| `.../invitations/[inviteRef]/accept/initiate` | **Moved to email entirely** |
+| `app/api/admissions/apply` | Gated; email alongside |
+| `.../applications/[applicationId]` | Gated; email alongside |
+| `lib/ghl-admissions.ts` | **Deliberately not gated** — see below |
+| `lib/otp-sender.ts` | **Deleted** — orphaned once login left WhatsApp |
+
+**`lib/ghl-admissions.ts` is the one exception and it is deliberate.**
+`triggerAdmissionWelcomeWorkflow` does not send anything; it hands a contact to
+an automation the school built inside GoHighLevel, and what that automation
+does — WhatsApp, email, a tag, a task — is invisible from here. Gating it would
+switch off email and tagging for schools that never bought WhatsApp. The
+consequence: a school whose GHL workflow sends WhatsApp can still do so with
+the add-on off. Documented in the file; not worth closing until a school
+actually has such a workflow.
+
+**The unreachable-guardian count.** With WhatsApp off, a guardian with no email
+receives nothing. `/api/school/fees/reminders` now returns `unreachable`
+alongside `queued`, counted with `canReachGuardian()` — the same predicate the
+sender uses, so the report and the sending cannot disagree. The payments route
+deliberately does *not* report it: the payment succeeded either way and the
+person is standing at the counter holding a receipt.
+
+**Two duplicated SMTP helpers became one.** `lib/email-sender.ts` — the
+transport was character-for-character identical in `invite-sender` and
+`otp-sender`.
+
+**The invite passcode is now emailed.** It went to the invited handset; since
+the address is the identity, proving the handset proved the wrong thing. The
+last WhatsApp dependency in the auth path is gone. `lib/otp.ts` and
+`otp_sessions` are still used by it — GoTrue's own OTP would sign the person in
+as a side effect, which is the accept route's job and must happen after the
+membership row is written.
+
+### ⚠️ What is NOT done — read before calling Stage 4 finished Unchanged from §5b: add
 `whatsapp_enabled` to `school_modules`, a "Connect WhatsApp" control on the
 Super Admin school page, and make `lib/ghl-fees.ts`, `lib/invite-sender.ts`,
 `lib/otp-sender.ts` and `lib/ghl-admissions.ts` check it with an email
 fallback. **Gate, do not delete.**
 
-**2. The invitation flow is still WhatsApp-passcode.**
-`app/api/school/invitations/[inviteRef]/accept` still verifies a WhatsApp OTP
-via `lib/otp.ts`, and now additionally *requires* `invitation.email`, because
-the address is the identity. `lib/otp.ts` and `otp_sessions` are still live on
-that path and must not be deleted yet.
+**1. Migrations 0011 and 0012 have not been run.** `npm run db:migrate`
+against the session pooler (5432, see §5c).
 
-**3. Migration 0011 has not been run.** `npm run db:migrate` against the
-session pooler (5432, see §5c).
-
-**4. Supabase dashboard configuration is required and is the user's to do** —
+**2. Supabase dashboard configuration is required and is the user's to do** —
 without it nothing signs in. Authentication → Providers → Email enabled with
 "Confirm email" on; Authentication → Emails → SMTP configured, or codes will
 not be delivered past Supabase's very low built-in limit; Authentication →
@@ -584,6 +630,7 @@ time.
 | 2026-08-07 | **Stage 3 documented.** User confirmed Hostinger supports Node.js and auto-issues HTTPS per subdomain. Wrote `DEPLOYMENT.md`; de-Vercel'd the operator-facing strings in the storage diagnostics route. | — |
 | 2026-08-07 | **Stage 2 started.** `is_active` enforcement landed in `verifySchoolSession()` — the revocation guarantee is now provider-independent. Wrote up the provider-swap design. 4 commits made; **could not push — no git credential and no `gh` on this machine.** | — |
 | 2026-08-07 | **Direction changed by the user.** Login becomes email + password; signup uses an email OTP to set a password; everything merges to main as one piece. This makes Supabase Auth the right answer and supersedes the earlier design — see the ⚠️ block in §3. | — |
+| 2026-08-08 | **WhatsApp gated (step 8) — Stage 4 code-complete.** New `whatsapp` channel flag in `school_modules`, declared separately from the product modules and rendered in its own Channels section. All five live send paths gated; the invite passcode moved to email, killing the last WhatsApp dependency in auth; the orphaned `lib/otp-sender.ts` deleted and its duplicated SMTP transport extracted to `lib/email-sender.ts`. Fee reminders now report how many guardians nobody could reach. Migration 0012. typecheck + lint + build green. | **Run 0011 + 0012, configure Supabase Auth, then sign in for real.** Nothing here has touched the live database. |
 | 2026-08-08 | **Login UI rebuilt.** `EmailLoginForm` replaces `LoginOTPForm`: password sign-in plus a code path for first-time and forgotten passwords. `PasswordField` + `lib/password-strength.ts` lifted from the email-auth branch and made the single source the password route also reads. Closed a hole this created: invitations now require an email address, because the address is the identity. typecheck + lint + build green. | **WhatsApp gating (step 8)**, then run migration 0011 and try signing in for real. |
 | 2026-08-08 | **Stage 4 auth substrate.** Firebase Authentication → Supabase Auth. New `lib/supabase-auth.ts`; `lib/school-auth.ts` now resolves claims from `school_users` per request instead of from the token, which retires the stale-claims hazard. Login/OTP/password/logout/platform-session/emergency-login/invite-accept all reworked; `/api/school/auth/session` and the browser round trip deleted. `firebase_uid` → `auth_user_id` + migration `0011`. Firebase removed entirely. typecheck + lint + build green. | **The login UI (§5d item 1) — it is broken until then.** Then WhatsApp gating (step 8). |
 | 2026-08-07 | **Print framework built** — `components/print/PrintSheet.tsx`, generic `@media print` rules, school logo wired in, and bulk challan printing at `dashboard/fees/challans/print?ids=…`. Also **revised the WhatsApp decision to a paid per-school add-on** (see §3.3 and `ROADMAP.md` §4), and folded the user's video-derived module directory into `ROADMAP.md` §2b — which surfaced student promotion, Excel import, POS and e-learning as previously unknown gaps. | **Stage 4 (§5b), in a fresh session.** Check `claude/school-email-auth-7f5vuh` first. The parent-email risk is now *resolved* by the WhatsApp add-on decision, so it no longer blocks. |

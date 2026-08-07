@@ -5,9 +5,10 @@ import { schoolModules } from '@/db/schema';
 import { apiFailure, apiSuccess, handleApiError, readJsonBody } from '@/lib/api-response';
 import { db } from '@/lib/drizzle';
 import {
-  isPlatformModuleKey,
+  isSchoolFlagKey,
+  toChannelFlags,
   toModuleFlags,
-  type PlatformModuleKey,
+  type SchoolFlagKey,
 } from '@/lib/platform-modules';
 import { resolveLocationId } from '@/lib/schools';
 import { requireSuperAdmin } from '@/lib/super-admin-guard';
@@ -16,11 +17,18 @@ import { isUuid } from '@/lib/validation';
 /**
  * /api/super-admin/schools/[schoolId]/modules
  *
- * GET   current on/off state for every module
+ * GET   current on/off state for every module and channel
  * PATCH bulk update — an array of { module_key, is_enabled }
  *
  * Rows are upserted rather than assumed to exist, so a school provisioned
  * before a module was added to the catalogue still toggles cleanly.
+ *
+ * ── Channels ride the same route ─────────────────────────────────────────
+ * `whatsapp` is a delivery channel rather than a product module, and renders
+ * in its own section of the school page — but it is stored in the same table
+ * and written through the same upsert, so it is accepted here too. The
+ * response separates them (`modules` and `channels`) because the two UIs read
+ * different halves; `rows` still carries everything.
  */
 
 export const runtime = 'nodejs';
@@ -60,7 +68,11 @@ export async function GET(_request: NextRequest, context: RouteContext) {
       .from(schoolModules)
       .where(eq(schoolModules.locationId, locationId));
 
-    return apiSuccess({ modules: toModuleFlags(rows), rows });
+    return apiSuccess({
+      modules: toModuleFlags(rows),
+      channels: toChannelFlags(rows),
+      rows,
+    });
   } catch (error) {
     return handleApiError(error);
   }
@@ -100,10 +112,10 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
 
     // Validate the whole batch before writing any of it — a partial apply
     // would leave the toggle grid disagreeing with the database.
-    const updates: Array<{ key: PlatformModuleKey; enabled: boolean }> = [];
+    const updates: Array<{ key: SchoolFlagKey; enabled: boolean }> = [];
 
     for (const entry of body.modules as ModuleUpdate[]) {
-      if (!isPlatformModuleKey(entry.module_key)) {
+      if (!isSchoolFlagKey(entry.module_key)) {
         return apiFailure('invalid_body', `Unknown module "${String(entry.module_key)}".`, 400);
       }
       if (typeof entry.is_enabled !== 'boolean') {
@@ -146,7 +158,11 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
       .from(schoolModules)
       .where(eq(schoolModules.locationId, locationId));
 
-    return apiSuccess({ updated: updates.length, modules: toModuleFlags(rows) });
+    return apiSuccess({
+      updated: updates.length,
+      modules: toModuleFlags(rows),
+      channels: toChannelFlags(rows),
+    });
   } catch (error) {
     return handleApiError(error);
   }

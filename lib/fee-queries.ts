@@ -711,7 +711,7 @@ export interface ChallanDetail extends ChallanListRow {
   rollNumber: string | null;
   items: ChallanItemRow[];
   payments: ChallanPaymentRow[];
-  guardian: { name: string; phone: string } | null;
+  guardian: PrimaryGuardian | null;
 }
 
 /**
@@ -819,7 +819,11 @@ export async function getChallanDetail(
       )
       .orderBy(desc(feePayments.paymentDate), desc(feePayments.createdAt)),
     db
-      .select({ name: studentGuardians.name, phone: studentGuardians.phone })
+      .select({
+        name: studentGuardians.name,
+        phone: studentGuardians.phone,
+        email: studentGuardians.email,
+      })
       .from(studentGuardians)
       .where(
         and(
@@ -848,11 +852,24 @@ export async function getChallanDetail(
 }
 
 /** The primary guardian's contact details for a set of students. */
+/**
+ * The contact details a fee notice can travel on.
+ *
+ * `email` is nullable and often is null — which is the whole reason
+ * `/api/school/fees/reminders` counts the guardians it cannot reach when a
+ * school has WhatsApp switched off.
+ */
+export interface PrimaryGuardian {
+  name: string;
+  phone: string;
+  email: string | null;
+}
+
 export async function primaryGuardiansFor(
   locationId: string,
   studentProfileIds: readonly string[],
-): Promise<Map<string, { name: string; phone: string }>> {
-  const result = new Map<string, { name: string; phone: string }>();
+): Promise<Map<string, PrimaryGuardian>> {
+  const result = new Map<string, PrimaryGuardian>();
   if (studentProfileIds.length === 0) return result;
 
   const rows = await db
@@ -860,6 +877,7 @@ export async function primaryGuardiansFor(
       studentProfileId: studentGuardians.studentProfileId,
       name: studentGuardians.name,
       phone: studentGuardians.phone,
+      email: studentGuardians.email,
       isPrimaryContact: studentGuardians.isPrimaryContact,
     })
     .from(studentGuardians)
@@ -875,7 +893,11 @@ export async function primaryGuardiansFor(
     // Ordered primary-first, so the first row seen for a student is the one
     // the school wants contacted.
     if (!result.has(row.studentProfileId)) {
-      result.set(row.studentProfileId, { name: row.name, phone: row.phone });
+      result.set(row.studentProfileId, {
+        name: row.name,
+        phone: row.phone,
+        email: row.email,
+      });
     }
   }
 

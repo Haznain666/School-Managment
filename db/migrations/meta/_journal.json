@@ -85,6 +85,13 @@
       "when": 1786128817303,
       "tag": "0011_stage4_supabase_auth",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1786131160960,
+      "tag": "0012_stage4_whatsapp_channel",
+      "breakpoints": true
     }
   ]
 }

@@ -1,6 +1,6 @@
 import 'server-only';
 
-import { and, asc, count, eq, ilike, or, type SQL } from 'drizzle-orm';
+import { and, asc, count, eq, ilike, inArray, or, type SQL } from 'drizzle-orm';
 
 import {
   branches,
@@ -9,7 +9,11 @@ import {
   studentEnrollments,
   type SchoolUser,
 } from '@/db/schema';
-import { toModuleFlags, type SchoolModuleFlags } from '@/lib/platform-modules';
+import {
+  PLATFORM_MODULE_KEYS,
+  toModuleFlags,
+  type SchoolModuleFlags,
+} from '@/lib/platform-modules';
 import type { UserRole } from '@/types/school-auth';
 
 import { getActiveAcademicYear } from './admissions-queries';
@@ -214,7 +218,14 @@ export async function getDashboardCounts(locationId: string): Promise<DashboardC
       .select({ value: count() })
       .from(schoolModules)
       .where(
-        and(eq(schoolModules.locationId, locationId), eq(schoolModules.isEnabled, true)),
+        and(
+          eq(schoolModules.locationId, locationId),
+          eq(schoolModules.isEnabled, true),
+          // Channels share this table but are not modules, and counting
+          // WhatsApp as one would quietly inflate every school's headline
+          // "modules enabled" figure by one.
+          inArray(schoolModules.moduleKey, [...PLATFORM_MODULE_KEYS]),
+        ),
       ),
   ]);
 

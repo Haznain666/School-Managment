@@ -29,6 +29,91 @@ export type PlatformModulePhase = PlatformModule['phase'];
 export const PLATFORM_MODULE_KEYS: readonly PlatformModuleKey[] =
   PLATFORM_MODULES.map((module) => module.key);
 
+/**
+ * Delivery channels a school can be switched on or off.
+ *
+ * ── Why these are not modules ────────────────────────────────────────────
+ * A module is a slice of the product — Admissions, Fees, Library. A channel is
+ * how a message leaves the building. Putting "WhatsApp" in the list above
+ * would have been one line of work and would have rendered it as a toggle
+ * between "Hostel Management" and "Transport", which is not what it is.
+ *
+ * They share the `school_modules` table because the storage question — one
+ * row per school per flag, absent means off, with an audit breadcrumb — has
+ * the same answer for both, and a second table would have been a second thing
+ * to keep in step. The CHECK constraint on that table accepts the union of
+ * both key lists; see `db/migrations/0012_stage4_whatsapp_channel.sql`.
+ *
+ * ── WhatsApp specifically ────────────────────────────────────────────────
+ * It is a paid add-on. A school with it off is not broken — email carries
+ * everything, and the internal chat system (`ROADMAP.md` §5) is intended to
+ * replace it outright. Until chat ships, "off" genuinely means some parents
+ * are only reachable by email, which is why `lib/ghl-fees.ts` counts and
+ * reports the ones it could not reach rather than failing quietly.
+ */
+export const PLATFORM_CHANNELS = [
+  {
+    key: 'whatsapp',
+    label: 'WhatsApp',
+    description:
+      'Send invitations, fee notices and admission updates over WhatsApp, ' +
+      'through this school’s GoHighLevel sub-account. A paid add-on. ' +
+      'With it off, everything goes by email instead.',
+  },
+] as const;
+
+export type PlatformChannel = (typeof PLATFORM_CHANNELS)[number];
+export type PlatformChannelKey = PlatformChannel['key'];
+
+export const PLATFORM_CHANNEL_KEYS: readonly PlatformChannelKey[] =
+  PLATFORM_CHANNELS.map((channel) => channel.key);
+
+/**
+ * Everything `school_modules.module_key` may hold. The CHECK constraint in the
+ * database is generated from this, so a key missing here cannot be stored.
+ */
+export const SCHOOL_FLAG_KEYS: readonly string[] = [
+  ...PLATFORM_MODULE_KEYS,
+  ...PLATFORM_CHANNEL_KEYS,
+];
+
+export function isPlatformChannelKey(value: unknown): value is PlatformChannelKey {
+  return (
+    typeof value === 'string' &&
+    (PLATFORM_CHANNEL_KEYS as readonly string[]).includes(value)
+  );
+}
+
+export type SchoolFlagKey = PlatformModuleKey | PlatformChannelKey;
+
+/** Anything the toggle route may be asked to write. */
+export function isSchoolFlagKey(value: unknown): value is SchoolFlagKey {
+  return isPlatformModuleKey(value) || isPlatformChannelKey(value);
+}
+
+/** Per-school on/off state for every channel. */
+export type SchoolChannelFlags = Record<PlatformChannelKey, boolean>;
+
+export function emptyChannelFlags(): SchoolChannelFlags {
+  const flags = {} as SchoolChannelFlags;
+  for (const key of PLATFORM_CHANNEL_KEYS) {
+    flags[key] = false;
+  }
+  return flags;
+}
+
+export function toChannelFlags(
+  rows: readonly { moduleKey: string; isEnabled: boolean }[],
+): SchoolChannelFlags {
+  const flags = emptyChannelFlags();
+  for (const row of rows) {
+    if (isPlatformChannelKey(row.moduleKey)) {
+      flags[row.moduleKey] = row.isEnabled;
+    }
+  }
+  return flags;
+}
+
 /** Phases in display order. */
 export const PLATFORM_MODULE_PHASES: readonly PlatformModulePhase[] = [1, 2, 3];
 

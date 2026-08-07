@@ -138,6 +138,20 @@ export async function createGuardianGHLContact(
  * Optional by design: `GHL_ADMISSION_WORKFLOW_ID` is not set on every
  * deployment, and a school that has not built the workflow should simply not
  * get one rather than see enrolments fail. Never throws.
+ *
+ * ── Deliberately NOT behind the WhatsApp switch ──────────────────────────
+ * Every other send path in this codebase checks `isWhatsAppEnabled` first.
+ * This one cannot, because it does not send anything: it hands a contact to
+ * an automation the school built inside GoHighLevel, and what that automation
+ * does — WhatsApp, email, a tag, a task for a human — is not visible from
+ * here. Gating it would switch off email and tagging for schools that never
+ * bought WhatsApp.
+ *
+ * The consequence worth knowing: a school whose workflow sends WhatsApp can
+ * still send WhatsApp through it with the add-on switched off. Closing that
+ * would mean either reading the workflow definition over the GHL API or
+ * requiring one workflow per channel, and neither is worth it until a school
+ * actually has such a workflow.
  */
 export async function triggerAdmissionWelcomeWorkflow(
   locationId: string,

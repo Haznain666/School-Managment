@@ -1,11 +1,12 @@
 import type { Metadata } from 'next';
 import { notFound } from 'next/navigation';
 
+import { ChannelToggleList } from '@/components/super-admin/ChannelToggleList';
 import { ModuleToggleGrid } from '@/components/super-admin/ModuleToggleGrid';
 import { isUuid } from '@/lib/validation';
 
 export const metadata: Metadata = {
-  title: 'Modules',
+  title: 'Modules & channels',
 };
 
 export const dynamic = 'force-dynamic';
@@ -29,6 +30,16 @@ export default async function SchoolModulesPage({
       </div>
 
       <ModuleToggleGrid schoolId={schoolId} />
+
+      <div className="pt-4">
+        <h3 className="text-lg font-semibold text-slate-900">Channels</h3>
+        <p className="mt-1 mb-4 text-sm text-slate-500">
+          How this school’s messages reach people. Email always works; WhatsApp
+          is a paid add-on that rides the school’s own GoHighLevel connection.
+        </p>
+
+        <ChannelToggleList schoolId={schoolId} />
+      </div>
     </div>
   );
 }

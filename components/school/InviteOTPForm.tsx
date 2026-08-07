@@ -13,8 +13,8 @@ import { ROLE_HOME_ROUTES, isUserRole } from '@/types/school-auth';
 export interface InviteOTPFormProps {
   token: string;
   inviteeName: string;
-  /** Already masked server-side — the full number never reaches the browser. */
-  maskedPhone: string;
+  /** Already masked server-side — the full address never reaches the browser. */
+  maskedEmail: string;
   schoolName: string;
   roleName: string;
   branchName: string | null;
@@ -22,7 +22,7 @@ export interface InviteOTPFormProps {
 }
 
 interface InitiateData {
-  maskedPhone: string;
+  maskedEmail: string;
   expiresIn: number;
 }
 
@@ -37,15 +37,18 @@ interface Envelope<T> {
 }
 
 /**
- * Two-step signup: confirm your name, then the passcode sent over WhatsApp.
+ * Two-step signup: confirm your name, then the code emailed to you.
  *
- * The number is fixed by the invitation and never editable here — whoever
- * holds the link cannot point the code at a different handset.
+ * The address is fixed by the invitation and never editable here — whoever
+ * holds the link cannot point the code at an inbox of their own. It used to be
+ * a phone number and a WhatsApp message; since Stage 4 the address is the
+ * identity the account is created against, so proving the handset proved the
+ * wrong thing.
  */
 export function InviteOTPForm({
   token,
   inviteeName,
-  maskedPhone,
+  maskedEmail,
   schoolName,
   roleName,
   branchName,
@@ -56,7 +59,7 @@ export function InviteOTPForm({
 
   const [step, setStep] = useState<'details' | 'otp'>('details');
   const [name, setName] = useState(inviteeName);
-  const [sentTo, setSentTo] = useState(maskedPhone);
+  const [sentTo, setSentTo] = useState(maskedEmail);
   const [otp, setOtp] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -79,7 +82,7 @@ export function InviteOTPForm({
           return;
         }
 
-        setSentTo(payload.data.maskedPhone);
+        setSentTo(payload.data.maskedEmail);
         setStep('otp');
         if (isResend) setOtp('');
         start();
@@ -188,13 +191,13 @@ export function InviteOTPForm({
         />
 
         <p className="rounded-lg bg-slate-50 px-3 py-2 text-sm text-slate-600">
-          A code will be sent to {sentTo} via WhatsApp.
+          A code will be sent to {sentTo}.
         </p>
 
         {errorBanner}
 
         <Button type="submit" fullWidth isLoading={isLoading}>
-          Send OTP to my WhatsApp
+          Email me a code
         </Button>
       </form>
     );
@@ -209,8 +212,8 @@ export function InviteOTPForm({
       noValidate
     >
       <div>
-        <h2 className="text-base font-semibold text-slate-900">Enter your OTP</h2>
-        <p className="mt-1 text-sm text-slate-500">Sent to {sentTo} via WhatsApp</p>
+        <h2 className="text-base font-semibold text-slate-900">Enter your code</h2>
+        <p className="mt-1 text-sm text-slate-500">Sent to {sentTo}</p>
       </div>
 
       <Input
