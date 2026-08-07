@@ -9,10 +9,10 @@ step, before the session ends.
 `claude/school-management-system-access-92a218`, so it carries Stages 1 and 3.
 **Main branch:** `main` — last commit `81d0cfc` (send apikey header, accept `sb_secret_` keys)
 
-> **Stage 4 (§5b) is code-complete. Nothing in it has ever run against the
-> live database.** Migrations 0011 and 0012 are unapplied and Supabase Auth is
-> unconfigured — see §5d. Read §5d before touching `lib/school-auth.ts`; the
-> claims design differs from what §5b describes.
+> **Stage 4 (§5b) is code-complete and its migrations are applied.** The one
+> thing still blocking a real sign-in is Supabase Auth configuration, which is
+> the user's to do — see §5d. Read §5d before touching `lib/school-auth.ts`;
+> the claims design differs from what §5b describes.
 
 ---
 
@@ -589,8 +589,29 @@ Super Admin school page, and make `lib/ghl-fees.ts`, `lib/invite-sender.ts`,
 `lib/otp-sender.ts` and `lib/ghl-admissions.ts` check it with an email
 fallback. **Gate, do not delete.**
 
-**1. Migrations 0011 and 0012 have not been run.** `npm run db:migrate`
-against the session pooler (5432, see §5c).
+**1. ~~Migrations 0011 and 0012~~ — APPLIED 2026-08-08.** 13 recorded, and
+every effect verified against the live database: `auth_user_id` on all three
+tables, no `firebase`-named constraints left, the per-tenant unique index
+`school_users_location_id_auth_user_id_idx` present, the old global unique on
+`school_users` dropped, `emergency_login_tokens.auth_user_id` nullable, and the
+`school_modules` CHECK accepting `whatsapp`.
+
+**This database and this branch are now committed to each other.** `main` still
+reads `firebase_uid` and will not work against it.
+
+**How to run migrations, because `npm run db:migrate` does not work alone.**
+It is bare `drizzle-kit migrate`: it does not load `.env.local`, `.env.local`
+lives in the main repo rather than the worktree, and the URL in it ends in
+`:6543` (transaction pooling) where migrations need `:5432` (session). One
+command that handles all three without you touching the password:
+
+```
+cd "D:/School-Management-System/.claude/worktrees/stage-4-state-md-100f15" && DATABASE_URL="$(grep '^DATABASE_URL=' /d/School-Management-System/.env.local   | cut -d= -f2- | tr -d "\"'" | sed 's/:6543\//:5432\//')" npx drizzle-kit migrate
+```
+
+`drizzle.config.ts` used to recommend the direct connection
+(`db.<ref>.supabase.co:5432`) for this. It is IPv6-only without a paid add-on
+and fails with `getaddrinfo ENOTFOUND`; the docblock is corrected.
 
 **2. Supabase dashboard configuration is required and is the user's to do** —
 without it nothing signs in. Authentication → Providers → Email enabled with
@@ -630,6 +651,7 @@ time.
 | 2026-08-07 | **Stage 3 documented.** User confirmed Hostinger supports Node.js and auto-issues HTTPS per subdomain. Wrote `DEPLOYMENT.md`; de-Vercel'd the operator-facing strings in the storage diagnostics route. | — |
 | 2026-08-07 | **Stage 2 started.** `is_active` enforcement landed in `verifySchoolSession()` — the revocation guarantee is now provider-independent. Wrote up the provider-swap design. 4 commits made; **could not push — no git credential and no `gh` on this machine.** | — |
 | 2026-08-07 | **Direction changed by the user.** Login becomes email + password; signup uses an email OTP to set a password; everything merges to main as one piece. This makes Supabase Auth the right answer and supersedes the earlier design — see the ⚠️ block in §3. | — |
+| 2026-08-08 | **Migrations 0011 + 0012 applied** — the first time any Stage 4 work touched the live database. 13 recorded; every effect verified, including the per-tenant unique index that lets one person hold accounts at two schools. Corrected `drizzle.config.ts`, which pointed at the IPv6-only direct connection. | **Configure Supabase Auth (email provider + SMTP), then sign in for real.** |
 | 2026-08-08 | **WhatsApp gated (step 8) — Stage 4 code-complete.** New `whatsapp` channel flag in `school_modules`, declared separately from the product modules and rendered in its own Channels section. All five live send paths gated; the invite passcode moved to email, killing the last WhatsApp dependency in auth; the orphaned `lib/otp-sender.ts` deleted and its duplicated SMTP transport extracted to `lib/email-sender.ts`. Fee reminders now report how many guardians nobody could reach. Migration 0012. typecheck + lint + build green. | **Run 0011 + 0012, configure Supabase Auth, then sign in for real.** Nothing here has touched the live database. |
 | 2026-08-08 | **Login UI rebuilt.** `EmailLoginForm` replaces `LoginOTPForm`: password sign-in plus a code path for first-time and forgotten passwords. `PasswordField` + `lib/password-strength.ts` lifted from the email-auth branch and made the single source the password route also reads. Closed a hole this created: invitations now require an email address, because the address is the identity. typecheck + lint + build green. | **WhatsApp gating (step 8)**, then run migration 0011 and try signing in for real. |
 | 2026-08-08 | **Stage 4 auth substrate.** Firebase Authentication → Supabase Auth. New `lib/supabase-auth.ts`; `lib/school-auth.ts` now resolves claims from `school_users` per request instead of from the token, which retires the stale-claims hazard. Login/OTP/password/logout/platform-session/emergency-login/invite-accept all reworked; `/api/school/auth/session` and the browser round trip deleted. `firebase_uid` → `auth_user_id` + migration `0011`. Firebase removed entirely. typecheck + lint + build green. | **The login UI (§5d item 1) — it is broken until then.** Then WhatsApp gating (step 8). |
