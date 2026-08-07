@@ -9,18 +9,20 @@ closest Pakistani competitor.
 ## Where this came from, and its limits
 
 The comparison target is **OurSchoolSoftware** (ourschoolsoftware.com), which
-markets itself as "Pakistan's No. 1 School Management System". It was identified
-from a 37-minute demo video the user supplied
-(`youtu.be/Xiu8PA_eeVQ`).
+markets itself as "Pakistan's No. 1 School Management System", from a 37-minute
+demo video (`youtu.be/Xiu8PA_eeVQ`).
 
-**The video itself was not watched — that is not something I can do.** The
-module list below comes from the vendor's own website, which advertises the same
-product. The video description carried no chapter markers to work from.
+**The video itself was not watched — that is not something I can do.** Two
+sources stand in for it:
 
-So this is *"compared against what they advertise"*, not *"compared against what
-was demonstrated on screen"*. Anything shown in the video but absent from their
-marketing site is missing here. Worth a second pass by someone who has watched
-it.
+1. The vendor's own website (their advertised module list).
+2. **A module and feature directory the user extracted from the video itself**
+   via NotebookLM. This is the better source — it covers ten modules with
+   features, stakeholders, reporting and integrations, and it surfaced several
+   things the marketing site never mentions. §2b comes from it.
+
+Between the two this is now a fair picture. It is still second-hand: anything
+demonstrated on screen but absent from both sources is missing here.
 
 Effort figures are rough, for one developer familiar with this codebase, and
 exclude design and QA.
@@ -72,20 +74,35 @@ attendance summary, remarks. Printable and shareable.
 
 *Why:* this is the artefact parents judge the entire system by.
 
-**3. Printable documents — ~8–12 days for the framework, then ~1 day each**
-**There is no PDF or print layer in the codebase at all.** This is the most
-structural gap. The competitor advertises ten document types: fee vouchers,
-thermal-printer vouchers, fee receipts, student ID cards, marksheets, leaving
-certificates, experience certificates, birthday cards, family fee reports,
-parent vouchers.
+**3. Printable documents — framework BUILT 2026-08-07; ~1 day per new document**
 
-A Pakistani school office runs on printed paper — the fee voucher a parent
-carries to a bank counter *is* the core fee workflow, and today we cannot
-produce one.
+*Correction: an earlier draft of this file claimed there was no print layer at
+all. That was wrong — a three-copy A4 fee voucher already existed. What was
+missing was that it was a one-off rather than a framework, and that bulk
+printing did not exist.*
 
-Suggested approach: server-rendered HTML templates → PDF, with per-school
-branding pulled from `school_branding` (logo and colours already exist).
-Thermal-printer output is a separate narrow width template, not an afterthought.
+Now built (`components/print/PrintSheet.tsx`):
+- `PrintSheet` — owns page size, margins, break behaviour and hiding the portal
+  shell. A4, A4 landscape and 80mm thermal.
+- `PrintDocument` / `PrintLetterhead` — per-document framing and the branded
+  masthead, with the school logo from `school_branding` (previously unused).
+- Generic `@media print` rules keyed off `[data-print-root]`, so a new document
+  type inherits all of it.
+- **Bulk challan printing** at `dashboard/fees/challans/print?ids=…` — one
+  sheet per student, three copies each, one print job. Bulk *generation* already
+  existed; without this it was unusable at 400 students.
+
+No PDF dependency: the browser's print dialog is the renderer, and "Save as PDF"
+is built into it. That is deliberate — Hostinger runs a plain Node process on
+shared infrastructure, where headless Chromium is unreliable at best.
+
+**Still to build on top of it**, roughly a day each: fee receipt, thermal
+receipt, student ID card, admit card, marksheet, leaving certificate,
+experience certificate, family/parent voucher.
+
+Known limits, written up in the page itself: capped at 200 challans per job
+(one query per challan, and print dialogs fail past a few hundred pages), and it
+needs "Background graphics" enabled in the print dialog for rules and cut lines.
 
 ### Tier 2 — strong commercial differentiators
 
@@ -129,6 +146,45 @@ They include a free school website with each subscription.
 
 ---
 
+## 2b. Additional gaps from the video's module directory
+
+These appear in the user's extracted directory but not on the marketing site.
+Several are small and high-value; two are whole modules nobody had counted.
+
+**Whole modules we do not have at all**
+
+| Module | Their features | Effort |
+| --- | --- | --- |
+| **E-Learning & Homework** | Homework diary, study material sharing (video/PDF/image), online class links, live application submission | ~12–18 days |
+| **Stock & Inventory (POS)** | Point of sale, barcode product scanning, sales profit tracking, low-stock and out-of-stock alerts, purchase-vs-sale reports | ~15–20 days |
+| **Communication Management** | Notice board, push notifications, message history and delivery logs, alongside SMS/WhatsApp/email | ~8–12 days |
+
+The POS module is for school shops — uniforms, books, stationery. Whether that
+matters depends entirely on whether your target schools run one. Worth asking
+before costing it seriously.
+
+**Small features, disproportionate value**
+
+| Feature | Why it matters | Effort |
+| --- | --- | --- |
+| **Promote students to next class** | Every school does this once a year, for every student. Doing it by hand is unthinkable. **Biggest omission on this list.** | ~4–6 days |
+| **Campus transfer** | Move a student between branches keeping their history. We have branches but no transfer path. | ~2–3 days |
+| **Excel bulk import of students** | How a school onboards year one. Without it, adoption means typing 800 students in by hand. | ~4–6 days |
+| **Parent Wallet** | Advance/credit balance carried against future fees. Common in Pakistani schools. | ~5–8 days |
+| **Fee defaulter lists** | The report an accountant actually opens each morning. | ~2–3 days |
+| **Subject-wise attendance** | Ours is per-day only; theirs is per-lecture. Needed for secondary schools. | ~5–8 days |
+| **Admit cards** | Printed per student per exam. Cheap once exams exist and the print framework is in place. | ~1–2 days |
+| **Tabulation sheets & position holders** | Class-wide result grids and rankings — what a principal reviews after exams. | ~3–5 days |
+| **Staff loans & instalments** | Salary advances recovered over months. Payroll already exists, so this is an extension. | ~4–6 days |
+| **Gatekeeper role** | A gate-scanner account that can only mark attendance. Our permission matrix already supports this shape. | ~1–2 days |
+| **Teacher performance tracking** | Advertised; unclear what it measures. Needs discovery before costing. | unknown |
+
+**Already covered by us:** ID card generation *(needs a template on the new print
+framework)*, character and leaving certificates *(same)*, timetable, marksheet
+*(needs exams first)*, income/expense reporting *(needs accounting)*.
+
+---
+
 ## 3. Suggested build order
 
 1. **Exams → marks entry → result cards**, together as one connected push.
@@ -142,26 +198,35 @@ They include a free school website with each subscription.
 
 ---
 
-## 4. A strategic caution
+## 4. WhatsApp — settled 2026-08-07
 
-The competitor's marketing leads with **WhatsApp alerts, SMS alerts and
-biometric attendance**. Their positioning is built on reaching parents where
-parents already are.
+Earlier drafts of this file warned against removing WhatsApp outright, since the
+competitor's whole positioning rests on it. **The user has settled it, and the
+answer is better than either extreme:**
 
-We are currently removing WhatsApp entirely (see `STATE.md`).
+- **Email is the primary channel.** Login, signup OTP, and all notifications
+  work over email for every school, with no WhatsApp dependency anywhere in the
+  critical path. A school that never pays for WhatsApp is fully functional.
+- **WhatsApp becomes a paid add-on, enabled per school by the Super Admin.**
+  "Connect WhatsApp" appears against each school in the Super Admin panel.
+  Schools willing to pay for it get it.
+- **Build the routes now, keep them dormant.** The plumbing goes in during the
+  main build rather than being retro-fitted, but nothing depends on it.
 
-The email *login* decision is sound and simplifies the system considerably.
-**The notification decision is the risky half.** In this market a fee reminder
-over WhatsApp gets read; the same reminder by email frequently does not arrive
-at all — many parents have no email address, and `student_guardians.email` is
-nullable, which hints it is often empty in practice.
+**Why this is the right shape.** It turns the competitor's headline feature into
+a revenue line instead of a cost, and it removes the risk that worried me — a
+parent with no email address is a support problem, but a school with no
+WhatsApp budget is still a working customer.
 
-**Recommendation: email for authentication, WhatsApp for parent
-communication.** That keeps the simpler login and does not concede the
-competitor's main selling point.
+**Implementation note.** `school_modules` already exists for exactly this: it is
+the per-school feature-toggle table the module switches use today. WhatsApp
+should be a flag there, not a new mechanism. The existing GoHighLevel client
+(`lib/ghl-client.ts`, `lib/ghl-fees.ts`, `lib/invite-sender.ts`,
+`lib/otp-sender.ts`) already contains the send paths — they need gating behind
+the flag with an email fallback, not deleting.
 
-This needs deciding before the WhatsApp removal work starts, because switching
-it back on afterwards is more expensive than not removing it.
+This supersedes the "comment out all WhatsApp code" instruction recorded in
+`STATE.md`. Gate it, do not comment it out.
 
 ---
 

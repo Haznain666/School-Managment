@@ -47,31 +47,52 @@
  * `#challan-print` is rendered by `components/fees/ChallanPrintView.tsx` and is
  * the only element in the application that uses this id.
  */
+/* -----------------------------------------------------------------------------
+ * Printing.
+ *
+ * Generic, and keyed off `[data-print-root]` rather than any one document's id,
+ * so every printable — fee vouchers today, receipts, ID cards, certificates and
+ * marksheets later — gets this for free by rendering inside `<PrintSheet>`.
+ * See `components/print/PrintSheet.tsx`.
+ *
+ * The page size lives with the component rather than here: `@page` is
+ * per-document and cannot be scoped by selector, so `PrintSheet` injects the
+ * rule for the paper it was asked for.
+ * -------------------------------------------------------------------------- */
 @media print {
   body * {
     visibility: hidden;
   }
 
-  #challan-print,
-  #challan-print * {
+  [data-print-root],
+  [data-print-root] * {
     visibility: visible;
   }
 
-  #challan-print {
+  [data-print-root] {
     position: absolute;
     left: 0;
     top: 0;
     width: 100%;
   }
 
-  /* Cut lines and rules must survive the browser's "background graphics" off. */
+  /* A voucher sliced across two sheets is worthless at a bank counter. */
+  .print-document,
   .challan-copy {
     break-inside: avoid;
     page-break-inside: avoid;
   }
 
-  @page {
-    size: A4 portrait;
-    margin: 8mm;
+  /* Bulk printing: one document per sheet, in a single print job. */
+  .print-break-after {
+    break-after: page;
+    page-break-after: always;
+  }
+
+  /* Rules and cut lines must survive the browser's "background graphics" being
+     switched off, which it is by default on most machines. */
+  [data-print-root] * {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
   }
 }

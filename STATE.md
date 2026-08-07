@@ -138,12 +138,15 @@ what was rejected and why.
 
 1. **Login is email + password.** WhatsApp is no longer a login mechanism.
 2. **Signup: email OTP → user sets their own password.**
-3. **All WhatsApp goes off — everything, not just login.** Fee reminders,
-   payment confirmations to parents, staff invitations, admission
-   notifications. 46 files touched.
-4. **Comment the old code out, do not delete it.** (I advised deleting — git
-   keeps history — but the user chose commenting. Mark every block clearly with
-   why it is disabled and how to re-enable.)
+3. **WhatsApp becomes a paid, per-school add-on — REVISED 2026-08-07.**
+   This replaces the earlier "switch all WhatsApp off" decision. Email is the
+   primary channel for everything, with no WhatsApp in any critical path. The
+   Super Admin panel gets a "Connect WhatsApp" option against each school, so
+   schools that pay for it get it. **Gate the existing send paths behind a flag
+   in `school_modules` — do not comment them out or delete them.** Build the
+   routes now, keep them dormant. See `ROADMAP.md` §4.
+4. ~~Comment the old code out.~~ Superseded by #3 — there is no longer WhatsApp
+   code to remove, only code to gate.
 5. **One merge, not three.** Hold Stages 1+3 on this branch until the auth
    rework is done, then merge once.
 
@@ -337,9 +340,12 @@ already low on context; this is the most security-sensitive code in the repo.
    login route sets the cookie itself).
 6. Layouts (5) + `lib/api-auth.ts` + `lib/school-guard.ts`.
 7. Schema: `firebase_uid` → `auth_user_id`, plus migration.
-8. Comment out WhatsApp across the 46 files. `lib/ghl-fees.ts`,
-   `lib/invite-sender.ts`, `lib/otp-sender.ts`, `lib/ghl-admissions.ts` are the
-   senders; the rest are call sites and UI copy.
+8. **Gate WhatsApp behind a per-school flag** (not remove it). Add a
+   `whatsapp_enabled` flag to `school_modules`, a "Connect WhatsApp" control in
+   the Super Admin school page, and make every send path check it with an email
+   fallback. Senders are `lib/ghl-fees.ts`, `lib/invite-sender.ts`,
+   `lib/otp-sender.ts`, `lib/ghl-admissions.ts`; the rest of the 46 files are
+   call sites and UI copy.
 9. Delete `lib/firebase*.ts` (4 files), `firebase.json`,
    `database.rules.json`, `functions/`; drop the `firebase` and
    `firebase-admin` deps and the `serverExternalPackages` entry in
@@ -373,7 +379,8 @@ already low on context; this is the most security-sensitive code in the repo.
 | 2026-08-07 | **Stage 1 complete.** Neon → Supabase Postgres: postgres-js driver, Edge-safe REST tenant lookup, all 15 `db.batch()` sites converted to real transactions, `next/image` Supabase host fix, `output: 'standalone'`. typecheck + lint + build all green. | — |
 | 2026-08-07 | **Stage 3 documented.** User confirmed Hostinger supports Node.js and auto-issues HTTPS per subdomain. Wrote `DEPLOYMENT.md`; de-Vercel'd the operator-facing strings in the storage diagnostics route. | — |
 | 2026-08-07 | **Stage 2 started.** `is_active` enforcement landed in `verifySchoolSession()` — the revocation guarantee is now provider-independent. Wrote up the provider-swap design. 4 commits made; **could not push — no git credential and no `gh` on this machine.** | — |
-| 2026-08-07 | **Direction changed by the user.** Login becomes email + password; signup uses an email OTP to set a password; all WhatsApp is switched off; old code is commented rather than deleted; everything merges to main as one piece. This makes Supabase Auth the right answer and supersedes the earlier design — see the ⚠️ block in §3. | **Stage 4 (§5b), in a fresh session.** Check `claude/school-email-auth-7f5vuh` first, and confirm the parent/student email risk with the user before writing code. |
+| 2026-08-07 | **Direction changed by the user.** Login becomes email + password; signup uses an email OTP to set a password; everything merges to main as one piece. This makes Supabase Auth the right answer and supersedes the earlier design — see the ⚠️ block in §3. | — |
+| 2026-08-07 | **Print framework built** — `components/print/PrintSheet.tsx`, generic `@media print` rules, school logo wired in, and bulk challan printing at `dashboard/fees/challans/print?ids=…`. Also **revised the WhatsApp decision to a paid per-school add-on** (see §3.3 and `ROADMAP.md` §4), and folded the user's video-derived module directory into `ROADMAP.md` §2b — which surfaced student promotion, Excel import, POS and e-learning as previously unknown gaps. | **Stage 4 (§5b), in a fresh session.** Check `claude/school-email-auth-7f5vuh` first. The parent-email risk is now *resolved* by the WhatsApp add-on decision, so it no longer blocks. |
 
 ### Note for whoever runs the next session
 
