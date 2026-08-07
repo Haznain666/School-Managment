@@ -62,12 +62,18 @@ See `.env.example` for why.
 ## 4. Database migrations
 
 Migrations do **not** run on deploy. Run them yourself, from your machine,
-against the **direct** connection (port 5432 — DDL and advisory locks need one
-stable session, which the transaction pooler cannot promise):
+against the **session pooler** — port 5432 on the *pooler* host. DDL and
+advisory locks need one stable session, which the transaction pooler (6543)
+cannot promise:
 
 ```bash
-DATABASE_URL="postgresql://postgres:<password>@db.<ref>.supabase.co:5432/postgres" npm run db:migrate
+DATABASE_URL="postgresql://postgres.<ref>:<password>@aws-0-<region>.pooler.supabase.com:5432/postgres" npm run db:migrate
 ```
+
+Do **not** use the direct connection (`db.<ref>.supabase.co`). Supabase serves
+it over IPv6 only unless the paid IPv4 add-on is enabled, so on a normal IPv4
+network it fails with `getaddrinfo ENOTFOUND` — which looks like a typo or a
+paused project and is neither. Both pooler endpoints are IPv4-reachable.
 
 ## 5. School subdomains
 
