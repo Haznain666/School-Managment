@@ -128,7 +128,63 @@ Also fixed while here:
 683 Firebase/Neon references across 79 files. Breakdown of what actually has to
 change (as opposed to incidental mentions):
 
-### Stage 2 — auth, Firebase → Supabase: DESIGN SETTLED, BUILD NOT STARTED
+### ⚠️ DIRECTION CHANGED 2026-08-07 (later) — read this before §Stage 2 below
+
+The user changed the product, and it invalidates the Stage 2 design that
+follows. **Do not build the magic-link plan below it.** Kept only as a record of
+what was rejected and why.
+
+**New decisions:**
+
+1. **Login is email + password.** WhatsApp is no longer a login mechanism.
+2. **Signup: email OTP → user sets their own password.**
+3. **All WhatsApp goes off — everything, not just login.** Fee reminders,
+   payment confirmations to parents, staff invitations, admission
+   notifications. 46 files touched.
+4. **Comment the old code out, do not delete it.** (I advised deleting — git
+   keeps history — but the user chose commenting. Mark every block clearly with
+   why it is disabled and how to re-enable.)
+5. **One merge, not three.** Hold Stages 1+3 on this branch until the auth
+   rework is done, then merge once.
+
+**Why this simplifies everything.** The blocker in the old Stage 2 design was
+that this app verified credentials itself and only wanted Supabase to *mint* a
+session — which Supabase cannot do (confirmed: an open feature request, not an
+API this project missed). Email + password removes the problem entirely, because
+`signInWithPassword` means Supabase does the verifying. No synthetic emails, no
+custom-token substitute, no second identity table to keep in sync.
+
+**So: use Supabase Auth (GoTrue) properly.** This reverses the "hand-roll the
+session cookie with jose" recommendation that was made before the product
+changed. That recommendation was correct only for the WhatsApp-OTP world.
+
+**New design:**
+- Signup / invite acceptance: `auth.signInWithOtp({ email })` →
+  `verifyOtp` → `updateUser({ password })`.
+- Login: `signInWithPassword({ email, password })`.
+- Session: Supabase session in httpOnly cookies via `@supabase/ssr`.
+- **Authorization data stays in `school_users`, not in the token.** Role,
+  branchId and isActive are read from the row per request and memoised — the
+  `isAccountActive` lookup added in §4.2 already does this, so extra columns are
+  free. Keeps role changes instant and avoids stale-claim bugs.
+- `firebase_uid` → `auth_user_id` (the Supabase `auth.users.id`), + migration.
+
+**⚠️ PRODUCT RISK TO RAISE AGAIN BEFORE BUILDING.** Two things follow from
+"email for everything" that the user may not have priced in:
+- **Students and parents may not have email addresses.** In this market that is
+  common. Today they sign in by phone. After this change, a parent with no email
+  cannot log in *and* cannot receive fee challans or payment confirmations.
+  `student_guardians.email` is nullable, which suggests it is often empty —
+  **check real data before building.**
+- Deliverability: fee notices moving from WhatsApp to SMTP means bounces and
+  spam folders become a fee-collection problem.
+
+There is a prior branch on origin, `claude/school-email-auth-7f5vuh`, which may
+already contain email-auth work. **Check it before starting.**
+
+---
+
+### Stage 2 (SUPERSEDED — see the direction change above)
 
 The `is_active` half is done (§4.2). The provider swap is not. Read this before
 starting — the central problem is not obvious and costs an hour to rediscover.
@@ -262,16 +318,50 @@ Remaining, and all of it is the user's to do rather than code:
 
 ---
 
+## 5b. Stage 4 — email/password auth + WhatsApp removal (NEXT, not started)
+
+Ordered so each step leaves the build green. Do not start in a session that is
+already low on context; this is the most security-sensitive code in the repo.
+
+1. **Check `claude/school-email-auth-7f5vuh` on origin first** — may already do
+   some of this.
+2. **Confirm the product risk above with the user** (do parents/students
+   actually have email addresses?) before writing code.
+3. Add `@supabase/supabase-js` + `@supabase/ssr`. New `lib/supabase-auth.ts`:
+   admin client, signup-OTP, password sign-in, session read/write.
+4. Rewrite `lib/school-auth.ts` onto Supabase sessions. **Keep
+   `isAccountActive()` exactly as it is** — it is provider-independent and is
+   what guarantees instant deactivation.
+5. Routes: replace `/api/school/auth/otp/*` with email-OTP signup + password
+   login. Delete `/api/school/auth/session` (no more ID-token exchange — the
+   login route sets the cookie itself).
+6. Layouts (5) + `lib/api-auth.ts` + `lib/school-guard.ts`.
+7. Schema: `firebase_uid` → `auth_user_id`, plus migration.
+8. Comment out WhatsApp across the 46 files. `lib/ghl-fees.ts`,
+   `lib/invite-sender.ts`, `lib/otp-sender.ts`, `lib/ghl-admissions.ts` are the
+   senders; the rest are call sites and UI copy.
+9. Delete `lib/firebase*.ts` (4 files), `firebase.json`,
+   `database.rules.json`, `functions/`; drop the `firebase` and
+   `firebase-admin` deps and the `serverExternalPackages` entry in
+   `next.config.mjs`.
+10. `npm run typecheck && npm run lint && npm run build`, then merge everything
+    to main as one piece.
+
+---
+
 ## 6. Open items for the user
 
-1. **Create the Supabase database** and run the migrations against the *direct*
+1. **Install GitHub CLI** — `winget install GitHub.cli` then `gh auth login`.
+   Nothing can be pushed or merged until this exists: this machine has no git
+   credential for GitHub and `gh` is not installed. A browser signed in to
+   GitHub does not help; git needs its own credential. **This blocks every
+   merge**, so it is first.
+2. **Do students and parents actually have email addresses?** See the product
+   risk in §3. This decides whether the email-only plan is viable as stated.
+3. **Create the Supabase database** and run the migrations against the *direct*
    connection (port 5432). Storage already lives in this project; the DB joins it.
-2. **The domain name** — it fills `PLATFORM_BASE_DOMAIN`,
+4. **The domain name** — it fills `PLATFORM_BASE_DOMAIN`,
    `NEXT_PUBLIC_APP_DOMAIN`, `INVITE_LINK_BASE_URL`, `GHL_REDIRECT_URI`.
-3. **Decide the session-revocation trade-off** for Stage 2 (see §4.2). Standing
-   recommendation: keep an `is_active` check in the protected layouts so
-   deactivating a user still takes effect immediately, because the README
-   documents that as a security property today.
 
 ---
 
@@ -282,7 +372,8 @@ Remaining, and all of it is the user's to do rather than code:
 | 2026-08-07 | Surveyed codebase, established STATE.md, scoped both migrations, identified the Edge-middleware DB hazard. | — |
 | 2026-08-07 | **Stage 1 complete.** Neon → Supabase Postgres: postgres-js driver, Edge-safe REST tenant lookup, all 15 `db.batch()` sites converted to real transactions, `next/image` Supabase host fix, `output: 'standalone'`. typecheck + lint + build all green. | — |
 | 2026-08-07 | **Stage 3 documented.** User confirmed Hostinger supports Node.js and auto-issues HTTPS per subdomain. Wrote `DEPLOYMENT.md`; de-Vercel'd the operator-facing strings in the storage diagnostics route. | — |
-| 2026-08-07 | **Stage 2 started.** `is_active` enforcement landed in `verifySchoolSession()` — the revocation guarantee is now provider-independent, so the Supabase swap cannot regress it. Settled and wrote up the Stage 2 provider-swap design (§3), including the server-minted-session problem and the two rejected alternatives. PR raised for Stages 1+3 and this. | **Execute the Stage 2 provider swap** in a fresh session — the design in §3 is decided, so it is now execution rather than research. Follow the stated order of work. |
+| 2026-08-07 | **Stage 2 started.** `is_active` enforcement landed in `verifySchoolSession()` — the revocation guarantee is now provider-independent. Wrote up the provider-swap design. 4 commits made; **could not push — no git credential and no `gh` on this machine.** | — |
+| 2026-08-07 | **Direction changed by the user.** Login becomes email + password; signup uses an email OTP to set a password; all WhatsApp is switched off; old code is commented rather than deleted; everything merges to main as one piece. This makes Supabase Auth the right answer and supersedes the earlier design — see the ⚠️ block in §3. | **Stage 4 (§5b), in a fresh session.** Check `claude/school-email-auth-7f5vuh` first, and confirm the parent/student email risk with the user before writing code. |
 
 ### Note for whoever runs the next session
 
