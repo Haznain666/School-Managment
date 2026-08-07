@@ -5,8 +5,12 @@ resume without re-deriving context. Updated at the end of every development
 step, before the session ends.
 
 **Last updated:** 2026-08-07
-**Branch:** `claude/school-management-system-access-92a218` (worktree)
+**Branch:** `claude/stage-4-state-md-100f15` (worktree) — fast-forwarded from
+`claude/school-management-system-access-92a218`, so it carries Stages 1 and 3.
 **Main branch:** `main` — last commit `81d0cfc` (send apikey header, accept `sb_secret_` keys)
+
+> **⚠️ IN PROGRESS — Stage 4 (§5b) is being built right now on this branch.**
+> If this session died mid-refactor, read §5d before touching `lib/school-auth.ts`.
 
 ---
 
@@ -391,6 +395,73 @@ connection (`db.<ref>.supabase.co`) is IPv6-only without a paid add-on and fails
 with `getaddrinfo ENOTFOUND` on an ordinary network. Use the pooler for both:
 port **6543** (transaction) for the app, port **5432** (session) for
 `db:migrate`.
+
+---
+
+## 5d. Stage 4 — IN PROGRESS (started 2026-08-07)
+
+### Step 1 of §5b is done: `claude/school-email-auth-7f5vuh` was checked
+
+It is **not** a stub. 8 commits, ~14,300 insertions across 61 files, and it
+already implements the whole Stage 4 *product* surface: email invitation flow,
+email OTP, set-password, password login, forgot/reset password, all five
+layouts, plus a GHL OAuth install flow that never existed on main.
+
+**But it does not use Supabase Auth.** It verifies passwords itself against its
+own `email_credentials` / `user_passwords` tables and keeps Firebase purely as
+the cookie substrate (`lib/email-session.ts` there mints a custom token,
+exchanges it for an ID token over the Identity Toolkit REST API, and sets the
+Firebase session cookie). It is also cut from old `main`, so it still carries
+Neon and Firebase and has none of Stage 1.
+
+Test-merging it onto this branch produces **only 2 conflicts** — `lib/neon.ts`
+(deleted by Stage 1) and `app/api/super-admin/diagnostics/database/route.ts`.
+So it remains cheap to adopt later if the decision below is ever revisited.
+
+### The objection that branch raises, and the answer
+
+That branch's docblock makes a point §5b never considered:
+
+> One address may belong to a teacher at one school and a parent at another —
+> two accounts, two passwords, two claim sets. Supabase's globally-unique
+> `email` column cannot express that.
+
+This is real and must be handled, not forgotten. Under Supabase Auth the answer
+is a **deterministic per-school address** for the second and subsequent schools
+a given address is used at, mirroring `deriveEmailUid(locationId, email)` on
+that branch. Determinism is load-bearing for the same reason it was before: a
+resent invite or a retried request must land on the same account.
+
+### Decision (user, 2026-08-07): rebuild on Supabase Auth per §5b
+
+The user was shown three options — merge that branch and swap Firebase for a
+self-signed `jose` JWT; rebuild on Supabase Auth; or merge as-is and keep
+Firebase — and chose **Supabase Auth**. Rationale: one vendor for auth + DB +
+storage, and GoTrue owns refresh tokens and password hashing so this repo owns
+less security-critical code.
+
+**So: do not merge `claude/school-email-auth-7f5vuh`.** Its UI components
+(`EmailLoginForm`, `OtpCodeInput`, `PasswordField`, the forgot-password screens)
+are still worth lifting individually, since they are provider-agnostic.
+
+### Progress
+
+| Step (from §5b) | Status |
+| --- | --- |
+| 1. Check the email-auth branch | ✅ done — see above |
+| 2. Confirm the parent-email risk | ✅ moot (§6.2 — internal chat decision) |
+| 3. Deps + `lib/supabase-auth.ts` | ⬜ not started |
+| 4. Rewrite `lib/school-auth.ts` | ⬜ not started |
+| 5. Auth routes | ⬜ not started |
+| 6. Layouts (5) + `api-auth` + `school-guard` | ⬜ not started |
+| 7. `firebase_uid` → `auth_user_id` + migration | ⬜ not started |
+| 8. Gate WhatsApp behind `school_modules` | ⬜ not started |
+| 9. Delete Firebase | ⬜ not started |
+| 10. typecheck + lint + build, merge as one | ⬜ not started |
+
+**Surface measured:** 33 files import Firebase — 4 `lib/firebase*.ts`, 15 API
+routes, 4 portal layouts, 6 `lib/*.ts` consumers, 3 schema files, and
+`lib/env.ts`.
 
 ---
 
