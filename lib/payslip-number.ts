@@ -21,8 +21,8 @@ import { normalizeSchoolCode } from './school-code';
  * RETURNING`. Postgres runs each statement in its own transaction and takes a
  * row lock on conflict, so the second writer waits and then reads the
  * incremented value. A read-then-write across two round trips would be exactly
- * the race this avoids, and could not be closed by a transaction anyway — the
- * Neon HTTP driver has no interactive ones.
+ * the race this avoids, and wrapping the pair in a transaction would not close
+ * it — neither statement takes a lock the other would have to wait behind.
  *
  * The `PS` infix keeps a payslip number visibly different from a challan
  * number. Both are quoted at a bank counter, and a clerk handed `GVS-2025-07-
@@ -52,7 +52,7 @@ export function formatPayslipNumber(
  * Reserves a block of consecutive payslip numbers in one statement.
  *
  * A run needs one number per staff member; taking them one at a time would be
- * one round trip to Neon each. Advancing the counter by `count` once and
+ * one round trip to Postgres each. Advancing the counter by `count` once and
  * slicing the reserved range locally is the same guarantee at one round trip —
  * the range is exclusively ours the moment the statement commits.
  *

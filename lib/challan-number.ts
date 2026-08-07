@@ -20,8 +20,9 @@ import { normalizeSchoolCode } from './school-code';
  * RETURNING`. Postgres runs each statement in its own transaction and takes a
  * row lock on conflict, so the second writer waits for the first to commit and
  * then reads the incremented value. A read-then-write across two round trips
- * would be exactly the race this avoids — and could not be closed by a
- * transaction anyway, because the Neon HTTP driver has no interactive ones.
+ * would be exactly the race this avoids: wrapping the pair in a transaction
+ * would not close it either, since neither statement takes a lock the other
+ * would have to wait behind.
  */
 
 /** Raised when a challan number cannot be issued. Blocks generation — it must. */
@@ -98,7 +99,7 @@ export async function generateChallanNumber(
  * Reserves a block of consecutive numbers in one statement.
  *
  * Bulk generation needs four hundred numbers; taking them one at a time would
- * be four hundred round trips to Neon. Advancing the counter by `count` once
+ * be four hundred round trips to Postgres. Advancing the counter by `count` once
  * and slicing the reserved range locally is the same guarantee at one
  * round trip — the range is exclusively ours the moment the statement commits.
  */

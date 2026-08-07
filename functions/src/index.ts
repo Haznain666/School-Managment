@@ -20,7 +20,8 @@ import { setGlobalOptions } from 'firebase-functions/v2';
 import { onRequest } from 'firebase-functions/v2/https';
 import { logger } from 'firebase-functions';
 
-// Keep every function in one region — cross-region calls to Neon add latency.
+// Keep every function in one region — cross-region calls to Supabase add
+// latency, and a pooled Postgres connection pays it on every round trip.
 setGlobalOptions({
   region: 'us-central1',
   maxInstances: 10,
