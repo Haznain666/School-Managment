@@ -1,10 +1,9 @@
-import type { BatchItem } from 'drizzle-orm/batch';
 import { and, eq } from 'drizzle-orm';
 
 import { rolePermissions, schoolUsers } from '@/db/schema';
 import { withSchoolAuth } from '@/lib/api-auth';
 import { apiFailure, apiSuccess, handleApiError, readJsonBody } from '@/lib/api-response';
-import { db } from '@/lib/drizzle';
+import { batch, db, type Tx } from '@/lib/drizzle';
 import {
   freshPermissionMatrix,
   loadOverrides,
@@ -45,8 +44,6 @@ import { isUserRole, type UserRole } from '@/types/school-auth';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
-
-type PgBatchItem = BatchItem<'pg'>;
 
 export const GET = withSchoolAuth(
   async (_request, auth) => {
@@ -163,13 +160,15 @@ export const PATCH = withSchoolAuth(
       const updatedBy = actors[0]?.id ?? null;
       const now = new Date();
 
-      const statements: PgBatchItem[] = parsed.map((change) => {
+      // Deferred until `batch()` opens the transaction: a Drizzle builder is
+      // bound to the session that created it, so these must be built on `tx`.
+      const statements = parsed.map((change) => (tx: Tx) => {
         const isDefault =
           DEFAULT_ROLE_PERMISSIONS[change.role].includes(change.permission) ===
           change.isGranted;
 
         if (isDefault) {
-          return db
+          return tx
             .delete(rolePermissions)
             .where(
               and(
@@ -180,7 +179,7 @@ export const PATCH = withSchoolAuth(
             );
         }
 
-        return db
+        return tx
           .insert(rolePermissions)
           .values({
             // Tenant comes from the verified session, never from the body.
@@ -201,9 +200,9 @@ export const PATCH = withSchoolAuth(
           });
       });
 
-      // One batch, so a half-applied matrix cannot be observed by a request
-      // that lands mid-save.
-      await db.batch(statements as [PgBatchItem, ...PgBatchItem[]]);
+      // One transaction, so a half-applied matrix cannot be observed by a
+      // request that lands mid-save.
+      await batch(db, (tx) => statements.map((statement) => statement(tx)));
 
       // Read fresh, not through the request cache — `withSchoolAuth` already
       // populated it above, and it predates the batch we just committed.

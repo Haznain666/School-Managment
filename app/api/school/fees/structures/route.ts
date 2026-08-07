@@ -1,10 +1,9 @@
-import type { BatchItem } from 'drizzle-orm/batch';
 import { and, eq, inArray } from 'drizzle-orm';
 
 import { academicYears, feeStructures, feeTypes, grades } from '@/db/schema';
 import { withSchoolAuth } from '@/lib/api-auth';
 import { apiFailure, apiSuccess, handleApiError, readJsonBody } from '@/lib/api-response';
-import { db } from '@/lib/drizzle';
+import { batch, db, type Tx } from '@/lib/drizzle';
 import { getFeeStructureMatrix } from '@/lib/fee-queries';
 import { paiseToNumeric, toPaise } from '@/lib/money';
 import { isUuid } from '@/lib/validation';
@@ -18,14 +17,12 @@ import { isUuid } from '@/lib/validation';
  * The save is a bulk upsert rather than a row-at-a-time PATCH because the
  * screen is a grid: an admin sets twelve grades' tuition in one sitting, and
  * twelve half-applied requests would leave a price list nobody could trust.
- * Every write goes out in a single `db.batch()`, so the year's prices change
- * together or not at all.
+ * Every write goes out through `batch()`, in one transaction, so the year's
+ * prices change together or not at all.
  */
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
-
-type PgBatchItem = BatchItem<'pg'>;
 
 export const GET = withSchoolAuth(
   async (request, auth) => {
@@ -186,9 +183,11 @@ export const POST = withSchoolAuth(
         }
       }
 
-      const statements: PgBatchItem[] = parsed.map((cell) =>
+      // Deferred until `batch()` opens the transaction: a Drizzle builder is
+      // bound to the session that created it, so these must be built on `tx`.
+      const statements = parsed.map((cell) => (tx: Tx) =>
         cell.amount === null
-          ? db
+          ? tx
               .delete(feeStructures)
               .where(
                 and(
@@ -198,7 +197,7 @@ export const POST = withSchoolAuth(
                   eq(feeStructures.academicYearId, academicYearId),
                 ),
               )
-          : db
+          : tx
               .insert(feeStructures)
               .values({
                 locationId: auth.locationId,
@@ -217,7 +216,7 @@ export const POST = withSchoolAuth(
               }),
       );
 
-      await db.batch(statements as [PgBatchItem, ...PgBatchItem[]]);
+      await batch(db, (tx) => statements.map((statement) => statement(tx)));
 
       return apiSuccess({
         saved: parsed.filter((cell) => cell.amount !== null).length,

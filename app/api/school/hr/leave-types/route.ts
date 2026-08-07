@@ -1,9 +1,8 @@
-import type { BatchItem } from 'drizzle-orm/batch';
 
 import { DEFAULT_LEAVE_TYPES, leaveTypes } from '@/db/schema';
 import { withSchoolAuth } from '@/lib/api-auth';
 import { apiFailure, apiSuccess, handleApiError, readJsonBody } from '@/lib/api-response';
-import { db } from '@/lib/drizzle';
+import { batch, db } from '@/lib/drizzle';
 import { listLeaveTypes } from '@/lib/hr-queries';
 import { readBoolean, readOptionalString, readString } from '@/lib/validation';
 
@@ -20,8 +19,6 @@ import { readBoolean, readOptionalString, readString } from '@/lib/validation';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
-
-type PgBatchItem = BatchItem<'pg'>;
 
 export const GET = withSchoolAuth(
   async (request, auth) => {
@@ -60,21 +57,23 @@ export const POST = withSchoolAuth(
       // insert conflicts on (location, name) and does nothing, so a school that
       // has already tuned its quotas keeps them.
       if (body.seed === true) {
-        const statements: PgBatchItem[] = DEFAULT_LEAVE_TYPES.map((type) =>
-          db
-            .insert(leaveTypes)
-            .values({
-              locationId: auth.locationId,
-              name: type.name,
-              description: type.description,
-              annualQuotaDays: type.annualQuotaDays,
-              isPaid: type.isPaid,
-              sortOrder: type.sortOrder,
-            })
-            .onConflictDoNothing({ target: [leaveTypes.locationId, leaveTypes.name] }),
+        await batch(db, (tx) =>
+          DEFAULT_LEAVE_TYPES.map((type) =>
+            tx
+              .insert(leaveTypes)
+              .values({
+                locationId: auth.locationId,
+                name: type.name,
+                description: type.description,
+                annualQuotaDays: type.annualQuotaDays,
+                isPaid: type.isPaid,
+                sortOrder: type.sortOrder,
+              })
+              .onConflictDoNothing({
+                target: [leaveTypes.locationId, leaveTypes.name],
+              }),
+          ),
         );
-
-        await db.batch(statements as [PgBatchItem, ...PgBatchItem[]]);
 
         return apiSuccess({ leaveTypes: await listLeaveTypes(auth.locationId) });
       }

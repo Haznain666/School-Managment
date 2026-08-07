@@ -1,10 +1,9 @@
-import type { BatchItem } from 'drizzle-orm/batch';
 import { and, eq } from 'drizzle-orm';
 
 import { staffSalaryStructures } from '@/db/schema';
 import { withSchoolAuth } from '@/lib/api-auth';
 import { apiFailure, apiSuccess, handleApiError, readJsonBody } from '@/lib/api-response';
-import { db } from '@/lib/drizzle';
+import { batch, db, type Tx } from '@/lib/drizzle';
 import { getStaff, getStaffSalaryStructure, listSalaryComponents } from '@/lib/hr-queries';
 import { paiseToNumeric, toPaise } from '@/lib/money';
 import { isUuid } from '@/lib/validation';
@@ -22,10 +21,10 @@ import { isUuid } from '@/lib/validation';
  * The screen is a matrix: every component the school has, with a figure against
  * the ones this person receives. Saving one row at a time would leave a
  * half-applied structure visible to a payroll run started in between, so the
- * whole set is written in a single `db.batch()` — one delete for the person's
- * existing assignments, then an insert per submitted row — which Neon runs as
- * one transaction. Clearing and re-inserting rather than diffing means a
- * component removed from the matrix cannot survive because the diff missed it.
+ * whole set is written through `batch()` — one delete for the person's existing
+ * assignments, then an insert per submitted row, all in one transaction.
+ * Clearing and re-inserting rather than diffing means a component removed from
+ * the matrix cannot survive because the diff missed it.
  *
  * Amounts are read as rupees and stored via `paiseToNumeric`, so a figure typed
  * as `12500.005` cannot round differently here than it does on the payslip.
@@ -35,7 +34,6 @@ export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 type RouteContext = { params: Promise<{ staffId: string }> };
-type PgBatchItem = BatchItem<'pg'>;
 
 /** One hundred million rupees. Anything above is a typo, not a salary. */
 const MAX_COMPONENT_PAISE = 10_000_000_000;
@@ -175,20 +173,23 @@ export const PATCH = withSchoolAuth<RouteContext>(
         });
       }
 
-      const statements: PgBatchItem[] = [
-        db
-          .delete(staffSalaryStructures)
-          .where(
-            and(
-              eq(staffSalaryStructures.locationId, auth.locationId),
-              eq(staffSalaryStructures.staffId, staffId),
+      // Deferred until `batch()` opens the transaction: a Drizzle builder is
+      // bound to the session that created it, so these must be built on `tx`.
+      const statements: ((tx: Tx) => PromiseLike<unknown>)[] = [
+        (tx) =>
+          tx
+            .delete(staffSalaryStructures)
+            .where(
+              and(
+                eq(staffSalaryStructures.locationId, auth.locationId),
+                eq(staffSalaryStructures.staffId, staffId),
+              ),
             ),
-          ),
       ];
 
       for (const row of parsed) {
-        statements.push(
-          db.insert(staffSalaryStructures).values({
+        statements.push((tx) =>
+          tx.insert(staffSalaryStructures).values({
             locationId: auth.locationId,
             staffId,
             componentId: row.componentId,
@@ -198,7 +199,7 @@ export const PATCH = withSchoolAuth<RouteContext>(
         );
       }
 
-      await db.batch(statements as [PgBatchItem, ...PgBatchItem[]]);
+      await batch(db, (tx) => statements.map((statement) => statement(tx)));
 
       return apiSuccess({
         structure: await getStaffSalaryStructure(auth.locationId, staffId),

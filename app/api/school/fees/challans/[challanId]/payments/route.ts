@@ -1,10 +1,9 @@
-import type { BatchItem } from 'drizzle-orm/batch';
 import { and, eq, sql } from 'drizzle-orm';
 
 import { feeChallans, feePayments, isPaymentMethod } from '@/db/schema';
 import { withSchoolAuth } from '@/lib/api-auth';
 import { apiFailure, apiSuccess, handleApiError, readJsonBody } from '@/lib/api-response';
-import { db } from '@/lib/drizzle';
+import { batch, db, type Tx } from '@/lib/drizzle';
 import { challanStatusFor, remainingBalance } from '@/lib/fee-calculator';
 import { getChallanDetail } from '@/lib/fee-queries';
 import { sendPaymentConfirmationWhatsApp } from '@/lib/ghl-fees';
@@ -22,11 +21,11 @@ import { isUuid, readOptionalString } from '@/lib/validation';
  *
  *   1. The amount may not exceed what is still owed. A browser can send any
  *      number; the balance is read from the database and checked here.
- *   2. The payment row and the challan's running total go out in one
- *      `db.batch()`, and the total is incremented *in SQL*. A payment that
- *      recorded without moving `paid_amount` would leave a parent chased for
- *      money the school already has.
- *   3. The WhatsApp confirmation is fired *after* the batch and never awaited.
+ *   2. The payment row and the challan's running total go out through
+ *      `batch()`, in one transaction, and the total is incremented *in SQL*. A
+ *      payment that recorded without moving `paid_amount` would leave a parent
+ *      chased for money the school already has.
+ *   3. The WhatsApp confirmation is fired *after* the commit and never awaited.
  *      GoHighLevel being slow or down must not fail a request that has already
  *      taken a parent's cash.
  *
@@ -41,7 +40,6 @@ export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 type RouteContext = { params: Promise<{ challanId: string }> };
-type PgBatchItem = BatchItem<'pg'>;
 
 function isDateOnly(value: unknown): value is string {
   if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
@@ -113,6 +111,11 @@ export const POST = withSchoolAuth<RouteContext>(
         );
       }
 
+      // Bound to a local because the insert below is built inside a callback,
+      // and TypeScript drops the narrowing above for a property read there —
+      // it cannot know the object is unchanged by the time the callback runs.
+      const paymentMethod = body.paymentMethod;
+
       const paymentDate = isDateOnly(body.paymentDate)
         ? body.paymentDate
         : new Date().toISOString().slice(0, 10);
@@ -143,20 +146,24 @@ export const POST = withSchoolAuth<RouteContext>(
 
       const delta = paiseToNumeric(amountPaise);
 
-      const statements: PgBatchItem[] = [
-        db.insert(feePayments).values({
-          locationId: auth.locationId,
-          challanId,
-          amount: delta,
-          paymentMethod: body.paymentMethod,
-          referenceNumber: readOptionalString(body.referenceNumber),
-          paymentDate,
-          collectedByUid: auth.uid,
-          notes: readOptionalString(body.notes),
-        }),
-        db
-          .update(feeChallans)
-          .set({
+      // Deferred until `batch()` opens the transaction: a Drizzle builder is
+      // bound to the session that created it, so these must be built on `tx`.
+      const statements: ((tx: Tx) => PromiseLike<unknown>)[] = [
+        (tx) =>
+          tx.insert(feePayments).values({
+            locationId: auth.locationId,
+            challanId,
+            amount: delta,
+            paymentMethod,
+            referenceNumber: readOptionalString(body.referenceNumber),
+            paymentDate,
+            collectedByUid: auth.uid,
+            notes: readOptionalString(body.notes),
+          }),
+        (tx) =>
+          tx
+            .update(feeChallans)
+            .set({
             // Incremented in SQL rather than written from the value read
             // above. Two clerks recording at the same moment would otherwise
             // each write `read + their own amount`, and the second would
@@ -171,17 +178,17 @@ export const POST = withSchoolAuth<RouteContext>(
               WHEN ${feeChallans.paidAmount} + ${delta} > 0 THEN 'partial'
               ELSE 'unpaid'
             END`,
-            updatedAt: new Date(),
-          })
-          .where(
-            and(
-              eq(feeChallans.id, challanId),
-              eq(feeChallans.locationId, auth.locationId),
+              updatedAt: new Date(),
+            })
+            .where(
+              and(
+                eq(feeChallans.id, challanId),
+                eq(feeChallans.locationId, auth.locationId),
+              ),
             ),
-          ),
       ];
 
-      await db.batch(statements as [PgBatchItem, ...PgBatchItem[]]);
+      await batch(db, (tx) => statements.map((statement) => statement(tx)));
 
       // Fired, not awaited. The money is already recorded; a slow or broken
       // GHL must not turn a successful payment into a failed request.

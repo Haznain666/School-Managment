@@ -1,9 +1,7 @@
-import type { BatchItem } from 'drizzle-orm/batch';
-
 import { DEFAULT_SALARY_COMPONENTS, salaryComponents } from '@/db/schema';
 import { withSchoolAuth } from '@/lib/api-auth';
 import { apiSuccess, handleApiError } from '@/lib/api-response';
-import { db } from '@/lib/drizzle';
+import { batch, db } from '@/lib/drizzle';
 import { listSalaryComponents } from '@/lib/hr-queries';
 
 /**
@@ -21,31 +19,29 @@ import { listSalaryComponents } from '@/lib/hr-queries';
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
-type PgBatchItem = BatchItem<'pg'>;
-
 export const POST = withSchoolAuth(
   async (_request, auth) => {
     try {
-      const statements: PgBatchItem[] = DEFAULT_SALARY_COMPONENTS.map((component) =>
-        db
-          .insert(salaryComponents)
-          .values({
-            locationId: auth.locationId,
-            name: component.name,
-            description: component.description,
-            kind: component.kind,
-            calculation: component.calculation,
-            defaultPercentBasisPoints: component.defaultPercentBasisPoints,
-            isBasic: component.isBasic,
-            proratedByAttendance: component.proratedByAttendance,
-            sortOrder: component.sortOrder,
-          })
-          .onConflictDoNothing({
-            target: [salaryComponents.locationId, salaryComponents.name],
-          }),
+      await batch(db, (tx) =>
+        DEFAULT_SALARY_COMPONENTS.map((component) =>
+          tx
+            .insert(salaryComponents)
+            .values({
+              locationId: auth.locationId,
+              name: component.name,
+              description: component.description,
+              kind: component.kind,
+              calculation: component.calculation,
+              defaultPercentBasisPoints: component.defaultPercentBasisPoints,
+              isBasic: component.isBasic,
+              proratedByAttendance: component.proratedByAttendance,
+              sortOrder: component.sortOrder,
+            })
+            .onConflictDoNothing({
+              target: [salaryComponents.locationId, salaryComponents.name],
+            }),
+        ),
       );
-
-      await db.batch(statements as [PgBatchItem, ...PgBatchItem[]]);
 
       return apiSuccess({
         components: await listSalaryComponents(auth.locationId),

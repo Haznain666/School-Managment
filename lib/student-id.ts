@@ -4,7 +4,7 @@ import { and, eq, sql } from 'drizzle-orm';
 
 import { academicYears, schoolIdSequences } from '@/db/schema';
 
-import type { Database } from './drizzle';
+import { batch, type Database } from './drizzle';
 import { formatStudentId, normalizeSchoolCode } from './school-code';
 
 /**
@@ -21,11 +21,11 @@ import { formatStudentId, normalizeSchoolCode } from './school-code';
  * commits and then reads the incremented value — the counter cannot be read and
  * re-written by two sessions at once.
  *
- * That single statement is deliberately the whole of it. This application talks
- * to Neon over the HTTP driver, which has no interactive transactions
- * (`db.transaction()` throws); a read-then-write across two round trips would
- * be exactly the race the upsert avoids. `db.batch()` is used where the sequence
- * read and the year lookup can travel together.
+ * That single statement is deliberately the whole of it. A read-then-write
+ * across two round trips would be exactly the race the upsert avoids, and a
+ * transaction around the pair would not close it — neither statement takes a
+ * lock the other would have to wait behind. `batch()` is used where the sequence
+ * increment and the year lookup can travel together.
  */
 
 /** Raised when a student ID cannot be issued. Blocks enrolment — it must. */
@@ -59,8 +59,8 @@ export async function generateStudentId(
     );
   }
 
-  const [sequenceRows, yearRows] = await db.batch([
-    db
+  const [sequenceRows, yearRows] = await batch(db, (tx) => [
+    tx
       .insert(schoolIdSequences)
       .values({ locationId, academicYearId, lastSequence: 1 })
       .onConflictDoUpdate({
@@ -68,7 +68,7 @@ export async function generateStudentId(
         set: { lastSequence: sql`${schoolIdSequences.lastSequence} + 1` },
       })
       .returning({ lastSequence: schoolIdSequences.lastSequence }),
-    db
+    tx
       .select({ startYear: academicYears.startYear })
       .from(academicYears)
       .where(
@@ -109,8 +109,8 @@ export async function previewNextStudentId(
   const code = normalizeSchoolCode(schoolCode);
   if (code === '') return null;
 
-  const [sequenceRows, yearRows] = await db.batch([
-    db
+  const [sequenceRows, yearRows] = await batch(db, (tx) => [
+    tx
       .select({ lastSequence: schoolIdSequences.lastSequence })
       .from(schoolIdSequences)
       .where(
@@ -120,7 +120,7 @@ export async function previewNextStudentId(
         ),
       )
       .limit(1),
-    db
+    tx
       .select({ startYear: academicYears.startYear })
       .from(academicYears)
       .where(

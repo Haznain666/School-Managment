@@ -22,7 +22,7 @@ import {
   type GuardianRelationship,
 } from '@/db/schema';
 
-import type { Database } from './drizzle';
+import { batch, type Database } from './drizzle';
 import { syncAdmissionContacts, triggerAdmissionWelcomeWorkflow } from './ghl-admissions';
 import { InvalidPhoneError, normalizePhone } from './phone';
 import { generateStudentId } from './student-id';
@@ -38,18 +38,18 @@ import { readOptionalString, readString, isUuid } from './validation';
  *
  * ── On atomicity ─────────────────────────────────────────────────────────
  * A half-enrolled child — a directory row with no profile, or a profile with no
- * placement — is worse than a failed enrolment, so the four inserts go out as
- * one `db.batch()`, which Neon runs as a single transaction.
+ * placement — is worse than a failed enrolment, so the four inserts go out
+ * through `batch()`, which runs them in one Postgres transaction.
  *
- * Batched statements cannot read each other's output, so the primary keys are
- * minted here with `randomUUID()` instead of being read back from `RETURNING`.
- * That is what makes a single transaction possible over the HTTP driver, which
- * has no interactive transactions at all.
+ * `batch()` builds every statement in one expression, so none of them can be
+ * handed a key another one returned. The primary keys are therefore minted here
+ * with `randomUUID()` rather than read back from `RETURNING`, which is what lets
+ * the four inserts be written as a single list in the first place.
  *
- * The student ID is issued just before the batch and is therefore not covered
- * by it: if the batch fails, that number is spent and the next enrolment skips
- * it. Gaps in the sequence are harmless; duplicate IDs would not be, and the
- * counter's own atomicity is what prevents those.
+ * The student ID is issued just before that transaction and is therefore not
+ * covered by it: if the inserts fail, that number is spent and the next
+ * enrolment skips it. Gaps in the sequence are harmless; duplicate IDs would not
+ * be, and the counter's own atomicity is what prevents those.
  */
 
 export class EnrollmentError extends Error {
@@ -518,8 +518,8 @@ export async function enrollStudent(
   }
 
   try {
-    await db.batch([
-      db.insert(schoolUsers).values({
+    await batch(db, (tx) => [
+      tx.insert(schoolUsers).values({
         id: schoolUserId,
         locationId,
         name: student.name,
@@ -534,7 +534,7 @@ export async function enrollStudent(
         invitedByUid: actorUid,
         joinedAt: new Date(),
       }),
-      db.insert(studentProfiles).values({
+      tx.insert(studentProfiles).values({
         id: studentProfileId,
         locationId,
         schoolUserId,
@@ -549,7 +549,7 @@ export async function enrollStudent(
         medicalNotes: student.medicalNotes,
         photoUrl: student.photoUrl,
       }),
-      db.insert(studentEnrollments).values({
+      tx.insert(studentEnrollments).values({
         id: enrollmentId,
         locationId,
         studentProfileId,
@@ -559,7 +559,7 @@ export async function enrollStudent(
         enrollmentDate: placement.enrollmentDate ?? todayIso(),
         status: 'active',
       }),
-      db.insert(studentGuardians).values([firstGuardianRow, ...restGuardianRows]),
+      tx.insert(studentGuardians).values([firstGuardianRow, ...restGuardianRows]),
     ]);
   } catch (error) {
     console.error('[enrollment] enrolment write failed:', error);

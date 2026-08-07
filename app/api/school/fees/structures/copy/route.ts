@@ -1,10 +1,9 @@
-import type { BatchItem } from 'drizzle-orm/batch';
 import { and, eq, inArray } from 'drizzle-orm';
 
 import { academicYears, feeStructures, grades } from '@/db/schema';
 import { withSchoolAuth } from '@/lib/api-auth';
 import { apiFailure, apiSuccess, handleApiError, readJsonBody } from '@/lib/api-response';
-import { db } from '@/lib/drizzle';
+import { batch, db, type Tx } from '@/lib/drizzle';
 import { isUuid } from '@/lib/validation';
 
 /**
@@ -20,8 +19,6 @@ import { isUuid } from '@/lib/validation';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
-
-type PgBatchItem = BatchItem<'pg'>;
 
 interface CopyBody {
   fromAcademicYearId?: unknown;
@@ -97,8 +94,10 @@ export const POST = withSchoolAuth(
         );
       }
 
-      const statements: PgBatchItem[] = rows.map((row) =>
-        db
+      // Deferred until `batch()` opens the transaction: a Drizzle builder is
+      // bound to the session that created it, so these must be built on `tx`.
+      const statements = rows.map((row) => (tx: Tx) =>
+        tx
           .insert(feeStructures)
           .values({
             locationId: auth.locationId,
@@ -116,7 +115,7 @@ export const POST = withSchoolAuth(
           }),
       );
 
-      await db.batch(statements as [PgBatchItem, ...PgBatchItem[]]);
+      await batch(db, (tx) => statements.map((statement) => statement(tx)));
 
       return apiSuccess({ copied: rows.length });
     } catch (error) {
