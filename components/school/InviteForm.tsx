@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
+import { isValidEmail } from '@/lib/password-strength';
 import {
   BRANCH_REQUIRED_ROLES,
   INVITABLE_ROLES,
@@ -73,6 +74,10 @@ export function InviteForm({ branches }: InviteFormProps) {
         setError('A phone number is required — invitations are sent over WhatsApp.');
         return;
       }
+      if (!isValidEmail(email.trim())) {
+        setError('An email address is required — it is what the account is created against.');
+        return;
+      }
       if (selectedRole === null) {
         setError('Select a role.');
         return;
@@ -91,7 +96,7 @@ export function InviteForm({ branches }: InviteFormProps) {
           body: JSON.stringify({
             name: name.trim(),
             phone: phone.trim(),
-            email: email.trim() === '' ? undefined : email.trim(),
+            email: email.trim(),
             role: selectedRole,
             branchId: branchId === '' ? undefined : branchId,
           }),
@@ -163,13 +168,14 @@ export function InviteForm({ branches }: InviteFormProps) {
           />
 
           <Input
-            label="Email (optional)"
+            label="Email"
             type="email"
+            required
             value={email}
             onChange={(event) => {
               setEmail(event.target.value);
             }}
-            hint="Used as a fallback if WhatsApp cannot deliver."
+            hint="They sign in with this address, and the invitation goes here."
             disabled={isSubmitting}
           />
 

@@ -1,7 +1,7 @@
 import type { Metadata } from 'next';
 import { redirect } from 'next/navigation';
 
-import { LoginOTPForm } from '@/components/school/LoginOTPForm';
+import { EmailLoginForm } from '@/components/school/EmailLoginForm';
 import { BrandedLoginLayout } from '@/components/school/BrandedLoginLayout';
 import { readSchoolSession } from '@/lib/school-auth';
 import { getSchoolBranding, getSchoolHeaders } from '@/lib/school-tenant';
@@ -39,11 +39,10 @@ export default async function LoginPage() {
   const school = await getSchoolBranding(locationId);
 
   return (
-    <BrandedLoginLayout subtitle="Sign in with your mobile number">
-      <LoginOTPForm schoolName={school?.name ?? 'your school'} schoolSlug={slug} />
+    <BrandedLoginLayout subtitle="Sign in with your email address">
+      <EmailLoginForm schoolName={school?.name ?? 'your school'} schoolSlug={slug} />
       <p className="mt-6 text-center text-xs text-slate-400">
-        A one-time code is sent to your registered WhatsApp number. No password
-        needed. Trouble signing in? Contact your school administrator.
+        Not been invited yet? Your school administrator sends the invitation.
       </p>
     </BrandedLoginLayout>
   );

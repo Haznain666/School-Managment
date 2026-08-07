@@ -1,6 +1,7 @@
 import type { NextRequest } from 'next/server';
 
 import { apiFailure, apiSuccess, handleApiError, readJsonBody } from '@/lib/api-response';
+import { validatePasswordStrength } from '@/lib/password-strength';
 import { readSchoolSession } from '@/lib/school-auth';
 import { getAuthenticatedUser, setUserPassword } from '@/lib/supabase-auth';
 import { homeRouteForRole } from '@/types/school-auth';
@@ -19,17 +20,16 @@ import { homeRouteForRole } from '@/types/school-auth';
  * membership of the school this request arrived at, so nobody can set a
  * password for an account that is not theirs.
  *
- * A minimum length is enforced here rather than left to the Supabase
- * dashboard, so the rule is visible in the code that depends on it. GoTrue
- * applies its own configured policy on top; a failure there surfaces as a
- * `SupabaseAuthError` and is reported rather than swallowed.
+ * The strength rule is enforced here rather than left to the Supabase
+ * dashboard, so it is visible in the code that depends on it — and it comes
+ * from `lib/password-strength.ts`, the same module the field's strength meter
+ * reads, so the form cannot accept what this refuses. GoTrue applies its own
+ * configured policy on top; a failure there surfaces as a `SupabaseAuthError`
+ * and is reported rather than swallowed.
  */
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
-
-/** Deliberately a floor, not a policy. Length beats composition rules. */
-const MIN_PASSWORD_LENGTH = 10;
 
 interface PasswordBody {
   password?: unknown;
@@ -45,12 +45,9 @@ export async function POST(request: NextRequest) {
     const body = await readJsonBody<PasswordBody>(request);
     const password = typeof body?.password === 'string' ? body.password : '';
 
-    if (password.length < MIN_PASSWORD_LENGTH) {
-      return apiFailure(
-        'weak_password',
-        `Use at least ${MIN_PASSWORD_LENGTH} characters.`,
-        400,
-      );
+    const strength = validatePasswordStrength(password);
+    if (!strength.valid) {
+      return apiFailure('weak_password', strength.error ?? 'Choose a stronger password.', 400);
     }
 
     // The claims carry the id, but re-reading the user keeps this route

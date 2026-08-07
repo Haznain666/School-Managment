@@ -13,7 +13,8 @@ import { withSchoolAuth } from '@/lib/api-auth';
 import { db } from '@/lib/drizzle';
 import { buildInviteUrl } from '@/lib/invite-links';
 import { InviteDeliveryError, sendInvite } from '@/lib/invite-sender';
-import { isUuid, readOptionalString, readString } from '@/lib/validation';
+import { isValidEmail, normalizeEmail } from '@/lib/password-strength';
+import { isUuid, readString } from '@/lib/validation';
 import { BRANCH_REQUIRED_ROLES, isUserRole } from '@/types/school-auth';
 
 /**
@@ -88,13 +89,22 @@ export const POST = withSchoolAuth(
 
       const name = readString(body.name);
       const phone = readString(body.phone);
-      const email = readOptionalString(body.email);
+      const email = normalizeEmail(readString(body.email));
 
       if (name === '') {
         return apiFailure('invalid_body', 'Name is required.', 400);
       }
       if (!isPlausiblePhone(phone)) {
         return apiFailure('invalid_body', 'Enter a valid phone number.', 400);
+      }
+      // ── Why the address is required now ────────────────────────────────
+      // It used to be the optional fallback to a WhatsApp invitation. Under
+      // Supabase Auth the address *is* the identity — it is what the account
+      // is keyed by and where the sign-in code goes — so an invitation
+      // without one can never be accepted. Refusing it here beats letting an
+      // admin create it and the invitee discover it at the last step.
+      if (!isValidEmail(email)) {
+        return apiFailure('invalid_body', 'Enter a valid email address.', 400);
       }
       if (!isUserRole(body.role)) {
         return apiFailure('invalid_body', 'Select a valid role.', 400);
