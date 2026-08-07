@@ -162,11 +162,24 @@ Several are small and high-value; two are whole modules nobody had counted.
 | **Stock & Inventory (POS)** | Point of sale, barcode product scanning, sales profit tracking, low-stock and out-of-stock alerts, purchase-vs-sale reports | ~15–20 days |
 | **Communication Management** | Notice board, push notifications, message history and delivery logs, alongside SMS/WhatsApp/email | ~8–12 days |
 
-**POS is confirmed in scope (2026-08-07).** Most target schools sell their own
-books, stationery and uniforms, so the shop is a real part of how they operate —
-and it ties into fees, since purchases are often billed to the student account
-rather than paid in cash. Treat `student_id` as a first-class payment method in
-the POS, not an afterthought.
+**POS is confirmed in scope (2026-08-07), and it is bigger than "a till".**
+Most target schools sell their own books, stationery and uniforms. Decided:
+
+- **Parent wallet, built in-house.** A stored balance per family, not per
+  student — a parent with three children tops up once. Every wallet movement is
+  an append-only ledger row; the balance is derived from it, never edited
+  directly. That is the only way a disputed balance can be explained months
+  later.
+- **Cart and checkout**, so parents browse merchandise, add to cart and pay
+  online — not just an over-the-counter till.
+- **Local payment gateway** covering both fee payment and merchandise, so a
+  parent settles school fees and buys a uniform in one place.
+
+This turns POS from a shop-counter tool into the parent-facing commerce side of
+the product, and it shares a checkout with fees. Build the wallet and ledger
+first: fees, POS and refunds all sit on top of it.
+
+Open questions to settle before building — see §8.
 
 **Small features, disproportionate value**
 
@@ -303,14 +316,15 @@ Every table carries `location_id` and is indexed on it, per the tenancy rules.
 
 Offered as recommendations, not decided:
 
-1. **Announcement channels.** One-to-many, recipients read-only. A class notice
-   to 400 parents should not be a group chat with 400 people who can all reply
-   to each other. Same table, `kind = 'announcement'`.
-2. **Safeguarding: school admins can read conversations involving students.**
-   Not optional in my view — a school is legally responsible for what adults say
-   to children on a platform it runs. Make it visible rather than covert: the
-   participants should be told that staff–student chats are reviewable. This is
-   also why students should not be able to hard-delete messages.
+1. **Announcement channels — AGREED 2026-08-07.** One-way only. Started by
+   school staff exclusively; recipients can read but never reply, and never see
+   each other. Same table, `kind = 'announcement'`. A class notice to 400
+   parents must not be a group chat 400 people can reply into.
+2. **Safeguarding: school admins can read conversations involving students —
+   AGREED 2026-08-07.** A school is responsible for what adults say to children
+   on a platform it runs. Make it visible rather than covert: participants are
+   told that staff–student chats are reviewable. This is also why students must
+   not be able to hard-delete messages.
 3. **Quiet hours.** A teacher should not get parent messages at 11pm. Messages
    still send; notification is deferred until morning.
 4. **Report a message.** One tap, goes to the school admin. `chat_reports`
@@ -333,16 +347,53 @@ exact failure I flagged when email-only was proposed.
 
 Mitigations, in order of importance:
 
-1. **Web Push notifications via PWA.** This is the one that makes the decision
-   safe. It puts a real notification on the parent's phone, works on Android and
-   iOS 16.4+, needs no phone number, no app store, and costs nothing. **Treat
-   this as part of the chat build, not a follow-on.**
+1. **Push notifications.** The one that makes the decision safe. See the
+   note below on what is actually achievable where.
 2. **Email digest fallback** for anyone without push enabled.
 3. **Unread badge** on the parent portal, and unread counts in any email.
 
 Without push, this replaces a channel parents read with one they do not. With
 push, it is genuinely better than WhatsApp — threaded, searchable, tied to
 student records, and free.
+
+### Push notifications: what is actually possible
+
+The stated goal is WhatsApp-like behaviour — the app sits in the background and
+a push from the server wakes it. That is right as a goal, but it does not all
+come from one build, and the difference matters for planning.
+
+**A notification that appears on the phone, plays a sound, and opens the chat
+when tapped** — this is the part that actually protects fee collection, and a
+PWA delivers it:
+
+| | PWA + Web Push |
+| --- | --- |
+| Android / Chrome | Works properly. Service worker receives the push with the browser closed. |
+| iOS 16.4+ | Works, **but only after the parent adds the site to their home screen**. |
+| Cost | Free. VAPID keys, no vendor, no phone number. |
+
+**The iOS home-screen requirement is the catch.** A parent who just opens the
+site in Safari gets no notifications at all, and nothing prompts them. In
+practice that means onboarding has to walk them through "Add to Home Screen",
+and some will not.
+
+**True background wake — a silent push that runs code without showing anything
+— needs a native app.** It is not available to web push on iOS at all, and on
+Android it is limited. Worth knowing: even WhatsApp does not really work the way
+it appears to. iOS throttles silent pushes hard and gives no delivery guarantee,
+so WhatsApp uses ordinary pushes plus a notification service extension, not
+background wake-ups. **Nobody gets the behaviour being described purely from
+silent pushes — Apple does not allow it.**
+
+**Recommendation: PWA push first, native app second.** The PWA gets ~90% of the
+value in a fraction of the time, and proves parents will use chat at all before
+committing to app-store releases. Then the native app (§2b, ~30–45 days) adds
+reliable iOS delivery without the home-screen hurdle, plus a real app icon —
+which matters more for adoption in this market than any technical difference.
+
+Native push needs Firebase Cloud Messaging (free) for Android and Apple Push
+Notification service for iOS, and **APNs requires a paid Apple Developer
+account (~$99/year)** — worth budgeting now.
 
 ### Build order
 
@@ -406,7 +457,45 @@ answering questions and testing, not around waiting for code.
 
 ---
 
-## 7. What this does not cover
+## 7. Open questions blocking the build
+
+Not blocking today, but each will block the module it belongs to. Worth
+answering before that module starts, not during it.
+
+**Parent wallet**
+- Can a wallet go negative (school extends credit), or is it strictly
+  pre-paid? This changes the ledger design, so decide before building.
+- Are refunds to the wallet, or back to the original payment method? Gateway
+  refunds have fees and time limits; wallet credit does not.
+- Does an unused balance follow a student who leaves? There is usually a legal
+  answer to this locally.
+
+**POS / merchandise**
+- Are uniforms stocked **by size and colour** — i.e. does one product have
+  variants? This is the single biggest structural decision in the module. Adding
+  variants later means rebuilding the stock tables.
+- Can staff sell over the counter *and* parents buy online from the same stock?
+  If so, stock needs locking to prevent overselling the last shirt.
+- Is merchandise ever billed to the fee challan instead of paid at checkout?
+
+**Payment gateway**
+- JazzCash, Easypaisa, or both? Bank cards too?
+- **Has merchant onboarding started?** This is weeks of paperwork on their
+  timeline, not ours, and it will become the critical path.
+- Who absorbs the transaction fee — the school or the parent?
+
+**Chat**
+- Can a parent message the school office generally, or only their children's
+  teachers? The rules cover teachers but not the front desk.
+- What happens to a conversation when a student leaves the school?
+
+**Rollout**
+- **Which school is the pilot?** Everything in this document is guesswork until
+  one real school uses it.
+
+---
+
+## 8. What this does not cover
 
 The competitor's site does not mention library, transport, hostel or inventory
 management. Those are common in school ERPs and may well appear in the video or
