@@ -24,8 +24,11 @@ sources stand in for it:
 Between the two this is now a fair picture. It is still second-hand: anything
 demonstrated on screen but absent from both sources is missing here.
 
-Effort figures are rough, for one developer familiar with this codebase, and
-exclude design and QA.
+**On the effort figures.** The day counts throughout this document are
+traditional estimates — one human developer, writing the frontend, backend and
+migrations by hand. They are the right unit for comparing items against each
+other, and the wrong unit for predicting when this ships. See §7 for what the
+calendar actually looks like.
 
 ---
 
@@ -159,9 +162,11 @@ Several are small and high-value; two are whole modules nobody had counted.
 | **Stock & Inventory (POS)** | Point of sale, barcode product scanning, sales profit tracking, low-stock and out-of-stock alerts, purchase-vs-sale reports | ~15–20 days |
 | **Communication Management** | Notice board, push notifications, message history and delivery logs, alongside SMS/WhatsApp/email | ~8–12 days |
 
-The POS module is for school shops — uniforms, books, stationery. Whether that
-matters depends entirely on whether your target schools run one. Worth asking
-before costing it seriously.
+**POS is confirmed in scope (2026-08-07).** Most target schools sell their own
+books, stationery and uniforms, so the shop is a real part of how they operate —
+and it ties into fees, since purchases are often billed to the student account
+rather than paid in cash. Treat `student_id` as a first-class payment method in
+the POS, not an afterthought.
 
 **Small features, disproportionate value**
 
@@ -230,7 +235,178 @@ This supersedes the "comment out all WhatsApp code" instruction recorded in
 
 ---
 
-## 5. What this does not cover
+## 5. Internal chat — replaces WhatsApp entirely (decided 2026-08-07)
+
+Supersedes §4. WhatsApp is not a paid add-on either; it is **replaced** by chat
+built into the CRM. No Twilio, no WhatsApp Business API, no per-message cost,
+no dependence on a phone network. Phone numbers stay a required field on
+students and parents as a contact record — they are simply not a delivery
+channel.
+
+### Why we build it rather than integrate one
+
+I looked at the established self-hosted options. **None of them fit**, and the
+reason is the same in every case: they are separate servers with their own
+stacks — Rocket.Chat is Node + MongoDB, Mattermost is Go, Zulip is Python,
+Element is a Matrix homeserver. Embedding any of them means running a second
+backend, a second user directory, and a second permission model that would have
+to be kept in step with `school_users` and the per-school permission matrix.
+The permission rules below are unusual enough that none of them could express
+them anyway.
+
+**Supabase Realtime already does the hard part**, and we are on Supabase
+already. It gives Postgres Changes (live message delivery), Presence
+(online/typing) and private channels authorised by RLS policies — so a
+conversation a user is not a participant in is not merely hidden in the UI, the
+database refuses to stream it. Attachments and voice notes go to Supabase
+Storage, which is already wired up. **Zero new infrastructure.**
+
+### Permission model
+
+The rules the user specified, plus what falls out of them:
+
+| Who | May start a conversation with |
+| --- | --- |
+| Staff (any role) | Any other staff member |
+| Staff | Any parent, any student |
+| Parent | Only teachers who teach one of their own children |
+| Student | **Nobody by default** — may only reply to a chat a teacher started |
+| Student, where the teacher has opted in | That teacher |
+
+Teachers get a per-teacher setting: *allow students to start a chat with me*,
+default **off**. This is a `chat_settings` row, not a global school policy —
+one teacher opting in must not opt in the rest.
+
+"Teachers of their children" is derivable today: `student_guardians` →
+`student_enrollments` → `sections` → the teaching assignments in
+`timetable_entries`. No new relationship is needed.
+
+### Data model
+
+```
+chat_conversations   id, location_id, kind (direct|group|announcement),
+                     title, created_by, branch_id, created_at, archived_at
+chat_participants    conversation_id, school_user_id, role (owner|member),
+                     joined_at, last_read_at, muted_until
+chat_messages        id, location_id, conversation_id, sender_id,
+                     kind (text|voice|image|file), body, attachment_path,
+                     duration_ms, reply_to_id, created_at, edited_at,
+                     deleted_at, deleted_by
+chat_settings        school_user_id, students_may_initiate, quiet_hours_from,
+                     quiet_hours_to
+chat_reports         message_id, reported_by, reason, created_at, resolved_at
+```
+
+Every table carries `location_id` and is indexed on it, per the tenancy rules.
+
+### Suggested improvements
+
+Offered as recommendations, not decided:
+
+1. **Announcement channels.** One-to-many, recipients read-only. A class notice
+   to 400 parents should not be a group chat with 400 people who can all reply
+   to each other. Same table, `kind = 'announcement'`.
+2. **Safeguarding: school admins can read conversations involving students.**
+   Not optional in my view — a school is legally responsible for what adults say
+   to children on a platform it runs. Make it visible rather than covert: the
+   participants should be told that staff–student chats are reviewable. This is
+   also why students should not be able to hard-delete messages.
+3. **Quiet hours.** A teacher should not get parent messages at 11pm. Messages
+   still send; notification is deferred until morning.
+4. **Report a message.** One tap, goes to the school admin. `chat_reports`
+   above.
+5. **Rate limits.** A parent in dispute with a school can otherwise send 500
+   messages in a night.
+6. **Retention policy per school.** Some schools will want chat purged yearly.
+7. **Context links.** Start a chat from a student's profile, attach a fee
+   challan to a message. This is the advantage an in-CRM chat has over WhatsApp,
+   and it is worth leaning on.
+8. **No message deletion for parents and students**, soft delete with audit for
+   staff. Deleted-message-shaped holes in a safeguarding record are a problem.
+
+### ⚠️ The real risk: reach
+
+WhatsApp works because it is already on the parent's phone and it notifies them.
+An internal chat only works if the parent opens our app. **If a fee reminder
+sits unread in a chat inbox nobody opens, collections suffer** — and that is the
+exact failure I flagged when email-only was proposed.
+
+Mitigations, in order of importance:
+
+1. **Web Push notifications via PWA.** This is the one that makes the decision
+   safe. It puts a real notification on the parent's phone, works on Android and
+   iOS 16.4+, needs no phone number, no app store, and costs nothing. **Treat
+   this as part of the chat build, not a follow-on.**
+2. **Email digest fallback** for anyone without push enabled.
+3. **Unread badge** on the parent portal, and unread counts in any email.
+
+Without push, this replaces a channel parents read with one they do not. With
+push, it is genuinely better than WhatsApp — threaded, searchable, tied to
+student records, and free.
+
+### Build order
+
+1. Data model + RLS policies + the permission resolver.
+2. Direct messages, text only, staff↔staff. Proves the realtime layer.
+3. Parent and student rules, plus the teacher opt-in setting.
+4. Groups and announcement channels.
+5. Attachments, then voice notes (`MediaRecorder` in the browser → Storage).
+6. **Web Push / PWA.**
+7. Moderation: reports, admin review, retention.
+
+---
+
+## 6. Realistic timeline
+
+The day figures above are human-developer estimates. They are not what this
+will take, and it is worth being precise about why — in both directions.
+
+**What gets much faster.** Writing the schema, migrations, API routes, queries
+and UI for a well-specified module is hours, not days. The print framework in
+§2 Tier 1.3 was estimated at 8–12 days and took about an hour. A module like
+POS, where the shape is well understood, is realistically **one working session
+for a solid first cut**.
+
+**What does not get faster, and now dominates:**
+
+- **Deciding what it should do.** Nobody can compress this. Should POS bill to
+  a student account or take cash only? Do you stock by size for uniforms? These
+  are your answers, not mine, and getting them wrong costs more than the build.
+- **Your review.** Every module needs you to look at it and say what is wrong.
+- **Testing against reality.** A fee voucher that looks right on screen and is
+  rejected at a bank counter is not finished. This needs a real school.
+- **Iteration.** First cuts are 80% right. The last 20% is where the calendar
+  goes.
+- **Data migration and go-live** for each school onboarded.
+
+**So the honest shape:**
+
+| | Build | Realistic calendar, with prompt review |
+| --- | --- | --- |
+| Exams + result cards | ~2 sessions | 1–2 weeks |
+| Print documents (each) | ~1 session for several | days |
+| POS | ~1–2 sessions | 1–2 weeks |
+| Internal chat (through push) | ~4–6 sessions | 3–5 weeks |
+| Student promotion | <1 session | days |
+| Excel import | ~1 session | 1 week |
+| Digital payments | ~2 sessions | 2–4 weeks — **gated on JazzCash/Easypaisa merchant approval, which is paperwork and their timeline, not ours** |
+
+Two things that genuinely constrain the calendar regardless of how fast code
+gets written:
+
+1. **Payment gateway onboarding.** Merchant accounts with JazzCash and Easypaisa
+   take weeks of paperwork. Start that process now if payments matter — it will
+   otherwise be the thing everything waits on.
+2. **A pilot school.** Everything above is guesswork until one real school uses
+   it. One friendly school, onboarded early, is worth more than three more
+   modules.
+
+**The bottleneck has moved from typing to deciding.** Plan your time around
+answering questions and testing, not around waiting for code.
+
+---
+
+## 7. What this does not cover
 
 The competitor's site does not mention library, transport, hostel or inventory
 management. Those are common in school ERPs and may well appear in the video or

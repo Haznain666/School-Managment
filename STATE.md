@@ -138,7 +138,15 @@ what was rejected and why.
 
 1. **Login is email + password.** WhatsApp is no longer a login mechanism.
 2. **Signup: email OTP → user sets their own password.**
-3. **WhatsApp becomes a paid, per-school add-on — REVISED 2026-08-07.**
+3. **WhatsApp is REPLACED by an internal chat system — REVISED AGAIN
+   2026-08-07.** This supersedes the paid-add-on decision below. Chat is built
+   into the CRM on Supabase Realtime (no third-party chat server, no Twilio, no
+   WhatsApp API). Phone numbers stay required as contact records but are not a
+   delivery channel. Full design, permission model and data model in
+   `ROADMAP.md` §5. **The critical dependency is Web Push via PWA** — without it
+   this replaces a channel parents read with one they do not open.
+
+   *Previous decision, now superseded:*
    This replaces the earlier "switch all WhatsApp off" decision. Email is the
    primary channel for everything, with no WhatsApp in any critical path. The
    Super Admin panel gets a "Connect WhatsApp" option against each school, so
