@@ -363,19 +363,53 @@ already low on context; this is the most security-sensitive code in the repo.
 
 ---
 
+## 5c. AGREED WORK ORDER (set 2026-08-07) — start here
+
+1. **Stage 4 — email/password auth** (§5b). The big one. Start it in a fresh
+   session; check `claude/school-email-auth-7f5vuh` on origin first.
+2. **"Print selected" on the challan list.** Small. The bulk print route
+   (`dashboard/fees/challans/print?ids=…`) works but nothing links to it — it
+   needs checkboxes on the list and a button that builds the URL.
+3. **Start the app and create a test school.** Sign in to Super Admin with
+   `SUPER_ADMIN_EMAIL` / the password behind `SUPER_ADMIN_PASSWORD_HASH`, create
+   a school, and confirm a page renders against the live database. This is the
+   first time any of the Supabase work is exercised for real.
+
+### Database status — DONE 2026-08-07, do not redo
+
+The Supabase database is **built, empty and correctly tracked**: 43 tables,
+11 migrations recorded, PostgreSQL 17.6. It was rebuilt from scratch because
+the original schema had been created with `db:push` and had no migration
+bookkeeping, which would have made the next schema change fail.
+
+`.env.local` exists at `D:\School-Management-System\.env.local` and is
+gitignored. It was briefly named `ATT90132.env`, which matched no ignore rule —
+if that name reappears, it is unprotected secrets sitting in the repo.
+
+**Connection strings — this cost an hour, do not rediscover it.** The direct
+connection (`db.<ref>.supabase.co`) is IPv6-only without a paid add-on and fails
+with `getaddrinfo ENOTFOUND` on an ordinary network. Use the pooler for both:
+port **6543** (transaction) for the app, port **5432** (session) for
+`db:migrate`.
+
+---
+
 ## 6. Open items for the user
 
-1. **Install GitHub CLI** — `winget install GitHub.cli` then `gh auth login`.
-   Nothing can be pushed or merged until this exists: this machine has no git
-   credential for GitHub and `gh` is not installed. A browser signed in to
-   GitHub does not help; git needs its own credential. **This blocks every
-   merge**, so it is first.
-2. **Do students and parents actually have email addresses?** See the product
-   risk in §3. This decides whether the email-only plan is viable as stated.
-3. **Create the Supabase database** and run the migrations against the *direct*
-   connection (port 5432). Storage already lives in this project; the DB joins it.
+1. ~~Install GitHub CLI~~ — done. `gh` 2.97.0, authenticated as `Haznain666`,
+   and git has a stored credential. Push and PR creation both work.
+2. ~~Do students and parents have email addresses?~~ — moot. The internal chat
+   decision (§3.3) removes the dependency on either email or phone reach.
+3. ~~Create the Supabase database~~ — done, see §5c.
 4. **The domain name** — it fills `PLATFORM_BASE_DOMAIN`,
    `NEXT_PUBLIC_APP_DOMAIN`, `INVITE_LINK_BASE_URL`, `GHL_REDIRECT_URI`.
+5. **Which school is the pilot?** Still unanswered, and still the highest-value
+   thing outstanding — everything in `ROADMAP.md` is guesswork until one real
+   school uses it.
+6. **Start JazzCash / Easypaisa merchant onboarding.** Weeks of paperwork on
+   their timeline; it will become the critical path for payments.
+7. **Open product questions** blocking POS, the wallet and chat — `ROADMAP.md`
+   §7. Uniform size/colour variants is the one that cannot be retrofitted.
 
 ---
 
