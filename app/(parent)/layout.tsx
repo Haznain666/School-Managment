@@ -11,7 +11,7 @@ import { getSchoolBranding } from '@/lib/school-tenant';
  * Parent portal shell — role `parent` only.
  *
  * Session verification happens here rather than in middleware, which runs on
- * the Edge and cannot use firebase-admin. A caller with a valid session but a
+ * the Edge and cannot reach the database over TCP. A caller with a valid session but a
  * different role is redirected to their own portal.
  */
 export const dynamic = 'force-dynamic';

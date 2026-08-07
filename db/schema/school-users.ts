@@ -18,9 +18,15 @@ import { schools } from './schools';
 /**
  * school_users — everyone who can sign in to a school portal.
  *
- * `firebase_uid` is null until the person accepts their invite and a Firebase
- * account is created for them, so a row here can represent a pending member as
+ * `auth_user_id` is null until the person accepts their invite and a Supabase
+ * Auth account exists for them, so a row here can represent a pending member as
  * well as an active one.
+ *
+ * ── This table is now the authorization record ───────────────────────────
+ * Stage 4 moved role, branch and active status out of the token and into this
+ * row, read per request. One person has one Supabase account; a row here is
+ * their membership of *one* school, which is why the same address can be a
+ * teacher at one school and a parent at another. See `lib/school-auth.ts`.
  *
  * Phone is required rather than email because invitations go out over WhatsApp;
  * email is the optional fallback channel.
@@ -33,8 +39,15 @@ export const schoolUsers = pgTable(
     locationId: text('location_id')
       .notNull()
       .references(() => schools.locationId, { onDelete: 'cascade' }),
-    /** Null until the invite is accepted. */
-    firebaseUid: text('firebase_uid').unique(),
+    /**
+     * Supabase `auth.users.id`. Null until the invite is accepted.
+     *
+     * Deliberately NOT globally unique any more. It was, under Firebase, where
+     * each school minted its own derived account. One account per person means
+     * the same id legitimately appears once per school they belong to; the
+     * uniqueness that matters is per tenant, below.
+     */
+    authUserId: text('auth_user_id'),
     email: text('email'),
     /** Required: the WhatsApp channel for invitations. */
     phone: text('phone').notNull(),
@@ -45,7 +58,7 @@ export const schoolUsers = pgTable(
     }),
     avatarUrl: text('avatar_url'),
     isActive: boolean('is_active').notNull().default(true),
-    /** Firebase uid of whoever sent the invitation. */
+    /** Auth user id of whoever sent the invitation. */
     invitedByUid: text('invited_by_uid'),
     invitedAt: timestamp('invited_at', { withTimezone: true }),
     /** Set when the invite is accepted and the account becomes usable. */
@@ -55,11 +68,18 @@ export const schoolUsers = pgTable(
   },
   (table) => [
     index('school_users_location_id_idx').on(table.locationId),
-    index('school_users_firebase_uid_idx').on(table.firebaseUid),
+    index('school_users_auth_user_id_idx').on(table.authUserId),
     index('school_users_location_id_role_idx').on(table.locationId, table.role),
     // A phone number identifies one person within a school, not globally — the
     // same parent may exist at two different schools.
     uniqueIndex('school_users_location_id_phone_idx').on(table.locationId, table.phone),
+    // The lookup `lib/school-auth.ts` performs on every authenticated request,
+    // and the constraint that stops one account holding two memberships of the
+    // same school. Both halves matter.
+    uniqueIndex('school_users_location_id_auth_user_id_idx').on(
+      table.locationId,
+      table.authUserId,
+    ),
     check(
       'school_users_role_check',
       sql.raw(`role IN (${USER_ROLES.map((role) => `'${role}'`).join(', ')})`),

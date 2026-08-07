@@ -19,7 +19,9 @@ import { isValidSlug } from './slug';
  * because resolving it is *how* we obtain the location_id. Everything
  * downstream is tenant-filtered.
  *
- * This module is Edge-safe (Neon's HTTP driver) so `middleware.ts` can use it.
+ * NODE ONLY. This goes through Drizzle over postgres-js, which needs a TCP
+ * socket, so `middleware.ts` cannot import it. The middleware resolves a slug
+ * through `lib/school-lookup-edge.ts` instead.
  */
 
 export interface SchoolRecord {

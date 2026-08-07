@@ -16,6 +16,8 @@ import { apiFailure, apiSuccess, handleApiError, readJsonBody } from '@/lib/api-
 import { verifyCaptcha } from '@/lib/admissions-captcha';
 import { db } from '@/lib/drizzle';
 import { createGuardianGHLContact } from '@/lib/ghl-admissions';
+import { isWhatsAppEnabled } from '@/lib/channels';
+import { sendEmail, smtpConfigured } from '@/lib/email-sender';
 import { sendWhatsAppMessage } from '@/lib/ghl-client';
 import { InvalidPhoneError, normalizePhone } from '@/lib/phone';
 import { SCHOOL_LOCATION_HEADER } from '@/lib/school-context';
@@ -267,21 +269,31 @@ export async function POST(request: NextRequest) {
 
     // A confirmation is nice to have and must never fail the submission — the
     // application is already filed by the time this runs.
+    const guardianEmail = readOptionalString(body.guardianEmail);
+
     try {
       const branding = await getSchoolBranding(locationId);
+      const schoolName = branding?.name ?? 'our school';
+      const message =
+        `Thank you for applying to ${schoolName}. We have received your application for ${studentName}. ` +
+        `Your reference is ${applicationReference(application.id)}. Our admissions team will be in touch.`;
+
+      // The GHL contact is created either way: it is the school's record of
+      // an enquiry, not a side effect of messaging. Only the message itself
+      // is behind the add-on.
       const contactId = await createGuardianGHLContact(db, locationId, {
         name: guardianName,
         phone: guardianPhone,
-        email: readOptionalString(body.guardianEmail) ?? undefined,
+        email: guardianEmail ?? undefined,
       });
 
-      await sendWhatsAppMessage(
-        db,
-        locationId,
-        contactId,
-        `Thank you for applying to ${branding?.name ?? 'our school'}. We have received your application for ${studentName}. ` +
-          `Your reference is ${applicationReference(application.id)}. Our admissions team will be in touch.`,
-      );
+      if (await isWhatsAppEnabled(locationId)) {
+        await sendWhatsAppMessage(db, locationId, contactId, message);
+      }
+
+      if (guardianEmail !== null && guardianEmail !== '' && smtpConfigured()) {
+        await sendEmail(guardianEmail, `Application received — ${schoolName}`, message);
+      }
     } catch (error) {
       console.warn('[apply] confirmation message could not be sent:', error);
     }

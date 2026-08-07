@@ -1,9 +1,7 @@
-import { eq } from 'drizzle-orm';
 import { NextResponse, type NextRequest } from 'next/server';
 
-import { schools } from '@/db/schema';
-import { db } from '@/lib/drizzle';
 import { publicEnv } from '@/lib/env';
+import { fetchSchoolBySlug, type ResolvedSchool } from '@/lib/school-lookup-edge';
 import {
   isLocalHostname,
   MIDDLEWARE_HEADERS,
@@ -26,7 +24,7 @@ import { SUPER_ADMIN_COOKIE, verifySuperAdminJWT } from '@/lib/super-admin-auth'
  *
  * ── On session verification ──────────────────────────────────────────────
  * The Sprint 3 brief asks middleware to call `verifySessionCookie` and enforce
- * roles here. It cannot: `firebase-admin` needs Node APIs, middleware runs on
+ * roles here. It cannot: verifying a session needs Node APIs, middleware runs on
  * the Edge, and this Next version rejects `experimental.nodeMiddleware` — the
  * key is unrecognised and the runtime stays Edge.
  *
@@ -60,16 +58,13 @@ const PROTECTED_PREFIXES: readonly string[] = [
   '/parent',
 ];
 
-interface ResolvedSchool {
-  locationId: string;
-  schoolId: string;
-  slug: string;
-  isActive: boolean;
-}
-
 /**
- * Warm-instance cache for slug lookups. Serverless instances recycle often, so
- * this shaves a round-trip off bursts rather than acting as a real cache.
+ * Warm-instance cache for slug lookups.
+ *
+ * On Hostinger this is a single long-lived Node process rather than a fleet of
+ * recycling serverless instances, so the cache actually holds — one lookup per
+ * school per minute instead of one per request. The 60s TTL is what bounds how
+ * long a deactivated school stays reachable.
  */
 const LOOKUP_TTL_MS = 60_000;
 const lookupCache = new Map<
@@ -77,22 +72,15 @@ const lookupCache = new Map<
   { record: ResolvedSchool | null; expiresAt: number }
 >();
 
+/**
+ * Resolves a slug through Supabase's REST API — see `lib/school-lookup-edge.ts`
+ * for why this cannot be a Drizzle query like every other read in the app.
+ */
 async function resolveSchoolBySlug(slug: string): Promise<ResolvedSchool | null> {
   const cached = lookupCache.get(slug);
   if (cached !== undefined && cached.expiresAt > Date.now()) return cached.record;
 
-  const rows = await db
-    .select({
-      locationId: schools.locationId,
-      schoolId: schools.id,
-      slug: schools.slug,
-      isActive: schools.isActive,
-    })
-    .from(schools)
-    .where(eq(schools.slug, slug))
-    .limit(1);
-
-  const record = rows[0] ?? null;
+  const record = await fetchSchoolBySlug(slug);
   lookupCache.set(slug, { record, expiresAt: Date.now() + LOOKUP_TTL_MS });
   return record;
 }

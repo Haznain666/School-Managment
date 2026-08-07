@@ -5,7 +5,7 @@ import { InviteOTPForm } from '@/components/school/InviteOTPForm';
 import { branches, schoolBranding, schoolInvitations, schools, selectedPaletteOf } from '@/db/schema';
 import { Card } from '@/components/ui/Card';
 import { paletteToCSSVars } from '@/lib/branding';
-import { isValidPhone, maskPhone, normalizePhone } from '@/lib/phone';
+import { maskEmail } from '@/lib/email-sender';
 import { db } from '@/lib/drizzle';
 import { ROLE_LABELS, isUserRole } from '@/types/school-auth';
 import type { CSSProperties } from 'react';
@@ -97,13 +97,15 @@ export default async function InvitePage({
     );
   }
 
-  // The passcode goes to the number on the invitation, so an unusable one has
-  // to be caught here rather than failing mid-signup.
-  if (!isValidPhone(invitation.phone)) {
+  // The code goes to the address on the invitation, and the account is created
+  // against it, so a missing one has to be caught here rather than failing
+  // mid-signup. Invitations created since Stage 4 always carry one; older rows
+  // and rows written before that rule may not.
+  if (invitation.email === null || invitation.email.trim() === '') {
     return (
       <InviteMessage
         title="This invite cannot be completed"
-        body="The phone number on this invitation is not a valid Pakistani mobile. Ask your admin to resend it."
+        body="This invitation has no email address, and your account is created against one. Ask your admin to resend it."
       />
     );
   }
@@ -149,7 +151,7 @@ export default async function InvitePage({
         <InviteOTPForm
           token={token}
           inviteeName={invitation.name}
-          maskedPhone={maskPhone(normalizePhone(invitation.phone))}
+          maskedEmail={maskEmail(invitation.email ?? '')}
           schoolName={row.schoolName}
           roleName={ROLE_LABELS[invitation.role]}
           branchName={row.branchName}

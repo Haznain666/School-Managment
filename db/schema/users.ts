@@ -41,10 +41,12 @@ export type UserStatus = (typeof USER_STATUSES)[number];
 /**
  * users — every human who can sign in, scoped to one school.
  *
- * `firebase_uid` is the join key to Firebase Authentication. Custom claims on
- * that Firebase user carry `location_id`, `role`, `branch_id` and
- * `is_dual_role`, and are the ONLY authoritative source of tenant identity at
- * request time (see `lib/auth-middleware.ts`).
+ * `auth_user_id` is the join key to Supabase Auth (`auth.users.id`).
+ *
+ * It carries no claims. Tenant identity comes from the subdomain and
+ * authorization from `school_users`, read per request — see `lib/school-auth.ts`.
+ * Until Stage 4 this said the opposite, because Firebase custom claims on the
+ * matching account were then the authority.
  */
 export const users = pgTable(
   'users',
@@ -53,7 +55,7 @@ export const users = pgTable(
     locationId: text('location_id')
       .notNull()
       .references(() => schools.locationId, { onDelete: 'cascade' }),
-    firebaseUid: text('firebase_uid').notNull().unique(),
+    authUserId: text('auth_user_id').notNull().unique(),
     email: text('email').notNull(),
     phone: text('phone'),
     userType: text('user_type').notNull().$type<UserType>(),
@@ -67,7 +69,7 @@ export const users = pgTable(
     // Email is unique per school, not globally — the same parent may exist at
     // two different schools.
     uniqueIndex('users_location_id_email_idx').on(table.locationId, table.email),
-    index('users_firebase_uid_idx').on(table.firebaseUid),
+    index('users_auth_user_id_idx').on(table.authUserId),
     check(
       'users_user_type_check',
       sql`${table.userType} IN ('staff', 'student', 'parent')`,

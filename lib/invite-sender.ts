@@ -1,23 +1,28 @@
 import 'server-only';
 
-import nodemailer from 'nodemailer';
-
 import type { SchoolInvitation } from '@/db/schema';
 import { ROLE_LABELS, isUserRole } from '@/types/school-auth';
 
+import { isWhatsAppEnabled } from './channels';
 import { db } from './drizzle';
-import { serverEnv } from './env';
+import { sendEmail, smtpConfigured } from './email-sender';
 import { findOrCreateContact, sendWhatsAppMessage } from './ghl-client';
 
 /**
  * Invitation delivery.
  *
- * WhatsApp via GHL is the primary channel — it is what people in this market
- * actually read. Email is a fallback, attempted only when an address was given.
+ * ── Which channel, and why that reversed ─────────────────────────────────
+ * Email is now the channel that must work: an invitation cannot be created
+ * without an address, because the address is what the Supabase account is
+ * keyed by. WhatsApp is an extra, sent as well when the school has bought the
+ * add-on — it is still what people in this market actually read, so a school
+ * paying for it gets the invitation on both.
  *
- * Neither channel failing is fatal on its own: a school may not have WhatsApp
- * connected yet, and many invitees have no email. Only losing *both* is an
- * error, because then nobody receives the link.
+ * That is the reverse of how this file used to read, when WhatsApp was primary
+ * and email the fallback for whoever happened to have an address.
+ *
+ * Losing both channels is still the only fatal case, because then nobody
+ * receives the link.
  */
 
 export interface SendInviteInput {
@@ -61,36 +66,6 @@ export function buildInviteMessage(input: SendInviteInput): string {
   ].join('\n');
 }
 
-function smtpConfigured(): boolean {
-  return serverEnv('SMTP_HOST', '') !== '' && serverEnv('SMTP_FROM', '') !== '';
-}
-
-async function sendEmail(
-  to: string,
-  subject: string,
-  text: string,
-): Promise<void> {
-  const port = Number.parseInt(serverEnv('SMTP_PORT', '587'), 10);
-
-  const transport = nodemailer.createTransport({
-    host: serverEnv('SMTP_HOST', ''),
-    port: Number.isFinite(port) ? port : 587,
-    // 465 is implicit TLS; 587 upgrades via STARTTLS.
-    secure: port === 465,
-    auth: {
-      user: serverEnv('SMTP_USER', ''),
-      pass: serverEnv('SMTP_PASS', ''),
-    },
-  });
-
-  await transport.sendMail({
-    from: serverEnv('SMTP_FROM', ''),
-    to,
-    subject,
-    text,
-  });
-}
-
 /**
  * Attempts both channels and reports what actually landed.
  * @throws {InviteDeliveryError} when nothing was delivered.
@@ -103,30 +78,35 @@ export async function sendInvite(input: SendInviteInput): Promise<SendInviteResu
   let whatsappSent = false;
   let whatsappMessageId: string | null = null;
 
-  // -- WhatsApp, via the school's GHL sub-account --------------------------
-  try {
-    const { contactId } = await findOrCreateContact(db, input.locationId, {
-      phone: invitation.phone,
-      name: invitation.name,
-      email: invitation.email ?? undefined,
-    });
+  // -- WhatsApp, when the school has the add-on ----------------------------
+  // A school without it is correctly configured, so this is skipped silently
+  // rather than recorded as a failure. Listing "WhatsApp: not enabled" against
+  // every invitation would train admins to ignore the failure list.
+  if (await isWhatsAppEnabled(input.locationId)) {
+    try {
+      const { contactId } = await findOrCreateContact(db, input.locationId, {
+        phone: invitation.phone,
+        name: invitation.name,
+        email: invitation.email ?? undefined,
+      });
 
-    const { messageId } = await sendWhatsAppMessage(
-      db,
-      input.locationId,
-      contactId,
-      message,
-    );
+      const { messageId } = await sendWhatsAppMessage(
+        db,
+        input.locationId,
+        contactId,
+        message,
+      );
 
-    whatsappSent = true;
-    whatsappMessageId = messageId;
-  } catch (error) {
-    const reason = error instanceof Error ? error.message : 'Unknown WhatsApp error';
-    console.warn('[invite-sender] WhatsApp delivery failed:', reason);
-    failures.push(`WhatsApp: ${reason}`);
+      whatsappSent = true;
+      whatsappMessageId = messageId;
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : 'Unknown WhatsApp error';
+      console.warn('[invite-sender] WhatsApp delivery failed:', reason);
+      failures.push(`WhatsApp: ${reason}`);
+    }
   }
 
-  // -- Email fallback, only when an address was supplied -------------------
+  // -- Email, the channel that has to work ---------------------------------
   let emailSent = false;
   const email = invitation.email;
 

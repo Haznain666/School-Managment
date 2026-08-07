@@ -1,6 +1,6 @@
 import 'server-only';
 
-import { and, asc, count, eq, ilike, or, type SQL } from 'drizzle-orm';
+import { and, asc, count, eq, ilike, inArray, or, type SQL } from 'drizzle-orm';
 
 import {
   branches,
@@ -9,7 +9,11 @@ import {
   studentEnrollments,
   type SchoolUser,
 } from '@/db/schema';
-import { toModuleFlags, type SchoolModuleFlags } from '@/lib/platform-modules';
+import {
+  PLATFORM_MODULE_KEYS,
+  toModuleFlags,
+  type SchoolModuleFlags,
+} from '@/lib/platform-modules';
 import type { UserRole } from '@/types/school-auth';
 
 import { getActiveAcademicYear } from './admissions-queries';
@@ -25,7 +29,7 @@ import { db } from './drizzle';
 
 export interface SchoolUserRow {
   id: string;
-  firebaseUid: string | null;
+  authUserId: string | null;
   name: string;
   email: string | null;
   phone: string;
@@ -39,7 +43,7 @@ export interface SchoolUserRow {
 
 const USER_COLUMNS = {
   id: schoolUsers.id,
-  firebaseUid: schoolUsers.firebaseUid,
+  authUserId: schoolUsers.authUserId,
   name: schoolUsers.name,
   email: schoolUsers.email,
   phone: schoolUsers.phone,
@@ -117,14 +121,14 @@ export async function getSchoolUserById(
 
 export async function getSchoolUserByUid(
   locationId: string,
-  firebaseUid: string,
+  authUserId: string,
 ): Promise<SchoolUserRow | null> {
   const rows = await db
     .select(USER_COLUMNS)
     .from(schoolUsers)
     .leftJoin(branches, eq(branches.id, schoolUsers.branchId))
     .where(
-      and(eq(schoolUsers.locationId, locationId), eq(schoolUsers.firebaseUid, firebaseUid)),
+      and(eq(schoolUsers.locationId, locationId), eq(schoolUsers.authUserId, authUserId)),
     )
     .limit(1);
 
@@ -214,7 +218,14 @@ export async function getDashboardCounts(locationId: string): Promise<DashboardC
       .select({ value: count() })
       .from(schoolModules)
       .where(
-        and(eq(schoolModules.locationId, locationId), eq(schoolModules.isEnabled, true)),
+        and(
+          eq(schoolModules.locationId, locationId),
+          eq(schoolModules.isEnabled, true),
+          // Channels share this table but are not modules, and counting
+          // WhatsApp as one would quietly inflate every school's headline
+          // "modules enabled" figure by one.
+          inArray(schoolModules.moduleKey, [...PLATFORM_MODULE_KEYS]),
+        ),
       ),
   ]);
 

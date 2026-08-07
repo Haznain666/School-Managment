@@ -6,7 +6,7 @@ import type { SchoolSessionClaims, UserRole } from '@/types/school-auth';
 
 import { hasPermission } from './permission-queries';
 import type { Permission } from './permissions';
-import { sessionCookieName, verifySchoolSession } from './school-auth';
+import { readSchoolSession } from './school-auth';
 
 /**
  * `withSchoolAuth` — the gate every `/api/school/*` route passes through.
@@ -96,13 +96,12 @@ export function withSchoolAuth<TContext = unknown>(
   options: WithSchoolAuthOptions,
 ) {
   return async (request: NextRequest, context: TContext): Promise<NextResponse> => {
-    const cookie = request.cookies.get(sessionCookieName())?.value;
-
-    if (cookie === undefined || cookie === '') {
-      return unauthorized('Sign in to continue.');
-    }
-
-    const claims = await verifySchoolSession(cookie);
+    // Reads the cookie and the middleware-resolved tenant from the ambient
+    // request, and is memoised per request — so a layout and three routes
+    // verifying the same session share one `getUser()` and one membership
+    // lookup between them. The cookie is no longer read here directly because
+    // `@supabase/ssr` may rotate it mid-request and owns its own format.
+    const claims = await readSchoolSession();
     if (claims === null) {
       return unauthorized('Your session has expired. Sign in again.');
     }

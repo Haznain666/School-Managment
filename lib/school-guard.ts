@@ -13,11 +13,12 @@ import { readSchoolSession } from './school-auth';
  * Layout-level authorisation for the school portals.
  *
  * This is where a session is actually verified. Middleware only checks that a
- * cookie exists — it runs on the Edge and cannot call `firebase-admin` — so
+ * cookie exists — it runs on the Edge, where the session cannot be verified — so
  * every protected layout must call this before rendering anything.
  *
  * Three things are enforced here:
- *   1. the session verifies and has not been revoked
+ *   1. the session verifies, has not been revoked, and belongs to an account
+ *      that is still active (see `isAccountActive` in `lib/school-auth.ts`)
  *   2. its tenant matches the school this hostname resolves to
  *   3. the caller's role is allowed on this route, otherwise they are sent to
  *      their own home route rather than shown someone else's portal

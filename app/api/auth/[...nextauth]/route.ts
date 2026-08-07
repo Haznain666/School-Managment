@@ -96,7 +96,7 @@ async function handleResolveIdentifier(request: NextRequest) {
       and(
         eq(schoolUsers.locationId, locationId),
         eq(schoolUsers.isActive, true),
-        isNotNull(schoolUsers.firebaseUid),
+        isNotNull(schoolUsers.authUserId),
       ),
     );
 

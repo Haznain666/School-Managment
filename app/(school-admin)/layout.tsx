@@ -15,7 +15,7 @@ import { ADMIN_PORTAL_ROLES } from '@/types/school-auth';
  *
  * This is where the session is actually verified — middleware only checked
  * that a cookie was present, because it runs on the Edge and cannot use
- * firebase-admin. `requireSchoolRole` redirects rather than returning when
+ * the database over TCP. `requireSchoolRole` redirects rather than returning when
  * access is refused, so nothing below it renders for the wrong caller.
  *
  * The shell gate stays a role list rather than a permission: it decides which

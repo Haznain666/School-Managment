@@ -5,7 +5,8 @@ import { withSchoolAuth } from '@/lib/api-auth';
 import { apiFailure, apiSuccess, handleApiError, readJsonBody } from '@/lib/api-response';
 import { db } from '@/lib/drizzle';
 import { primaryGuardiansFor } from '@/lib/fee-queries';
-import { sendFeeReminderWhatsApp } from '@/lib/ghl-fees';
+import { canReachGuardian, sendFeeReminder } from '@/lib/ghl-fees';
+import { isWhatsAppEnabled } from '@/lib/channels';
 import { toPaise } from '@/lib/money';
 import { isUuid } from '@/lib/validation';
 
@@ -96,8 +97,14 @@ export const POST = withSchoolAuth(
         owing.map((row) => row.studentProfileId),
       );
 
+      // Read once for the whole loop rather than per challan. `isWhatsAppEnabled`
+      // is request-memoised anyway, but asking here also lets the count below
+      // be computed without touching the database three hundred times.
+      const whatsAppEnabled = await isWhatsAppEnabled(auth.locationId);
+
       let queued = 0;
       let noGuardian = 0;
+      let unreachable = 0;
 
       for (const row of owing) {
         const guardian = guardians.get(row.studentProfileId);
@@ -106,12 +113,22 @@ export const POST = withSchoolAuth(
           continue;
         }
 
+        // ── Why this is counted and returned ─────────────────────────────
+        // With WhatsApp off, a guardian with no email address receives
+        // nothing at all. That is a supported configuration, not a bug — but
+        // a school that sends three hundred reminders and reaches two hundred
+        // and sixty parents needs to be told so at send time, not to discover
+        // it when the fees do not arrive.
+        if (!canReachGuardian(guardian, whatsAppEnabled)) {
+          unreachable += 1;
+          continue;
+        }
+
         queued += 1;
 
         // Fired, not awaited: see the note at the top of this file.
-        void sendFeeReminderWhatsApp(db, auth.locationId, {
-          guardianName: guardian.name,
-          guardianPhone: guardian.phone,
+        void sendFeeReminder(db, auth.locationId, {
+          guardian,
           studentName: row.studentName,
           challanNumber: row.challanNumber,
           amountDue: (toPaise(row.totalAmount) - toPaise(row.paidAmount)) / 100,
@@ -126,6 +143,8 @@ export const POST = withSchoolAuth(
         queued,
         skipped: rows.length - owing.length,
         noGuardian,
+        unreachable,
+        whatsAppEnabled,
       });
     } catch (error) {
       return handleApiError(error);

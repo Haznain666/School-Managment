@@ -1,6 +1,5 @@
 import 'server-only';
 
-import type { BatchItem } from 'drizzle-orm/batch';
 import { and, eq, inArray } from 'drizzle-orm';
 
 import {
@@ -16,7 +15,7 @@ import {
 } from '@/db/schema';
 
 import { generateChallanNumber, reserveChallanNumbers } from './challan-number';
-import type { Database } from './drizzle';
+import { batch, type Database } from './drizzle';
 import {
   calculateChallanItems,
   defaultDueDate,
@@ -37,10 +36,10 @@ import {
  * ── On atomicity ─────────────────────────────────────────────────────────
  * A challan is a header plus its lines, and a header with no lines is a bill
  * for an unexplained amount — worse than no bill. The two writes therefore go
- * out as a single `db.batch()`, which the Neon HTTP driver executes in one
- * transaction. That is also why bulk generation batches *per student* rather
- * than per run: one student's bad data must not roll back the four hundred
- * challans already raised beside it.
+ * out through `batch()`, which runs them in one Postgres transaction. That is
+ * also why bulk generation opens a transaction *per student* rather than per
+ * run: one student's bad data must not roll back the four hundred challans
+ * already raised beside it.
  *
  * Numbers are reserved before the writes, from the atomic counter in
  * `lib/challan-number.ts`. A reserved number whose insert then fails is simply
@@ -59,9 +58,6 @@ export class ChallanGenerationError extends Error {
     this.status = status;
   }
 }
-
-/** Batched statements, as the driver's tuple type requires. */
-type PgBatchItem = BatchItem<'pg'>;
 
 export interface ChallanPreview extends ChallanTotals {
   studentProfileId: string;
@@ -295,8 +291,8 @@ export async function generateChallan(
 
   const challanId = crypto.randomUUID();
 
-  const statements: PgBatchItem[] = [
-    db.insert(feeChallans).values({
+  await batch(db, (tx) => [
+    tx.insert(feeChallans).values({
       id: challanId,
       locationId: params.locationId,
       studentProfileId: params.studentProfileId,
@@ -313,7 +309,7 @@ export async function generateChallan(
       generatedByUid: params.actorUid,
     }),
     ...preview.items.map((item) =>
-      db.insert(feeChallanItems).values({
+      tx.insert(feeChallanItems).values({
         locationId: params.locationId,
         challanId,
         feeTypeId: item.feeTypeId,
@@ -323,9 +319,7 @@ export async function generateChallan(
         netAmount: item.netAmount,
       }),
     ),
-  ];
-
-  await db.batch(statements as [PgBatchItem, ...PgBatchItem[]]);
+  ]);
 
   return {
     id: challanId,
@@ -448,7 +442,11 @@ export interface BulkGenerateResult {
   problems: Array<{ studentName: string; reason: string }>;
 }
 
-/** How many students are billed at once. Bounded so Neon is not flooded. */
+/**
+ * How many students are billed at once. Each one opens its own transaction and
+ * so holds a connection for its duration; the bound keeps a bulk run inside the
+ * pool `lib/postgres.ts` allows itself.
+ */
 const BULK_CONCURRENCY = 5;
 
 /**
@@ -542,37 +540,35 @@ export async function bulkGenerateChallans(
     const totals = summariseChallanItems(items);
     const challanId = crypto.randomUUID();
 
-    const statements: PgBatchItem[] = [
-      db.insert(feeChallans).values({
-        id: challanId,
-        locationId: params.locationId,
-        studentProfileId: candidate.studentProfileId,
-        academicYearId: params.academicYearId,
-        challanNumber,
-        billingMonth: params.billingMonth,
-        billingYear: params.billingYear,
-        dueDate,
-        subtotal: totals.subtotal,
-        concessionAmount: totals.concessionAmount,
-        totalAmount: totals.totalAmount,
-        status: 'unpaid',
-        generatedByUid: params.actorUid,
-      }),
-      ...items.map((item) =>
-        db.insert(feeChallanItems).values({
-          locationId: params.locationId,
-          challanId,
-          feeTypeId: item.feeTypeId,
-          description: item.description,
-          amount: item.amount,
-          concessionAmount: item.concessionAmount,
-          netAmount: item.netAmount,
-        }),
-      ),
-    ];
-
     try {
-      await db.batch(statements as [PgBatchItem, ...PgBatchItem[]]);
+      await batch(db, (tx) => [
+        tx.insert(feeChallans).values({
+          id: challanId,
+          locationId: params.locationId,
+          studentProfileId: candidate.studentProfileId,
+          academicYearId: params.academicYearId,
+          challanNumber,
+          billingMonth: params.billingMonth,
+          billingYear: params.billingYear,
+          dueDate,
+          subtotal: totals.subtotal,
+          concessionAmount: totals.concessionAmount,
+          totalAmount: totals.totalAmount,
+          status: 'unpaid',
+          generatedByUid: params.actorUid,
+        }),
+        ...items.map((item) =>
+          tx.insert(feeChallanItems).values({
+            locationId: params.locationId,
+            challanId,
+            feeTypeId: item.feeTypeId,
+            description: item.description,
+            amount: item.amount,
+            concessionAmount: item.concessionAmount,
+            netAmount: item.netAmount,
+          }),
+        ),
+      ]);
       challans.push({
         challanNumber,
         studentName: candidate.studentName,

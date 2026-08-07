@@ -17,9 +17,9 @@ import { isUuid, readOptionalString } from '@/lib/validation';
  * server-side from the price list and the student's concessions, because a
  * total that arrived from a browser is a total anyone could have edited.
  *
- * The header and its line items are written in a single `db.batch()` — see
- * `lib/fee-challans.ts` — and the challan number is reserved atomically before
- * either lands.
+ * The header and its line items are written in one transaction through
+ * `batch()` — see `lib/fee-challans.ts` — and the challan number is reserved
+ * atomically before either lands.
  */
 
 export const runtime = 'nodejs';

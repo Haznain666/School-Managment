@@ -4,7 +4,7 @@ import type { NextRequest } from 'next/server';
 import { schoolInvitations, schoolUsers, schools } from '@/db/schema';
 import { apiFailure, apiSuccess, handleApiError, readJsonBody } from '@/lib/api-response';
 import { db } from '@/lib/drizzle';
-import { issueSchoolCustomToken } from '@/lib/firebase-custom-token';
+import { getOrCreateAuthUser, mintSessionForEmail } from '@/lib/supabase-auth';
 import { verifyOTPSession } from '@/lib/otp';
 import { InvalidPhoneError, normalizePhone } from '@/lib/phone';
 import { readString } from '@/lib/validation';
@@ -121,18 +121,26 @@ export async function POST(request: NextRequest, context: RouteContext) {
       return apiFailure('no_school', 'This school portal is unavailable.', 404);
     }
 
-    // Claims first: they are what every later request is authorised against,
-    // so the account is never usable without a tenant.
-    const { uid, customToken } = await issueSchoolCustomToken(
-      invitation.locationId,
-      phone,
-      {
-        locationId: invitation.locationId,
-        role: invitation.role,
-        branchId: invitation.branchId,
-        schoolSlug: school.slug,
-      },
-    );
+    // ── Why the account comes first, and what it no longer carries ────────
+    // The Firebase version stamped the tenant claims onto the account before
+    // minting a token, so no signed-in moment existed without a school. There
+    // are no claims to stamp now — the membership row written below *is* the
+    // authorization — but the ordering still matters for a different reason:
+    // an account with no row behind it is refused by `lib/school-auth.ts`, so
+    // creating it first and failing here leaves nothing usable.
+    //
+    // The address is the identity, so an invitation without one cannot be
+    // accepted; the invite routes require it.
+    if (invitation.email === null || invitation.email === '') {
+      return apiFailure(
+        'no_email',
+        'This invitation has no email address. Ask for a new one.',
+        409,
+      );
+    }
+
+    const account = await getOrCreateAuthUser(invitation.email);
+    const uid = account.id;
 
     const now = new Date();
 
@@ -142,7 +150,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
       .insert(schoolUsers)
       .values({
         locationId: invitation.locationId,
-        firebaseUid: uid,
+        authUserId: uid,
         email: invitation.email,
         phone,
         name,
@@ -156,7 +164,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
       .onConflictDoUpdate({
         target: [schoolUsers.locationId, schoolUsers.phone],
         set: {
-          firebaseUid: uid,
+          authUserId: uid,
           name,
           role: invitation.role,
           branchId: invitation.branchId,
@@ -176,7 +184,10 @@ export async function POST(request: NextRequest, context: RouteContext) {
         ),
       );
 
-    return apiSuccess({ customToken, role: invitation.role, schoolSlug: school.slug });
+    // Signs them in on this response. They set a password from the portal.
+    await mintSessionForEmail(invitation.email);
+
+    return apiSuccess({ role: invitation.role, schoolSlug: school.slug });
   } catch (error) {
     return handleApiError(error);
   }

@@ -4,20 +4,28 @@ import type { NextRequest } from 'next/server';
 import { emergencyLoginTokens, schoolUsers, schools } from '@/db/schema';
 import { apiFailure, apiSuccess, handleApiError } from '@/lib/api-response';
 import { db } from '@/lib/drizzle';
-import { getAdminAuth } from '@/lib/firebase-admin';
 import { SCHOOL_LOCATION_HEADER } from '@/lib/school-context';
+import { mintSessionForEmail } from '@/lib/supabase-auth';
 import { isUserRole } from '@/types/school-auth';
 
 /**
  * GET /api/school/emergency-login/[token]
  *
- * Redeems a platform-issued emergency link and returns a Firebase custom
- * token. Unauthenticated: the link is the credential.
+ * Redeems a platform-issued emergency link and opens a session.
+ * Unauthenticated: the link is the credential.
  *
  * The link is consumed on first success — `used_at` is stamped before the
- * response is returned, so a link that leaks after use is inert. Claims are
- * refreshed at redemption rather than trusted from issue time, in case the
- * user's role or branch changed in the intervening minutes.
+ * session is minted, so a link that leaks after use is inert.
+ *
+ * ── No claims to refresh any more ────────────────────────────────────────
+ * This route used to re-stamp the user's role and branch onto their Firebase
+ * account at redemption, because claims issued minutes earlier could already
+ * be stale. There is nothing to refresh now: role and branch are read from
+ * `school_users` on every request, so redemption only has to establish *who*
+ * this is. The membership checks below stay exactly as they were — they are
+ * what makes a link for a since-deactivated account fail.
+ *
+ * The response no longer carries a credential; the cookie is set on it.
  */
 
 export const runtime = 'nodejs';
@@ -59,6 +67,7 @@ export async function GET(request: NextRequest, context: RouteContext) {
         role: schoolUsers.role,
         branchId: schoolUsers.branchId,
         isActive: schoolUsers.isActive,
+        email: schoolUsers.email,
       })
       .from(schoolUsers)
       .where(
@@ -80,6 +89,18 @@ export async function GET(request: NextRequest, context: RouteContext) {
 
     if (!isUserRole(user.role)) {
       return apiFailure('invalid_role', 'This account role is not recognised.', 409);
+    }
+
+    // The account is reached by address now, not by a stored uid. A member who
+    // never accepted their invitation has no address on file and therefore no
+    // account to sign in as — the same condition the issuing route refuses on,
+    // re-checked here because the row may have changed since.
+    if (user.email === null || user.email === '') {
+      return apiFailure(
+        'no_account',
+        'This member has no email address on file, so there is no account to open.',
+        409,
+      );
     }
 
     const schoolRows = await db
@@ -111,18 +132,11 @@ export async function GET(request: NextRequest, context: RouteContext) {
       return apiFailure('invalid_token', 'Invalid or expired emergency link', 404);
     }
 
-    const auth = getAdminAuth();
+    // Writes the session cookie onto this response. Nothing is emailed — see
+    // `mintSessionForEmail`.
+    await mintSessionForEmail(user.email);
 
-    await auth.setCustomUserClaims(record.firebaseUid, {
-      locationId: record.locationId,
-      role: user.role,
-      branchId: user.branchId,
-      schoolSlug: school.slug,
-    });
-
-    const customToken = await auth.createCustomToken(record.firebaseUid);
-
-    return apiSuccess({ customToken, role: user.role });
+    return apiSuccess({ role: user.role, schoolSlug: school.slug });
   } catch (error) {
     return handleApiError(error);
   }

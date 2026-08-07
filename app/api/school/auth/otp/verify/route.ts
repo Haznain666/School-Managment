@@ -1,30 +1,37 @@
-import { and, eq } from 'drizzle-orm';
+import { and, eq, isNull, or } from 'drizzle-orm';
 import type { NextRequest } from 'next/server';
 
-import { schoolUsers, schools } from '@/db/schema';
+import { schoolUsers } from '@/db/schema';
 import { apiFailure, apiSuccess, handleApiError, readJsonBody } from '@/lib/api-response';
 import { db } from '@/lib/drizzle';
-import { issueSchoolCustomToken } from '@/lib/firebase-custom-token';
-import { verifyOTPSession } from '@/lib/otp';
-import { InvalidPhoneError, normalizePhone } from '@/lib/phone';
 import { SCHOOL_LOCATION_HEADER } from '@/lib/school-context';
-import { isUserRole } from '@/types/school-auth';
+import { normaliseEmail, signOutCurrentSession, verifyEmailOtp } from '@/lib/supabase-auth';
 
 /**
- * POST /api/school/auth/otp/verify
+ * POST /api/school/auth/otp/verify — redeem the code and open a session.
  *
- * Checks a login passcode and, on success, returns a Firebase custom token.
- * The browser signs in with it and trades the resulting ID token for a session
- * cookie at `/api/school/auth/session`, which is where the tenant is checked
- * again.
+ * On success the session cookie is already written (GoTrue does it through the
+ * cookie-bound client), and the membership row is bound to the Supabase
+ * account. The caller is then sent to set a password.
+ *
+ * ── Binding the account to the membership ────────────────────────────────
+ * `school_users.auth_user_id` is null until this moment: a row can represent an
+ * invited person who has never signed in. This is where the invitation stops
+ * being a promise and becomes an account.
+ *
+ * The update is guarded on the row still being unbound *or* already bound to
+ * this same account. Re-running the flow — a lost password, a second device —
+ * is therefore harmless, but the row cannot be re-pointed at a different
+ * account by someone who later gains control of the address. Rebinding is an
+ * administrative act and does not belong on an unauthenticated endpoint.
  */
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 interface VerifyBody {
-  phone?: unknown;
-  otp?: unknown;
+  email?: unknown;
+  code?: unknown;
 }
 
 export async function POST(request: NextRequest) {
@@ -35,82 +42,45 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await readJsonBody<VerifyBody>(request);
-    const rawPhone = typeof body?.phone === 'string' ? body.phone : '';
-    const otp = typeof body?.otp === 'string' ? body.otp.trim() : '';
+    const email = normaliseEmail(typeof body?.email === 'string' ? body.email : '');
+    const code = typeof body?.code === 'string' ? body.code.trim() : '';
 
-    if (otp === '') {
-      return apiFailure('invalid_body', 'Enter the code from WhatsApp.', 400);
+    if (email === '' || code === '') {
+      return apiFailure('invalid_body', 'Enter the code sent to your email.', 400);
     }
 
-    let phone: string;
-    try {
-      phone = normalizePhone(rawPhone);
-    } catch (error) {
-      if (error instanceof InvalidPhoneError) {
-        return apiFailure('invalid_phone', 'Enter a valid mobile number.', 400);
-      }
-      throw error;
+    const user = await verifyEmailOtp(email, code);
+
+    // Wrong and expired are not distinguished: knowing which one it was only
+    // helps someone guessing.
+    if (user === null) {
+      return apiFailure('otp_invalid', 'That code is incorrect or has expired.', 401);
     }
 
-    const verdict = await verifyOTPSession(db, {
-      locationId,
-      phone,
-      otp,
-      purpose: 'login',
-    });
+    const bound = await db
+      .update(schoolUsers)
+      .set({ authUserId: user.id, joinedAt: new Date(), updatedAt: new Date() })
+      .where(
+        and(
+          eq(schoolUsers.locationId, locationId),
+          eq(schoolUsers.email, email),
+          eq(schoolUsers.isActive, true),
+          // Unbound, or already this account. See the docblock.
+          or(isNull(schoolUsers.authUserId), eq(schoolUsers.authUserId, user.id)),
+        ),
+      )
+      .returning({ id: schoolUsers.id });
 
-    if (verdict === 'expired') {
-      return apiFailure('otp_expired', 'OTP expired. Request a new one.', 410);
-    }
-    if (verdict === 'max_attempts') {
-      return apiFailure('otp_max_attempts', 'Too many attempts. Request a new OTP.', 429);
-    }
-    if (verdict === 'invalid') {
-      return apiFailure('otp_invalid', 'Incorrect OTP. Try again.', 401);
-    }
-
-    const userRows = await db
-      .select({
-        role: schoolUsers.role,
-        branchId: schoolUsers.branchId,
-        isActive: schoolUsers.isActive,
-      })
-      .from(schoolUsers)
-      .where(and(eq(schoolUsers.locationId, locationId), eq(schoolUsers.phone, phone)))
-      .limit(1);
-
-    const user = userRows[0];
-    if (user === undefined || !user.isActive) {
-      return apiFailure(
-        'account_disabled',
-        'Account deactivated. Contact your school admin.',
-        403,
-      );
+    if (bound.length === 0) {
+      // The address verified, but it is not an active member here — or the row
+      // belongs to a different account. Either way this session must not
+      // survive: the cookie GoTrue just wrote would otherwise be a valid
+      // credential with nothing behind it.
+      await signOutCurrentSession();
+      return apiFailure('otp_invalid', 'That code is incorrect or has expired.', 401);
     }
 
-    if (!isUserRole(user.role)) {
-      return apiFailure('invalid_role', 'Your account role is not recognised.', 409);
-    }
-
-    const schoolRows = await db
-      .select({ slug: schools.slug })
-      .from(schools)
-      .where(eq(schools.locationId, locationId))
-      .limit(1);
-
-    const school = schoolRows[0];
-    if (school === undefined) {
-      return apiFailure('no_school', 'This school portal is unavailable.', 404);
-    }
-
-    const { customToken } = await issueSchoolCustomToken(locationId, phone, {
-      locationId,
-      role: user.role,
-      branchId: user.branchId,
-      schoolSlug: school.slug,
-    });
-
-    return apiSuccess({ customToken, role: user.role });
+    return apiSuccess({ verified: true, setPasswordRequired: true });
   } catch (error) {
     return handleApiError(error);
   }

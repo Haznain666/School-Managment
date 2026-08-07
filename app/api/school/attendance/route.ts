@@ -1,4 +1,3 @@
-import type { BatchItem } from 'drizzle-orm/batch';
 import { and, eq } from 'drizzle-orm';
 
 import {
@@ -10,7 +9,7 @@ import {
 import { withSchoolAuth, type SchoolAuthContext } from '@/lib/api-auth';
 import { apiFailure, apiSuccess, handleApiError, readJsonBody } from '@/lib/api-response';
 import { listSectionRegister, teacherTeachesSection } from '@/lib/academics-queries';
-import { db } from '@/lib/drizzle';
+import { batch, db, type Tx } from '@/lib/drizzle';
 import { getSchoolUserByUid } from '@/lib/school-queries';
 import { isIsoDate, isUuid, readOptionalString } from '@/lib/validation';
 
@@ -20,7 +19,7 @@ import { isIsoDate, isUuid, readOptionalString } from '@/lib/validation';
  * GET  the register for one section on one day
  * POST mark the whole class at once
  *
- * Marking is a bulk upsert in a single `db.batch()`, which Neon runs as one
+ * Marking is a bulk upsert through `batch()`, which runs every row in one
  * transaction. A register is taken as a class, not a student at a time: forty
  * separate requests would leave a half-marked day if the tab were closed
  * partway, and the unique key on (location, date, student) means saving twice
@@ -29,8 +28,6 @@ import { isIsoDate, isUuid, readOptionalString } from '@/lib/validation';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
-
-type PgBatchItem = BatchItem<'pg'>;
 
 /**
  * A teacher may only touch a section they are timetabled into. Admins are not
@@ -195,8 +192,10 @@ export const POST = withSchoolAuth(
       // from the body — a disputed absence has to be answerable.
       const marker = await getSchoolUserByUid(auth.locationId, auth.uid);
 
-      const statements: PgBatchItem[] = parsed.map((record) =>
-        db
+      // Deferred until `batch()` opens the transaction: a Drizzle builder is
+      // bound to the session that created it, so these must be built on `tx`.
+      const statements = parsed.map((record) => (tx: Tx) =>
+        tx
           .insert(attendanceRecords)
           .values({
             // Tenant comes from the verified session, never from the body.
@@ -225,7 +224,7 @@ export const POST = withSchoolAuth(
           }),
       );
 
-      await db.batch(statements as [PgBatchItem, ...PgBatchItem[]]);
+      await batch(db, (tx) => statements.map((statement) => statement(tx)));
 
       return apiSuccess({ marked: parsed.length, date });
     } catch (error) {

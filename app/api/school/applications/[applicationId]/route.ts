@@ -11,6 +11,8 @@ import { apiFailure, apiSuccess, handleApiError, readJsonBody } from '@/lib/api-
 import { getApplicationDetail } from '@/lib/admissions-queries';
 import { db } from '@/lib/drizzle';
 import { createGuardianGHLContact } from '@/lib/ghl-admissions';
+import { isWhatsAppEnabled } from '@/lib/channels';
+import { sendEmail, smtpConfigured } from '@/lib/email-sender';
 import { sendWhatsAppMessage } from '@/lib/ghl-client';
 import { getSchoolBranding } from '@/lib/school-tenant';
 import { isUuid, readBoolean, readOptionalString } from '@/lib/validation';
@@ -157,7 +159,9 @@ export const PATCH = withSchoolAuth<RouteContext>(
 
       if (readBoolean(body.notifyGuardian, false)) {
         // Never blocks the decision: the status change is the record, the
-        // WhatsApp is a courtesy on top of it.
+        // The message is a courtesy on top of it, on whichever channels the
+        // school has: WhatsApp when the add-on is bought, email when there is
+        // an address. `notified` says whether at least one landed.
         try {
           const branding = await getSchoolBranding(auth.locationId);
           const message = decisionMessage(body.status, {
@@ -173,8 +177,20 @@ export const PATCH = withSchoolAuth<RouteContext>(
               email: existing.guardianEmail ?? undefined,
             });
 
-            await sendWhatsAppMessage(db, auth.locationId, contactId, message);
-            notified = true;
+            if (await isWhatsAppEnabled(auth.locationId)) {
+              await sendWhatsAppMessage(db, auth.locationId, contactId, message);
+              notified = true;
+            }
+
+            const guardianEmail = existing.guardianEmail;
+            if (guardianEmail !== null && guardianEmail !== '' && smtpConfigured()) {
+              await sendEmail(
+                guardianEmail,
+                `Update on your application — ${branding?.name ?? 'your school'}`,
+                message,
+              );
+              notified = true;
+            }
           }
         } catch (error) {
           console.warn(

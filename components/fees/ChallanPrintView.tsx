@@ -1,3 +1,4 @@
+import { PrintDocument, PrintLetterhead, PrintSheet } from '@/components/print/PrintSheet';
 import { MONTH_NAMES } from '@/db/schema/academic-years';
 import { amountInWords, formatAmount, toPaise } from '@/lib/money';
 
@@ -10,10 +11,14 @@ import { amountInWords, formatAmount, toPaise } from '@/lib/money';
  * sections rather than three pages, and why each section repeats the whole bill
  * instead of referring back to the first.
  *
- * It renders on screen only when printing: the container is `hidden` and the
- * `@media print` rules in `globals.css` reveal it while blanking the portal
- * shell around it. No PDF library is involved — the browser's own print dialog
- * is the renderer, which is one less dependency between a school and its money.
+ * The mechanics of getting it onto paper — hiding the portal shell, page size,
+ * break behaviour — belong to `<PrintSheet>`, not here. This file is only the
+ * voucher's own layout.
+ *
+ * Two entry points:
+ *   `ChallanPrintView`  one voucher, its own sheet. Used by the detail page.
+ *   `ChallanCopies`     the three copies alone, for callers that are printing
+ *                       many vouchers into a single sheet and print job.
  */
 
 export interface ChallanPrintItem {
@@ -45,6 +50,8 @@ export interface ChallanPrintData {
   totalAmount: string;
   paidAmount: string;
   items: readonly ChallanPrintItem[];
+  /** School logo for the letterhead. Null when the school has not set one. */
+  logoUrl?: string | null;
 }
 
 const COPIES = ['SCHOOL COPY', 'BANK COPY', 'STUDENT COPY'] as const;
@@ -56,11 +63,33 @@ function billingPeriod(data: ChallanPrintData): string {
   return `${MONTH_NAMES[data.billingMonth - 1] ?? data.billingMonth} ${data.billingYear}`;
 }
 
+/** One voucher on its own sheet. */
 export function ChallanPrintView({ data }: { data: ChallanPrintData }) {
+  return (
+    <PrintSheet paper="a4">
+      <ChallanCopies data={data} />
+    </PrintSheet>
+  );
+}
+
+/**
+ * The three copies, without a sheet around them.
+ *
+ * Exported so bulk printing can put many vouchers into one sheet and one print
+ * job — see `dashboard/fees/challans/print`. `breakAfter` starts a fresh page
+ * after this voucher, which is what keeps one student per sheet.
+ */
+export function ChallanCopies({
+  data,
+  breakAfter = false,
+}: {
+  data: ChallanPrintData;
+  breakAfter?: boolean;
+}) {
   const balancePaise = toPaise(data.totalAmount) - toPaise(data.paidAmount);
 
   return (
-    <div id="challan-print" className="hidden bg-white text-black">
+    <PrintDocument breakAfter={breakAfter}>
       {COPIES.map((copy, index) => (
         <section
           key={copy}
@@ -79,7 +108,7 @@ export function ChallanPrintView({ data }: { data: ChallanPrintData }) {
           )}
         </section>
       ))}
-    </div>
+    </PrintDocument>
   );
 }
 
@@ -94,27 +123,21 @@ function ChallanCopy({
 }) {
   return (
     <div className="text-[10px] leading-tight">
-      <header className="flex items-start justify-between gap-3 border-b border-black pb-1.5">
-        <div>
-          <p className="text-sm font-bold uppercase">{data.schoolName}</p>
-          {data.branchName === null ? null : (
-            <p className="text-[9px]">{data.branchName}</p>
-          )}
-          {data.schoolAddress === null ? null : (
-            <p className="text-[9px]">{data.schoolAddress}</p>
-          )}
-          {data.schoolPhone === null ? null : (
-            <p className="text-[9px]">Tel: {data.schoolPhone}</p>
-          )}
-        </div>
-
-        <div className="text-right">
-          <p className="border border-black px-2 py-0.5 text-[9px] font-bold tracking-wide">
-            {copyLabel}
-          </p>
-          <p className="mt-1 font-mono text-[10px] font-bold">{data.challanNumber}</p>
-        </div>
-      </header>
+      <PrintLetterhead
+        logoUrl={data.logoUrl ?? null}
+        schoolName={data.schoolName}
+        branchName={data.branchName}
+        address={data.schoolAddress}
+        phone={data.schoolPhone}
+        right={
+          <>
+            <p className="border border-black px-2 py-0.5 text-[9px] font-bold tracking-wide">
+              {copyLabel}
+            </p>
+            <p className="mt-1 font-mono text-[10px] font-bold">{data.challanNumber}</p>
+          </>
+        }
+      />
 
       <div className="grid grid-cols-2 gap-x-4 gap-y-0.5 py-1.5">
         <Field label="Student" value={data.studentName} />

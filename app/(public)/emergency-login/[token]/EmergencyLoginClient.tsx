@@ -3,7 +3,6 @@
 import { useRouter } from 'next/navigation';
 import { useEffect, useRef, useState } from 'react';
 
-import { establishSession } from '@/components/school/useOtpCountdown';
 import { ROLE_HOME_ROUTES, isUserRole } from '@/types/school-auth';
 
 export interface EmergencyLoginClientProps {
@@ -12,7 +11,6 @@ export interface EmergencyLoginClientProps {
 }
 
 interface RedeemData {
-  customToken: string;
   role: string;
 }
 
@@ -58,15 +56,9 @@ export function EmergencyLoginClient({ token, schoolSlug }: EmergencyLoginClient
           return;
         }
 
-        const session = await establishSession(payload.data.customToken, schoolSlug);
-
-        if ('error' in session) {
-          if (!cancelled) setError(session.error);
-          return;
-        }
-
-        const home = isUserRole(session.role)
-          ? ROLE_HOME_ROUTES[session.role]
+        // The cookie is already set on the response above.
+        const home = isUserRole(payload.data.role)
+          ? ROLE_HOME_ROUTES[payload.data.role]
           : '/dashboard';
 
         router.replace(

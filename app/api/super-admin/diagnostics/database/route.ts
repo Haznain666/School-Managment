@@ -1,5 +1,5 @@
 import { apiSuccess, handleApiError } from '@/lib/api-response';
-import { getSql } from '@/lib/neon';
+import { getSql } from '@/lib/postgres';
 import { requireSuperAdmin } from '@/lib/super-admin-guard';
 
 /**
@@ -9,12 +9,12 @@ import { requireSuperAdmin } from '@/lib/super-admin-guard';
  * whether the Sprint 4 objects exist there.
  *
  * ── Why this exists ──────────────────────────────────────────────────────
- * "The column is in Neon but the app says it is missing" has exactly one
- * cause: the app is reading a different database than the one being looked at
- * — usually a different Neon branch, since each branch has its own `ep-…`
- * endpoint. Comparing a dashboard against a console is guesswork; this asks
- * the deployed process itself, which is the only authority on what its own
- * DATABASE_URL resolves to.
+ * "The column is in the database but the app says it is missing" has exactly
+ * one cause: the app is reading a different database than the one being looked
+ * at — a different Supabase project, or the direct connection where the
+ * migration went to the pooler. Comparing a dashboard against a console is
+ * guesswork; this asks the deployed process itself, which is the only
+ * authority on what its own DATABASE_URL resolves to.
  *
  * Guarded by the Super Admin session, which is a signed cookie and touches no
  * table — so this still answers while every `schools` query is failing, which
@@ -22,7 +22,7 @@ import { requireSuperAdmin } from '@/lib/super-admin-guard';
  *
  * Raw SQL rather than Drizzle: `information_schema` and Drizzle's own
  * migration bookkeeping have no schema definitions in `db/schema`, so the
- * query builder cannot express them. `lib/neon.ts` documents this as the
+ * query builder cannot express them. `lib/postgres.ts` documents this as the
  * sanctioned escape hatch for exactly that case.
  *
  * Temporary. Delete once the environment mismatch is resolved.
@@ -60,7 +60,8 @@ interface MigrationRow {
 
 /**
  * The connection target, with the credentials removed.
- * The host is the useful part: it names the Neon branch endpoint.
+ * The host is the useful part: it names the Supabase project and says whether
+ * this is the pooler (`...pooler.supabase.com`) or a direct connection.
  */
 function connectionTarget(): { host: string; database: string } | null {
   const raw = process.env['DATABASE_URL'];
@@ -125,8 +126,8 @@ export async function GET() {
 
     return apiSuccess({
       connection: {
-        // Identifies the Neon branch. Compare this against the branch you ran
-        // the migration on — if they differ, that is the whole problem.
+        // Identifies the Supabase project. Compare this against the project you
+        // ran the migration on — if they differ, that is the whole problem.
         host: target?.host ?? null,
         databaseInUrl: target?.database ?? null,
         databaseReported: identityRows[0]?.database ?? null,

@@ -1,4 +1,3 @@
-import type { BatchItem } from 'drizzle-orm/batch';
 import { and, eq } from 'drizzle-orm';
 
 import {
@@ -9,7 +8,7 @@ import {
 } from '@/db/schema';
 import { withSchoolAuth } from '@/lib/api-auth';
 import { apiFailure, apiSuccess, handleApiError, readJsonBody } from '@/lib/api-response';
-import { db } from '@/lib/drizzle';
+import { batch, db, type Tx } from '@/lib/drizzle';
 import { getStaffAttendanceForDate, listStaff } from '@/lib/hr-queries';
 import { isIsoDate, isUuid, readOptionalString } from '@/lib/validation';
 
@@ -20,8 +19,8 @@ import { isIsoDate, isUuid, readOptionalString } from '@/lib/validation';
  * POST mark it
  *
  * ── On idempotence ───────────────────────────────────────────────────────
- * Marking is a bulk upsert onto the unique (location, date, staff) index in a
- * single `db.batch()`, which Neon runs as one transaction. An administrator who
+ * Marking is a bulk upsert onto the unique (location, date, staff) index,
+ * through `batch()` so every row lands in one transaction. An administrator who
  * saves the register twice, or corrects it an hour later, updates the same rows
  * — so a day can never hold two contradictory answers for one person, which is
  * exactly what payroll would trip over when it counts absences.
@@ -32,8 +31,6 @@ import { isIsoDate, isUuid, readOptionalString } from '@/lib/validation';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
-
-type PgBatchItem = BatchItem<'pg'>;
 
 export const GET = withSchoolAuth(
   async (request, auth) => {
@@ -139,15 +136,17 @@ export const POST = withSchoolAuth(
         .where(
           and(
             eq(schoolUsers.locationId, auth.locationId),
-            eq(schoolUsers.firebaseUid, auth.uid),
+            eq(schoolUsers.authUserId, auth.uid),
           ),
         )
         .limit(1);
 
       const markedBy = markers[0]?.id ?? null;
 
-      const statements: PgBatchItem[] = parsed.map((mark) =>
-        db
+      // Deferred until `batch()` opens the transaction: a Drizzle builder is
+      // bound to the session that created it, so these must be built on `tx`.
+      const statements = parsed.map((mark) => (tx: Tx) =>
+        tx
           .insert(staffAttendance)
           .values({
             locationId: auth.locationId,
@@ -167,7 +166,7 @@ export const POST = withSchoolAuth(
           }),
       );
 
-      await db.batch(statements as [PgBatchItem, ...PgBatchItem[]]);
+      await batch(db, (tx) => statements.map((statement) => statement(tx)));
 
       return apiSuccess({ date, marked: parsed.length });
     } catch (error) {

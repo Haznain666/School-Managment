@@ -1,11 +1,10 @@
 import 'server-only';
 
-import type { BatchItem } from 'drizzle-orm/batch';
 import { and, eq } from 'drizzle-orm';
 
 import { payrollRuns, payslipItems, payslips, staff } from '@/db/schema';
 
-import { db } from './drizzle';
+import { batch, db, type Tx } from './drizzle';
 import {
   attendanceTallyByStaff,
   getSalaryAssignmentsByStaff,
@@ -18,7 +17,15 @@ import { paiseToNumeric } from './money';
 import { calculatePayslip } from './payroll-calculator';
 import { reservePayslipNumbers } from './payslip-number';
 
-type PgBatchItem = BatchItem<'pg'>;
+/**
+ * One statement of the payroll write, deferred until the transaction exists.
+ *
+ * The run is assembled across a loop rather than as a single literal, and a
+ * Drizzle builder is bound to whatever session created it, so these are stored
+ * as functions of `tx` and only built once `batch()` opens the transaction.
+ * Building them on `db` here would run them outside it.
+ */
+type Statement = (tx: Tx) => PromiseLike<unknown>;
 
 /**
  * Payroll run generation (Sprint 7).
@@ -32,11 +39,11 @@ type PgBatchItem = BatchItem<'pg'>;
  *
  * ── On atomicity ─────────────────────────────────────────────────────────
  * A run writes one `payroll_runs` row, one `payslips` row per staff member and
- * several `payslip_items` rows each. They go out in a single `db.batch()`,
- * which the Neon HTTP driver executes as one transaction — a run that wrote
- * half its payslips and then failed would leave a school paying half its staff.
+ * several `payslip_items` rows each. They go out through `batch()`, which runs
+ * them in one Postgres transaction — a run that wrote half its payslips and
+ * then failed would leave a school paying half its staff.
  *
- * Payslip numbers are reserved in one statement before the batch, for the
+ * Payslip numbers are reserved in one statement before the transaction, for the
  * reason `lib/payslip-number.ts` explains.
  *
  * ── Regeneration ─────────────────────────────────────────────────────────
@@ -196,12 +203,15 @@ export async function generatePayrollRun(
   let deductionTotalPaise = 0;
   let netTotalPaise = 0;
 
-  const statements: PgBatchItem[] = [
+  const statements: Statement[] = [
     // Regeneration: a draft run's previous payslips go first. The line items
     // follow by cascade, so they are not deleted separately.
-    db.delete(payslips).where(
-      and(eq(payslips.locationId, locationId), eq(payslips.payrollRunId, runId)),
-    ),
+    (tx) =>
+      tx
+        .delete(payslips)
+        .where(
+          and(eq(payslips.locationId, locationId), eq(payslips.payrollRunId, runId)),
+        ),
   ];
 
   computed.forEach((entry, index) => {
@@ -220,8 +230,8 @@ export async function generatePayrollRun(
     deductionTotalPaise += result.totalDeductionsPaise + result.lossOfPayPaise;
     netTotalPaise += result.netPayablePaise;
 
-    statements.push(
-      db.insert(payslips).values({
+    statements.push((tx) =>
+      tx.insert(payslips).values({
         id: payslipId,
         locationId,
         payrollRunId: runId,
@@ -244,8 +254,8 @@ export async function generatePayrollRun(
     );
 
     for (const line of result.lines) {
-      statements.push(
-        db.insert(payslipItems).values({
+      statements.push((tx) =>
+        tx.insert(payslipItems).values({
           locationId,
           payslipId,
           componentId: line.componentId,
@@ -261,8 +271,8 @@ export async function generatePayrollRun(
     // three days should see the three days and the rupees, not a net figure
     // that is lower than last month for no stated reason.
     if (result.lossOfPayPaise > 0) {
-      statements.push(
-        db.insert(payslipItems).values({
+      statements.push((tx) =>
+        tx.insert(payslipItems).values({
           locationId,
           payslipId,
           componentId: null,
@@ -275,8 +285,8 @@ export async function generatePayrollRun(
     }
   });
 
-  statements.push(
-    db
+  statements.push((tx) =>
+    tx
       .update(payrollRuns)
       .set({
         staffCount: computed.length,
@@ -288,7 +298,7 @@ export async function generatePayrollRun(
       .where(and(eq(payrollRuns.id, runId), eq(payrollRuns.locationId, locationId))),
   );
 
-  await db.batch(statements as [PgBatchItem, ...PgBatchItem[]]);
+  await batch(db, (tx) => statements.map((statement) => statement(tx)));
 
   return {
     staffCount: computed.length,

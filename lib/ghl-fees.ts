@@ -4,13 +4,32 @@ import { and, eq } from 'drizzle-orm';
 
 import { schools } from '@/db/schema';
 
+import { isWhatsAppEnabled } from './channels';
 import type { Database } from './drizzle';
+import { sendEmail, smtpConfigured } from './email-sender';
 import { findOrCreateContact, sendWhatsAppMessage } from './ghl-client';
 import { formatAmount } from './money';
 import { isValidPhone, normalizePhone } from './phone';
 
 /**
- * WhatsApp messaging for the Fee module (Sprint 5).
+ * Fee notices to guardians (Sprint 5).
+ *
+ * ── Two channels, one switch ─────────────────────────────────────────────
+ * WhatsApp when the school has bought it, email otherwise. The choice is per
+ * school and lives in `lib/channels.ts`; nothing here decides policy, it only
+ * reads the answer.
+ *
+ * Both are attempted when both are available, because a fee notice is the one
+ * message a school most wants to have landed, and the two channels fail
+ * independently.
+ *
+ * ── The guardian nobody can reach ────────────────────────────────────────
+ * A guardian with no email at a school with WhatsApp off receives nothing.
+ * That is a real and currently common state, so it is *counted and reported*
+ * by `/api/school/fees/reminders` rather than logged and forgotten. This
+ * module does not decide what to do about it — it cannot, being unawaited —
+ * but `canReachGuardian` below is the single definition of "reachable" that
+ * the route counts with, so the report and the sending cannot disagree.
  *
  * ── On failure ───────────────────────────────────────────────────────────
  * Nothing in this file may throw, and nothing in this file may block. Taking a
@@ -23,6 +42,30 @@ import { isValidPhone, normalizePhone } from './phone';
  * A reminder that does not arrive is a nuisance. A payment that does not record
  * is a dispute. The asymmetry is the whole design.
  */
+
+/** Everything a fee notice can be delivered to. */
+export interface GuardianContact {
+  name: string;
+  phone: string;
+  email: string | null;
+}
+
+/**
+ * Could this guardian receive anything at all?
+ *
+ * Shared with `/api/school/fees/reminders` so the count it reports and the
+ * sends that actually happen are decided by the same rule.
+ */
+export function canReachGuardian(
+  guardian: GuardianContact,
+  whatsAppEnabled: boolean,
+): boolean {
+  const byWhatsApp = whatsAppEnabled && isValidPhone(guardian.phone);
+  const byEmail =
+    guardian.email !== null && guardian.email.trim() !== '' && smtpConfigured();
+
+  return byWhatsApp || byEmail;
+}
 
 /** The school's own name, for signing the message. Null when it cannot be read. */
 async function schoolNameFor(
@@ -39,34 +82,66 @@ async function schoolNameFor(
 }
 
 /**
- * Resolves the guardian's GHL contact and posts a WhatsApp message to it.
- * Shared by both senders; every failure path is the caller's `catch`.
+ * Delivers one notice on every channel available to this school.
+ *
+ * Each channel is tried inside its own try/catch: WhatsApp failing must not
+ * stop the email, and neither may throw into an unawaited caller.
+ * Returns true when at least one channel accepted the message.
  */
-async function whatsAppToGuardian(
+async function notifyGuardian(
   db: Database,
   locationId: string,
-  guardian: { name: string; phone: string },
+  guardian: GuardianContact,
+  subject: string,
   message: string,
-): Promise<void> {
-  if (!isValidPhone(guardian.phone)) {
-    console.warn(
-      `[ghl-fees] skipping WhatsApp for ${guardian.name} at ${locationId}: unusable phone number.`,
-    );
-    return;
+): Promise<boolean> {
+  let delivered = false;
+
+  if (await isWhatsAppEnabled(locationId)) {
+    if (!isValidPhone(guardian.phone)) {
+      console.warn(
+        `[ghl-fees] skipping WhatsApp for ${guardian.name} at ${locationId}: unusable phone number.`,
+      );
+    } else {
+      try {
+        const contact = await findOrCreateContact(db, locationId, {
+          phone: normalizePhone(guardian.phone),
+          name: guardian.name,
+          email: guardian.email ?? undefined,
+        });
+
+        await sendWhatsAppMessage(db, locationId, contact.contactId, message);
+        delivered = true;
+      } catch (error) {
+        console.warn(`[ghl-fees] WhatsApp failed for ${guardian.name} at ${locationId}:`, error);
+      }
+    }
   }
 
-  const contact = await findOrCreateContact(db, locationId, {
-    phone: normalizePhone(guardian.phone),
-    name: guardian.name,
-  });
+  const email = guardian.email;
 
-  await sendWhatsAppMessage(db, locationId, contact.contactId, message);
+  if (email !== null && email.trim() !== '' && smtpConfigured()) {
+    try {
+      await sendEmail(email.trim(), subject, message);
+      delivered = true;
+    } catch (error) {
+      console.warn(`[ghl-fees] email failed for ${guardian.name} at ${locationId}:`, error);
+    }
+  }
+
+  if (!delivered) {
+    // Not an error: a school may legitimately have neither channel for this
+    // guardian. The route is what tells the admin how many of these there were.
+    console.info(
+      `[ghl-fees] no channel available for ${guardian.name} at ${locationId}`,
+    );
+  }
+
+  return delivered;
 }
 
 export interface FeeReminderParams {
-  guardianName: string;
-  /** The guardian's number, normalised to E.164 before sending. */
-  guardianPhone: string;
+  guardian: GuardianContact;
   studentName: string;
   challanNumber: string;
   /** PKR still outstanding. */
@@ -83,7 +158,7 @@ export interface FeeReminderParams {
  * Never throws. Called for each row of the defaulters report, including from a
  * "send all" loop, so a single bad number must not stop the rest going out.
  */
-export async function sendFeeReminderWhatsApp(
+export async function sendFeeReminder(
   db: Database,
   locationId: string,
   params: FeeReminderParams,
@@ -93,14 +168,15 @@ export async function sendFeeReminderWhatsApp(
       params.schoolName ?? (await schoolNameFor(db, locationId)) ?? 'your school';
 
     const message =
-      `Dear ${params.guardianName}, fee challan ${params.challanNumber} for ` +
+      `Dear ${params.guardian.name}, fee challan ${params.challanNumber} for ` +
       `${params.studentName} of PKR ${formatAmount(params.amountDue)} was due on ` +
       `${params.dueDate}. Please pay at your nearest bank. - ${schoolName}`;
 
-    await whatsAppToGuardian(
+    await notifyGuardian(
       db,
       locationId,
-      { name: params.guardianName, phone: params.guardianPhone },
+      params.guardian,
+      `Fee challan ${params.challanNumber} is overdue — ${schoolName}`,
       message,
     );
 
@@ -118,8 +194,7 @@ export async function sendFeeReminderWhatsApp(
 }
 
 export interface PaymentConfirmationParams {
-  guardianName: string;
-  guardianPhone: string;
+  guardian: GuardianContact;
   studentName: string;
   challanNumber: string;
   /** PKR received in this payment. */
@@ -133,7 +208,7 @@ export interface PaymentConfirmationParams {
  * Never throws, and is deliberately never awaited inside the payment endpoint:
  * the money is already recorded by the time this runs.
  */
-export async function sendPaymentConfirmationWhatsApp(
+export async function sendPaymentConfirmation(
   db: Database,
   locationId: string,
   params: PaymentConfirmationParams,
@@ -143,14 +218,15 @@ export async function sendPaymentConfirmationWhatsApp(
       params.schoolName ?? (await schoolNameFor(db, locationId)) ?? 'your school';
 
     const message =
-      `Dear ${params.guardianName}, payment of PKR ${formatAmount(params.amountPaid)} ` +
+      `Dear ${params.guardian.name}, payment of PKR ${formatAmount(params.amountPaid)} ` +
       `received for ${params.studentName} against challan ${params.challanNumber}. ` +
       `Thank you. - ${schoolName}`;
 
-    await whatsAppToGuardian(
+    await notifyGuardian(
       db,
       locationId,
-      { name: params.guardianName, phone: params.guardianPhone },
+      params.guardian,
+      `Payment received for challan ${params.challanNumber} — ${schoolName}`,
       message,
     );
 

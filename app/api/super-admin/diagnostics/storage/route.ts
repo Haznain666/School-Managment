@@ -12,9 +12,9 @@ import { requireSuperAdmin } from '@/lib/super-admin-guard';
  * An upload can fail for four reasons that all look alike from the outside:
  * the variables are absent, the URL points at the wrong project, the anon key
  * was pasted where the service_role key belongs, or the bucket was never
- * created. Comparing a Supabase dashboard against a Vercel one is guesswork;
- * this asks the deployed process itself, which is the only authority on what
- * its own environment resolves to.
+ * created. Comparing a Supabase dashboard against the host's control panel is
+ * guesswork; this asks the deployed process itself, which is the only
+ * authority on what its own environment resolves to.
  *
  * Guarded by the Super Admin session. The response never contains a key — only
  * the project URL and bucket name, both of which appear in every public object
@@ -54,11 +54,11 @@ function buildAdvice(
   diagnostics: Awaited<ReturnType<typeof inspectStorage>>,
 ): string {
   if (diagnostics.supabaseUrl === null) {
-    return 'SUPABASE_URL is not set. Add it in Vercel: Supabase → Project Settings → Data API → Project URL.';
+    return 'SUPABASE_URL is not set. Add it to the app environment: Supabase → Project Settings → Data API → Project URL.';
   }
 
   if (!diagnostics.serviceKeyPresent) {
-    return 'SUPABASE_SERVICE_ROLE_KEY is not set. Add it in Vercel: Supabase → Project Settings → API keys → service_role.';
+    return 'SUPABASE_SERVICE_ROLE_KEY is not set. Add it to the app environment: Supabase → Project Settings → API keys → service_role.';
   }
 
   if (diagnostics.keyKind === 'publishable' || diagnostics.keyKind === 'jwt_anon') {
