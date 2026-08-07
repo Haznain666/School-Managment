@@ -32,11 +32,6 @@ const nextConfig = {
   // root; pin tracing here so Next.js does not guess the wrong workspace root.
   outputFileTracingRoot: import.meta.dirname,
 
-  // firebase-admin pulls in optional native/gRPC deps that must not be bundled
-  // by the Next.js server compiler — keep them as runtime `require`s.
-  // TODO: drop once Supabase Auth replaces Firebase (Stage 2, see STATE.md).
-  serverExternalPackages: ['firebase-admin'],
-
   typescript: {
     // Never ship a build that does not typecheck.
     ignoreBuildErrors: false,

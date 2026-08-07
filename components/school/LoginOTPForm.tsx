@@ -6,7 +6,6 @@ import { useCallback, useState, type FormEvent } from 'react';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import {
-  establishSession,
   useOtpCountdown,
 } from '@/components/school/useOtpCountdown';
 import { withSchoolParam } from '@/lib/school-client';
@@ -28,7 +27,6 @@ interface RequestData {
 }
 
 interface VerifyData {
-  customToken: string;
   role: string;
 }
 
@@ -139,16 +137,9 @@ export function LoginOTPForm({ schoolName, schoolSlug }: LoginOTPFormProps) {
           return;
         }
 
-        const session = await establishSession(payload.data.customToken, schoolSlug);
-
-        if ('error' in session) {
-          setError(session.error);
-          setIsLoading(false);
-          return;
-        }
-
-        const home = isUserRole(session.role)
-          ? ROLE_HOME_ROUTES[session.role]
+        // The cookie is already set on the response above.
+        const home = isUserRole(payload.data.role)
+          ? ROLE_HOME_ROUTES[payload.data.role]
           : '/dashboard';
 
         router.replace(

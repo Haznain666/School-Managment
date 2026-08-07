@@ -5,7 +5,7 @@ import { apiFailure, apiSuccess, handleApiError, readJsonBody } from '@/lib/api-
 import { withSchoolAuth } from '@/lib/api-auth';
 import { db } from '@/lib/drizzle';
 import { getSchoolUserById } from '@/lib/school-queries';
-import { revokeSchoolSession, setSchoolUserClaims } from '@/lib/school-auth';
+import { revokeSchoolSession } from '@/lib/school-auth';
 import { isUuid, readString } from '@/lib/validation';
 import { BRANCH_REQUIRED_ROLES, isUserRole } from '@/types/school-auth';
 
@@ -138,7 +138,7 @@ export const PATCH = withSchoolAuth<RouteContext>(
         )
         .returning({
           id: schoolUsers.id,
-          firebaseUid: schoolUsers.firebaseUid,
+          authUserId: schoolUsers.authUserId,
           role: schoolUsers.role,
           branchId: schoolUsers.branchId,
           isActive: schoolUsers.isActive,
@@ -147,26 +147,18 @@ export const PATCH = withSchoolAuth<RouteContext>(
       const user = updated[0];
       if (user === undefined) return apiFailure('not_found', 'User not found.', 404);
 
-      // Keep Firebase claims in step, and end any session carrying stale ones.
-      if (user.firebaseUid !== null) {
-        const roleChanged = updates.role !== undefined;
-        const branchChanged = updates.branchId !== undefined;
-        const deactivated = updates.isActive === false;
-
-        if (roleChanged || branchChanged) {
-          if (isUserRole(user.role)) {
-            await setSchoolUserClaims(user.firebaseUid, {
-              locationId: auth.locationId,
-              role: user.role,
-              branchId: user.branchId,
-              schoolSlug: auth.schoolSlug,
-            });
-          }
-        }
-
-        if (roleChanged || branchChanged || deactivated) {
-          await revokeSchoolSession(user.firebaseUid);
-        }
+      // ── There are no claims to mirror any more ────────────────────────
+      // This block used to write the new role and branch onto the user's
+      // Firebase account, because the claims in their token were the
+      // authority and would otherwise be replayed until it expired. The row
+      // updated above is now the authority, read on the user's very next
+      // request, so a role or branch change has already taken effect.
+      //
+      // Deactivation still revokes: `isAccountActive` refuses the session on
+      // the next request either way, but there is no reason to leave a
+      // refresh token working for an account that has been switched off.
+      if (user.authUserId !== null && updates.isActive === false) {
+        await revokeSchoolSession(user.authUserId);
       }
 
       const fresh = await getSchoolUserById(auth.locationId, userId);

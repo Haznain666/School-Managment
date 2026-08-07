@@ -4,15 +4,20 @@ import type { NextRequest } from 'next/server';
 import { schools } from '@/db/schema';
 import { apiFailure, apiSuccess, handleApiError } from '@/lib/api-response';
 import { db } from '@/lib/drizzle';
-import { adminCredentialSummary, getAdminAuth } from '@/lib/firebase-admin';
-import { derivePlatformAdminUid, verifyHandoffToken } from '@/lib/platform-school-access';
+import { platformAdminEmailFor, verifyHandoffToken } from '@/lib/platform-school-access';
 import { SCHOOL_LOCATION_HEADER } from '@/lib/school-context';
+import {
+  getAuthAdmin,
+  getOrCreateAuthUser,
+  mintSessionForEmail,
+  SupabaseAuthError,
+} from '@/lib/supabase-auth';
 
 /**
  * POST /api/school/auth/platform-session/[token]
  *
- * Redeems a Super Admin hand-off and returns a Firebase custom token carrying
- * school_admin claims for one school.
+ * Redeems a Super Admin hand-off and opens a school_admin session for one
+ * school.
  *
  * Unauthenticated by definition — the signed token is the credential, exactly
  * as the emergency link is. What it is *not* is unguarded: the token is signed
@@ -21,40 +26,23 @@ import { SCHOOL_LOCATION_HEADER } from '@/lib/school-context';
  * request actually arrived at, so a token minted for School A cannot open
  * School B even if it is replayed at B's address.
  *
- * This route is deliberately separate from the OTP flow rather than a branch
- * inside it: school members keep passcode sign-in untouched, and the two paths
- * cannot be confused for one another in a later edit.
+ * ── The browser round trip is gone ───────────────────────────────────────
+ * This route used to return a Firebase custom token for the browser to sign in
+ * with. GoTrue lets the server mint the session itself, so the response now
+ * carries no credential at all — just the cookie, already set.
+ *
+ * ── The one place claims still live in the token ─────────────────────────
+ * Everyone else's role comes from `school_users`. The operator has no row
+ * there and must not have one: they are not a member of the school, and a row
+ * would appear in the school's own user list. So the marker goes in
+ * `app_metadata`, which only the service-role key can write, and
+ * `lib/school-auth.ts` reads it only when no membership row exists.
  */
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 type RouteContext = { params: Promise<{ token: string }> };
-
-/**
- * Turns a Firebase error code into the thing an operator actually has to go
- * and do. Only for codes whose name does not say it: `auth/user-not-found`
- * explains itself, `auth/configuration-not-found` names a condition most
- * people meet once and have to search for.
- */
-function explain(code: unknown): string {
-  if (code !== 'auth/configuration-not-found') return '';
-
-  let project = 'the configured project';
-  try {
-    project = `project "${adminCredentialSummary().projectId}"`;
-  } catch {
-    // The summary re-reads the credentials; if that now fails, the code above
-    // is the more useful error anyway.
-  }
-
-  return (
-    ` — Firebase Authentication has not been enabled for ${project}. ` +
-    'Open Firebase Console → Authentication → Get started for that exact ' +
-    'project, then retry. If Authentication is already enabled there, the ' +
-    'service-account key belongs to a different project.'
-  );
-}
 
 export async function POST(request: NextRequest, context: RouteContext) {
   try {
@@ -96,92 +84,65 @@ export async function POST(request: NextRequest, context: RouteContext) {
       return apiFailure('school_inactive', 'This school portal is closed.', 403);
     }
 
-    const uid = derivePlatformAdminUid(locationId);
+    const address = platformAdminEmailFor(locationId);
 
     // ── On this try/catch ──────────────────────────────────────────────────
-    // Everything below is Firebase, and Firebase fails for reasons that have
-    // nothing to do with the link the operator clicked: a malformed service
-    // account, a revoked key, an unreachable Identity Platform. Letting those
-    // fall through to `handleApiError` reported them as the same anonymous
+    // Everything below is Supabase, and Supabase fails for reasons that have
+    // nothing to do with the link the operator clicked: a wrong service-role
+    // key, an unreachable project, email sign-in disabled. Letting those fall
+    // through to `handleApiError` reported them as the same anonymous
     // "Something went wrong" as a bad token, which sent debugging in exactly
-    // the wrong direction. They get their own code now, and the real cause goes
-    // to the server log where an operator can read it.
-    // Names the sub-step in flight, so the failure below can say which one
-    // broke rather than "Firebase, somewhere".
-    let firebaseStep = 'admin-init';
+    // the wrong direction. They get their own code, and the real cause goes to
+    // the server log where an operator can read it.
+    let step = 'get-or-create-user';
 
     try {
-      const auth = getAdminAuth();
-
-      // The account is created on first hand-off and reused after that. It has
-      // no email and no password of its own — it is reachable only by a token
-      // signed with the platform secret, which is why nothing here is a
-      // credential a school member could ever present.
-      firebaseStep = 'get-or-create-user';
-      try {
-        await auth.getUser(uid);
-      } catch (error) {
-        if ((error as { code?: unknown }).code !== 'auth/user-not-found') throw error;
-
-        try {
-          await auth.createUser({ uid, displayName: 'Platform Super Admin' });
-        } catch (createError) {
-          // A concurrent hand-off may have created it in the gap above.
-          if ((createError as { code?: unknown }).code !== 'auth/uid-already-exists') {
-            throw createError;
-          }
-        }
-      }
-
-      // Claims are written before the token is minted, so the ID token the
-      // client obtains already carries the tenant and the role.
-      firebaseStep = 'set-custom-claims';
-      await auth.setCustomUserClaims(uid, {
-        locationId,
-        role: 'school_admin',
-        // Platform access is school-wide; it is never scoped to one campus.
-        branchId: null,
-        schoolSlug: school.slug,
-        // What makes this session say so on screen. It grants nothing extra —
-        // `role` above is the whole of the authorisation.
+      const user = await getOrCreateAuthUser(address, {
         platformAdmin: true,
-        platformAdminEmail: claims.email,
+        platformLocationId: locationId,
       });
 
-      firebaseStep = 'create-custom-token';
-      const customToken = await auth.createCustomToken(uid);
+      // Rewritten on every hand-off rather than only at creation, so the
+      // recorded operator is the one who actually entered this time.
+      step = 'set-app-metadata';
+      const { error } = await getAuthAdmin().auth.admin.updateUserById(user.id, {
+        app_metadata: {
+          platformAdmin: true,
+          platformLocationId: locationId,
+          platformAdminEmail: claims.email,
+        },
+      });
+
+      if (error !== null) {
+        throw new SupabaseAuthError('metadata_failed', error.message);
+      }
+
+      // Writes the session cookie. Nothing is emailed; see `mintSessionForEmail`.
+      step = 'mint-session';
+      await mintSessionForEmail(address);
 
       console.info(
         `[platform-login] ${claims.email} entered school ${locationId} as school_admin`,
       );
 
-      return apiSuccess({ customToken, schoolSlug: school.slug });
+      return apiSuccess({ schoolSlug: school.slug });
     } catch (error) {
-      const code = (error as { code?: unknown }).code;
-      const message = error instanceof Error ? error.message : String(error);
+      const detail = error instanceof Error ? error.message : String(error);
 
       console.error(
-        `[platform-login] Firebase ${firebaseStep} failed for location ${locationId}:`,
-        typeof code === 'string' ? code : '',
+        `[platform-login] Supabase ${step} failed for location ${locationId}:`,
         error,
       );
 
       // ── On returning the detail to the browser ────────────────────────────
       // Nothing reaches this line without a hand-off token signed by the
       // platform's own secret, so the only caller who can see this is the
-      // operator. Withholding the reason from them buys no security and costs a
-      // round trip through the server logs — which is exactly what the first
+      // operator. Withholding the reason from them buys no security and costs
+      // a round trip through the server logs — which is exactly what the first
       // version of this cost.
-      //
-      // Truncated because a stack-laden message is no more useful than its
-      // first line, and the codes and configuration messages we care about
-      // ("not valid base64-encoded JSON", "auth/invalid-credential") are short.
-      const detail = typeof code === 'string' && code !== '' ? code : message;
-
       return apiFailure(
-        'firebase_unavailable',
-        `Firebase rejected the request at step "${firebaseStep}": ` +
-          `${detail.slice(0, 300)}${explain(code)}`,
+        'auth_unavailable',
+        `Supabase rejected the request at step "${step}": ${detail.slice(0, 300)}`,
         503,
       );
     }

@@ -76,7 +76,7 @@ export async function POST(_request: NextRequest, context: RouteContext) {
         id: schoolUsers.id,
         name: schoolUsers.name,
         role: schoolUsers.role,
-        firebaseUid: schoolUsers.firebaseUid,
+        authUserId: schoolUsers.authUserId,
         isActive: schoolUsers.isActive,
       })
       .from(schoolUsers)
@@ -94,7 +94,7 @@ export async function POST(_request: NextRequest, context: RouteContext) {
       return apiFailure('not_found', 'User not found.', 404);
     }
 
-    if (user.firebaseUid === null) {
+    if (user.authUserId === null) {
       return apiFailure(
         'no_account',
         'User has not accepted their invite yet. No Firebase account to log in as.',
@@ -118,7 +118,7 @@ export async function POST(_request: NextRequest, context: RouteContext) {
     await db.insert(emergencyLoginTokens).values({
       locationId: school.locationId,
       schoolUserId: user.id,
-      firebaseUid: user.firebaseUid,
+      authUserId: user.authUserId,
       token,
       createdBy: session.email,
       expiresAt,

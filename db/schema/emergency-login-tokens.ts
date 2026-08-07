@@ -27,8 +27,14 @@ export const emergencyLoginTokens = pgTable(
     schoolUserId: uuid('school_user_id')
       .notNull()
       .references(() => schoolUsers.id, { onDelete: 'cascade' }),
-    /** Captured at issue time; the account this link signs in as. */
-    firebaseUid: text('firebase_uid').notNull(),
+    /**
+     * Captured at issue time; the account this link signs in as.
+     *
+     * Nullable since Stage 4: an emergency link may be issued for a member who
+     * has not accepted their invitation yet and therefore has no auth account.
+     * Redemption resolves the address to one at that point.
+     */
+    authUserId: text('auth_user_id'),
     /** 32 random bytes, hex encoded. This is the credential. */
     token: text('token').notNull().unique(),
     createdBy: text('created_by').notNull().default('super_admin'),

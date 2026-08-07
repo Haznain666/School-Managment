@@ -807,7 +807,7 @@ export async function getChallanDetail(
       .leftJoin(
         schoolUsers,
         and(
-          eq(schoolUsers.firebaseUid, feePayments.collectedByUid),
+          eq(schoolUsers.authUserId, feePayments.collectedByUid),
           eq(schoolUsers.locationId, locationId),
         ),
       )

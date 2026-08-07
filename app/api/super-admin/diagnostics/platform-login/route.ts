@@ -5,13 +5,13 @@ import { schools } from '@/db/schema';
 import { apiSuccess, handleApiError } from '@/lib/api-response';
 import { db } from '@/lib/drizzle';
 import { publicEnv, serverEnv } from '@/lib/env';
-import { adminCredentialSummary, getAdminAuth } from '@/lib/firebase-admin';
 import {
   buildHandoffUrl,
-  derivePlatformAdminUid,
+  platformAdminEmailFor,
   signHandoffToken,
   verifyHandoffToken,
 } from '@/lib/platform-school-access';
+import { findAuthUserByEmail, getAuthAdmin, getOrCreateAuthUser } from '@/lib/supabase-auth';
 import { requireSuperAdmin } from '@/lib/super-admin-guard';
 
 /**
@@ -25,7 +25,7 @@ import { requireSuperAdmin } from '@/lib/super-admin-guard';
  * because it is unauthenticated and a caller holding a leaked link is not owed
  * a description of the server's internals. That is right for the public route
  * and useless for debugging: "Something went wrong" is `handleApiError`'s
- * catch-all, and it covers a malformed Firebase key, an unreachable database
+ * catch-all, and it covers a wrong service-role key, an unreachable database
  * and a signing-secret mismatch alike.
  *
  * So the same chain runs here instead, behind the Super Admin session, and says
@@ -75,40 +75,6 @@ function envReport(name: string): { set: boolean; length: number } {
   };
 }
 
-/**
- * What form the service-account variable is in.
- *
- * The opening bytes of every service-account file are identical — base64 of
- * one always begins `eyJ`, the raw JSON always begins `{"t` — so reporting
- * three characters distinguishes "correct", "raw JSON", "wrapped in quotes"
- * and "truncated" while disclosing nothing that varies between projects.
- */
-function serviceAccountShape(): {
-  set: boolean;
-  length: number;
-  startsWith: string;
-  looksLike: string;
-} {
-  const value = process.env['FIREBASE_SERVICE_ACCOUNT_KEY'];
-
-  if (value === undefined || value.trim() === '') {
-    return { set: false, length: 0, startsWith: '', looksLike: 'absent' };
-  }
-
-  const trimmed = value.trim();
-  const head = trimmed.slice(0, 3);
-
-  const looksLike = trimmed.startsWith('{')
-    ? 'raw JSON'
-    : trimmed.startsWith('eyJ')
-      ? 'base64 of JSON'
-      : trimmed.startsWith('"') || trimmed.startsWith("'")
-        ? 'quoted — the wrapping quotes are part of the value'
-        : 'unrecognised — neither JSON nor base64 of JSON';
-
-  return { set: true, length: trimmed.length, startsWith: head, looksLike };
-}
-
 export async function GET(request: NextRequest) {
   try {
     await requireSuperAdmin();
@@ -118,30 +84,22 @@ export async function GET(request: NextRequest) {
 
     // ---- Environment ------------------------------------------------------
     // The three groups the hand-off actually depends on. A missing
-    // SUPER_ADMIN_JWT_SECRET breaks signing; a malformed Firebase credential
+    // SUPER_ADMIN_JWT_SECRET breaks signing; a wrong Supabase service-role key
     // breaks redemption; the domain pair decides which URL shape is built.
     const environment = {
       superAdminJwtSecret: envReport('SUPER_ADMIN_JWT_SECRET'),
       superAdminEmail: envReport('SUPER_ADMIN_EMAIL'),
       superAdminPasswordHash: envReport('SUPER_ADMIN_PASSWORD_HASH'),
-      firebaseServiceAccountKey: serviceAccountShape(),
-      firebaseAdminProjectId: envReport('FIREBASE_ADMIN_PROJECT_ID'),
-      firebaseAdminClientEmail: envReport('FIREBASE_ADMIN_CLIENT_EMAIL'),
-      firebaseAdminPrivateKey: envReport('FIREBASE_ADMIN_PRIVATE_KEY'),
+      supabaseUrl: envReport('SUPABASE_URL'),
+      supabaseServiceRoleKey: envReport('SUPABASE_SERVICE_ROLE_KEY'),
+      supabaseAnonKey: envReport('NEXT_PUBLIC_SUPABASE_ANON_KEY'),
       platformBaseDomain: serverEnv('PLATFORM_BASE_DOMAIN', ''),
       publicAppDomain: publicEnv.appDomain,
       nodeEnv: process.env.NODE_ENV ?? null,
-      // The browser half of the sign-in. These are inlined into the client
-      // bundle at build time; what is reported here is only whether the
-      // deployment has them at all. Absent here is conclusive — present here
-      // still requires the build to have run after they were set.
-      browserFirebaseConfig: {
-        apiKey: publicEnv.firebase.apiKey !== '',
-        authDomain: publicEnv.firebase.authDomain !== '',
-        projectId: publicEnv.firebase.projectId !== '',
-        appId: publicEnv.firebase.appId !== '',
-        note: 'NEXT_PUBLIC_* values are inlined at build time — set them, then redeploy.',
-      },
+      // There is no browser half any more: the session is minted server-side
+      // and arrives as a cookie, so nothing about sign-in depends on a value
+      // inlined into the client bundle. The anon key above is still read at
+      // build time, which is why it is reported.
     };
 
     // ---- School -----------------------------------------------------------
@@ -239,58 +197,56 @@ export async function GET(request: NextRequest) {
       }),
     );
 
-    // ---- 4. Firebase ------------------------------------------------------
-    // Split deliberately: initialisation, lookup, claims and minting fail for
+    // ---- 4. Supabase Auth -------------------------------------------------
+    // Split deliberately: lookup, account creation and metadata fail for
     // different reasons, and collapsing them is what produced the unhelpful
     // "Something went wrong" in the first place.
-    const uid = derivePlatformAdminUid(school.locationId);
+    //
+    // The session mint itself is *not* exercised here. `mintSessionForEmail`
+    // writes a session cookie onto the response, and a diagnostic that signs
+    // the operator into a school as a side effect of being run would be a
+    // worse trap than the bug it is looking for. Everything up to that point
+    // is checked, which is where the failures actually are.
+    const address = platformAdminEmailFor(school.locationId);
 
     steps.push(
-      await step('firebase-admin-init', async () => {
-        const auth = getAdminAuth();
-        // Naming the project is what separates "Authentication was never
-        // enabled" from "enabled, but on a different project than this key" —
-        // the two causes of auth/configuration-not-found.
-        const { projectId, clientEmail } = adminCredentialSummary();
-        return `initialised app ${auth.app.name} for project "${projectId}" (${clientEmail})`;
+      await step('supabase-admin-init', async () => {
+        // Constructing the client validates SUPABASE_URL and the key's
+        // presence; the first real call below validates the key itself.
+        getAuthAdmin();
+        return `initialised for ${serverEnv('SUPABASE_URL', '(unset)')}`;
       }),
     );
 
     steps.push(
-      await step('firebase-get-or-create-user', async () => {
-        const auth = getAdminAuth();
-        try {
-          const existing = await auth.getUser(uid);
-          return `existing account ${existing.uid}`;
-        } catch (error) {
-          if ((error as { code?: unknown }).code !== 'auth/user-not-found') throw error;
-          const created = await auth.createUser({
-            uid,
-            displayName: 'Platform Super Admin',
-          });
-          return `created account ${created.uid}`;
-        }
+      await step('supabase-lookup-user', async () => {
+        const found = await findAuthUserByEmail(address);
+        return found === null ? `no account yet for ${address}` : `existing account ${found.id}`;
       }),
     );
 
     steps.push(
-      await step('firebase-set-custom-claims', async () => {
-        await getAdminAuth().setCustomUserClaims(uid, {
-          locationId: school.locationId,
-          role: 'school_admin',
-          branchId: null,
-          schoolSlug: school.slug,
+      await step('supabase-get-or-create-user', async () => {
+        const user = await getOrCreateAuthUser(address, {
           platformAdmin: true,
-          platformAdminEmail: 'diagnostic@platform.local',
+          platformLocationId: school.locationId,
         });
-        return 'claims written';
+        return `account ${user.id}`;
       }),
     );
 
     steps.push(
-      await step('firebase-create-custom-token', async () => {
-        const minted = await getAdminAuth().createCustomToken(uid);
-        return `minted, ${minted.length} characters`;
+      await step('supabase-set-app-metadata', async () => {
+        const user = await getOrCreateAuthUser(address);
+        const { error } = await getAuthAdmin().auth.admin.updateUserById(user.id, {
+          app_metadata: {
+            platformAdmin: true,
+            platformLocationId: school.locationId,
+            platformAdminEmail: 'diagnostic@platform.local',
+          },
+        });
+        if (error !== null) throw new Error(error.message);
+        return 'app_metadata written';
       }),
     );
 
@@ -305,7 +261,7 @@ export async function GET(request: NextRequest) {
         isActive: school.isActive,
       },
       request: { host, protocol },
-      platformAdminUid: uid,
+      platformAdminEmail: address,
       steps,
       verdict:
         failed.length === 0

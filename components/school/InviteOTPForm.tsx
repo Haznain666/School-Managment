@@ -6,7 +6,6 @@ import { useCallback, useState, type FormEvent } from 'react';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import {
-  establishSession,
   useOtpCountdown,
 } from '@/components/school/useOtpCountdown';
 import { ROLE_HOME_ROUTES, isUserRole } from '@/types/school-auth';
@@ -28,7 +27,6 @@ interface InitiateData {
 }
 
 interface AcceptData {
-  customToken: string;
   role: string;
 }
 
@@ -135,17 +133,11 @@ export function InviteOTPForm({
           return;
         }
 
-        const session = await establishSession(payload.data.customToken, schoolSlug);
-
-        if ('error' in session) {
-          // The account exists and works — only the auto sign-in failed, so
-          // send them to login rather than stranding them here.
-          router.replace(`/login?school=${encodeURIComponent(schoolSlug)}`);
-          return;
-        }
-
-        const home = isUserRole(session.role)
-          ? ROLE_HOME_ROUTES[session.role]
+        // The cookie is already set on the response above. The fallback that
+        // used to send a failed auto-sign-in to /login is gone with it: there
+        // is no separate sign-in step left to fail.
+        const home = isUserRole(payload.data.role)
+          ? ROLE_HOME_ROUTES[payload.data.role]
           : '/dashboard';
 
         router.replace(`${home}?school=${encodeURIComponent(schoolSlug)}`);

@@ -90,20 +90,35 @@ export async function verifyHandoffToken(token: string): Promise<HandoffClaims |
 }
 
 /**
- * The Firebase uid the platform operator uses inside one school.
+ * The Supabase account the platform operator uses inside one school.
  *
+ * ── Why an address, and why a synthetic one ──────────────────────────────
+ * Supabase Auth is keyed by email, so the account needs one. This is the sole
+ * place in the application where a synthetic address is right, and it is right
+ * precisely because nobody ever reads mail there: the session is minted
+ * server-side by `mintSessionForEmail`, which asks GoTrue for a link and
+ * redeems it in the same request without sending anything.
+ *
+ * ── Why one per school ───────────────────────────────────────────────────
  * Derived from the location rather than random, so it is stable across
  * hand-offs, and one per school rather than one globally — an audit trail that
- * pooled every tenant behind a single uid would be no trail at all. The `pa_`
- * prefix keeps it clear of the `su_` accounts derived from a phone number.
+ * pooled every tenant behind a single account would be no trail at all. The
+ * `pa_` prefix keeps it clear of any real address.
+ *
+ * The operator's *own* identity is not this account. It travels in the
+ * hand-off token and is stamped into `app_metadata.platformAdminEmail`, which
+ * is what the portal shows on screen.
  */
-export function derivePlatformAdminUid(locationId: string): string {
+export function platformAdminEmailFor(locationId: string): string {
   const digest = createHash('sha256')
     .update(`platform-admin:${locationId}`)
     .digest('hex')
     .slice(0, 24);
 
-  return `pa_${digest}`;
+  // A domain that is ours and that no school user can hold an address at.
+  const domain = serverEnv('PLATFORM_BASE_DOMAIN', publicEnv.appDomain);
+
+  return `pa_${digest}@${domain}`;
 }
 
 /**

@@ -4,7 +4,7 @@
  *
  * Kept in their own module because both Edge middleware and Node server
  * components import them; nothing here may pull in `server-only` or
- * `firebase-admin`.
+ * `server-only` or a database driver.
  */
 
 export const SCHOOL_LOCATION_HEADER = 'x-school-location-id';

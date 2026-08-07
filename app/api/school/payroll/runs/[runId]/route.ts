@@ -187,7 +187,7 @@ export const PATCH = withSchoolAuth<RouteContext>(
           .where(
             and(
               eq(schoolUsers.locationId, auth.locationId),
-              eq(schoolUsers.firebaseUid, auth.uid),
+              eq(schoolUsers.authUserId, auth.uid),
             ),
           )
           .limit(1);

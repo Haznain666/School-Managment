@@ -24,7 +24,7 @@ import { SUPER_ADMIN_COOKIE, verifySuperAdminJWT } from '@/lib/super-admin-auth'
  *
  * ── On session verification ──────────────────────────────────────────────
  * The Sprint 3 brief asks middleware to call `verifySessionCookie` and enforce
- * roles here. It cannot: `firebase-admin` needs Node APIs, middleware runs on
+ * roles here. It cannot: verifying a session needs Node APIs, middleware runs on
  * the Edge, and this Next version rejects `experimental.nodeMiddleware` — the
  * key is unrecognised and the runtime stays Edge.
  *

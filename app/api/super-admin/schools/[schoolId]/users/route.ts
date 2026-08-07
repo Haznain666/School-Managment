@@ -54,7 +54,7 @@ export async function GET(_request: NextRequest, context: RouteContext) {
         branchName: branches.name,
         joinedAt: schoolUsers.joinedAt,
         // Drives whether an emergency link can be issued at all.
-        hasFirebaseAccount: schoolUsers.firebaseUid,
+        hasFirebaseAccount: schoolUsers.authUserId,
       })
       .from(schoolUsers)
       .leftJoin(branches, eq(branches.id, schoolUsers.branchId))

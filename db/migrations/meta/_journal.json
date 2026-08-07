@@ -78,6 +78,13 @@
       "when": 1785759630932,
       "tag": "0010_sprint8_roles_permissions",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1786128817303,
+      "tag": "0011_stage4_supabase_auth",
+      "breakpoints": true
     }
   ]
 }

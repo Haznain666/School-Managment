@@ -39,63 +39,13 @@ export function useOtpCountdown(): {
 }
 
 /**
- * Exchanges a Firebase custom token for a server session cookie.
+ * `establishSession` used to live here.
  *
- * ── On the shape of this try block ───────────────────────────────────────
- * The two dynamic imports and `getFirebaseClientAuth()` used to sit *above*
- * the try. Both can throw — a chunk that fails to load, or a browser bundle
- * built without the `NEXT_PUBLIC_FIREBASE_*` values, which makes
- * `getFirebaseClientAuth()` throw "Firebase is not configured" — and because
- * they were outside, that throw escaped this function entirely and surfaced in
- * each caller's own catch-all as a network error. A misconfigured build
- * therefore reported itself as "could not reach the server", which is the one
- * thing it was not.
+ * It signed the browser in with a Firebase custom token, force-refreshed the
+ * ID token so freshly-minted claims were present, and POSTed it to
+ * `/api/school/auth/session` to be traded for a cookie. All three hops are
+ * gone: GoTrue verifies the credential server-side and the route that mints
+ * the session writes the cookie onto its own response.
  *
- * Everything that can fail now lives inside, and the real message is returned
- * rather than replaced with a fixed string.
+ * Callers now read the role straight out of the response they already made.
  */
-export async function establishSession(
-  customToken: string,
-  schoolSlug: string | null,
-): Promise<{ role: string } | { error: string }> {
-  try {
-    const { signInWithCustomToken } = await import('firebase/auth');
-    const { getFirebaseClientAuth } = await import('@/lib/firebase-client');
-
-    const auth = getFirebaseClientAuth();
-
-    const credential = await signInWithCustomToken(auth, customToken);
-    // Force-refresh so the claims minted moments ago are present rather than
-    // served from a cached token.
-    const idToken = await credential.user.getIdToken(true);
-
-    const query =
-      schoolSlug === null || schoolSlug === ''
-        ? ''
-        : `?school=${encodeURIComponent(schoolSlug)}`;
-
-    const response = await fetch(`/api/school/auth/session${query}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ idToken }),
-    });
-
-    const payload = (await response.json()) as {
-      ok: boolean;
-      data?: { role: string };
-      error?: { message: string };
-    };
-
-    if (!response.ok || payload.ok !== true || payload.data === undefined) {
-      return { error: payload.error?.message ?? 'Could not start your session.' };
-    }
-
-    return { role: payload.data.role };
-  } catch (error) {
-    // The message matters here: "Firebase is not configured" and a Firebase
-    // auth code are different problems with different fixes, and collapsing
-    // both into one sentence is what made this hard to place.
-    const detail = error instanceof Error ? error.message : String(error);
-    return { error: `Could not start your session. ${detail}`.slice(0, 300) };
-  }
-}

@@ -1,31 +1,45 @@
 import { and, eq } from 'drizzle-orm';
 import type { NextRequest } from 'next/server';
 
-import { schoolUsers, schools } from '@/db/schema';
+import { schoolUsers } from '@/db/schema';
 import { apiFailure, apiSuccess, handleApiError, readJsonBody } from '@/lib/api-response';
 import { db } from '@/lib/drizzle';
-import { createOTPSession, OTP_EXPIRY_MINUTES } from '@/lib/otp';
-import { maskEmail, OtpDeliveryError, sendLoginOTP } from '@/lib/otp-sender';
-import { InvalidPhoneError, maskPhone, normalizePhone } from '@/lib/phone';
 import { SCHOOL_LOCATION_HEADER } from '@/lib/school-context';
+import { normaliseEmail, sendEmailOtp } from '@/lib/supabase-auth';
 
 /**
- * POST /api/school/auth/otp/request
+ * POST /api/school/auth/otp/request — send a six-digit code to an address.
  *
- * Sends a login passcode to a registered number, over WhatsApp where possible
- * and by email when it is not. Unauthenticated by necessity — it runs before
- * anyone is signed in.
+ * This is the signup half of the flow: someone who has been invited proves the
+ * address is theirs, then sets a password at
+ * `/api/school/auth/password`. After that they use `/api/school/auth/login`
+ * and never see a code again.
  *
- * The passcode is never returned in the response and never logged: possession
- * of the handset or inbox is the whole proof, so revealing it anywhere else
- * defeats the mechanism.
+ * ── What changed ─────────────────────────────────────────────────────────
+ * The path is the same one WhatsApp passcode login used, and the shape of the
+ * exchange is deliberately unchanged so the login screen did not have to be
+ * rebuilt around it. Everything underneath is different: the code goes to an
+ * email address instead of a handset, and GoTrue generates, stores, expires
+ * and rate-limits it. `lib/otp.ts` and its `otp_sessions` table are no longer
+ * on this path at all.
+ *
+ * ── Why it always answers the same way ───────────────────────────────────
+ * A code is only sent to an address that is already an active member of *this*
+ * school. But the response does not say so: an endpoint that reported
+ * "unknown address" would let anyone enumerate a school's staff. Both cases
+ * return the same success, and only one of them sends mail.
+ *
+ * `shouldCreateUser` is true because an invited member may have no Supabase
+ * account yet — this is exactly the request that creates it. It is safe here
+ * *because* of the membership check above; without that, this endpoint would
+ * create an account for any address anyone typed.
  */
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 interface RequestBody {
-  phone?: unknown;
+  email?: unknown;
 }
 
 export async function POST(request: NextRequest) {
@@ -36,98 +50,27 @@ export async function POST(request: NextRequest) {
     }
 
     const body = await readJsonBody<RequestBody>(request);
-    const rawPhone = typeof body?.phone === 'string' ? body.phone : '';
+    const raw = typeof body?.email === 'string' ? body.email : '';
+    const email = normaliseEmail(raw);
 
-    let phone: string;
-    try {
-      phone = normalizePhone(rawPhone);
-    } catch (error) {
-      if (error instanceof InvalidPhoneError) {
-        return apiFailure(
-          'invalid_phone',
-          'Enter a valid Pakistani mobile number, for example 0300-1234567.',
-          400,
-        );
-      }
-      throw error;
+    if (email === '' || !email.includes('@')) {
+      return apiFailure('invalid_body', 'Enter a valid email address.', 400);
     }
 
-    const userRows = await db
-      .select({
-        name: schoolUsers.name,
-        email: schoolUsers.email,
-        isActive: schoolUsers.isActive,
-      })
+    const rows = await db
+      .select({ isActive: schoolUsers.isActive })
       .from(schoolUsers)
-      .where(and(eq(schoolUsers.locationId, locationId), eq(schoolUsers.phone, phone)))
+      .where(and(eq(schoolUsers.locationId, locationId), eq(schoolUsers.email, email)))
       .limit(1);
 
-    const user = userRows[0];
+    const member = rows[0];
 
-    if (user === undefined) {
-      return apiFailure(
-        'not_found',
-        'No account found with this number. Check your invite link.',
-        404,
-      );
+    if (member !== undefined && member.isActive) {
+      await sendEmailOtp(email, true);
     }
 
-    if (!user.isActive) {
-      return apiFailure(
-        'account_disabled',
-        'Account deactivated. Contact your school admin.',
-        403,
-      );
-    }
-
-    const schoolRows = await db
-      .select({ name: schools.name })
-      .from(schools)
-      .where(and(eq(schools.locationId, locationId), eq(schools.isActive, true)))
-      .limit(1);
-
-    const school = schoolRows[0];
-    if (school === undefined) {
-      return apiFailure('no_school', 'This school portal is unavailable.', 404);
-    }
-
-    const { otp } = await createOTPSession(db, {
-      locationId,
-      phone,
-      purpose: 'login',
-    });
-
-    let channel;
-    try {
-      ({ channel } = await sendLoginOTP({
-        db,
-        locationId,
-        phone,
-        email: user.email,
-        name: user.name,
-        schoolName: school.name,
-        otp,
-      }));
-    } catch (error) {
-      if (error instanceof OtpDeliveryError) {
-        return apiFailure(
-          'delivery_failed',
-          error.noFallbackAvailable
-            ? 'Unable to send OTP. WhatsApp is unavailable and no email is on file. Contact your school admin.'
-            : 'Unable to send OTP right now. Please try again, or contact your school admin.',
-          503,
-        );
-      }
-      throw error;
-    }
-
-    return apiSuccess({
-      success: true,
-      channel,
-      expiresIn: OTP_EXPIRY_MINUTES * 60,
-      maskedContact:
-        channel === 'whatsapp' ? maskPhone(phone) : maskEmail(user.email ?? ''),
-    });
+    // Same answer either way. See the docblock.
+    return apiSuccess({ sent: true });
   } catch (error) {
     return handleApiError(error);
   }

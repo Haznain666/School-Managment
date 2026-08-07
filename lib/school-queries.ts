@@ -25,7 +25,7 @@ import { db } from './drizzle';
 
 export interface SchoolUserRow {
   id: string;
-  firebaseUid: string | null;
+  authUserId: string | null;
   name: string;
   email: string | null;
   phone: string;
@@ -39,7 +39,7 @@ export interface SchoolUserRow {
 
 const USER_COLUMNS = {
   id: schoolUsers.id,
-  firebaseUid: schoolUsers.firebaseUid,
+  authUserId: schoolUsers.authUserId,
   name: schoolUsers.name,
   email: schoolUsers.email,
   phone: schoolUsers.phone,
@@ -117,14 +117,14 @@ export async function getSchoolUserById(
 
 export async function getSchoolUserByUid(
   locationId: string,
-  firebaseUid: string,
+  authUserId: string,
 ): Promise<SchoolUserRow | null> {
   const rows = await db
     .select(USER_COLUMNS)
     .from(schoolUsers)
     .leftJoin(branches, eq(branches.id, schoolUsers.branchId))
     .where(
-      and(eq(schoolUsers.locationId, locationId), eq(schoolUsers.firebaseUid, firebaseUid)),
+      and(eq(schoolUsers.locationId, locationId), eq(schoolUsers.authUserId, authUserId)),
     )
     .limit(1);
 

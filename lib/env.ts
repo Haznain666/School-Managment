@@ -9,14 +9,10 @@
 
 /** Values inlined into the browser bundle at build time. */
 export const publicEnv = {
-  firebase: {
-    apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY ?? '',
-    authDomain: process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN ?? '',
-    projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID ?? '',
-    messagingSenderId: process.env.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID ?? '',
-    appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID ?? '',
-    databaseURL: process.env.NEXT_PUBLIC_FIREBASE_DATABASE_URL ?? '',
-  },
+  // Supabase's anon key. Safe in the browser by design — it grants nothing on
+  // its own; RLS and the session decide what it can reach. The service-role
+  // key is its opposite and must never appear in this object.
+  supabaseAnonKey: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? '',
   appDomain: process.env.NEXT_PUBLIC_APP_DOMAIN ?? 'platform.com',
 } as const;
 

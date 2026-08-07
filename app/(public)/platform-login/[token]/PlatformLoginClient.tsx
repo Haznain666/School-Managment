@@ -3,7 +3,6 @@
 import { useRouter } from 'next/navigation';
 import { useEffect, useRef, useState } from 'react';
 
-import { establishSession } from '@/components/school/useOtpCountdown';
 
 export interface PlatformLoginClientProps {
   token: string;
@@ -11,7 +10,6 @@ export interface PlatformLoginClientProps {
 }
 
 interface RedeemData {
-  customToken: string;
   schoolSlug: string;
 }
 
@@ -82,13 +80,8 @@ export function PlatformLoginClient({ token, schoolSlug }: PlatformLoginClientPr
           return;
         }
 
+        // The cookie is already set on the response above.
         const slug = payload.data.schoolSlug;
-        const session = await establishSession(payload.data.customToken, slug);
-
-        if ('error' in session) {
-          if (!cancelled) setFailure({ code: 'session_failed', message: session.error });
-          return;
-        }
 
         // Always the admin dashboard: this flow only ever mints school_admin.
         router.replace(
