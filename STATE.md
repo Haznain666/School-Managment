@@ -751,6 +751,21 @@ flags half-written.
 database (§5c item 3). typecheck + lint + build green, and all four new routes
 appear in the build output.
 
+### ⚠️ Never run `npm run build` while `next dev` is running
+
+They share `.next`. The production build overwrites the dev server's chunks,
+and the dev server then serves HTML with **404s for its CSS** — every page
+renders unstyled, which reads as "the site is broken" rather than "the build
+stepped on the dev server". It happened on 2026-08-08 and cost a round trip to
+diagnose.
+
+Stop the dev server first, or accept that a build ends the dev session. To
+recover:
+
+```bash
+rm -rf .next    # then restart the dev server
+```
+
 ### ⚠️ Build hazard discovered while doing this — read before rebuilding
 
 **`next build` inside a worktree creates `.claude/worktrees/node_modules`, and
