@@ -54,6 +54,15 @@ export * from './hr';
 // Sprint 8 — per-school overrides of the default access model.
 export * from './role-permissions';
 
+// Sprint 9 — Exams, results and report cards. Dependency order, which is also
+// the order to read them in: a scheme grades a term, a term holds exams, an
+// exam holds papers, a paper holds marks.
+export * from './grading-schemes';
+export * from './exam-terms';
+export * from './exams';
+export * from './exam-subjects';
+export * from './exam-results';
+
 // Sprint 0 — auth hardening and the email outbox. Both are exceptions to the
 // tenancy invariant above and each says why in its own docblock: `auth_attempts`
 // guards the pre-authentication surface, where no tenant is established yet,

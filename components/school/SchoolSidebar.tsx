@@ -100,6 +100,20 @@ export function SchoolSidebar({ role, permissions, moduleFlags }: SchoolSidebarP
     });
   }
 
+  // Exams live under the Academics module rather than one of their own — see
+  // `dashboard/exams/layout.tsx` for why. The section is gated on `exams.read`,
+  // which is the permission that layout enforces.
+  if (moduleFlags.academics && can('exams.read')) {
+    sections.push({
+      label: 'Exams',
+      items: [
+        { label: 'Terms & Exams', href: '/dashboard/exams' },
+        { label: 'Report Cards', href: '/dashboard/exams/report-cards' },
+        { label: 'Grading Schemes', href: '/dashboard/exams/grading' },
+      ],
+    });
+  }
+
   if (moduleFlags.fee_management && can('fees.read')) {
     sections.push({
       label: 'Fees',

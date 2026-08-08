@@ -3,14 +3,15 @@ import { PortalSidebar, type PortalNavItem } from '@/components/school/PortalSid
 /**
  * Teacher portal navigation.
  *
- * The timetable and the register are real destinations as of Sprint 6. What
- * remains a placeholder arrives with a later sprint.
+ * The timetable and the register are real destinations as of Sprint 6; marks
+ * became one in Sprint 9, which is what the "Grades" placeholder had been
+ * standing in for. What remains a placeholder arrives with a later sprint.
  */
 const ITEMS: readonly PortalNavItem[] = [
   { label: 'My Dashboard', href: '/teacher' },
   { label: 'My Timetable', href: '/teacher/timetable' },
   { label: 'Attendance', href: '/teacher/attendance' },
-  { label: 'Grades', href: '/teacher/grades', placeholder: true },
+  { label: 'Marks', href: '/teacher/marks' },
 ];
 
 export function TeacherSidebar() {

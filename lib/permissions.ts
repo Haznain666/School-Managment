@@ -33,6 +33,11 @@ export const PERMISSIONS = [
   'academics.read',
   'academics.write',
   'attendance.mark',
+  'exams.read',
+  'exams.write',
+  'exams.publish',
+  'results.enter',
+  'results.publish',
   'hr.read',
   'hr.write',
   'payroll.read',
@@ -68,6 +73,17 @@ export const PERMISSION_GROUPS: readonly PermissionGroup[] = [
     label: 'Academics',
     permissions: ['academics.read', 'academics.write', 'attendance.mark'],
   },
+  {
+    key: 'exams',
+    label: 'Exams & Results',
+    permissions: [
+      'exams.read',
+      'exams.write',
+      'exams.publish',
+      'results.enter',
+      'results.publish',
+    ],
+  },
   { key: 'hr', label: 'HR', permissions: ['hr.read', 'hr.write'] },
   { key: 'payroll', label: 'Payroll', permissions: ['payroll.read', 'payroll.write'] },
   {
@@ -87,6 +103,11 @@ export const PERMISSION_LABELS: Record<Permission, string> = {
   'academics.read': 'See subjects, the timetable and the register',
   'academics.write': 'Set subjects and build the timetable',
   'attendance.mark': 'Take the student register',
+  'exams.read': 'See exam terms, datesheets and published results',
+  'exams.write': 'Schedule exams, add papers and set grading schemes',
+  'exams.publish': 'Announce a datesheet and publish a term’s report cards',
+  'results.enter': 'Enter and correct marks for a paper',
+  'results.publish': 'Publish marks, unpublish them, and open a re-sit',
   'hr.read': 'See staff records and leave',
   'hr.write': 'Add staff, set salaries and decide leave',
   'payroll.read': 'See payroll runs and payslips',
@@ -104,6 +125,13 @@ export const PERMISSION_DESCRIPTIONS: Partial<Record<Permission, string>> = {
   'permissions.manage':
     'Whoever holds this can grant themselves anything else. School Administrator always keeps it.',
   'attendance.mark': 'A teacher needs this for their own classes.',
+  'results.enter':
+    'A teacher needs this for their own papers. It does not let them publish.',
+  'results.publish':
+    'The check on a teacher’s marks. Whoever holds this is who a parent’s ' +
+    'complaint about a wrong grade comes back to.',
+  'exams.publish':
+    'Publishing a term issues its report cards. Separate from exams.write on purpose.',
 };
 
 /**
@@ -134,6 +162,12 @@ export const UNREVOKABLE: { role: UserRole; permission: Permission } = {
  *   vice_principal — the principal's list without payroll at all.
  *   coordinator    — the timetable and the register, which is the job.
  *   marketing      — admissions enquiries only. No fees, no personnel files.
+ *
+ * Sprint 9 added the five exam keys. `accountant`, `hr_manager` and `marketing`
+ * deliberately get none of them, including `exams.read`: a child's marks are
+ * not a finance, personnel or enquiry record, and the one thing those three
+ * roles might genuinely want — knowing an exam is on — is on the datesheet.
+ * A school that disagrees grants it, which is what Sprint 8 is for.
  */
 export const DEFAULT_ROLE_PERMISSIONS: Record<UserRole, readonly Permission[]> = {
   school_admin: [...PERMISSIONS],
@@ -145,6 +179,11 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<UserRole, readonly Permission[]> =
     'fees.read',
     'academics.read',
     'attendance.mark',
+    // Scheduling the campus's exams is the job; signing off its marks is not.
+    // Publishing is the head's call, and Sprint 8's override table is there for
+    // the school that disagrees.
+    'exams.read',
+    'exams.write',
     'hr.read',
     'settings.read',
   ],
@@ -157,6 +196,10 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<UserRole, readonly Permission[]> =
     'academics.read',
     'academics.write',
     'attendance.mark',
+    'exams.read',
+    'exams.write',
+    'exams.publish',
+    'results.publish',
     'hr.read',
     'payroll.read',
     'settings.read',
@@ -170,6 +213,10 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<UserRole, readonly Permission[]> =
     'academics.read',
     'academics.write',
     'attendance.mark',
+    'exams.read',
+    'exams.write',
+    'exams.publish',
+    'results.publish',
     'hr.read',
     'settings.read',
   ],
@@ -179,6 +226,11 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<UserRole, readonly Permission[]> =
     'academics.read',
     'academics.write',
     'attendance.mark',
+    // A coordinator builds the datesheet and can key marks in for a teacher who
+    // is away. Publishing them is deliberately not theirs.
+    'exams.read',
+    'exams.write',
+    'results.enter',
     'settings.read',
   ],
 
@@ -188,7 +240,17 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<UserRole, readonly Permission[]> =
   // both of these, and dropping either would empty a dropdown rather than
   // refuse a page — the kind of breakage that gets diagnosed as "the app is
   // broken" rather than "we changed a permission".
-  teacher: ['admissions.read', 'academics.read', 'attendance.mark'],
+  // `results.enter` without `results.publish` is the whole marks-entry design:
+  // a teacher fills in their own paper and submits it, and somebody else makes
+  // it real. They cannot undo a publication either, which is the point — a
+  // grade a parent has already seen must not change without the school knowing.
+  teacher: [
+    'admissions.read',
+    'academics.read',
+    'attendance.mark',
+    'exams.read',
+    'results.enter',
+  ],
 
   accountant: [
     'admissions.read',
