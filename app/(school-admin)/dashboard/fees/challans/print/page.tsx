@@ -5,6 +5,7 @@ import { ChallanCopies } from '@/components/fees/ChallanPrintView';
 import { PrintSheet } from '@/components/print/PrintSheet';
 import { PrintNow } from '@/components/print/PrintNow';
 import { Card, CardTitle } from '@/components/ui/Card';
+import { MAX_PRINTABLE_CHALLANS } from '@/lib/challan-print';
 import { getChallanDetail } from '@/lib/fee-queries';
 import { requireSchoolPermission } from '@/lib/school-guard';
 import { getSchoolBranding } from '@/lib/school-tenant';
@@ -31,14 +32,13 @@ export const runtime = 'nodejs';
  * selected, not a second query that might have drifted between the two.
  *
  * ── The cap ──────────────────────────────────────────────────────────────
- * `MAX_CHALLANS` is a real limit, not a placeholder. Each challan is one
- * `getChallanDetail` round trip, so this is N queries; and a browser print job
- * of more than a few hundred pages is where print dialogs start to fail
- * silently. Beyond the cap the user is told to narrow the selection rather than
- * being handed a job that dies halfway. Batching the read into a single query
- * is the obvious follow-up when a school outgrows this.
+ * `MAX_PRINTABLE_CHALLANS` lives in `lib/challan-print.ts` because the challan
+ * list enforces the same number client-side, and the two must not drift.
+ * Batching the read into a single query is the obvious follow-up when a school
+ * outgrows it. Reaching this page over the cap now takes a hand-edited URL —
+ * the list will not build one — but it stays checked here regardless, because
+ * the client is not a gate.
  */
-const MAX_CHALLANS = 200;
 
 function parseIds(raw: string | undefined): string[] {
   if (raw === undefined || raw.trim() === '') return [];
@@ -72,10 +72,11 @@ export default async function BulkChallanPrintPage({
     );
   }
 
-  if (ids.length > MAX_CHALLANS) {
+  if (ids.length > MAX_PRINTABLE_CHALLANS) {
     return (
       <Message title="Too many at once">
-        {ids.length} challans were selected. Print at most {MAX_CHALLANS} in one
+        {ids.length} challans were selected. Print at most{' '}
+        {MAX_PRINTABLE_CHALLANS} in one
         go — larger jobs tend to fail part-way through the browser&apos;s print
         dialog, and a half-printed batch is worse than none. Narrow the filter,
         by class or by section, and print in a few passes.

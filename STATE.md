@@ -386,9 +386,7 @@ already low on context; this is the most security-sensitive code in the repo.
 
 1. **Stage 4 — email/password auth** (§5b). The big one. Start it in a fresh
    session; check `claude/school-email-auth-7f5vuh` on origin first.
-2. **"Print selected" on the challan list.** Small. The bulk print route
-   (`dashboard/fees/challans/print?ids=…`) works but nothing links to it — it
-   needs checkboxes on the list and a button that builds the URL.
+2. ~~**"Print selected" on the challan list.**~~ ✅ **Done 2026-08-08** — §5e.
 3. **Start the app and create a test school.** Sign in to Super Admin with
    `SUPER_ADMIN_EMAIL` / the password behind `SUPER_ADMIN_PASSWORD_HASH`, create
    a school, and confirm a page renders against the live database. This is the
@@ -602,8 +600,7 @@ membership row is written.
 — so GHL cannot actually be activated for a school. Needs a route and a panel
 on the school page, alongside the Channels section built for WhatsApp.
 
-**2. "Print selected" on the challan list** — still item 2 of the agreed work
-order in §5c. The bulk print route works; nothing links to it.
+**2. ~~"Print selected" on the challan list~~ — DONE 2026-08-08.** See §5e.
 
 **3. One unexplained error.** The user hit a generic "Something went wrong" on
 school creation before this change. The stack was lost to a server restart. The
@@ -651,6 +648,55 @@ time.
 
 ---
 
+## 5e. "Print selected" on the challan list — done 2026-08-08
+
+Item 2 of the §5c work order. The bulk print route had worked since 2026-08-07
+with nothing linking to it; `ChallanTable` now selects rows and builds the URL.
+
+- `lib/challan-print.ts` (new) — `MAX_PRINTABLE_CHALLANS` and
+  `challanPrintHref()`. It exists because the cap is enforced on both sides of
+  the client/server line: the list is a client component, the print page a
+  server component, so neither can import the other and a drifting number would
+  either offer a selection the print page refuses or refuse one it would take.
+  The print page's local `MAX_CHALLANS` is gone; it imports this. Keep the
+  module dependency-free — it is reachable from the browser bundle.
+- `components/fees/ChallanTable.tsx` — checkbox column, a header box for the
+  current page (with the indeterminate state set imperatively, since React has
+  no attribute for it), and a bar that appears once something is selected.
+
+**Two decisions worth not re-litigating.**
+
+*Selection survives paging but is cleared by any filter change.* The cap is 200
+and a page is 20, so a batch worth printing spans pages by definition. But after
+a filter change the rows chosen from are gone, and carrying an invisible
+selection into a new result set is how someone prints four hundred vouchers they
+did not mean to. The header checkbox acts on the current page only, never the
+whole filtered set, for the same reason.
+
+*Over the cap, the button is disabled rather than the selection being capped* —
+silently dropping 40 of 240 challans would be discovered at the counter. The
+print page still re-checks, because the client is not a gate; reaching it over
+the cap now takes a hand-edited URL.
+
+Print opens in a new tab so the list, its filters and the selection survive.
+
+**Not verified in a browser, and cannot be yet** — the challan list is behind a
+school-admin session, and nothing can sign in until Supabase Auth is configured
+(§5d item 2). `npm run typecheck` · `npm run lint` · `npm run build` all green.
+This is the first thing to click once sign-in works.
+
+**Known limit, not worth acting on yet:** the ids travel on the query string, so
+200 uuids is ~7 KB of URL sitting alongside the session cookie inside Node's
+16 KB header budget. Raising the cap materially means moving the selection off
+the URL — a POST, or re-running the list's filters server-side — not just
+changing the number. Documented in `lib/challan-print.ts`.
+
+**Cancelled and waived challans are printable if selected.** Deliberate: the
+list can filter by status, and the user is ticking specific rows. Revisit if a
+school actually reprints a cancelled voucher by accident.
+
+---
+
 ## 6. Open items for the user
 
 1. ~~Install GitHub CLI~~ — done. `gh` 2.97.0, authenticated as `Haznain666`,
@@ -684,6 +730,7 @@ time.
 | 2026-08-08 | **WhatsApp gated (step 8) — Stage 4 code-complete.** New `whatsapp` channel flag in `school_modules`, declared separately from the product modules and rendered in its own Channels section. All five live send paths gated; the invite passcode moved to email, killing the last WhatsApp dependency in auth; the orphaned `lib/otp-sender.ts` deleted and its duplicated SMTP transport extracted to `lib/email-sender.ts`. Fee reminders now report how many guardians nobody could reach. Migration 0012. typecheck + lint + build green. | **Run 0011 + 0012, configure Supabase Auth, then sign in for real.** Nothing here has touched the live database. |
 | 2026-08-08 | **Login UI rebuilt.** `EmailLoginForm` replaces `LoginOTPForm`: password sign-in plus a code path for first-time and forgotten passwords. `PasswordField` + `lib/password-strength.ts` lifted from the email-auth branch and made the single source the password route also reads. Closed a hole this created: invitations now require an email address, because the address is the identity. typecheck + lint + build green. | **WhatsApp gating (step 8)**, then run migration 0011 and try signing in for real. |
 | 2026-08-08 | **Stage 4 auth substrate.** Firebase Authentication → Supabase Auth. New `lib/supabase-auth.ts`; `lib/school-auth.ts` now resolves claims from `school_users` per request instead of from the token, which retires the stale-claims hazard. Login/OTP/password/logout/platform-session/emergency-login/invite-accept all reworked; `/api/school/auth/session` and the browser round trip deleted. `firebase_uid` → `auth_user_id` + migration `0011`. Firebase removed entirely. typecheck + lint + build green. | **The login UI (§5d item 1) — it is broken until then.** Then WhatsApp gating (step 8). |
+| 2026-08-08 | **"Print selected" on the challan list** (§5e) — checkboxes on `ChallanTable`, selection that survives paging but not filtering, and a shared `lib/challan-print.ts` so the 200-challan cap cannot drift between the list and the print page. Also **confirmed there is still no Integrations tab**: nothing in the app writes `schools.ghl_location_id`, so GHL cannot be switched on for a school. typecheck + lint + build green; nothing browser-verified, because sign-in is still blocked. | **Configure Supabase Auth in the Supabase dashboard** (§5d item 2) — it now blocks every remaining item. Then build the Integrations tab. |
 | 2026-08-07 | **Print framework built** — `components/print/PrintSheet.tsx`, generic `@media print` rules, school logo wired in, and bulk challan printing at `dashboard/fees/challans/print?ids=…`. Also **revised the WhatsApp decision to a paid per-school add-on** (see §3.3 and `ROADMAP.md` §4), and folded the user's video-derived module directory into `ROADMAP.md` §2b — which surfaced student promotion, Excel import, POS and e-learning as previously unknown gaps. | **Stage 4 (§5b), in a fresh session.** Check `claude/school-email-auth-7f5vuh` first. The parent-email risk is now *resolved* by the WhatsApp add-on decision, so it no longer blocks. |
 
 ### Note for whoever runs the next session

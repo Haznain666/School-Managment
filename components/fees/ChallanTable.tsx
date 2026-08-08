@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { Badge, type BadgeVariant } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
@@ -14,6 +14,7 @@ import {
   CHALLAN_STATUS_LABELS,
   type ChallanStatus,
 } from '@/db/schema/fee-challans';
+import { MAX_PRINTABLE_CHALLANS, challanPrintHref } from '@/lib/challan-print';
 import { formatAmount, toPaise } from '@/lib/money';
 import { schoolErrorMessage, schoolFetch } from '@/lib/school-client';
 
@@ -23,6 +24,14 @@ import { schoolErrorMessage, schoolFetch } from '@/lib/school-client';
  * Filters narrow each other the way the school's own hierarchy does: choosing a
  * grade loads its sections. A section id from another grade would return
  * nothing, and offering it would look like a bug rather than an empty result.
+ *
+ * ── Selection, and why it outlives pagination but not filtering ───────────
+ * Checkboxes feed the bulk print route, which takes explicit ids. The set
+ * survives paging, because the cap is 200 and a page is 20 — a batch worth
+ * printing spans pages by definition. It is cleared whenever a filter changes,
+ * because the rows the user was choosing from are gone and carrying an
+ * invisible selection into a new result set is how someone prints four hundred
+ * vouchers they did not mean to.
  */
 
 interface ChallanRow {
@@ -120,6 +129,11 @@ export function ChallanTable({
   const [data, setData] = useState<ChallansResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  // Insertion-ordered, so the print job comes out in the order they were
+  // ticked rather than in whatever order a Set happens to iterate.
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const selected = useMemo(() => new Set(selectedIds), [selectedIds]);
+
   // Sections belong to a grade *and* a year, so both must be chosen first.
   useEffect(() => {
     if (gradeId === '' || academicYearId === '') {
@@ -172,13 +186,47 @@ export function ChallanTable({
   }, [load]);
 
   // Any filter change invalidates the page number: page 4 of the old result set
-  // is rarely page 4 of the new one.
+  // is rarely page 4 of the new one. It invalidates the selection for the same
+  // reason — see the note at the top of this file.
   const onFilterChange = (apply: () => void): void => {
     apply();
     setPage(1);
+    setSelectedIds([]);
   };
 
   const totalPages = data === null ? 1 : Math.max(Math.ceil(data.total / PAGE_SIZE), 1);
+
+  const rows = data?.challans ?? [];
+  const pageIds = rows.map((row) => row.id);
+  const selectedOnPage = pageIds.filter((id) => selected.has(id)).length;
+  const allOnPageSelected = pageIds.length > 0 && selectedOnPage === pageIds.length;
+  const overCap = selectedIds.length > MAX_PRINTABLE_CHALLANS;
+
+  const toggleRow = (id: string, checked: boolean): void => {
+    setSelectedIds((current) =>
+      checked ? [...current, id] : current.filter((selectedId) => selectedId !== id),
+    );
+  };
+
+  // The header box acts on this page only, never on the whole filtered set:
+  // "select all" that reaches rows the user has not seen is a way to print a
+  // thousand challans by accident.
+  const togglePage = (checked: boolean): void => {
+    setSelectedIds((current) =>
+      checked
+        ? [...current, ...pageIds.filter((id) => !current.includes(id))]
+        : current.filter((id) => !pageIds.includes(id)),
+    );
+  };
+
+  // `indeterminate` is a DOM property with no React attribute, so it has to be
+  // set imperatively after every render that changes the count.
+  const headerBox = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (headerBox.current === null) return;
+    headerBox.current.indeterminate = selectedOnPage > 0 && !allOnPageSelected;
+  }, [selectedOnPage, allOnPageSelected]);
 
   return (
     <div className="space-y-4">
@@ -305,10 +353,73 @@ export function ChallanTable({
           </div>
         ) : (
           <>
+            {selectedIds.length > 0 ? (
+              <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 bg-slate-50 px-5 py-3">
+                <p aria-live="polite" className="text-sm text-slate-700">
+                  <span className="font-medium">{selectedIds.length}</span> selected
+                  {selectedOnPage === selectedIds.length ? null : (
+                    <span className="text-slate-500">
+                      {' '}
+                      ({selectedOnPage} on this page)
+                    </span>
+                  )}
+                  {overCap ? (
+                    <span className="block text-red-700">
+                      Print at most {MAX_PRINTABLE_CHALLANS} at once — large jobs
+                      fail part-way through the browser&apos;s print dialog.
+                    </span>
+                  ) : null}
+                </p>
+
+                <div className="flex items-center gap-2">
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => {
+                      setSelectedIds([]);
+                    }}
+                  >
+                    Clear
+                  </Button>
+
+                  {overCap ? (
+                    <Button size="sm" disabled>
+                      Print selected
+                    </Button>
+                  ) : (
+                    <Link
+                      href={challanPrintHref(selectedIds)}
+                      // A new tab so the list, its filters and the selection
+                      // survive the print run — printing is rarely the last
+                      // thing someone does on this page.
+                      target="_blank"
+                      rel="noopener"
+                    >
+                      <Button size="sm">
+                        Print selected ({selectedIds.length})
+                      </Button>
+                    </Link>
+                  )}
+                </div>
+              </div>
+            ) : null}
+
             <div className="overflow-x-auto">
               <table className="w-full text-left text-sm">
                 <thead className="border-b border-slate-200 text-xs uppercase tracking-wide text-slate-500">
                   <tr>
+                    <th scope="col" className="w-10 py-3 pl-5 pr-0">
+                      <input
+                        ref={headerBox}
+                        type="checkbox"
+                        className="h-4 w-4 align-middle"
+                        aria-label="Select every challan on this page"
+                        checked={allOnPageSelected}
+                        onChange={(event) => {
+                          togglePage(event.target.checked);
+                        }}
+                      />
+                    </th>
                     <th scope="col" className="px-5 py-3 font-medium">Challan #</th>
                     <th scope="col" className="px-5 py-3 font-medium">Student</th>
                     <th scope="col" className="px-5 py-3 font-medium">Class</th>
@@ -330,7 +441,18 @@ export function ChallanTable({
                       (toPaise(row.totalAmount) - toPaise(row.paidAmount)) / 100;
 
                     return (
-                      <tr key={row.id}>
+                      <tr key={row.id} className={selected.has(row.id) ? 'bg-slate-50' : undefined}>
+                        <td className="w-10 py-3 pl-5 pr-0">
+                          <input
+                            type="checkbox"
+                            className="h-4 w-4 align-middle"
+                            aria-label={`Select challan ${row.challanNumber} for ${row.studentName}`}
+                            checked={selected.has(row.id)}
+                            onChange={(event) => {
+                              toggleRow(row.id, event.target.checked);
+                            }}
+                          />
+                        </td>
                         <td className="px-5 py-3 font-mono text-xs text-slate-600">
                           {row.challanNumber}
                         </td>
@@ -375,7 +497,7 @@ export function ChallanTable({
 
                 <tfoot className="border-t border-slate-200 bg-slate-50">
                   <tr>
-                    <th scope="row" colSpan={4} className="px-5 py-3 text-left font-medium text-slate-600">
+                    <th scope="row" colSpan={5} className="px-5 py-3 text-left font-medium text-slate-600">
                       Totals for these filters
                     </th>
                     <td className="px-5 py-3 text-right font-semibold text-slate-900">
