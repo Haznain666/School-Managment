@@ -61,6 +61,23 @@ export function SuperAdminLoginForm({ nextPath }: SuperAdminLoginFormProps) {
       onSubmit={(event) => {
         void handleSubmit(event);
       }}
+      /*
+        `method="post"` matters even though this form is never submitted
+        natively in the happy path.
+
+        Submitting before React has hydrated — pressing Enter while the route
+        is still compiling, or any time hydration fails — makes the browser
+        perform the form's *native* submit. A form with no method defaults to
+        GET, and GET puts every named field in the query string. That is how
+        `GET /super-admin/login?email=…&password=…` reached the server log,
+        with the password in plain text in the URL, in browser history, and in
+        any Referer header this page emits.
+
+        With POST the same pre-hydration submit sends the fields in a request
+        body to a page route that does not accept POST, so it fails visibly and
+        harmlessly. Credentials never reach a URL either way.
+      */
+      method="post"
       className="space-y-4 rounded-card border border-slate-200 bg-white p-6 shadow-card"
       noValidate
     >

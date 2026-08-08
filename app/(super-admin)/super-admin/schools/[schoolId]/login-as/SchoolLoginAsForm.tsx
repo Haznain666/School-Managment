@@ -74,6 +74,7 @@ export function SchoolLoginAsForm({ schoolId, schoolName }: SchoolLoginAsFormPro
 
   return (
     <form
+      method="post"
       onSubmit={(event) => {
         void submit(event);
       }}

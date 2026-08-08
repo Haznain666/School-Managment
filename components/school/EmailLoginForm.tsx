@@ -46,6 +46,17 @@ interface Envelope<T> {
  * is no separate "sign in" step for the browser to do and nothing to hold in
  * component state. Success means the cookie is there; the redirect is all
  * that is left.
+ *
+ * ── Every step's form carries `method="post"` ────────────────────────────
+ * Including the ones that only collect an email. A form with no method
+ * natively submits as **GET** when it is submitted before React has hydrated
+ * — pressing Enter while the route is still compiling, or any time hydration
+ * fails — and GET puts every named field in the query string. That is not
+ * hypothetical: it is exactly how a password reached a server access log
+ * through the Super Admin sign-in form, in the URL, in browser history, and
+ * in any Referer this page emits. With POST the same pre-hydration submit
+ * sends a body to a page route that refuses POST, so it fails visibly and
+ * harmlessly, and credentials never touch a URL.
  */
 export function EmailLoginForm({ schoolName, schoolSlug }: EmailLoginFormProps) {
   const router = useRouter();
@@ -271,6 +282,7 @@ export function EmailLoginForm({ schoolName, schoolSlug }: EmailLoginFormProps) 
   if (step === 'password') {
     return (
       <form
+        method="post"
         onSubmit={(event) => {
           void handlePasswordSignIn(event);
         }}
@@ -331,6 +343,7 @@ export function EmailLoginForm({ schoolName, schoolSlug }: EmailLoginFormProps) 
   if (step === 'request-code') {
     return (
       <form
+        method="post"
         onSubmit={(event) => {
           void handleRequestCode(event);
         }}
@@ -387,6 +400,7 @@ export function EmailLoginForm({ schoolName, schoolSlug }: EmailLoginFormProps) 
   if (step === 'code') {
     return (
       <form
+        method="post"
         onSubmit={(event) => {
           void handleVerifyCode(event);
         }}
@@ -455,6 +469,7 @@ export function EmailLoginForm({ schoolName, schoolSlug }: EmailLoginFormProps) 
 
   return (
     <form
+      method="post"
       onSubmit={(event) => {
         void handleSetPassword(event);
       }}
