@@ -1198,17 +1198,91 @@ obvious equivalent — `if (… !== 'nodejs') return;` — reads the same to a h
 and **does not work**: the parser walks on past the return and records the
 import anyway. The first build of this sprint failed exactly that way.
 
+### QA — verified against the live database 2026-08-08
+
+Migration `0015` **applied and verified** — both tables, all 17 columns, both
+CHECK constraints, all three indexes, no FK on `email_outbox`, 16 migrations
+recorded. Verified by querying `information_schema` and `pg_constraint`, not by
+trusting drizzle-kit's exit code.
+
+Exercised end to end against a running dev server:
+
+| Claim | Result |
+| --- | --- |
+| Per-email lockout at 5 | ✅ attempts 1–5 → 401, 6th and 7th → 429 with `too_many_attempts` |
+| Throttled attempts are not recorded | ✅ **5 rows for 7 attempts** — a lockout expires rather than extending itself |
+| `ip_hash` is a hash, not an IP | ✅ 64-char sha256 hex, no dots, on every row |
+| Throttle precedes any database read | ✅ `checkThrottle` line 75, `signInWithPassword` line 78; no lookup can leak timing |
+| Throttle is not login-only | ✅ `otp/request` locks independently at 6 |
+| No account enumeration | ✅ `otp/request` returns `sent: true` for an address that does not exist |
+| Outbox end to end | ✅ `queued → sending → sent` |
+| **The send took 85 seconds** | ✅ independently confirms the ~103s of §5k — and it is now 85s nobody is watching |
+| Concurrent drains cannot double-send | ✅ three drainers at once (the 30s interval + two HTTP calls) → **exactly one claim**, `attempts = 1`, both HTTP calls reporting `claimed: 0` |
+| Drain route auth | ✅ 401 on a wrong/absent secret; header is `x-drain-secret`, not `Authorization` |
+| UI says "queued" | ✅ all four screens |
+
+All QA rows were deleted afterwards; both tables are back to 0.
+
+**What QA did NOT reach, and should not be assumed working:**
+
+- **The failure path and backoff are entirely unverified.** The test message was
+  addressed to a reserved `.invalid` TLD expecting a rejection, and the SMTP
+  server *accepted* it anyway (it will bounce asynchronously). So `sent` is
+  proven and `failed` is not: the 1/5/15/60-minute backoff, the terminal
+  `failed` at 5 attempts, and the 15-minute reclaim of a row abandoned in
+  `sending` are all code that has never run.
+- `password`, `setup` and `super_admin_login` scopes were not exercised — only
+  `login` and `otp_request`.
+- **The per-IP limit was never reached**, so 30-in-15-minutes is unverified.
+- The 1-in-50 opportunistic 24h sweep was not observed.
+- The four "queued" strings were verified in source, **not on screen** — the
+  in-app browser is not signed in and cannot be without someone typing a
+  password.
+
 ### What is still open
 
-1. **Migration `0015` is not applied.** DevOps step. Nothing in Sprint 0 works
-   until it is — every code path degrades quietly rather than crashing (the
-   limiter fails open, `enqueueEmail` throws and is reported), which is by
-   design but means an unapplied migration looks like "email stopped working".
-2. **None of this has been seen in a browser.** No lockout has been triggered,
-   no message has been drained, and the drain route has never been called.
-3. **`EMAIL_DRAIN_SECRET` is unset**, so `/api/internal/email/drain` refuses
-   everything. That is the correct default — the in-process drainer is what runs
-   on Hostinger — but it means the escape hatch is untested.
+1. ~~**Migration `0015` is not applied.**~~ **Applied 2026-08-08** and verified
+   above. Note for the next session: every Sprint 0 path degrades quietly rather
+   than crashing when the tables are missing (the limiter fails open,
+   `enqueueEmail` throws and is reported), so on a fresh environment an
+   unapplied migration looks like "email stopped working".
+2. **The failure path is untested** — see the QA table above. This is the
+   highest-value thing to exercise next, because it is the path that runs when
+   something is actually wrong.
+3. **`EMAIL_DRAIN_SECRET` is unset in the real `.env.local`**, so
+   `/api/internal/email/drain` refuses everything there. That is the correct
+   default — the in-process drainer is what runs on Hostinger. QA set it only in
+   the worktree copy.
+
+### ⚠️ `.env.local` is corrupted, and it breaks the documented migration command
+
+Found 2026-08-08 while applying `0015`. **`D:\School-Management-System\.env.local`
+contains 15 NUL bytes** in an otherwise pure-ASCII 5,124-byte file. `file` reports
+it as `data`, and every text tool refuses it — which is why the §5d command fails
+with `TypeError: Invalid URL` and an `input:` of *"Binary file … matches"*. That
+error names `postgres`, so it reads like a driver or connection-string problem.
+It is neither.
+
+**The command in §5d needs `grep -a`** (treat the file as text) until this is
+repaired:
+
+```bash
+DATABASE_URL="$(grep -a '^DATABASE_URL=' /d/School-Management-System/.env.local | cut -d= -f2- | tr -d "\"'\r" | LC_ALL=C tr -d '\000' | sed 's/:6543\//:5432\//')" npx drizzle-kit migrate
+```
+
+**What is damaged:** only `SMTP_PORT`, on lines 49–51. It is written twice with
+NUL padding, parsing as `465\n465`. `DATABASE_URL` and the other 22 keys are
+clean, which is why nothing else has failed. Current impact is near-zero by luck:
+`Number.parseInt("465\0…", 10)` stops at the first non-digit and returns `465`,
+so `lib/email-sender.ts` still gets the right port.
+
+**How it happened:** almost certainly PowerShell appending `SMTP_PORT=465` after
+the §5j measurement — the same PS 5.1 encoding failure the note at the end of
+this file warns about for source files. It applies to `.env` files too, and that
+warning should be read as covering both.
+
+**The repair** is to strip the NULs and collapse the duplicate to one line. It
+was not done, because it is a secrets file and rewriting one is the user's call.
 4. **The queue has no operator screen.** A `failed` row is visible only in the
    database. Sprint 11 builds on this table and is the natural place for it;
    until then, a message nobody received is a `SELECT` away and no closer.
