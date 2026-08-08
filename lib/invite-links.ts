@@ -85,3 +85,8 @@ export function buildInviteUrl(token: string, schoolSlug: string): string {
 export function buildSchoolLoginUrl(schoolSlug: string): string {
   return buildSchoolUrl('/login', schoolSlug);
 }
+
+/** Where a first-time member goes to choose their password. */
+export function buildSetupPasswordUrl(token: string, schoolSlug: string): string {
+  return buildSchoolUrl(`/set-password/${token}`, schoolSlug);
+}

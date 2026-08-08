@@ -922,6 +922,93 @@ should look like one, rather than as an unresolving spinner.
 
 ---
 
+## 5k. First-time sign-in drops the code — done 2026-08-08
+
+**The two paths are now genuinely different things, and that is the point.**
+
+| | Before | Now |
+| --- | --- | --- |
+| First time | link → type email → request code → read 2nd email → type code → set password | **link → set password** |
+| Forgotten | same six steps, same link | code → set password, reached from **"Forgot password?"** |
+
+The link in the welcome email is now the proof of mailbox control. That is
+exactly what a code demonstrated, so asking for one as well proved the same
+thing twice with a second email and a transcription in between.
+
+**New:** `password_setup_tokens` (migration `0014`, applied and verified),
+`POST /api/school/auth/setup`, `/set-password/[token]`, `SetupPasswordForm`.
+
+### The constraints that make the link safe — do not relax these
+
+The email is now a credential rather than instructions. Same trust model as
+every password-reset link, which is why it is acceptable; these are what keep
+it narrow:
+
+- 32 random bytes, single use, 48 hours, bound to one member at one school.
+- **Only ever issued to a member who has never signed in**, re-checked at
+  redemption rather than trusted from issue time. An account that already has
+  a password must go through Forgot Password and prove the mailbox with a
+  code. Otherwise an old link in an old inbox would outrank the stronger path
+  forever. `send-signin` sends a *different* email — a plain reminder, no
+  link — to anyone who already has an account.
+- **Nothing is redeemed on page load.** Mail clients and scanners follow links,
+  so a GET that consumed the token would spend it before the recipient
+  clicked. The token travels with the password in one POST.
+- The token is spent *before* the account is touched, in an UPDATE whose WHERE
+  still requires it unused, so two simultaneous submissions cannot both win.
+  If anything after that fails, the spend is rolled back — see below.
+
+### Verified end to end against the live database
+
+Setup link redeemed: `200 redirectTo=/dashboard`, account created and bound
+(`auth_user_id` + `joined_at` set), session minted. Immediate replay of the
+same token: `404 invalid_token`. Bogus token: 404. Weak password: 400, **and
+the token was not spent** — the strength check runs before the lookup, so a
+weak password cannot burn a link the person may not be able to re-request.
+
+### ⚠️ Two real bugs this found
+
+**1. `revokeAllSessions` has never worked.** It called
+`auth.admin.signOut(userId, 'global')`, but that method takes a **JWT** —
+`signOut(jwt: string, scope?)`. GoTrue rejected every call with *"token
+contains an invalid number of segments"*. Nobody noticed because
+`endSchoolSession` catches and logs it and `revokeSchoolSession` has no
+callers; it surfaced only when a new caller let it reach a user as a 500.
+
+It is now a **documented no-op**. Throwing was strictly worse: it revoked
+exactly as much (nothing) and broke the caller too. **This is not a
+regression** — `membershipFor()` re-reads `is_active` on every request, and
+that is what actually makes deactivation instant. What is genuinely missing is
+the tidy-up: a deactivated user's Supabase refresh token lives until it
+expires. Buys them nothing while the membership check refuses them, but it
+should be closed — the admin API here has no revoke-by-user-id, so it needs
+the GoTrue REST endpoint and a deliberate decision.
+
+**2. A failure after the token was spent left a dead link.** That is how the
+bug above presented: the token was consumed, `revokeAllSessions` threw, and
+the member was left with a burnt link and no account. The post-spend work is
+now wrapped, and the spend is undone on failure.
+
+### ⚠️ Correction: port 465 does not fix the slow email
+
+Earlier measurements used `verify()`, which only opens a connection. Measuring
+the real `sendMail`:
+
+| | 587 | 465 |
+| --- | --- | --- |
+| `verify()` (connect only) | 111s | 1.4s |
+| **`sendMail()` (actual send)** | ~125s | **~103s** |
+
+So the port barely matters for the thing that actually blocks the request.
+`smtp.titan.email` is simply slow to accept mail from here, and the
+`socketTimeout` added earlier does not fire because the socket is never idle
+long enough. 465 is still the better setting, but **the fix for the two-minute
+spinner is not to block the response on the send** — that is an open decision,
+because the current design deliberately reports delivery failure to the
+operator.
+
+---
+
 ## 5i. Browser verification — how far it got
 
 The dev server runs from this worktree. `.env.local` was copied in from the
@@ -979,6 +1066,7 @@ on, custom SMTP through `smtp.titan.email:465`.
 | 2026-08-08 | **WhatsApp gated (step 8) — Stage 4 code-complete.** New `whatsapp` channel flag in `school_modules`, declared separately from the product modules and rendered in its own Channels section. All five live send paths gated; the invite passcode moved to email, killing the last WhatsApp dependency in auth; the orphaned `lib/otp-sender.ts` deleted and its duplicated SMTP transport extracted to `lib/email-sender.ts`. Fee reminders now report how many guardians nobody could reach. Migration 0012. typecheck + lint + build green. | **Run 0011 + 0012, configure Supabase Auth, then sign in for real.** Nothing here has touched the live database. |
 | 2026-08-08 | **Login UI rebuilt.** `EmailLoginForm` replaces `LoginOTPForm`: password sign-in plus a code path for first-time and forgotten passwords. `PasswordField` + `lib/password-strength.ts` lifted from the email-auth branch and made the single source the password route also reads. Closed a hole this created: invitations now require an email address, because the address is the identity. typecheck + lint + build green. | **WhatsApp gating (step 8)**, then run migration 0011 and try signing in for real. |
 | 2026-08-08 | **Stage 4 auth substrate.** Firebase Authentication → Supabase Auth. New `lib/supabase-auth.ts`; `lib/school-auth.ts` now resolves claims from `school_users` per request instead of from the token, which retires the stale-claims hazard. Login/OTP/password/logout/platform-session/emergency-login/invite-accept all reworked; `/api/school/auth/session` and the browser round trip deleted. `firebase_uid` → `auth_user_id` + migration `0011`. Firebase removed entirely. typecheck + lint + build green. | **The login UI (§5d item 1) — it is broken until then.** Then WhatsApp gating (step 8). |
+| 2026-08-08 | **First-time sign-in drops the code** (§5k). A welcome email now carries a single-use link that goes straight to "choose a password"; the code survives only behind "Forgot password?". New `password_setup_tokens` table, migration 0014 applied and verified. Found two real bugs doing it: `revokeAllSessions` has never worked (it passed a user id where GoTrue wants a JWT), and a failure after the token was spent left a dead link. | **Decide the SMTP blocking question** (§5k) and whether to implement refresh-token revocation properly. |
 | 2026-08-08 | **First browser verification** (§5j). Bulk apply confirmed against the live database — one module on, nine untouched, audit row correct — and "Send sign-in email" delivered for real. Six defects found that typecheck/lint/build had all passed, including an invisible dropdown (Card's `overflow-hidden` clipped it), action buttons still wrapping, and the Overview page labelling the tenant uuid "GHL Location ID". Also measured SMTP: port 587 takes 111s where 465 takes 1.4s. | **Set `SMTP_PORT=465`** locally and in Hostinger. Rotate the production Super Admin password — it is still the leaked one. |
 | 2026-08-08 | **Found why school users get no email** (§5g): "Add administrator" was never designed to send one, and after Stage 4 that leaves an account nobody can find. Added "Send sign-in email", made email required, and corrected the misleading "Invite pending" badge. Also added deactivate/delete for members (§5h), turned the schools-list actions into aligned buttons, put "Login as Admin" on the Overview page, and renamed the stale "GHL Location ID" column. | **Sign in to the assistant's browser once** so this can finally be clicked through. |
 | 2026-08-08 | **Integrations tab + bulk module management** (§5f). GHL can finally be connected to a school — the write path never existed. New cross-school `/super-admin/modules`: multi-select schools as named chips, all ten modules plus WhatsApp plus GoHighLevel, three-state On/Off/Leave so an apply cannot clobber untouched flags. GHL is off-only in bulk, because connecting needs a per-school id. Also found and documented a build hazard: `next build` in a worktree creates `.claude/worktrees/node_modules`, which breaks the next build. | **Configure Supabase Auth**, then sign in and exercise this — none of it has been seen in a browser. |

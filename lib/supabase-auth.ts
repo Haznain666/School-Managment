@@ -318,24 +318,48 @@ export async function setUserPassword(userId: string, password: string): Promise
 }
 
 /**
- * Signs a user out of every device.
+ * Signs a user out of every device — **currently a no-op, and it always was.**
  *
- * Worth being honest about what this does and does not buy. It revokes the
- * refresh tokens, so no new access token can be minted — but an access token
- * already in flight stays valid until it expires, up to an hour. Firebase's
- * `verifySessionCookie(cookie, true)` had no such gap.
+ * ⚠️ Read this before relying on it for anything.
  *
- * That gap is why `isAccountActive()` in `lib/school-auth.ts` exists and why
- * it must not be removed: it re-reads `school_users.is_active` on every single
- * request, which is what actually makes deactivation instant. This call is a
- * tidy-up on top of that guarantee, not the guarantee itself.
+ * ── What was wrong ───────────────────────────────────────────────────────
+ * This used to call `auth.admin.signOut(userId, 'global')`. That method takes
+ * a **JWT**, not a user id — `signOut(jwt: string, scope?: SignOutScope)` in
+ * `@supabase/auth-js`. Passing an id made GoTrue reject it every single time:
+ *
+ *     invalid JWT: unable to parse or verify signature, token is malformed:
+ *     token contains an invalid number of segments
+ *
+ * So it has never revoked anything. It was not noticed because its only two
+ * callers hid it: `endSchoolSession` wraps the call in a try/catch that logs
+ * and carries on, and `revokeSchoolSession` is not currently called from
+ * anywhere. It surfaced when a new caller let the exception reach the user as
+ * a 500.
+ *
+ * ── Why it is now a no-op rather than "fixed" ────────────────────────────
+ * The admin API in this SDK version has no revoke-by-user-id. Doing it
+ * properly means calling the GoTrue admin REST endpoint directly, and that is
+ * a decision to take deliberately rather than to guess at inside a bug fix.
+ * Throwing was strictly worse than doing nothing: it revoked exactly as much
+ * (nothing) and broke the caller as well.
+ *
+ * ── Why this is not a security regression ────────────────────────────────
+ * Because it never worked, nothing is lost. And it was never the guarantee:
+ * `membershipFor()` in `lib/school-auth.ts` re-reads `school_users.is_active`
+ * on **every request**, so deactivating someone still cuts them off on their
+ * very next call, refresh token or not. That is the mechanism that makes
+ * revocation instant, and it is why that function must not be removed.
+ *
+ * What is genuinely lost is the tidy-up: a deactivated user's refresh token
+ * stays live with Supabase until it expires. It buys them nothing while the
+ * membership check refuses them, but it should still be closed. See STATE.md.
  */
 export async function revokeAllSessions(userId: string): Promise<void> {
-  const { error } = await getAuthAdmin().auth.admin.signOut(userId, 'global');
-
-  if (error !== null) {
-    throw new SupabaseAuthError('signout_failed', `Supabase sign-out failed: ${error.message}`);
-  }
+  console.warn(
+    `[auth] refresh-token revocation is not implemented; ${userId} keeps its ` +
+      'Supabase refresh token until it expires. Access is still refused by ' +
+      'the per-request membership check. See lib/supabase-auth.ts.',
+  );
 }
 
 /**

@@ -14,6 +14,7 @@ export * from './school-users';
 export * from './school-invitations';
 export * from './auth-otp-sessions';
 export * from './emergency-login-tokens';
+export * from './password-setup-tokens';
 export * from './ghl-tokens';
 export * from './branches';
 export * from './users';

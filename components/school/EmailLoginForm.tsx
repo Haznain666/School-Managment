@@ -23,13 +23,30 @@ interface Envelope<T> {
 }
 
 /**
- * School sign-in: email and password, with a code-based path for people who
- * do not have a password yet.
+ * School sign-in: email and password, plus Forgot Password.
+ *
+ * ── This is no longer where first-time users arrive ──────────────────────
+ * It used to be. One link read "First time here, or forgotten your password?"
+ * because both were the same three steps — request a code, enter it, choose a
+ * password — and collapsing them saved a screen.
+ *
+ * First-time setup has since moved out entirely, to `/set-password/[token]`.
+ * A new member is emailed a single-use link, and clicking it *is* the proof of
+ * mailbox control that a code was there to establish. Making them ask for a
+ * code as well proved the same thing twice, with a second email and a
+ * transcription in between.
+ *
+ * What is left here is the reset path, and it keeps the code — deliberately.
+ * A password reset is a request from an unauthenticated stranger about an
+ * account that already exists, with nothing emailed in advance to prove
+ * anything. The code is what turns "somebody typed this address" into "the
+ * person holding this mailbox asked". See
+ * `db/schema/password-setup-tokens.ts`, which sets out why the setup link is
+ * safe in a way an unsolicited reset link would not be.
  *
  * ── Why one component and not three screens ──────────────────────────────
- * "First time here" and "forgot my password" are the same three steps —
- * request a code, enter it, choose a password — and they end where signing in
- * ends. Splitting them into separate routes meant the browser navigating twice
+ * The reset path is still three steps that end where signing in ends.
+ * Splitting them into separate routes meant the browser navigating twice
  * mid-flow, and a back button that lands on a step whose code has already been
  * spent. Here the whole thing is one form with a `step`, so leaving it is a
  * deliberate act rather than an accident of history.
@@ -334,7 +351,7 @@ export function EmailLoginForm({ schoolName, schoolSlug }: EmailLoginFormProps) 
             setStep('request-code');
           }}
         >
-          First time here, or forgotten your password?
+          Forgot password?
         </button>
       </form>
     );
@@ -352,10 +369,11 @@ export function EmailLoginForm({ schoolName, schoolSlug }: EmailLoginFormProps) 
       >
         <div>
           <h2 className="text-base font-semibold text-slate-900">
-            Set up or reset your password
+            Forgot your password?
           </h2>
           <p className="mt-1 text-sm text-slate-500">
-            We will email you a six-digit code to confirm it is you.
+            We will email you a six-digit code to confirm it is you, then you
+            can choose a new one.
           </p>
         </div>
 
@@ -372,7 +390,7 @@ export function EmailLoginForm({ schoolName, schoolSlug }: EmailLoginFormProps) 
             setEmail(event.target.value);
           }}
           placeholder="you@example.com"
-          hint="Use the address your school invited you on."
+          hint="The address you sign in with."
           disabled={isLoading}
         />
 
