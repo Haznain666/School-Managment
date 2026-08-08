@@ -93,7 +93,11 @@ export const POST = withSchoolAuth<RouteContext>(
         .set({
           expiresAt: inviteExpiryFromNow(),
           whatsappSent: delivery.whatsappSent,
-          emailSent: delivery.emailSent,
+          // The column predates the outbox and now records that the message
+          // was queued rather than accepted by an SMTP server. Renaming it
+          // would cost a migration for a distinction the schema cannot make
+          // anyway — where it surfaces, the UI says "Email queued".
+          emailSent: delivery.emailQueued,
           whatsappMessageId: delivery.whatsappMessageId,
         })
         .where(

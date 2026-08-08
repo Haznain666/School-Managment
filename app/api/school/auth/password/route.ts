@@ -1,6 +1,12 @@
 import type { NextRequest } from 'next/server';
 
 import { apiFailure, apiSuccess, handleApiError, readJsonBody } from '@/lib/api-response';
+import {
+  checkThrottle,
+  clientIpHash,
+  recordAttempt,
+  throttledResponse,
+} from '@/lib/auth-throttle';
 import { validatePasswordStrength } from '@/lib/password-strength';
 import { readSchoolSession } from '@/lib/school-auth';
 import { getAuthenticatedUser, setUserPassword } from '@/lib/supabase-auth';
@@ -26,6 +32,18 @@ import { homeRouteForRole } from '@/types/school-auth';
  * reads, so the form cannot accept what this refuses. GoTrue applies its own
  * configured policy on top; a failure there surfaces as a `SupabaseAuthError`
  * and is reported rather than swallowed.
+ *
+ * ── What the throttle is for here ────────────────────────────────────────
+ * This endpoint already requires a live session, so it is not the enumeration
+ * surface the others are. What it is is the last step of a password reset, and
+ * a session obtained by any means at all can hammer GoTrue through it. The
+ * limit is therefore on the identity, not the credential.
+ *
+ * A rejected password is deliberately **not** recorded. Weak-password
+ * rejections are the normal experience of choosing a password, and counting
+ * them would lock someone out of their own reset for fifteen minutes for the
+ * offence of trying three variations of something too short. Only requests that
+ * reached GoTrue are counted, on either outcome.
  */
 
 export const runtime = 'nodejs';
@@ -58,7 +76,20 @@ export async function POST(request: NextRequest) {
       return apiFailure('unauthorized', 'Verify your email address first.', 401);
     }
 
-    await setUserPassword(user.id, password);
+    const ipHash = clientIpHash(request);
+    const identifier = user.email ?? user.id;
+
+    const throttle = await checkThrottle('password_reset', identifier, ipHash);
+    if (!throttle.allowed) return throttledResponse(throttle);
+
+    try {
+      await setUserPassword(user.id, password);
+    } catch (error) {
+      await recordAttempt('password_reset', identifier, ipHash, false);
+      throw error;
+    }
+
+    await recordAttempt('password_reset', identifier, ipHash, true);
 
     return apiSuccess({ redirectTo: homeRouteForRole(claims.role) });
   } catch (error) {

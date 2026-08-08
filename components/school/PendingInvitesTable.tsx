@@ -139,7 +139,16 @@ export function PendingInvitesTable() {
                       {invite.whatsappSent ? (
                         <Badge variant="success">WhatsApp</Badge>
                       ) : null}
-                      {invite.emailSent ? <Badge variant="neutral">Email</Badge> : null}
+                      {/*
+                        "queued", not "sent": the message is handed to the
+                        outbox and delivered outside the request, so at the
+                        moment this row was written nothing had reached an SMTP
+                        server yet. A badge reading "Email" next to a message
+                        that later bounced is the lie this wording avoids.
+                      */}
+                      {invite.emailSent ? (
+                        <Badge variant="neutral">Email queued</Badge>
+                      ) : null}
                       {!invite.whatsappSent && !invite.emailSent ? (
                         <Badge variant="danger">Not delivered</Badge>
                       ) : null}

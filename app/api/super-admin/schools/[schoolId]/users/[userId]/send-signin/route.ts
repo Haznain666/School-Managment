@@ -12,7 +12,8 @@ import {
 } from '@/db/schema';
 import { apiFailure, apiSuccess, handleApiError } from '@/lib/api-response';
 import { db } from '@/lib/drizzle';
-import { sendEmail, smtpConfigured } from '@/lib/email-sender';
+import { enqueueEmail } from '@/lib/email-outbox';
+import { smtpConfigured } from '@/lib/email-sender';
 import { buildSchoolLoginUrl, buildSetupPasswordUrl } from '@/lib/invite-links';
 import { requireSuperAdmin } from '@/lib/super-admin-guard';
 import { isUuid } from '@/lib/validation';
@@ -52,6 +53,22 @@ import { isUuid } from '@/lib/validation';
  * one posted from an operator screen is usually dead by the time the recipient
  * reads it, and that failure looks like a broken system rather than an expired
  * code.
+ *
+ * ── This route no longer knows whether the mail arrived ──────────────────
+ * It used to await the send and return a 502 naming the SMTP error, which was
+ * genuinely useful — and cost ~103 seconds of an operator's time per press
+ * (`STATE.md` §5k). The message now goes to `email_outbox` and the response
+ * says `queued`, because that is all that is true when it returns.
+ *
+ * The trade is explicit: the operator loses "it bounced, the address is wrong"
+ * at the moment of pressing, and gains an answer in milliseconds. What replaces
+ * it is the row — `email_outbox.status` and `last_error` hold the outcome, and
+ * a bad address ends up `failed` with the SMTP server's own words on it. The UI
+ * says "queued" and no longer says "sent", because saying "sent" here would now
+ * be a claim nobody checked.
+ *
+ * The setup token is still written *before* the message is queued, so a link
+ * cannot be mailed that the database does not know about.
  */
 
 export const runtime = 'nodejs';
@@ -184,28 +201,33 @@ export async function POST(_request: NextRequest, context: RouteContext) {
     }
 
     try {
-      await sendEmail(
-        member.email,
-        isFirstTime
+      await enqueueEmail({
+        // Platform mail: the operator of the platform is writing to a member of
+        // a school. The school is recorded anyway, because knowing which tenant
+        // a queued message concerns is worth more than the purity of the null.
+        locationId: school.locationId,
+        to: member.email,
+        subject: isFirstTime
           ? `Set up your ${school.name} account`
           : `Your ${school.name} portal access`,
         text,
-      );
+      });
     } catch (error) {
-      // The transport failure is the useful part, so it is surfaced rather
-      // than flattened into "could not send".
-      console.error('[super-admin] sign-in email failed:', error);
+      // A failure here is the database refusing an INSERT, not SMTP refusing a
+      // message — the transport is not involved yet. Worth reporting plainly,
+      // because it means nothing was queued and the button did nothing.
+      console.error('[super-admin] could not queue the sign-in email:', error);
       return apiFailure(
-        'send_failed',
-        `Could not send to ${member.email}. ${
-          error instanceof Error ? error.message : 'The SMTP server refused it.'
+        'queue_failed',
+        `Could not queue a message to ${member.email}. ${
+          error instanceof Error ? error.message : 'The queue rejected it.'
         }`,
         502,
       );
     }
 
     return apiSuccess({
-      sent: true,
+      queued: true,
       email: member.email,
       name: member.name,
       /** Lets the panel say which of the two emails just went out. */

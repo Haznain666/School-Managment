@@ -6,7 +6,8 @@ import { schools } from '@/db/schema';
 
 import { isWhatsAppEnabled } from './channels';
 import type { Database } from './drizzle';
-import { sendEmail, smtpConfigured } from './email-sender';
+import { enqueueEmail } from './email-outbox';
+import { smtpConfigured } from './email-sender';
 import { findOrCreateContact, sendWhatsAppMessage } from './ghl-client';
 import { formatAmount } from './money';
 import { isValidPhone, normalizePhone } from './phone';
@@ -86,7 +87,11 @@ async function schoolNameFor(
  *
  * Each channel is tried inside its own try/catch: WhatsApp failing must not
  * stop the email, and neither may throw into an unawaited caller.
- * Returns true when at least one channel accepted the message.
+ *
+ * Returns true when at least one channel accepted the message — which for
+ * email now means the outbox accepted it, not that a mail server did. The
+ * reminders route has always reported this count as "queued", which was a
+ * slight overstatement of an unawaited send and is now exactly right.
  */
 async function notifyGuardian(
   db: Database,
@@ -122,10 +127,24 @@ async function notifyGuardian(
 
   if (email !== null && email.trim() !== '' && smtpConfigured()) {
     try {
-      await sendEmail(email.trim(), subject, message);
+      // ── Why the outbox matters most here ─────────────────────────────
+      // This is the one path that was already a fan-out: "send all
+      // reminders" over a defaulters list of two hundred, each send taking
+      // up to ~103 seconds against `smtp.titan.email`. Unawaited, that was
+      // two hundred SMTP connections opened from inside one request and
+      // racing the process's lifetime — the last of them would not have
+      // finished for hours, if the process lived that long. Queued, it is
+      // two hundred INSERTs and a drainer that works through them at a rate
+      // the mail host will tolerate.
+      await enqueueEmail({
+        locationId,
+        to: email.trim(),
+        subject,
+        text: message,
+      });
       delivered = true;
     } catch (error) {
-      console.warn(`[ghl-fees] email failed for ${guardian.name} at ${locationId}:`, error);
+      console.warn(`[ghl-fees] could not queue email for ${guardian.name} at ${locationId}:`, error);
     }
   }
 

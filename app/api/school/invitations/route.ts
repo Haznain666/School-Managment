@@ -177,7 +177,10 @@ export const POST = withSchoolAuth(
           invitedByUid: auth.uid,
           token,
           whatsappSent: delivery.whatsappSent,
-          emailSent: delivery.emailSent,
+          // Records that the message was queued, not that SMTP accepted it —
+          // see the note in the resend route. The UI reads this as
+          // "Email queued".
+          emailSent: delivery.emailQueued,
           whatsappMessageId: delivery.whatsappMessageId,
           expiresAt: inviteExpiryFromNow(),
         })

@@ -5,7 +5,8 @@ import { ROLE_LABELS, isUserRole } from '@/types/school-auth';
 
 import { isWhatsAppEnabled } from './channels';
 import { db } from './drizzle';
-import { sendEmail, smtpConfigured } from './email-sender';
+import { smtpConfigured } from './email-sender';
+import { enqueueEmail } from './email-outbox';
 import { findOrCreateContact, sendWhatsAppMessage } from './ghl-client';
 
 /**
@@ -23,6 +24,19 @@ import { findOrCreateContact, sendWhatsAppMessage } from './ghl-client';
  *
  * Losing both channels is still the only fatal case, because then nobody
  * receives the link.
+ *
+ * ── Email is now queued, not sent ────────────────────────────────────────
+ * `emailQueued` is what this used to call `emailSent`, and the rename is the
+ * point: the message is written to `email_outbox` and handed to SMTP moments
+ * later, outside this request. This function no longer knows whether it was
+ * accepted, and it says so rather than reporting a success it cannot observe.
+ * `STATE.md` §5k is why — the send it used to await measured ~103 seconds
+ * against `smtp.titan.email`, inside a request an administrator was watching.
+ *
+ * What that costs: a bad address or a refusing SMTP host is now discovered by
+ * the drainer and recorded on the row, not returned here. The invitation is
+ * created either way, which is the same outcome the WhatsApp channel has always
+ * had — it is fired at GoHighLevel and believed.
  */
 
 export interface SendInviteInput {
@@ -35,7 +49,8 @@ export interface SendInviteInput {
 
 export interface SendInviteResult {
   whatsappSent: boolean;
-  emailSent: boolean;
+  /** Accepted into `email_outbox`. Not the same claim as "delivered". */
+  emailQueued: boolean;
   whatsappMessageId: string | null;
   /** Human-readable reasons, surfaced to the admin who sent the invite. */
   failures: string[];
@@ -107,27 +122,36 @@ export async function sendInvite(input: SendInviteInput): Promise<SendInviteResu
   }
 
   // -- Email, the channel that has to work ---------------------------------
-  let emailSent = false;
+  let emailQueued = false;
   const email = invitation.email;
 
   if (email !== null && email !== undefined && email.trim() !== '') {
+    // Still checked, and still checked *here*: "SMTP was never configured" is a
+    // deployment fault the admin can be told about immediately, and queueing
+    // into a transport that does not exist would only defer that to a `failed`
+    // row nobody reads.
     if (!smtpConfigured()) {
       failures.push('Email: SMTP is not configured.');
     } else {
       try {
-        await sendEmail(email, `You have been invited to ${school.name}`, message);
-        emailSent = true;
+        await enqueueEmail({
+          locationId: input.locationId,
+          to: email,
+          subject: `You have been invited to ${school.name}`,
+          text: message,
+        });
+        emailQueued = true;
       } catch (error) {
         const reason = error instanceof Error ? error.message : 'Unknown email error';
-        console.warn('[invite-sender] Email delivery failed:', reason);
+        console.warn('[invite-sender] could not queue the invitation email:', reason);
         failures.push(`Email: ${reason}`);
       }
     }
   }
 
-  if (!whatsappSent && !emailSent) {
+  if (!whatsappSent && !emailQueued) {
     throw new InviteDeliveryError(failures);
   }
 
-  return { whatsappSent, emailSent, whatsappMessageId, failures };
+  return { whatsappSent, emailQueued, whatsappMessageId, failures };
 }

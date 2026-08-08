@@ -111,9 +111,15 @@ export function SchoolUsersTable({ schoolId }: SchoolUsersTableProps) {
             `${base}/${user.id}/send-signin`,
             { method: 'POST' },
           );
-          return `Sign-in instructions sent to ${data.email}.`;
+          // "Queued", not "sent". The route hands the message to
+          // `email_outbox` and returns; delivery happens seconds later outside
+          // the request, and a bad address surfaces on the row rather than
+          // here. Telling an operator "sent" when nothing has yet reached an
+          // SMTP server is how they conclude the member has it and stop
+          // chasing.
+          return `Sign-in email queued for ${data.email}. It usually arrives within a minute.`;
         },
-        'Could not send the sign-in email.',
+        'Could not queue the sign-in email.',
       ),
     [act, base],
   );

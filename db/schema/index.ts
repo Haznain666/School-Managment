@@ -53,3 +53,10 @@ export * from './hr';
 
 // Sprint 8 — per-school overrides of the default access model.
 export * from './role-permissions';
+
+// Sprint 0 — auth hardening and the email outbox. Both are exceptions to the
+// tenancy invariant above and each says why in its own docblock: `auth_attempts`
+// guards the pre-authentication surface, where no tenant is established yet,
+// and `email_outbox` also carries platform mail, which belongs to no school.
+export * from './auth-attempts';
+export * from './email-outbox';

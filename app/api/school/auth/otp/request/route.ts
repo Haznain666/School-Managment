@@ -3,6 +3,12 @@ import type { NextRequest } from 'next/server';
 
 import { schoolUsers } from '@/db/schema';
 import { apiFailure, apiSuccess, handleApiError, readJsonBody } from '@/lib/api-response';
+import {
+  checkThrottle,
+  clientIpHash,
+  recordAttempt,
+  throttledResponse,
+} from '@/lib/auth-throttle';
 import { db } from '@/lib/drizzle';
 import { SCHOOL_LOCATION_HEADER } from '@/lib/school-context';
 import { normaliseEmail, sendEmailOtp } from '@/lib/supabase-auth';
@@ -28,6 +34,16 @@ import { normaliseEmail, sendEmailOtp } from '@/lib/supabase-auth';
  * school. But the response does not say so: an endpoint that reported
  * "unknown address" would let anyone enumerate a school's staff. Both cases
  * return the same success, and only one of them sends mail.
+ *
+ * ── Why the throttle counts successes here, unlike login ─────────────────
+ * This endpoint answers "sent" unconditionally, by design, so it has no
+ * failures to count — a limiter watching only failures would leave it with no
+ * limit at all. Here the volume *is* the harm: every call that lands on a real
+ * member costs an SMTP send and puts a code in somebody's inbox, and a script
+ * pointed at one address could otherwise fill a mailbox indefinitely. So every
+ * request counts, on both axes, and the refusal is the same 429 whether the
+ * address is a member, a stranger, or nonsense — the check happens before the
+ * `school_users` read for exactly that reason.
  *
  * `shouldCreateUser` is true because an invited member may have no Supabase
  * account yet — this is exactly the request that creates it. It is safe here
@@ -56,6 +72,12 @@ export async function POST(request: NextRequest) {
     if (email === '' || !email.includes('@')) {
       return apiFailure('invalid_body', 'Enter a valid email address.', 400);
     }
+
+    const ipHash = clientIpHash(request);
+    const throttle = await checkThrottle('otp_request', email, ipHash);
+    if (!throttle.allowed) return throttledResponse(throttle);
+
+    await recordAttempt('otp_request', email, ipHash, true);
 
     const rows = await db
       .select({ isActive: schoolUsers.isActive })

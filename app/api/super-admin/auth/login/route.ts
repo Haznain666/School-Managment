@@ -2,6 +2,12 @@ import { NextResponse, type NextRequest } from 'next/server';
 
 import { apiFailure, apiSuccess, readJsonBody } from '@/lib/api-response';
 import {
+  checkThrottle,
+  clientIpHash,
+  recordAttempt,
+  throttledResponse,
+} from '@/lib/auth-throttle';
+import {
   SUPER_ADMIN_SESSION_SECONDS,
   sessionCookieOptions,
   signSuperAdminJWT,
@@ -17,6 +23,19 @@ import { verifySuperAdminCredentials } from '@/lib/super-admin-credentials';
  * The check itself lives in `lib/super-admin-credentials.ts` because the
  * "Login as Admin" step-up performs the same one, and two copies of a
  * constant-time comparison is how one of them stops being constant-time.
+ *
+ * ── Why this one is throttled hardest ────────────────────────────────────
+ * There is exactly one super-admin account on a deployment, its address is
+ * whatever the operator chose, and behind it is every school on the platform.
+ * A single credential guarding everything is precisely the thing worth grinding
+ * at, and there is no legitimate traffic pattern that involves twenty sessions
+ * from one origin in a quarter of an hour. `STATE.md` also records that the
+ * production password is still the leaked one, which makes this less
+ * theoretical than it should be.
+ *
+ * `misconfigured` is not counted. It means the deployment has no
+ * `SUPER_ADMIN_PASSWORD_HASH`, which nobody's guessing caused and which locking
+ * the endpoint would only make harder to diagnose.
  */
 
 // bcrypt and the env read both need the Node runtime.
@@ -41,17 +60,28 @@ export async function POST(request: NextRequest) {
     return apiFailure('invalid_credentials', 'Enter your email and password.', 400);
   }
 
+  const attempted = typeof body?.email === 'string' ? body.email : '';
+  const ipHash = clientIpHash(request);
+
+  const throttle = await checkThrottle('super_admin_login', attempted, ipHash);
+  if (!throttle.allowed) return throttledResponse(throttle);
+
   const check = await verifySuperAdminCredentials(body?.email, body?.password);
 
   if (!check.ok) {
-    return check.reason === 'misconfigured'
-      ? apiFailure(
-          'server_misconfigured',
-          'Super Admin access is not configured on this deployment.',
-          500,
-        )
-      : apiFailure('invalid_credentials', 'Incorrect email or password.', 401);
+    if (check.reason === 'misconfigured') {
+      return apiFailure(
+        'server_misconfigured',
+        'Super Admin access is not configured on this deployment.',
+        500,
+      );
+    }
+
+    await recordAttempt('super_admin_login', attempted, ipHash, false);
+    return apiFailure('invalid_credentials', 'Incorrect email or password.', 401);
   }
+
+  await recordAttempt('super_admin_login', check.email, ipHash, true);
 
   const token = await signSuperAdminJWT(check.email);
 

@@ -3,6 +3,12 @@ import type { NextRequest } from 'next/server';
 
 import { passwordSetupTokens, schoolUsers } from '@/db/schema';
 import { apiFailure, apiSuccess, handleApiError, readJsonBody } from '@/lib/api-response';
+import {
+  checkThrottle,
+  clientIpHash,
+  recordAttempt,
+  throttledResponse,
+} from '@/lib/auth-throttle';
 import { db } from '@/lib/drizzle';
 import { validatePasswordStrength } from '@/lib/password-strength';
 import { SCHOOL_LOCATION_HEADER } from '@/lib/school-context';
@@ -38,6 +44,19 @@ import { homeRouteForRole, isUserRole } from '@/types/school-auth';
  * requires it to be unused. Two simultaneous submissions therefore cannot both
  * proceed: the second updates zero rows and is refused. Only then is the
  * account touched.
+ *
+ * ── The throttle identifier is the token, not an address ─────────────────
+ * Every other throttled endpoint counts per email. This one cannot: the address
+ * is not known until the token has been looked up, and looking it up first is
+ * the work the limiter exists to prevent. The token is the identity being
+ * claimed here, so it is what the per-identifier counter keys on.
+ *
+ * That makes the per-identifier limit almost decorative against a real attack —
+ * a guesser sends a *different* token every time and never trips it. The per-IP
+ * limit is what actually defends this endpoint, and it is sized for that: 32
+ * random bytes is not guessable in thirty attempts a quarter of an hour, which
+ * is the point. The identifier counter still earns its place by bounding
+ * repeated submissions of one link.
  */
 
 export const runtime = 'nodejs';
@@ -77,6 +96,14 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // After the strength check for the same reason that check comes first: a
+    // weak password is the caller's own mistake to correct, not an attempt on
+    // anything, and counting it would lock a legitimate person out of a link
+    // they cannot re-request.
+    const ipHash = clientIpHash(request);
+    const throttle = await checkThrottle('setup', token, ipHash);
+    if (!throttle.allowed) return throttledResponse(throttle);
+
     const rows = await db
       .select({
         id: passwordSetupTokens.id,
@@ -95,6 +122,11 @@ export async function POST(request: NextRequest) {
 
     const record = rows[0];
     if (record === undefined || record.locationId !== locationId) {
+      // The only branch a guesser can reach, so it is the only one counted.
+      // The states further down — deactivated, already has a password — belong
+      // to someone holding a genuine link, and locking them out of it would
+      // punish the wrong person.
+      await recordAttempt('setup', token, ipHash, false);
       return apiFailure('invalid_token', REJECTED, 404);
     }
 
@@ -162,8 +194,11 @@ export async function POST(request: NextRequest) {
       .returning({ id: passwordSetupTokens.id });
 
     if (spent.length === 0) {
+      await recordAttempt('setup', token, ipHash, false);
       return apiFailure('invalid_token', REJECTED, 404);
     }
+
+    await recordAttempt('setup', token, ipHash, true);
 
     const email = normaliseEmail(member.email);
 

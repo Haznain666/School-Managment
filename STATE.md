@@ -4,12 +4,15 @@
 resume without re-deriving context. Updated at the end of every development
 step, before the session ends.
 
-**Last updated:** 2026-08-08 (fourth session)
-**Branch:** everything below is **merged to `main`**. The Stage-4 worktree
+**Last updated:** 2026-08-08 (fifth session — Sprint 0)
+**Branch:** everything up to §5i is **merged to `main`**. Sprint 0 (§5m) is on
+`feature/sprint-0-auth-hardening` and is **not merged**. The Stage-4 worktree
 branches (`stage-4-state-md-100f15`, `school-management-system-access-92a218`)
 are merged and stale — prune them.
-**Main branch:** `main` — last commit `25e1eab`, in sync with `origin/main`.
-Migrations `0000`–`0014` applied. Next free migration number: **`0015`**.
+**Main branch:** `main` — last commit `7dc2123`, in sync with `origin/main`.
+Migrations `0000`–`0014` applied. **`0015` is written but NOT applied** — it is
+Sprint 0's, and applying it is a DevOps step. Next free number after it:
+**`0016`**.
 
 **The delivery plan now lives in `SPRINTS.md`** — 17 sprints across three
 releases, reconciling `remaining work.docx` with this file and `ROADMAP.md`.
@@ -1057,6 +1060,169 @@ on, custom SMTP through `smtp.titan.email:465`.
 
 ---
 
+## 5m. Sprint 0 — rate limiting, lockout and the email outbox
+
+Branch `feature/sprint-0-auth-hardening`. Migration **`0015_sprint0_auth_hardening.sql`**,
+**written and not applied.** Two new tables, `auth_attempts` and `email_outbox`.
+typecheck, lint and build all green. Nothing has been seen in a browser and
+nothing has touched the live database.
+
+`SPRINTS.md` said Sprint 0 needed no migration. It was wrong — all three pieces
+of this sprint are tables — so Sprint 0 took `0015` and every migration named
+for Sprints 9 onward shifted up by one. That is corrected in `SPRINTS.md` in the
+same commit.
+
+### What was built
+
+**1. `lib/auth-throttle.ts` + `auth_attempts`.** There was no rate limiter in
+this codebase at all, on a live auth surface. Now every unauthenticated endpoint
+records its attempts and consults them first: `/api/school/auth/login`,
+`/otp/request`, `/password`, `/setup`, and `/api/super-admin/auth/login`.
+
+**2. `lib/email-outbox.ts` + `email_outbox`.** Nothing sends mail inside a
+request any more. Callers enqueue; a drainer sends. `lib/email-sender.ts` is
+unchanged and is still the only transport — what changed is who calls it.
+
+**3. Drain triggers.** A new `instrumentation.ts` starts a 30-second in-process
+interval, and `POST /api/internal/email/drain` behind `EMAIL_DRAIN_SECRET` lets
+a host cron drive the same function. Both can run at once safely.
+
+### Decisions — do not re-litigate these
+
+**Postgres, not Upstash.** The source document assumed `@upstash/ratelimit`.
+That is right for a fleet of serverless instances with no shared memory. This is
+one persistent Node process with a Postgres pool already open, so Redis would be
+a new vendor, a new secret and a new thing to be down, and an in-process counter
+would be lost on every restart. The table is also the audit trail Sprint 23's
+security review will ask for, which no counter is. Cost: one indexed SELECT per
+auth request.
+
+**Two axes, deliberately asymmetric.** Per email: 5 failures in 15 minutes, then
+15 minutes locked. Per IP: much looser (30, or 20 for super-admin). Schools in
+this market sit behind shared NAT — a whole staff room, sometimes a whole cable
+segment, arrives from one address — so an IP-only limit punishes the customer,
+and an email-only limit lets one origin spray a thousand accounts without any
+single counter reaching five. Neither alone covers both attacks.
+
+**A success clears the email's streak, but never the IP's.** Four typos followed
+by a correct sign-in must not leave someone one mistake from a lockout. The IP
+axis cannot work that way: an attacker holding one valid account would otherwise
+reset the whole origin's counter at will.
+
+**Attempts refused by the throttle are not recorded.** That is what makes a
+lockout expire on its own instead of being extended forever by a client that
+keeps retrying. There is no `locked_until` column: the lock lifts when the
+oldest of the counted failures leaves the 15-minute window.
+
+**`auth_attempts` carries no `location_id`, on purpose.** It guards the surface
+*before* a tenant is established, so there is no verified tenant to attribute an
+attempt to, and recording the *claimed* one would key the counter on
+attacker-supplied data — a counter an attacker can reset. This is written in the
+schema docblock and in the migration because every other table in the repo
+carries `location_id` and its absence otherwise reads as an oversight.
+
+**`email_outbox.location_id` is nullable.** The queue also carries platform mail
+— the Super Admin's "Send sign-in email" — which must work while a school is
+still being set up. Null means platform. A synthetic tenant value would be a lie
+in the one column every tenancy filter trusts. There is also no foreign key to
+`schools`: a queued message should survive its school being closed rather than
+vanish mid-flight.
+
+**The two mail-sending endpoints count successes; the credential endpoints do
+not.** `/otp/request` answers "sent" unconditionally so it cannot be enumerated,
+which means it has no failures to count and a failure-only limiter would leave
+it with no limit at all. There the volume *is* the harm: every call costs an
+SMTP send and lands in a mailbox.
+
+**The IP is hashed, and salted with `ENCRYPTION_KEY`.** IPv4 is 32 bits; an
+unsalted digest is reversible in seconds, which would make "hashed" decorative.
+If the key is absent the digest is still stable and the limiter still works —
+only the irreversibility is lost, which is the correct order of failure.
+
+**The limiter fails open.** If the database is unreachable, sign-in still works.
+A limiter that takes the product down when it is unavailable trades a rare
+attack for a certain outage.
+
+**Cleanup rides on writes, ~1 call in 50.** Hostinger has no platform cron, so a
+sweep either rides on traffic or does not happen.
+
+**The claim is hand-written SQL.** `FOR UPDATE SKIP LOCKED` over a subselect is
+the one thing Drizzle's builder cannot express, and it is exactly what stops two
+drainers handing the same message to SMTP twice. A duplicated fee notice to a
+parent is not a cosmetic bug. `scheduled_at` is reset to `now()` by the claim so
+it doubles as the claim time — without that, a message enqueued an hour ago
+would look abandoned the instant it was claimed and a second drainer would take
+it back mid-send.
+
+### The UX consequence, which is real and was not hidden
+
+Those screens used to report **actual delivery**. They cannot any more, and
+their copy now says so:
+
+| Screen | Was | Is |
+| --- | --- | --- |
+| Super Admin → Users → Send sign-in email | "Sign-in instructions sent to …" | "Sign-in email queued for … It usually arrives within a minute." |
+| Pending invitations badge | `Email` | `Email queued` |
+| Invite form warning | "Invitation sent, with issues: …" | "Invitation queued, with issues: …" |
+| User detail → Resend invite | "Invitation sent again." | "Invitation queued again. It usually arrives within a minute." |
+
+What the operator loses is "it bounced, that address is wrong" **at the moment
+of pressing**. What they gain is an answer in milliseconds instead of ~103
+seconds (§5k). The outcome is not lost, it moves: `email_outbox.status` and
+`last_error` hold the SMTP server's own words, and a bad address ends up
+`failed` after five attempts. A screen that says "Sent" when it means "queued"
+is a worse lie than the two-minute spinner it replaced.
+
+`school_invitations.email_sent` still exists and now records that the message
+was *queued*. Renaming the column would cost a migration for a distinction the
+schema cannot make anyway; the UI is where the wording matters and the UI says
+"queued".
+
+### ⚠️ A build trap this hit, and the fix
+
+`instrumentation.ts` is compiled for the **Edge** runtime too, because
+`middleware.ts` exists. `lib/email-outbox.ts` pulls in postgres-js and
+nodemailer, which need `fs`, `crypto` and TCP sockets, and the Edge build fails
+outright. The guard must be written as a **positive** block:
+
+```ts
+if (process.env.NEXT_RUNTIME === 'nodejs') {
+  const { startOutboxDrainer } = await import('./lib/email-outbox');
+  startOutboxDrainer();
+}
+```
+
+Next substitutes the variable with a literal at build time, so in the Edge
+compilation this becomes `if (false)` and webpack never parses the body. The
+obvious equivalent — `if (… !== 'nodejs') return;` — reads the same to a human
+and **does not work**: the parser walks on past the return and records the
+import anyway. The first build of this sprint failed exactly that way.
+
+### What is still open
+
+1. **Migration `0015` is not applied.** DevOps step. Nothing in Sprint 0 works
+   until it is — every code path degrades quietly rather than crashing (the
+   limiter fails open, `enqueueEmail` throws and is reported), which is by
+   design but means an unapplied migration looks like "email stopped working".
+2. **None of this has been seen in a browser.** No lockout has been triggered,
+   no message has been drained, and the drain route has never been called.
+3. **`EMAIL_DRAIN_SECRET` is unset**, so `/api/internal/email/drain` refuses
+   everything. That is the correct default — the in-process drainer is what runs
+   on Hostinger — but it means the escape hatch is untested.
+4. **The queue has no operator screen.** A `failed` row is visible only in the
+   database. Sprint 11 builds on this table and is the natural place for it;
+   until then, a message nobody received is a `SELECT` away and no closer.
+5. **`/api/school/auth/otp/verify` is not throttled.** GoTrue rate-limits code
+   verification itself, so it is not unguarded — but it is the one auth route in
+   this repo without a counter of its own, and that is a decision, not an
+   oversight.
+6. The remaining Sprint 0 checklist items from `SPRINTS.md` — I-2 (Supabase
+   bucket public), I-4 (storage diagnostics), I-6 (prune 4 merged branches and
+   4 worktrees), I-8 (DMARC, blocked on the domain) — are **untouched by this
+   branch**. Branch deletion was explicitly out of scope for this agent.
+
+---
+
 ## 6. Open items for the user
 
 1. ~~Install GitHub CLI~~ — **partly regressed.** Git has a stored credential
@@ -1082,6 +1248,7 @@ on, custom SMTP through `smtp.titan.email:465`.
 
 | Date | Session did | Next |
 | --- | --- | --- |
+| 2026-08-08 | **Sprint 0 built** (§5m) — rate limiting, account lockout and the email outbox, on `feature/sprint-0-auth-hardening`. New `auth_attempts` and `email_outbox` tables (migration `0015`, **written not applied**), `lib/auth-throttle.ts` on all five auth endpoints, `lib/email-outbox.ts` with a `FOR UPDATE SKIP LOCKED` claim, an `instrumentation.ts` interval drainer and a secret-guarded `/api/internal/email/drain`. Every screen that used to claim "sent" now says "queued", because that is now all it knows. Corrected `SPRINTS.md`: Sprint 0 does need a migration, and Sprints 9–21's numbers each shifted up by one. typecheck + lint + build green. | **Apply `0015`** (DevOps), then exercise a lockout and a drain in a browser. Then Sprint 9 — it is the keystone and everything in R1 waits on it. |
 | 2026-08-07 | Surveyed codebase, established STATE.md, scoped both migrations, identified the Edge-middleware DB hazard. | — |
 | 2026-08-07 | **Stage 1 complete.** Neon → Supabase Postgres: postgres-js driver, Edge-safe REST tenant lookup, all 15 `db.batch()` sites converted to real transactions, `next/image` Supabase host fix, `output: 'standalone'`. typecheck + lint + build all green. | — |
 | 2026-08-07 | **Stage 3 documented.** User confirmed Hostinger supports Node.js and auto-issues HTTPS per subdomain. Wrote `DEPLOYMENT.md`; de-Vercel'd the operator-facing strings in the storage diagnostics route. | — |

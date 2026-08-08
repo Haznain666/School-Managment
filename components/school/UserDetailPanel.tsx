@@ -127,7 +127,9 @@ export function UserDetailPanel({ user, branches, canEdit }: UserDetailPanelProp
         return;
       }
 
-      setNotice('Invitation sent again.');
+      // Queued, not sent — the email leaves the outbox seconds from now. See
+      // `lib/email-outbox.ts`.
+      setNotice('Invitation queued again. It usually arrives within a minute.');
     } catch {
       setError('Could not resend the invitation.');
     } finally {

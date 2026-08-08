@@ -110,11 +110,15 @@ export function InviteForm({ branches }: InviteFormProps) {
           return;
         }
 
-        // Delivered on at least one channel, but say so if the other failed —
+        // Accepted on at least one channel, but say so if the other failed —
         // an admin who thinks WhatsApp went out when it did not will wait.
+        //
+        // "Queued" rather than "sent": email now goes through `email_outbox`
+        // and is handed to SMTP a moment later, so at this point nothing has
+        // been accepted by a mail server and this screen cannot claim it has.
         const failures = payload.data?.delivery.failures ?? [];
         if (failures.length > 0) {
-          setWarning(`Invitation sent, with issues: ${failures.join(' ')}`);
+          setWarning(`Invitation queued, with issues: ${failures.join(' ')}`);
         }
 
         router.push('/dashboard/users');

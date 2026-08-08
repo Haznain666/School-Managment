@@ -220,12 +220,18 @@ sprint it derives from so the two can be cross-read.
 against the live Supabase database. The document's migration table (0011 = Email
 Auth, 0012 = HR, …) is off by three and must not be used.
 
+**Corrected 2026-08-08:** this document said Sprint 0 needed no migration. It
+does — rate limiting, lockout and the email outbox are all tables — so Sprint 0
+takes `0015` and every migration named for Sprints 9 onward shifted up by one.
+Sprint 9 is now `0016`. The numbers below are the corrected ones.
+
 ---
 
 ## 2. The sprints
 
 ### Sprint 0 — Reconciliation & auth hardening
-*Derives from: document §Immediate Tasks I-1…I-8. Migration: none.*
+*Derives from: document §Immediate Tasks I-1…I-8.
+Migration: `0015_sprint0_auth_hardening.sql`.*
 
 Small, and it clears debt that would otherwise be re-discovered every sprint.
 
@@ -246,7 +252,8 @@ Plus, and these are the real content of the sprint:
   setup-token redemption. There is no rate limiter in the codebase and the auth
   surface is now live. Document Sprint 20 assumes `@upstash/ratelimit`; on
   Hostinger with a single Node process, a Postgres-backed or in-process limiter
-  is simpler and has no new vendor. **Decide deliberately.**
+  is simpler and has no new vendor. **Decided: Postgres**, one `auth_attempts`
+  table that is also the audit trail Sprint 23 will want. See `STATE.md` §5m.
 - **Account lockout** after 5 failed logins, 15 minutes.
 - **Move outbound email off the request.** `STATE.md` §5k measured `sendMail` at
   ~103 seconds against `smtp.titan.email`. An operator watching a spinner for
@@ -261,7 +268,7 @@ Plus, and these are the real content of the sprint:
 
 ### Sprint 9 — Exams, results & report cards
 *Derives from: document Sprint 14 (partial) + `ROADMAP.md` Tier 1 #1, #2 and §2b.
-Migration: `0015_sprint9_exams.sql`.*
+Migration: `0016_sprint9_exams.sql`.*
 
 The keystone. Nothing else in R1 is worth much without it.
 
@@ -299,7 +306,7 @@ to tabulation sheets too.
 ### Sprint 10 — School onboarding: import, promotion, transfer, family fees
 *Derives from: `ROADMAP.md` §2b (absent from the document) + document Sprint 17
 and Sprint 19's CSV import, both pulled forward.
-Migration: `0016_sprint10_onboarding.sql`.*
+Migration: `0017_sprint10_onboarding.sql`.*
 
 **This sprint is what makes a pilot possible at all.** Nothing here is a
 differentiator; all of it is the difference between "we have a system" and "a
@@ -333,7 +340,7 @@ why a builder made from `db` escapes the transaction.
 
 ### Sprint 11 — Communications: announcements, notice board, campaigns
 *Derives from: document Sprint 11, rebuilt off GoHighLevel.
-Migration: `0017_sprint11_comms.sql`.*
+Migration: `0018_sprint11_comms.sql`.*
 
 The document builds this entirely on GHL Conversations. GHL is now opt-in, so
 **the default delivery path must be ours**, with GHL as enrichment when a school
@@ -374,7 +381,7 @@ CSV export stays as specified: native `Response` with `text/csv`.
 
 ### Sprint 13 — Portal completion + PWA shell + multiple principals
 *Derives from: document Sprints 13, 14, 15 merged, plus BR4.
-Migration: `0018_sprint13_portals.sql`.*
+Migration: `0019_sprint13_portals.sql`.*
 
 The document splits parent, teacher and student polish into three sprints. They
 are one UX pass over three thin portals sharing the same data; splitting them
@@ -405,7 +412,7 @@ triples the review overhead for no benefit.
 
 ### Sprint 14 — Internal chat, part 1
 *Derives from: `ROADMAP.md` §5 build order 1–3. Absent from the document.
-Migration: `0019_sprint14_chat.sql`.*
+Migration: `0020_sprint14_chat.sql`.*
 
 Tables per `ROADMAP.md` §5: `chat_conversations`, `chat_participants`,
 `chat_messages`, `chat_settings`, `chat_reports`.
@@ -419,7 +426,7 @@ Tables per `ROADMAP.md` §5: `chat_conversations`, `chat_participants`,
    `student_guardians` → `student_enrollments` → `sections` → `timetable_entries`.
 
 ### Sprint 15 — Chat part 2 + Web Push
-*Derives from: `ROADMAP.md` §5 build order 4–7. Migration: `0020_sprint15_push.sql`.*
+*Derives from: `ROADMAP.md` §5 build order 4–7. Migration: `0021_sprint15_push.sql`.*
 
 Groups, one-way announcement channels, attachments, voice notes
 (`MediaRecorder` → Supabase Storage), then **Web Push via VAPID**, quiet hours,
@@ -433,7 +440,7 @@ not open, and fee collection suffers. Two things to carry into onboarding:
 - Email digest fallback for anyone without push.
 
 ### Sprint 16 — Digital payments: JazzCash / Easypaisa + parent wallet
-*Derives from: `ROADMAP.md` Tier 2 #4 and §2b. Migration: `0021_sprint16_payments.sql`.*
+*Derives from: `ROADMAP.md` Tier 2 #4 and §2b. Migration: `0022_sprint16_payments.sql`.*
 
 - Gateway abstraction, JazzCash and Easypaisa adapters, webhook receipt with
   signature verification, reconciliation against `fee_challans`
@@ -449,14 +456,14 @@ Three questions in `ROADMAP.md` §7 must be answered first — can the wallet go
 negative, where do refunds land, does an unused balance follow a leaver.
 
 ### Sprint 17 — LMS part 1: courses & content
-*Derives from: document Sprint 8, unchanged in substance. Migration: `0022_sprint17_lms.sql`.*
+*Derives from: document Sprint 8, unchanged in substance. Migration: `0023_sprint17_lms.sql`.*
 
 `lms_courses`, `lms_sections`, `lms_lessons`, `lms_assignments`, `lms_quizzes`,
 `lms_questions`, `lms_enrollments`. Course builder with ordering, video/document/
 text/quiz lesson types, bulk enrolment by grade or section.
 
 ### Sprint 18 — LMS part 2: student experience
-*Derives from: document Sprint 9. Migration: `0023_sprint18_lms_submissions.sql`.*
+*Derives from: document Sprint 9. Migration: `0024_sprint18_lms_submissions.sql`.*
 
 `lms_submissions`, `lms_quiz_attempts`, `lms_progress`. Course player, progress
 tracking, assignment upload, timed quiz player, certificate on completion.
@@ -466,7 +473,7 @@ Storage". Use `PrintSheet` for the same reason as §Sprint 12 — no headless
 renderer on Hostinger.
 
 ### Sprint 19 — Events & calendar
-*Derives from: document Sprint 10. Migration: `0024_sprint19_events.sql`.*
+*Derives from: document Sprint 10. Migration: `0025_sprint19_events.sql`.*
 
 `events`, `event_attendees`, `event_reminders`. Calendar view, RSVP, attendance
 marking, post-event gallery.
@@ -482,7 +489,7 @@ default, chat announcement channel, GHL only if connected.
 ## Release 3 — Scale & Monetise
 
 ### Sprint 20 — POS, inventory & merchandise checkout
-*Derives from: `ROADMAP.md` §2b. Absent from the document. Migration: `0025_sprint20_pos.sql`.*
+*Derives from: `ROADMAP.md` §2b. Absent from the document. Migration: `0026_sprint20_pos.sql`.*
 
 Products, stock, over-the-counter sale, barcode scan, low-stock alerts,
 purchase-vs-sale reporting — **and** a parent-facing cart and checkout sharing
@@ -504,7 +511,7 @@ locking to prevent overselling the last shirt; and is merchandise ever billed to
 the fee challan instead of paid at checkout.
 
 ### Sprint 21 — SaaS billing & subscriptions
-*Derives from: document Sprint 16. Migration: `0026_sprint21_saas.sql`.*
+*Derives from: document Sprint 16. Migration: `0027_sprint21_saas.sql`.*
 
 `saas_plans`, `saas_subscriptions`, `saas_invoices`, `saas_usage`. Plans as
 specified (Starter PKR 15,000 / Growth 35,000 / Enterprise 75,000). Feature
@@ -627,7 +634,8 @@ fixed, migration state against the live database, the three quality gates, and
 what is now blocked on you. `STATE.md` is updated in the same commit.
 
 ### 3.5 When to run fewer than three
-Sprint 0 and Sprint 12 have no migrations — DevOps runs a build check only.
+Sprint 12 has no migration — DevOps runs a build check only. (Sprint 0 was
+listed here too, wrongly: it ships `0015`.)
 A sprint with no UI (none below, but they occur) skips the browser half of QA.
 The chain is a default, not a ritual.
 
