@@ -866,6 +866,62 @@ typecheck, lint and build green. Routes confirmed reachable (401, not 404).
 
 ---
 
+## 5j. Verified in a browser 2026-08-08 — and what it caught
+
+First real click-through of any of this. Six defects found that typecheck,
+lint and build all passed.
+
+**Confirmed working, against the live database:**
+- Bulk apply: Fee Management switched on for one school; the other nine
+  modules stayed off, proving "Leave" does not clobber untouched flags. Audit
+  row recorded `enabledBy: haznain666@gmail.com`.
+- Multi-select: dropdown, filter, checkbox, named chip, "1 school selected",
+  per-flag "off everywhere" summaries.
+- **"Send sign-in email" actually delivered** to the school administrator.
+- Integrations tab, Modules sidebar entry, aligned school-row buttons,
+  "Login as Admin" on Overview, "Never signed in" badge.
+
+**Found and fixed:**
+1. **The multi-select dropdown was invisible.** `Card` carries
+   `overflow-hidden` to clip its header to the rounded corners, which clipped
+   the absolutely-positioned dropdown: the filter box showed and the school
+   list was cut off, so nothing could be selected. `cn` is tailwind-merge, so
+   `className="overflow-visible"` on that one card wins.
+2. **Action buttons wrapped onto a second line** on both the schools list and
+   the users table — the exact misalignment the button change was meant to
+   remove. `flex-nowrap` + `whitespace-nowrap`; the tables are already inside
+   `overflow-x-auto`, so a narrow window gets a scrollbar instead.
+3. **The school Overview page labelled the tenant uuid "GHL Location ID"** —
+   the same staleness fixed in the table, telling an operator a school was
+   connected to GoHighLevel when it never has been. Now "Tenant ID" plus a
+   separate "GoHighLevel" field reading "Not connected".
+4. **`SchoolForm` told operators the phone number "becomes the principal's
+   login, so use a mobile that can receive WhatsApp".** Both halves untrue
+   since Stage 4.
+5. Stale WhatsApp-as-login copy on the Users and Login-as pages.
+6. **SMTP hangs for two minutes**, see below.
+
+### ⚠️ SMTP: use port 465, not 587
+
+Measured from this machine against `smtp.titan.email`:
+
+| Port | Connect time |
+| --- | --- |
+| 587 (STARTTLS) — the code default | **111 seconds** |
+| 465 (implicit TLS) | **1.4 seconds** |
+
+The mail arrives either way; on 587 the operator watches a spinner for two
+minutes first and concludes the feature is broken. `SMTP_PORT` was unset, so
+`lib/email-sender.ts` defaulted to 587. **Set `SMTP_PORT=465`** in `.env.local`
+and in the Hostinger panel.
+
+`lib/email-sender.ts` now also sets `connectionTimeout` / `greetingTimeout` /
+`socketTimeout` (15–20s). Nodemailer's defaults are minutes long and every
+caller is inside a request someone is watching: slow is a failure mode and
+should look like one, rather than as an unresolving spinner.
+
+---
+
 ## 5i. Browser verification — how far it got
 
 The dev server runs from this worktree. `.env.local` was copied in from the
@@ -923,6 +979,7 @@ on, custom SMTP through `smtp.titan.email:465`.
 | 2026-08-08 | **WhatsApp gated (step 8) — Stage 4 code-complete.** New `whatsapp` channel flag in `school_modules`, declared separately from the product modules and rendered in its own Channels section. All five live send paths gated; the invite passcode moved to email, killing the last WhatsApp dependency in auth; the orphaned `lib/otp-sender.ts` deleted and its duplicated SMTP transport extracted to `lib/email-sender.ts`. Fee reminders now report how many guardians nobody could reach. Migration 0012. typecheck + lint + build green. | **Run 0011 + 0012, configure Supabase Auth, then sign in for real.** Nothing here has touched the live database. |
 | 2026-08-08 | **Login UI rebuilt.** `EmailLoginForm` replaces `LoginOTPForm`: password sign-in plus a code path for first-time and forgotten passwords. `PasswordField` + `lib/password-strength.ts` lifted from the email-auth branch and made the single source the password route also reads. Closed a hole this created: invitations now require an email address, because the address is the identity. typecheck + lint + build green. | **WhatsApp gating (step 8)**, then run migration 0011 and try signing in for real. |
 | 2026-08-08 | **Stage 4 auth substrate.** Firebase Authentication → Supabase Auth. New `lib/supabase-auth.ts`; `lib/school-auth.ts` now resolves claims from `school_users` per request instead of from the token, which retires the stale-claims hazard. Login/OTP/password/logout/platform-session/emergency-login/invite-accept all reworked; `/api/school/auth/session` and the browser round trip deleted. `firebase_uid` → `auth_user_id` + migration `0011`. Firebase removed entirely. typecheck + lint + build green. | **The login UI (§5d item 1) — it is broken until then.** Then WhatsApp gating (step 8). |
+| 2026-08-08 | **First browser verification** (§5j). Bulk apply confirmed against the live database — one module on, nine untouched, audit row correct — and "Send sign-in email" delivered for real. Six defects found that typecheck/lint/build had all passed, including an invisible dropdown (Card's `overflow-hidden` clipped it), action buttons still wrapping, and the Overview page labelling the tenant uuid "GHL Location ID". Also measured SMTP: port 587 takes 111s where 465 takes 1.4s. | **Set `SMTP_PORT=465`** locally and in Hostinger. Rotate the production Super Admin password — it is still the leaked one. |
 | 2026-08-08 | **Found why school users get no email** (§5g): "Add administrator" was never designed to send one, and after Stage 4 that leaves an account nobody can find. Added "Send sign-in email", made email required, and corrected the misleading "Invite pending" badge. Also added deactivate/delete for members (§5h), turned the schools-list actions into aligned buttons, put "Login as Admin" on the Overview page, and renamed the stale "GHL Location ID" column. | **Sign in to the assistant's browser once** so this can finally be clicked through. |
 | 2026-08-08 | **Integrations tab + bulk module management** (§5f). GHL can finally be connected to a school — the write path never existed. New cross-school `/super-admin/modules`: multi-select schools as named chips, all ten modules plus WhatsApp plus GoHighLevel, three-state On/Off/Leave so an apply cannot clobber untouched flags. GHL is off-only in bulk, because connecting needs a per-school id. Also found and documented a build hazard: `next build` in a worktree creates `.claude/worktrees/node_modules`, which breaks the next build. | **Configure Supabase Auth**, then sign in and exercise this — none of it has been seen in a browser. |
 | 2026-08-08 | **"Print selected" on the challan list** (§5e) — checkboxes on `ChallanTable`, selection that survives paging but not filtering, and a shared `lib/challan-print.ts` so the 200-challan cap cannot drift between the list and the print page. Also **confirmed there is still no Integrations tab**: nothing in the app writes `schools.ghl_location_id`, so GHL cannot be switched on for a school. typecheck + lint + build green; nothing browser-verified, because sign-in is still blocked. | **Configure Supabase Auth in the Supabase dashboard** (§5d item 2) — it now blocks every remaining item. Then build the Integrations tab. |

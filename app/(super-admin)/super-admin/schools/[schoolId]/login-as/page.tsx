@@ -45,8 +45,8 @@ export default async function SchoolLoginAsPage({
         </h2>
         <p className="mt-1 text-sm text-slate-500">
           Enter your Super Admin credentials to open this school&rsquo;s admin
-          portal. No WhatsApp passcode is involved — that is how the
-          school&rsquo;s own staff sign in, and it is unchanged.
+          portal. This uses your own operator account — the school&rsquo;s own
+          staff sign in with their email and password, and that is unchanged.
         </p>
       </div>
 

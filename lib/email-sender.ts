@@ -52,6 +52,22 @@ export async function sendEmail(
       user: serverEnv('SMTP_USER', ''),
       pass: serverEnv('SMTP_PASS', ''),
     },
+    /**
+     * Bounded waits, because nodemailer's defaults are minutes long and every
+     * caller here is inside a request someone is watching.
+     *
+     * This is not hypothetical: connecting to smtp.titan.email on 587 was
+     * measured at 111 seconds where 465 took 1.4. Without a ceiling the
+     * operator sees a spinner that never resolves and concludes the feature is
+     * broken; with one they get a reportable error in fifteen seconds and can
+     * act on it. Slow is a failure mode, and it should look like one.
+     *
+     * Generous enough for a healthy server on a poor connection — a normal
+     * send completes well inside a second or two.
+     */
+    connectionTimeout: 15_000,
+    greetingTimeout: 15_000,
+    socketTimeout: 20_000,
   });
 
   await transport.sendMail({ from: serverEnv('SMTP_FROM', ''), to, subject, text });

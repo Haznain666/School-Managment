@@ -193,7 +193,17 @@ export function SchoolTable() {
                     <td className="px-4 py-3 font-mono text-xs text-slate-600">
                       {school.slug}
                     </td>
-                    <td className="px-4 py-3 font-mono text-xs text-slate-600">
+                    {/*
+                      Truncated with CSS rather than by slicing the string, so
+                      the full uuid is still in the DOM: selecting the cell
+                      copies all 36 characters, and the title shows them on
+                      hover. Slicing would have made the one thing this column
+                      is for — copying the id — impossible.
+                    */}
+                    <td
+                      title={school.locationId}
+                      className="max-w-[10rem] truncate px-4 py-3 font-mono text-xs text-slate-600"
+                    >
                       {school.locationId}
                     </td>
                     <td className="px-4 py-3">
@@ -212,7 +222,15 @@ export function SchoolTable() {
                         `justify-end` with the header right-aligned to match, so
                         the column stays tidy when a row offers Reactivate only.
                       */}
-                      <div className="flex flex-wrap items-center justify-end gap-2">
+                      {/*
+                        `flex-nowrap`, not wrap. Wrapping dropped "Deactivate"
+                        onto a second line whenever the row was tight, which is
+                        the misalignment this was meant to remove. The table is
+                        already inside `overflow-x-auto`, so the honest failure
+                        mode for a narrow window is a scrollbar rather than a
+                        ragged action column.
+                      */}
+                      <div className="flex flex-nowrap items-center justify-end gap-2 whitespace-nowrap">
                         <Link href={`/super-admin/schools/${school.id}/edit`}>
                           <Button variant="secondary" size="sm">
                             Edit

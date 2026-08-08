@@ -307,7 +307,13 @@ export function SchoolForm({ initial, appDomain }: SchoolFormProps) {
             hint={
               isEdit
                 ? undefined
-                : 'This also becomes the principal’s login, so use a mobile that can receive WhatsApp. A landline is accepted but will never get a passcode.'
+                : // Was: "this also becomes the principal's login, so use a
+                  // mobile that can receive WhatsApp". Both halves stopped
+                  // being true at Stage 4 — the login is the email address
+                  // below, and no passcode goes to a handset — so the form was
+                  // telling operators to choose this field carefully for a
+                  // reason that no longer exists.
+                  'A contact number for the school record. It is not used to sign in.'
             }
           />
 

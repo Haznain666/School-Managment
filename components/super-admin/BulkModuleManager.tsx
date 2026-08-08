@@ -284,7 +284,16 @@ export function BulkModuleManager({ schools }: BulkModuleManagerProps) {
 
   return (
     <div className="space-y-6">
+      {/*
+        `overflow-visible` overrides Card's own `overflow-hidden`, which exists
+        to clip the header and footer to the rounded corners. Without this the
+        multi-select's absolutely-positioned dropdown is clipped to the card:
+        the filter box shows and the list of schools is cut off entirely, so
+        the control looks broken and nothing can be selected. `cn` is
+        tailwind-merge, so the later class wins.
+      */}
       <Card
+        className="overflow-visible"
         header={
           <CardTitle
             title="Schools"

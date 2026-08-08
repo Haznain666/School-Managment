@@ -17,13 +17,22 @@ export const metadata: Metadata = {
 
 export const dynamic = 'force-dynamic';
 
-function Field({ label, value }: { label: string; value: string | null }) {
+function Field({
+  label,
+  value,
+  hint,
+}: {
+  label: string;
+  value: string | null;
+  /** Replaces the generic "Not set" when absence means something specific. */
+  hint?: string;
+}) {
   return (
     <div>
       <dt className="text-xs uppercase tracking-wide text-slate-500">{label}</dt>
       <dd className="mt-1 break-words text-sm text-slate-900">
         {value === null || value === '' ? (
-          <span className="text-slate-400">Not set</span>
+          <span className="text-slate-400">{hint ?? 'Not set'}</span>
         ) : (
           value
         )}
@@ -95,7 +104,23 @@ export default async function SchoolOverviewPage({
           <Field label="Email" value={school.email} />
           <Field label="Address" value={school.address} />
           <Field label="Portal" value={`${school.slug}.${publicEnv.appDomain}`} />
-          <Field label="GHL Location ID" value={school.locationId} />
+          {/*
+            Two different identifiers, and this page used to show the first
+            under the second's name.
+
+            `location_id` is the tenant key — a plain uuid since GoHighLevel was
+            decoupled. `ghl_location_id` is the GHL sub-account, null until
+            somebody connects one on the Integrations tab. Labelling the tenant
+            key "GHL Location ID" told an operator this school was connected to
+            GoHighLevel when it has never been, and gave them a uuid to paste
+            into GHL that means nothing there.
+          */}
+          <Field label="Tenant ID" value={school.locationId} />
+          <Field
+            label="GoHighLevel"
+            value={school.ghlLocationId ?? null}
+            hint={school.ghlLocationId === null ? 'Not connected' : undefined}
+          />
           <div>
             <dt className="text-xs uppercase tracking-wide text-slate-500">Status</dt>
             <dd className="mt-1">

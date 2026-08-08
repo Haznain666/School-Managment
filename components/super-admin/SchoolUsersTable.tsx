@@ -461,7 +461,7 @@ export function SchoolUsersTable({ schoolId }: SchoolUsersTableProps) {
                       </td>
                       <td className="px-4 py-3 align-top">
                         {confirming ? (
-                          <div className="flex flex-wrap items-center justify-end gap-2">
+                          <div className="flex flex-nowrap items-center justify-end gap-2 whitespace-nowrap">
                             <span className="text-xs text-red-700">
                               Delete {user.name} permanently?
                             </span>
@@ -487,7 +487,7 @@ export function SchoolUsersTable({ schoolId }: SchoolUsersTableProps) {
                             </Button>
                           </div>
                         ) : (
-                          <div className="flex flex-wrap items-center justify-end gap-2">
+                          <div className="flex flex-nowrap items-center justify-end gap-2 whitespace-nowrap">
                             {user.isActive && hasEmail ? (
                               <Button
                                 variant="secondary"
