@@ -51,29 +51,30 @@ function askSecret(question) {
       return;
     }
 
+    // The prompt is written here, before readline exists, so that readline's
+    // output can be suppressed *unconditionally* below.
+    //
+    // The usual version of this trick lets through any chunk containing the
+    // prompt text, and that leaks: in terminal mode readline redraws the whole
+    // line on every keypress, prompt and typed characters together, so the
+    // password appears one character at a time. Printing the prompt ourselves
+    // and then muting everything has no such hole — the worst it can do is
+    // show nothing.
+    process.stdout.write(question);
+
     const rl = createInterface({
       input: process.stdin,
       output: process.stdout,
       terminal: true,
     });
 
-    let muted = false;
+    rl._writeToOutput = () => {};
 
-    // readline has no "hide input" option, so the write hook is replaced and
-    // everything after the prompt is swallowed.
-    rl._writeToOutput = (chunk) => {
-      if (!muted || chunk.includes(question)) {
-        process.stdout.write(chunk);
-      }
-    };
-
-    rl.question(question, (answer) => {
+    rl.question('', (answer) => {
       rl.close();
       process.stdout.write('\n');
       resolve(answer);
     });
-
-    muted = true;
   });
 }
 
