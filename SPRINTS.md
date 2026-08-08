@@ -127,14 +127,90 @@ milestone and it is worth more than three more modules. This is question 1 in §
 
 ---
 
+## 0.8 Decisions taken 2026-08-08
+
+The four questions in §7 are answered. Three of them change the plan.
+
+**1. Scope is cut to Release 1 for September 7.** Sprints 0 and 9–13. R2 and R3
+follow after, unscheduled until R1 has actually run. See §1.1 for the calendar.
+
+**2. JazzCash / Easypaisa merchant onboarding has NOT started.** It is now the
+longest-lead item on the plan and nothing in this repo shortens it. It does not
+block Release 1 — R1 has no online payment — but **every week it is not started
+is a week added to whenever schools can take money through the platform.** Start
+the applications this week regardless of what sprint is running.
+
+**3. POS products have size and colour variants.** This settles the largest
+structural question in `ROADMAP.md` §7. Sprint 20's stock tables are
+**variant-first from the first migration** — a `products` / `product_variants`
+split where stock, price and barcode live on the variant, never on the product.
+Do not build flat products "for now": retrofitting variants means rebuilding the
+stock tables and migrating live stock counts, which is exactly the cost this
+decision was made to avoid.
+
+**4. The pilot is a seeded test school, not a real one.** This is a legitimate
+choice and it changes what Release 1 can claim.
+
+A test school proves the *software*. It does not prove the *operation*, and
+three specific risks stay open until a real school runs a term:
+
+- **Printed artefacts at the counter.** A fee voucher that looks right on screen
+  and is rejected at a bank counter is not finished. Nobody on this project can
+  discover that from seeded data.
+- **Parent reach.** Whether parents open the portal at all is the premise the
+  whole chat-replaces-WhatsApp decision rests on (`ROADMAP.md` §5). A test
+  school has no real parents, so Sprint 15's central risk stays unmeasured.
+- **Data migration.** Real school data is messier than anything we will seed —
+  duplicate students, missing guardians, mid-year joiners, fee arrears carried
+  from a previous system. Sprint 10's importer will be tested against clean data
+  and meet dirty data later.
+
+**Therefore the R1 exit gate is redefined** (§1) from "a pilot school runs a full
+term" to a **full-term dress rehearsal on seeded data**, and **finding a real
+pilot school stays the highest-value open item on the project.** It has simply
+stopped being a blocker for shipping R1.
+
+To make the rehearsal worth something, the seed must be adversarial rather than
+tidy: ~400 students across 3 grades and 2 branches, siblings sharing guardians,
+a handful with no email address, mid-term joiners, partial fee payments,
+concessions, and at least one student transferred between branches. Seeding this
+is part of Sprint 10.
+
+---
+
 ## 1. Release structure
 
 | Release | Sprints | Theme | Gate |
 | --- | --- | --- | --- |
 | **R0** | Sprint 0 | Reconciliation & auth hardening | Stale branches gone, rate limiting live |
-| **R1 — Pilot Ready** | 9–13 | What one real school cannot operate without | **A pilot school runs a full term** |
+| **R1 — Pilot Ready** | 9–13 | What one real school cannot operate without | **Full-term dress rehearsal on seeded data** — see §0.8 |
 | **R2 — Commercial Parity** | 14–19 | What makes it sellable against OurSchoolSoftware | Feature parity demo-able |
 | **R3 — Scale & Monetise** | 20–25 | Revenue, commerce, hardening, launch | Public launch |
+
+**Committed: R1 ships by 2026-09-07.** R2 and R3 are sequenced but not dated —
+dating them before R1 has run would be the same mistake the source document made.
+
+### 1.1 The Release 1 calendar
+
+28 days, 2026-08-08 → 2026-09-07. Durations are **calendar days including your
+review**, not build time. `ROADMAP.md` §6 is right that the bottleneck has moved
+from typing to deciding — every row below is dominated by your review, not by
+code generation.
+
+| Dates | Sprint | Notes |
+| --- | --- | --- |
+| Aug 8–10 | **0** — Reconciliation & auth hardening | Rate limiting, lockout, email outbox, branch pruning |
+| Aug 11–16 | **9** — Exams, results & report cards | The keystone and the largest. Everything after depends on it. |
+| Aug 17–21 | **10** — Import, promotion, transfer, family fees | Includes seeding the adversarial test school (§0.8) |
+| Aug 22–25 | **11** — Communications | Needs Sprint 0's outbox |
+| Aug 26–29 | **12** — Reports & analytics | Needs Sprint 9 |
+| Aug 30–Sep 3 | **13** — Portals + PWA shell + BR4 | Needs Sprint 9 |
+| Sep 4–7 | **Dress rehearsal** | Full term simulated end to end on seeded data, every role, every printed document |
+
+**Where this slips first:** Sprint 9. It is the largest, it is first, and
+everything downstream waits on it. If it runs long, Sprint 12 (reports) is the
+one to compress — reports are additive and can ship thin. **Do not compress
+Sprint 10**; without import and promotion there is no school to demonstrate.
 
 **Numbering continues from the repo, not the document.** The repo has consumed
 Sprints 1–8. Sprint numbers below are the repo's. Each row names the document
@@ -242,6 +318,12 @@ school can start using it on Monday."
   three children. `student_guardians` already carries the key.
 - **Fee defaulter list** with aging buckets.
 - Permission keys: `students.import`, `students.promote`, `students.transfer`.
+- **Seed the adversarial test school** (§0.8). ~400 students, 3 grades,
+  2 branches, siblings sharing guardians, some with no email address, mid-term
+  joiners, partial payments, concessions, one cross-branch transfer. This is the
+  data every later sprint demonstrates against, and a tidy seed would hide
+  exactly the defects the rehearsal exists to find. Ship it as a script under
+  `db/seed/`, never as hand-entered rows.
 
 **Risk to hold:** promotion and import both write large batches. Use
 `batch(db, (tx) => …)` and build statements on `tx` — `lib/drizzle.ts` explains
@@ -406,9 +488,20 @@ Products, stock, over-the-counter sale, barcode scan, low-stock alerts,
 purchase-vs-sale reporting — **and** a parent-facing cart and checkout sharing
 the Sprint 16 wallet and gateway.
 
-**Blocked on one question that cannot be retrofitted:** are uniforms stocked by
-size and colour, i.e. does one product have variants? Adding variants later
-means rebuilding the stock tables. Question 3 in §7.
+**Variants are decided (2026-08-08): yes.** `products` holds the sellable thing
+(name, category, tax); `product_variants` holds size, colour, **stock count,
+price and barcode**. Nothing sells directly from `products`; a product with one
+variant is the degenerate case, not a special case. Stock movements reference
+the variant, never the product.
+
+Build it this way from the first migration. Flat products "for now" would mean
+rebuilding the stock tables and migrating live counts later, which is the exact
+cost this decision avoids.
+
+**Still open before this sprint** (`ROADMAP.md` §7): can staff sell over the
+counter *and* parents buy online from the same stock — if so, stock needs
+locking to prevent overselling the last shirt; and is merchandise ever billed to
+the fee challan instead of paid at checkout.
 
 ### Sprint 21 — SaaS billing & subscriptions
 *Derives from: document Sprint 16. Migration: `0026_sprint21_saas.sql`.*
@@ -544,14 +637,21 @@ The chain is a default, not a ritual.
 
 Three items gate more than they appear to, and two are outside this repo.
 
-1. **JazzCash / Easypaisa merchant onboarding** — weeks of their paperwork.
-   Gates Sprint 16, and Sprint 20 through the shared checkout. **Start it before
-   Sprint 9 code is written**, not when Sprint 16 begins.
-2. **The pilot school** — everything in `ROADMAP.md` and here is guesswork until
-   one real school uses it. Gates the R1 exit and all of R2's priorities.
-3. **The domain name** — fills `PLATFORM_BASE_DOMAIN`, `NEXT_PUBLIC_APP_DOMAIN`,
-   `INVITE_LINK_BASE_URL`, `GHL_REDIRECT_URI`, and the DMARC record (I-8).
-   Gates any deploy at all.
+1. **🔴 JazzCash / Easypaisa merchant onboarding — NOT STARTED as of 2026-08-08.**
+   Weeks of their paperwork on their timeline. Gates Sprint 16, and Sprint 20
+   through the shared checkout. It does not block Release 1, which has no online
+   payment — but it is now the item that decides when schools can take money
+   through the platform at all. **Start the applications this week.** No code
+   shortens it and no sprint ordering avoids it.
+2. **🔴 The domain name** — still unanswered. Fills `PLATFORM_BASE_DOMAIN`,
+   `NEXT_PUBLIC_APP_DOMAIN`, `INVITE_LINK_BASE_URL`, `GHL_REDIRECT_URI`, and the
+   DMARC record (I-8). **Gates any deploy at all**, including the Sep 4–7 dress
+   rehearsal if that is to run anywhere but localhost. Needed before Sprint 13.
+3. **🟡 A real pilot school** — no longer blocks R1 (§0.8 settles the rehearsal
+   on seeded data), but it remains the highest-value open item on the project.
+   Printed artefacts at a bank counter, parent app adoption, and dirty data
+   migration cannot be proven without one. Every week without one is a week of
+   R2 priorities set by guesswork.
 
 Inside the repo, the ordering constraints that cannot be reordered:
 
@@ -614,22 +714,41 @@ for the current stack. Every agent follows these; a deviation is a review defect
 
 ---
 
-## 7. Questions I need answered
+## 7. Questions
 
-Ordered by how much they change the plan.
+### Answered 2026-08-08 — see §0.8
 
-1. **Go-live: cut scope, or move the date?** Release 1 by early September is
-   credible. All 17 sprints by September 7 is not. Which?
-2. **Has JazzCash / Easypaisa merchant onboarding started?** If not, it should
-   start this week — it is the longest-lead item in the plan and nothing in the
-   repo can shorten it.
-3. **Do uniforms have size/colour variants?** (Sprint 20.) This is the single
-   biggest structural decision in POS and it cannot be retrofitted without
-   rebuilding the stock tables.
-4. **Which school is the pilot?** Still unanswered since 2026-08-07, and still
-   the highest-value open item — it gates the R1 exit.
+| | Answer |
+| --- | --- |
+| Go-live: cut scope or move the date? | **Cut to Release 1, ship Sep 7** |
+| Merchant onboarding started? | **No** — now the critical path (§4.1) |
+| Do uniforms have size/colour variants? | **Yes** — Sprint 20 is variant-first |
+| Which school is the pilot? | **A seeded test school**; a real one stays open |
 
-Lower-priority but each blocks its own sprint, from `ROADMAP.md` §7: can the
-wallet go negative; where do refunds land; does an unused balance follow a
-leaver; can a parent message the school office generally or only their
-children's teachers; what happens to a conversation when a student leaves.
+### Still open, each blocking its own sprint
+
+**Before Sprint 13** (and any deploy at all):
+- **The domain name.** Four env vars and the DMARC record depend on it.
+
+**Before Sprint 15** (chat), from `ROADMAP.md` §7:
+- Can a parent message the school office generally, or only their children's
+  teachers? The agreed rules cover teachers but not the front desk.
+- What happens to a conversation when a student leaves the school?
+
+**Before Sprint 16** (payments/wallet), from `ROADMAP.md` §7:
+- Can a wallet go negative — does the school extend credit — or is it strictly
+  pre-paid? This changes the ledger design, so it must be settled before it is
+  built, not after.
+- Are refunds to the wallet, or back to the original payment method? Gateway
+  refunds have fees and time limits; wallet credit does not.
+- Does an unused balance follow a student who leaves? There is usually a local
+  legal answer.
+- Who absorbs the transaction fee — the school or the parent?
+
+**Before Sprint 20** (POS):
+- Can staff sell over the counter *and* parents buy online from the same stock?
+  If so, stock needs locking to prevent overselling the last shirt.
+- Is merchandise ever billed to the fee challan instead of paid at checkout?
+
+**Ongoing, not blocking:**
+- A real pilot school (§4.3).
