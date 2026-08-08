@@ -22,6 +22,7 @@ export function SchoolTabs({ schoolId }: SchoolTabsProps) {
   const tabs = [
     { label: 'Overview', href: base },
     { label: 'Modules', href: `${base}/modules` },
+    { label: 'Integrations', href: `${base}/integrations` },
     { label: 'Branding', href: `${base}/branding` },
     { label: 'Branches', href: `${base}/branches` },
     { label: 'Users', href: `${base}/users` },

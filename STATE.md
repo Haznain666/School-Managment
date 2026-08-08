@@ -595,10 +595,7 @@ membership row is written.
 
 ### ⚠️ Outstanding after the GHL decoupling
 
-**1. There is no Integrations tab yet.** `ghl_location_id` exists and
-`ghlLocationFor()` reads it, but nothing in the Super Admin panel can *set* it
-— so GHL cannot actually be activated for a school. Needs a route and a panel
-on the school page, alongside the Channels section built for WhatsApp.
+**1. ~~There is no Integrations tab yet.~~ — DONE 2026-08-08.** See §5f.
 
 **2. ~~"Print selected" on the challan list~~ — DONE 2026-08-08.** See §5e.
 
@@ -697,6 +694,94 @@ school actually reprints a cancelled voucher by accident.
 
 ---
 
+## 5f. Integrations tab + bulk module management — done 2026-08-08
+
+Closes §5d outstanding item 1. GoHighLevel could be *read* but never *set*, so
+every school was permanently unconnected and `ghlLocationFor()`'s error told
+operators to use an Integrations tab that did not exist. Both halves now exist,
+plus the cross-school tool the user asked for.
+
+**Per-school** — `/super-admin/schools/[schoolId]/integrations`, new tab
+between Modules and Branding. `IntegrationsPanel` + PATCH
+`/api/super-admin/schools/[schoolId]/integrations`. Connecting is a text field
+for the GHL Location ID, not a button: there is no OAuth install flow in this
+repo (one exists on `claude/school-email-auth-7f5vuh`, unmerged). Disconnecting
+is confirmed, because the id is stored nowhere else.
+
+**Cross-school** — `/super-admin/modules`, new top-level sidebar entry.
+`BulkModuleManager` + `SchoolMultiSelect` + GET/POST
+`/api/super-admin/schools/bulk-modules`. All ten modules, the WhatsApp channel
+and GoHighLevel on one page; a checkbox dropdown of every school with the
+selection shown as named removable chips; one apply.
+
+### Four decisions, in descending order of how much they matter
+
+**1. Every flag is three-state — On / Off / Leave — defaulting to Leave, and
+only what moved off Leave is sent.** This is the whole design. A checkbox
+cannot distinguish "switch this off" from "I did not touch this", so a bulk
+apply built on checkboxes silently switches off every module the selected
+schools had on. The route enforces it too: absent key means untouched.
+
+**2. GoHighLevel can be switched off in bulk but never on.** Connecting needs a
+different sub-account id per school — the column is `unique`, so it could not
+even be fudged — and there is nothing to broadcast. Disconnecting needs no
+per-school input. The UI states the asymmetry rather than hiding it, and the
+"On" control is disabled with the reason on hover. This is why GHL is
+`PLATFORM_INTEGRATIONS` and not a `school_modules` flag: **connected means
+`schools.ghl_location_id` is set, and there is deliberately no second flag that
+could disagree with it.**
+
+**3. WhatsApp-without-GHL is reported, not refused.** WhatsApp delivers through
+the school's own sub-account, so turning it on for an unconnected school makes
+a channel that cannot send. Refusing would make the order of two independent
+steps matter; the apply result names the affected schools instead, and the send
+paths already fall back to email.
+
+**4. `MAX_SCHOOLS_PER_APPLY` = 100**, in `lib/platform-modules.ts` so route and
+page cannot disagree. A blast-radius limit, not a database one — this tool can
+switch Fee Management off for every school on the platform in one click.
+
+Flag writes go out as a single multi-row upsert over every (school × flag)
+pair, so forty schools is one round trip and it is all-or-nothing. The GHL
+disconnect is a second statement, ordered last so a failure there cannot leave
+flags half-written.
+
+**Not verified in a browser** — the Super Admin panel needs a session, and
+`SUPER_ADMIN_PASSWORD_HASH` sign-in has never been exercised against the live
+database (§5c item 3). typecheck + lint + build green, and all four new routes
+appear in the build output.
+
+### ⚠️ Build hazard discovered while doing this — read before rebuilding
+
+**`next build` inside a worktree creates `.claude/worktrees/node_modules`, and
+that directory breaks the *next* build.**
+
+The worktree has no `node_modules` of its own; it resolves upward three levels
+to `D:\School-Management-System\node_modules`. But `outputFileTracingRoot` is
+`import.meta.dirname` — the worktree — so the real `node_modules` is *outside*
+the tracing root, and the standalone output writes a stub of it at the relative
+path `../node_modules`, landing in `.claude/worktrees/`. That stub holds only
+`next` and `styled-jsx`, about 0.2 MB, with the internals missing. On the next
+build Node's upward search finds it first and Next fails to resolve its own
+files:
+
+    ../node_modules/next/dist/pages/_document.js
+    Module not found: Can't resolve '../lib/is-error'
+
+It looks like a broken install and is not one. **Delete it and rebuild:**
+
+```bash
+rm -rf "D:/School-Management-System/.claude/worktrees/node_modules"
+```
+
+The first build after deleting always passes; the second always fails. Not
+fixed at source: pointing `outputFileTracingRoot` at the real repo root would
+cure it, but that config line exists to keep the Hostinger standalone artifact
+correct and changing it blind risks the deploy. **Decide it deliberately before
+the first Hostinger deploy** — a worktree build is not the artifact that ships.
+
+---
+
 ## 6. Open items for the user
 
 1. ~~Install GitHub CLI~~ — done. `gh` 2.97.0, authenticated as `Haznain666`,
@@ -730,6 +815,7 @@ school actually reprints a cancelled voucher by accident.
 | 2026-08-08 | **WhatsApp gated (step 8) — Stage 4 code-complete.** New `whatsapp` channel flag in `school_modules`, declared separately from the product modules and rendered in its own Channels section. All five live send paths gated; the invite passcode moved to email, killing the last WhatsApp dependency in auth; the orphaned `lib/otp-sender.ts` deleted and its duplicated SMTP transport extracted to `lib/email-sender.ts`. Fee reminders now report how many guardians nobody could reach. Migration 0012. typecheck + lint + build green. | **Run 0011 + 0012, configure Supabase Auth, then sign in for real.** Nothing here has touched the live database. |
 | 2026-08-08 | **Login UI rebuilt.** `EmailLoginForm` replaces `LoginOTPForm`: password sign-in plus a code path for first-time and forgotten passwords. `PasswordField` + `lib/password-strength.ts` lifted from the email-auth branch and made the single source the password route also reads. Closed a hole this created: invitations now require an email address, because the address is the identity. typecheck + lint + build green. | **WhatsApp gating (step 8)**, then run migration 0011 and try signing in for real. |
 | 2026-08-08 | **Stage 4 auth substrate.** Firebase Authentication → Supabase Auth. New `lib/supabase-auth.ts`; `lib/school-auth.ts` now resolves claims from `school_users` per request instead of from the token, which retires the stale-claims hazard. Login/OTP/password/logout/platform-session/emergency-login/invite-accept all reworked; `/api/school/auth/session` and the browser round trip deleted. `firebase_uid` → `auth_user_id` + migration `0011`. Firebase removed entirely. typecheck + lint + build green. | **The login UI (§5d item 1) — it is broken until then.** Then WhatsApp gating (step 8). |
+| 2026-08-08 | **Integrations tab + bulk module management** (§5f). GHL can finally be connected to a school — the write path never existed. New cross-school `/super-admin/modules`: multi-select schools as named chips, all ten modules plus WhatsApp plus GoHighLevel, three-state On/Off/Leave so an apply cannot clobber untouched flags. GHL is off-only in bulk, because connecting needs a per-school id. Also found and documented a build hazard: `next build` in a worktree creates `.claude/worktrees/node_modules`, which breaks the next build. | **Configure Supabase Auth**, then sign in and exercise this — none of it has been seen in a browser. |
 | 2026-08-08 | **"Print selected" on the challan list** (§5e) — checkboxes on `ChallanTable`, selection that survives paging but not filtering, and a shared `lib/challan-print.ts` so the 200-challan cap cannot drift between the list and the print page. Also **confirmed there is still no Integrations tab**: nothing in the app writes `schools.ghl_location_id`, so GHL cannot be switched on for a school. typecheck + lint + build green; nothing browser-verified, because sign-in is still blocked. | **Configure Supabase Auth in the Supabase dashboard** (§5d item 2) — it now blocks every remaining item. Then build the Integrations tab. |
 | 2026-08-07 | **Print framework built** — `components/print/PrintSheet.tsx`, generic `@media print` rules, school logo wired in, and bulk challan printing at `dashboard/fees/challans/print?ids=…`. Also **revised the WhatsApp decision to a paid per-school add-on** (see §3.3 and `ROADMAP.md` §4), and folded the user's video-derived module directory into `ROADMAP.md` §2b — which surfaced student promotion, Excel import, POS and e-learning as previously unknown gaps. | **Stage 4 (§5b), in a fresh session.** Check `claude/school-email-auth-7f5vuh` first. The parent-email risk is now *resolved* by the WhatsApp add-on decision, so it no longer blocks. |
 

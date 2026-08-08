@@ -1,4 +1,5 @@
 import type { Metadata } from 'next';
+import Link from 'next/link';
 import { notFound } from 'next/navigation';
 
 import { ChannelToggleList } from '@/components/super-admin/ChannelToggleList';
@@ -25,7 +26,15 @@ export default async function SchoolModulesPage({
         <h3 className="text-lg font-semibold text-slate-900">Modules</h3>
         <p className="mt-1 text-sm text-slate-500">
           Switch functionality on per school. A disabled module is hidden from
-          the portal navigation and refused at the API.
+          the portal navigation and refused at the API. To change several
+          schools at once, use{' '}
+          <Link
+            href="/super-admin/modules"
+            className="font-medium text-brand-primary hover:underline"
+          >
+            Modules across schools
+          </Link>
+          .
         </p>
       </div>
 

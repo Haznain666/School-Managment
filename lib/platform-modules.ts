@@ -62,6 +62,61 @@ export const PLATFORM_CHANNELS = [
   },
 ] as const;
 
+/**
+ * Third-party accounts a school can be connected to.
+ *
+ * ── Why these are neither modules nor channels ───────────────────────────
+ * A module and a channel are both booleans, and both live as a row in
+ * `school_modules`. An integration is not a boolean: connecting GoHighLevel
+ * means storing *which* sub-account, and `schools.ghl_location_id` is where
+ * that goes. There is deliberately no `ghl` flag in `school_modules` — a flag
+ * beside the id could disagree with it, and "connected" would then have two
+ * answers. Connected means the column is set. That is the whole rule.
+ *
+ * ── What follows from that, and it is the awkward part ───────────────────
+ * An integration cannot be switched *on* for many schools at once, because
+ * each needs a different id (the column is `unique`, so it could not even be
+ * fudged). It can be switched *off* for many at once, because clearing a
+ * column needs no per-school input. The bulk page reflects exactly this
+ * asymmetry rather than pretending the two directions are symmetrical.
+ */
+export const PLATFORM_INTEGRATIONS = [
+  {
+    key: 'gohighlevel',
+    label: 'GoHighLevel',
+    /** The per-school value that has to be supplied to connect it. */
+    credentialLabel: 'GHL Location ID',
+    description:
+      'The school’s own GoHighLevel sub-account. Used for contact sync and, ' +
+      'when the WhatsApp channel is on, for delivering messages. Optional — ' +
+      'a school works fully without one.',
+  },
+] as const;
+
+export type PlatformIntegration = (typeof PLATFORM_INTEGRATIONS)[number];
+export type PlatformIntegrationKey = PlatformIntegration['key'];
+
+/**
+ * The most schools one bulk apply may touch.
+ *
+ * Not a database limit — a blast-radius limit. Beyond this the operator is
+ * almost certainly selecting "everything" without having read what is
+ * selected, and this is a tool that can switch Fee Management off for every
+ * school on the platform in one click. Enforced in the route; the bulk page
+ * reads the same constant so the two cannot disagree about the number.
+ */
+export const MAX_SCHOOLS_PER_APPLY = 100;
+
+/**
+ * What a bulk apply should do to one flag.
+ *
+ * `unchanged` is the default and is the reason this is three states rather
+ * than a checkbox: a two-state control cannot distinguish "switch this off"
+ * from "I did not touch this", and a bulk tool that reads the second as the
+ * first switches off every module the selected schools had on.
+ */
+export type BulkFlagChoice = 'unchanged' | 'on' | 'off';
+
 export type PlatformChannel = (typeof PLATFORM_CHANNELS)[number];
 export type PlatformChannelKey = PlatformChannel['key'];
 

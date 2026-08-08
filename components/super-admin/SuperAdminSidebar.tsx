@@ -24,6 +24,9 @@ const NAV: readonly NavEntry[] = [
       { label: 'Add School', href: '/super-admin/schools/new' },
     ],
   },
+  // Cross-school rather than per-school, so it sits beside Schools rather than
+  // under it — it is not a view of one tenant.
+  { label: 'Modules', href: '/super-admin/modules' },
   { label: 'Settings', href: '/super-admin/settings', placeholder: true },
 ];
 
