@@ -17,7 +17,8 @@ export default function SchoolsPage() {
         <div>
           <h2 className="text-xl font-semibold text-slate-900">Schools</h2>
           <p className="mt-1 text-sm text-slate-500">
-            Every tenant on the platform, keyed by GHL Location ID.
+            Every tenant on the platform. GoHighLevel is optional and is
+            connected per school on its Integrations tab.
           </p>
         </div>
 

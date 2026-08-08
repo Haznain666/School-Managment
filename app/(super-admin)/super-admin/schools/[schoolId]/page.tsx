@@ -62,11 +62,27 @@ export default async function SchoolOverviewPage({
           <CardTitle
             title="School details"
             action={
-              <Link href={`/super-admin/schools/${school.id}/edit`}>
-                <Button variant="secondary" size="sm">
-                  Edit
-                </Button>
-              </Link>
+              /*
+                Same pair, same order and same shape as the schools list, so
+                the two places an operator can act on a school do not disagree
+                about what the actions are called or look like. "Login as
+                Admin" is hidden for a deactivated tenant here for the reason
+                it is hidden there: the portal is closed and the route refuses
+                it anyway.
+              */
+              <div className="flex flex-wrap items-center justify-end gap-2">
+                <Link href={`/super-admin/schools/${school.id}/edit`}>
+                  <Button variant="secondary" size="sm">
+                    Edit
+                  </Button>
+                </Link>
+
+                {school.isActive ? (
+                  <Link href={`/super-admin/schools/${school.id}/login-as`}>
+                    <Button size="sm">Login as Admin</Button>
+                  </Link>
+                ) : null}
+              </div>
             }
           />
         }

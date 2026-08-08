@@ -165,9 +165,17 @@ export function SchoolTable() {
                   <th scope="col" className="px-4 py-3 font-medium">Name</th>
                   <th scope="col" className="px-4 py-3 font-medium">City</th>
                   <th scope="col" className="px-4 py-3 font-medium">Slug</th>
-                  <th scope="col" className="px-4 py-3 font-medium">GHL Location ID</th>
+                  {/*
+                    Named "Tenant ID", not "GHL Location ID". The column holds
+                    `schools.location_id`, which stopped being a GoHighLevel
+                    identifier when GHL became an opt-in integration — the GHL
+                    sub-account now lives in `ghl_location_id` and is shown on
+                    the school's Integrations tab. The old heading labelled a
+                    plain uuid as something it is not.
+                  */}
+                  <th scope="col" className="px-4 py-3 font-medium">Tenant ID</th>
                   <th scope="col" className="px-4 py-3 font-medium">Active</th>
-                  <th scope="col" className="px-4 py-3 font-medium">Actions</th>
+                  <th scope="col" className="px-4 py-3 text-right font-medium">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
@@ -194,26 +202,36 @@ export function SchoolTable() {
                       </Badge>
                     </td>
                     <td className="px-4 py-3">
-                      <div className="flex gap-2">
-                        <Link
-                          href={`/super-admin/schools/${school.id}/edit`}
-                          className="text-sm font-medium text-brand-primary hover:underline"
-                        >
-                          Edit
+                      {/*
+                        All three are buttons of the same size and variant, on
+                        one baseline. Two links and a button meant three
+                        different heights and two different hit areas for
+                        actions of equal weight; "Login as Admin" in particular
+                        reads as a control, not as prose.
+
+                        `justify-end` with the header right-aligned to match, so
+                        the column stays tidy when a row offers Reactivate only.
+                      */}
+                      <div className="flex flex-wrap items-center justify-end gap-2">
+                        <Link href={`/super-admin/schools/${school.id}/edit`}>
+                          <Button variant="secondary" size="sm">
+                            Edit
+                          </Button>
                         </Link>
+
                         {/*
                           Only offered for a live tenant: a deactivated school's
                           portal is closed to everyone, and the API refuses it
                           too rather than trusting this to be the only guard.
                         */}
                         {school.isActive ? (
-                          <Link
-                            href={`/super-admin/schools/${school.id}/login-as`}
-                            className="text-sm font-medium text-brand-primary hover:underline"
-                          >
-                            Login as Admin
+                          <Link href={`/super-admin/schools/${school.id}/login-as`}>
+                            <Button variant="secondary" size="sm">
+                              Login as Admin
+                            </Button>
                           </Link>
                         ) : null}
+
                         {school.isActive ? (
                           <Button
                             variant="ghost"

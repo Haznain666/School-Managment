@@ -18,7 +18,8 @@ interface SchoolUserRow {
   isActive: boolean;
   branchName: string | null;
   joinedAt: string | null;
-  hasFirebaseAccount: boolean;
+  /** True once the person has a Supabase identity — i.e. has signed in once. */
+  hasAuthAccount: boolean;
 }
 
 interface EmergencyToken {
@@ -33,16 +34,22 @@ export interface SchoolUsersTableProps {
 }
 
 /**
- * School members, with the emergency-link control and the administrator
- * bootstrap.
+ * School members, with the controls a platform operator needs when a school
+ * cannot help itself: send someone their sign-in details, issue an emergency
+ * link, deactivate, delete.
  *
- * The generated link is shown once, in a dialog, and never persisted in the
- * page — it is a live credential for fifteen minutes, so it should not sit in
- * component state longer than the operator needs to copy it.
+ * ── Why "Send sign-in email" exists ──────────────────────────────────────
+ * "Add administrator" writes a member row and sends nothing — see the route at
+ * `.../users/[userId]/send-signin`. Without this button the first
+ * administrator of every school sits here having been told nothing, and the
+ * operator's only recourse is to phone them and read the URL out.
  *
- * The "add administrator" form is the only place the platform operator creates
- * a member. It exists because a school with no members has no way to invite
- * one; everybody after the first arrives through the school's own invitations.
+ * ── Deactivate versus delete ─────────────────────────────────────────────
+ * Deactivate is the ordinary answer and takes effect on the person's next
+ * request. Delete is offered because a mistyped address should not have to be
+ * carried forever, but the API refuses it once the person's name is on any
+ * record the school keeps, and says so. Both are confirmed inline rather than
+ * through `window.confirm`, which is unstyled and easy to dismiss by reflex.
  */
 export function SchoolUsersTable({ schoolId }: SchoolUsersTableProps) {
   const [users, setUsers] = useState<SchoolUserRow[] | null>(null);
@@ -50,6 +57,7 @@ export function SchoolUsersTable({ schoolId }: SchoolUsersTableProps) {
   const [pendingId, setPendingId] = useState<string | null>(null);
   const [issued, setIssued] = useState<EmergencyToken | null>(null);
   const [copied, setCopied] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
 
   const [isAdding, setIsAdding] = useState(false);
   const [adminName, setAdminName] = useState('');
@@ -58,21 +66,88 @@ export function SchoolUsersTable({ schoolId }: SchoolUsersTableProps) {
   const [savingAdmin, setSavingAdmin] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
 
+  const base = `/api/super-admin/schools/${schoolId}/users`;
+
   const load = useCallback(async () => {
     try {
-      const data = await superAdminFetch<{ users: SchoolUserRow[] }>(
-        `/api/super-admin/schools/${schoolId}/users`,
-      );
+      const data = await superAdminFetch<{ users: SchoolUserRow[] }>(base);
       setUsers(data.users);
       setError(null);
     } catch {
       setError('Could not load users.');
     }
-  }, [schoolId]);
+  }, [base]);
 
   useEffect(() => {
     void load();
   }, [load]);
+
+  /** Shared wrapper: one row busy at a time, errors reported the same way. */
+  const act = useCallback(
+    async (userId: string, run: () => Promise<string>, fallback: string) => {
+      setPendingId(userId);
+      setError(null);
+      setNotice(null);
+
+      try {
+        setNotice(await run());
+        await load();
+      } catch (caught) {
+        setError(caught instanceof SuperAdminApiError ? caught.message : fallback);
+      } finally {
+        setPendingId(null);
+        setConfirmDelete(null);
+      }
+    },
+    [load],
+  );
+
+  const sendSignIn = useCallback(
+    (user: SchoolUserRow) =>
+      act(
+        user.id,
+        async () => {
+          const data = await superAdminFetch<{ email: string; name: string }>(
+            `${base}/${user.id}/send-signin`,
+            { method: 'POST' },
+          );
+          return `Sign-in instructions sent to ${data.email}.`;
+        },
+        'Could not send the sign-in email.',
+      ),
+    [act, base],
+  );
+
+  const setActive = useCallback(
+    (user: SchoolUserRow, isActive: boolean) =>
+      act(
+        user.id,
+        async () => {
+          await superAdminFetch(`${base}/${user.id}`, {
+            method: 'PATCH',
+            body: JSON.stringify({ is_active: isActive }),
+          });
+          return isActive
+            ? `${user.name} reactivated.`
+            : `${user.name} deactivated — access ends on their next request.`;
+        },
+        'Could not change that user.',
+      ),
+    [act, base],
+  );
+
+  const remove = useCallback(
+    (user: SchoolUserRow) =>
+      act(
+        user.id,
+        async () => {
+          await superAdminFetch(`${base}/${user.id}`, { method: 'DELETE' });
+          return `${user.name} deleted.`;
+        },
+        'Could not delete that user.',
+      ),
+    [act, base],
+  );
 
   const generate = useCallback(
     async (userId: string) => {
@@ -82,7 +157,7 @@ export function SchoolUsersTable({ schoolId }: SchoolUsersTableProps) {
 
       try {
         const data = await superAdminFetch<EmergencyToken>(
-          `/api/super-admin/schools/${schoolId}/users/${userId}/emergency-token`,
+          `${base}/${userId}/emergency-token`,
           { method: 'POST' },
         );
         setIssued(data);
@@ -96,7 +171,7 @@ export function SchoolUsersTable({ schoolId }: SchoolUsersTableProps) {
         setPendingId(null);
       }
     },
-    [schoolId],
+    [base],
   );
 
   const addAdmin = useCallback(async () => {
@@ -105,22 +180,18 @@ export function SchoolUsersTable({ schoolId }: SchoolUsersTableProps) {
     setNotice(null);
 
     try {
-      const data = await superAdminFetch<{ userId: string; phone: string }>(
-        `/api/super-admin/schools/${schoolId}/users`,
-        {
-          method: 'POST',
-          body: JSON.stringify({
-            name: adminName.trim(),
-            phone: adminPhone.trim(),
-            email: adminEmail.trim(),
-          }),
-        },
-      );
+      const data = await superAdminFetch<{ userId: string; email: string }>(base, {
+        method: 'POST',
+        body: JSON.stringify({
+          name: adminName.trim(),
+          phone: adminPhone.trim(),
+          email: adminEmail.trim(),
+        }),
+      });
 
-      // The stored number is echoed back because it is normalised on the way
-      // in, and it is the exact string they must type on the login screen.
       setNotice(
-        `Administrator created. They can now sign in with ${data.phone} — no invite is needed.`,
+        `Administrator created. Nothing has been sent to ${data.email} yet — ` +
+          'use "Send sign-in email" on their row to give them access.',
       );
       setIsAdding(false);
       setAdminName('');
@@ -136,7 +207,7 @@ export function SchoolUsersTable({ schoolId }: SchoolUsersTableProps) {
     } finally {
       setSavingAdmin(false);
     }
-  }, [schoolId, adminName, adminPhone, adminEmail, load]);
+  }, [base, adminName, adminPhone, adminEmail, load]);
 
   const copy = useCallback(async () => {
     if (issued === null) return;
@@ -157,6 +228,70 @@ export function SchoolUsersTable({ schoolId }: SchoolUsersTableProps) {
     );
   }
 
+  const addForm = (
+    <Card
+      header={
+        <CardTitle
+          title="Add an administrator"
+          description="Creates a school_admin. Use this only to give a school its first member — everyone after that is invited from inside the portal."
+        />
+      }
+    >
+      <div className="grid gap-4 sm:grid-cols-3">
+        <Input
+          label="Full name"
+          value={adminName}
+          onChange={(event) => {
+            setAdminName(event.target.value);
+          }}
+        />
+        <Input
+          label="Email"
+          type="email"
+          value={adminEmail}
+          hint="Their sign-in identity. Required — there is no other way in."
+          onChange={(event) => {
+            setAdminEmail(event.target.value);
+          }}
+        />
+        <Input
+          label="Mobile number"
+          value={adminPhone}
+          placeholder="0300-1234567"
+          hint="A contact record, not a login."
+          onChange={(event) => {
+            setAdminPhone(event.target.value);
+          }}
+        />
+      </div>
+
+      <div className="mt-4 flex gap-3">
+        <Button
+          isLoading={savingAdmin}
+          disabled={
+            adminName.trim() === '' ||
+            adminPhone.trim() === '' ||
+            !adminEmail.includes('@')
+          }
+          onClick={() => {
+            void addAdmin();
+          }}
+        >
+          Create administrator
+        </Button>
+        <Button
+          variant="ghost"
+          onClick={() => {
+            setIsAdding(false);
+            setError(null);
+          }}
+        >
+          Cancel
+        </Button>
+      </div>
+    </Card>
+  );
+
   return (
     <div className="space-y-4">
       {error !== null ? (
@@ -166,70 +301,12 @@ export function SchoolUsersTable({ schoolId }: SchoolUsersTableProps) {
       ) : null}
 
       {notice !== null ? (
-        <p className="rounded-lg bg-emerald-50 px-3 py-2 text-sm text-emerald-700">
+        <p role="status" className="rounded-lg bg-emerald-50 px-3 py-2 text-sm text-emerald-700">
           {notice}
         </p>
       ) : null}
 
-      {isAdding ? (
-        <Card
-          header={
-            <CardTitle
-              title="Add an administrator"
-              description="Creates a school_admin who can sign in immediately with a WhatsApp passcode. Use this only to give a school its first member."
-            />
-          }
-        >
-          <div className="grid gap-4 sm:grid-cols-3">
-            <Input
-              label="Full name"
-              value={adminName}
-              onChange={(event) => {
-                setAdminName(event.target.value);
-              }}
-            />
-            <Input
-              label="Mobile number"
-              value={adminPhone}
-              placeholder="0300-1234567"
-              hint="Their login identity. Must be able to receive WhatsApp."
-              onChange={(event) => {
-                setAdminPhone(event.target.value);
-              }}
-            />
-            <Input
-              label="Email (optional)"
-              type="email"
-              value={adminEmail}
-              hint="Fallback channel if WhatsApp fails."
-              onChange={(event) => {
-                setAdminEmail(event.target.value);
-              }}
-            />
-          </div>
-
-          <div className="mt-4 flex gap-3">
-            <Button
-              isLoading={savingAdmin}
-              disabled={adminName.trim() === '' || adminPhone.trim() === ''}
-              onClick={() => {
-                void addAdmin();
-              }}
-            >
-              Create administrator
-            </Button>
-            <Button
-              variant="ghost"
-              onClick={() => {
-                setIsAdding(false);
-                setError(null);
-              }}
-            >
-              Cancel
-            </Button>
-          </div>
-        </Card>
-      ) : null}
+      {isAdding ? addForm : null}
 
       {issued !== null ? (
         <div
@@ -333,68 +410,144 @@ export function SchoolUsersTable({ schoolId }: SchoolUsersTableProps) {
                 <tr>
                   <th scope="col" className="px-4 py-3 font-medium">Name</th>
                   <th scope="col" className="px-4 py-3 font-medium">Role</th>
-                  <th scope="col" className="px-4 py-3 font-medium">Phone</th>
                   <th scope="col" className="px-4 py-3 font-medium">Email</th>
+                  <th scope="col" className="px-4 py-3 font-medium">Phone</th>
                   <th scope="col" className="px-4 py-3 font-medium">Status</th>
-                  <th scope="col" className="px-4 py-3 font-medium">Actions</th>
+                  <th scope="col" className="px-4 py-3 text-right font-medium">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {users.map((user) => (
-                  <tr key={user.id}>
-                    <td className="px-4 py-3">
-                      <span className="font-medium text-slate-900">{user.name}</span>
-                      {user.branchName !== null ? (
-                        <span className="block text-xs text-slate-500">
-                          {user.branchName}
-                        </span>
-                      ) : null}
-                    </td>
-                    <td className="px-4 py-3 text-slate-600">
-                      {isUserRole(user.role) ? ROLE_LABELS[user.role] : user.role}
-                    </td>
-                    <td className="px-4 py-3 font-mono text-xs text-slate-600">
-                      {user.phone}
-                    </td>
-                    <td className="px-4 py-3 text-slate-600">
-                      {user.email ?? <span className="text-slate-400">—</span>}
-                    </td>
-                    <td className="px-4 py-3">
-                      {user.joinedAt === null ? (
-                        <Badge variant="warning">Invite pending</Badge>
-                      ) : (
-                        <Badge variant={user.isActive ? 'success' : 'danger'}>
-                          {user.isActive ? 'Active' : 'Inactive'}
-                        </Badge>
-                      )}
-                    </td>
-                    <td className="px-4 py-3">
-                      {user.hasFirebaseAccount && user.isActive ? (
-                        <Button
-                          variant="secondary"
-                          size="sm"
-                          isLoading={pendingId === user.id}
-                          onClick={() => {
-                            void generate(user.id);
-                          }}
-                        >
-                          Generate Emergency Login
-                        </Button>
-                      ) : (
-                        <span
-                          className="text-xs text-slate-400"
-                          title={
-                            user.hasFirebaseAccount
-                              ? 'Account is deactivated.'
-                              : 'This user has not accepted their invite yet.'
-                          }
-                        >
-                          Unavailable
-                        </span>
-                      )}
-                    </td>
-                  </tr>
-                ))}
+                {users.map((user) => {
+                  const busy = pendingId === user.id;
+                  const confirming = confirmDelete === user.id;
+                  const hasEmail = user.email !== null && user.email !== '';
+
+                  return (
+                    <tr key={user.id} className={user.isActive ? undefined : 'bg-slate-50'}>
+                      <td className="px-4 py-3 align-top">
+                        <span className="font-medium text-slate-900">{user.name}</span>
+                        {user.branchName !== null ? (
+                          <span className="block text-xs text-slate-500">
+                            {user.branchName}
+                          </span>
+                        ) : null}
+                      </td>
+                      <td className="px-4 py-3 align-top text-slate-600">
+                        {isUserRole(user.role) ? ROLE_LABELS[user.role] : user.role}
+                      </td>
+                      <td className="px-4 py-3 align-top text-slate-600">
+                        {hasEmail ? (
+                          user.email
+                        ) : (
+                          <span
+                            className="text-amber-700"
+                            title="Sign-in is by email, so this account cannot be used."
+                          >
+                            None — cannot sign in
+                          </span>
+                        )}
+                      </td>
+                      <td className="px-4 py-3 align-top font-mono text-xs text-slate-600">
+                        {user.phone}
+                      </td>
+                      <td className="px-4 py-3 align-top">
+                        {!user.isActive ? (
+                          <Badge variant="danger">Deactivated</Badge>
+                        ) : user.hasAuthAccount ? (
+                          <Badge variant="success">Active</Badge>
+                        ) : (
+                          <Badge variant="warning">Never signed in</Badge>
+                        )}
+                      </td>
+                      <td className="px-4 py-3 align-top">
+                        {confirming ? (
+                          <div className="flex flex-wrap items-center justify-end gap-2">
+                            <span className="text-xs text-red-700">
+                              Delete {user.name} permanently?
+                            </span>
+                            <Button
+                              variant="danger"
+                              size="sm"
+                              isLoading={busy}
+                              onClick={() => {
+                                void remove(user);
+                              }}
+                            >
+                              Delete
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              disabled={busy}
+                              onClick={() => {
+                                setConfirmDelete(null);
+                              }}
+                            >
+                              Cancel
+                            </Button>
+                          </div>
+                        ) : (
+                          <div className="flex flex-wrap items-center justify-end gap-2">
+                            {user.isActive && hasEmail ? (
+                              <Button
+                                variant="secondary"
+                                size="sm"
+                                isLoading={busy}
+                                title="Emails them the portal address and how to set a password."
+                                onClick={() => {
+                                  void sendSignIn(user);
+                                }}
+                              >
+                                {user.hasAuthAccount
+                                  ? 'Resend sign-in email'
+                                  : 'Send sign-in email'}
+                              </Button>
+                            ) : null}
+
+                            {user.hasAuthAccount && user.isActive ? (
+                              <Button
+                                variant="secondary"
+                                size="sm"
+                                isLoading={busy}
+                                title="Single-use link that signs them in, for when email is unavailable."
+                                onClick={() => {
+                                  void generate(user.id);
+                                }}
+                              >
+                                Emergency link
+                              </Button>
+                            ) : null}
+
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              isLoading={busy}
+                              onClick={() => {
+                                void setActive(user, !user.isActive);
+                              }}
+                            >
+                              {user.isActive ? 'Deactivate' : 'Reactivate'}
+                            </Button>
+
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              disabled={busy}
+                              className="text-red-600 hover:bg-red-50"
+                              onClick={() => {
+                                setConfirmDelete(user.id);
+                                setError(null);
+                                setNotice(null);
+                              }}
+                            >
+                              Delete
+                            </Button>
+                          </div>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>

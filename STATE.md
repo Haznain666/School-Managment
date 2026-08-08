@@ -782,6 +782,114 @@ the first Hostinger deploy** — a worktree build is not the artifact that ships
 
 ---
 
+## 5g. Why the first administrator never receives an email — found 2026-08-08
+
+**This is a design gap, not a bug, and it will recur until it is understood.**
+
+`createFirstSchoolAdmin` (`lib/school-bootstrap.ts`, behind "Add administrator"
+on the Users tab) writes a `school_users` row and **sends nothing at all**. Its
+own comment says so: *"there is no invite to accept"*. That was correct when
+login was a WhatsApp passcode against a phone number — the row *was* the
+account, and there was nothing to tell anybody.
+
+After Stage 4 the address is the identity and sign-in is email + password, so
+that person now sits in the members list having received nothing, with no way
+to learn the portal exists. The Users tab compounded it by labelling them
+"Invite pending", implying an invitation was on its way. There is no
+invitation, and none was coming.
+
+**The person could already sign in** — `/api/school/auth/otp/request` sends a
+GoTrue code to any address that is an active member, which is exactly what that
+row makes them. Nobody had ever been told to go and do it.
+
+Closed with **"Send sign-in email"** on each member's row
+(`.../users/[userId]/send-signin`): the portal URL, which address to use, and
+which button to press. Deliberately **not** a six-digit code — GoTrue's codes
+are short-lived, so one mailed from an operator screen is usually dead before
+it is read, and that failure looks like a broken system. The recipient requests
+their own code when they are ready.
+
+Two related corrections in the same pass:
+- **Email is now required** when creating an administrator from this screen.
+  Without one the account cannot ever be signed into. `createFirstSchoolAdmin`
+  still tolerates a null email for the school-provisioning path that infers it
+  from the principal; the route is what refuses.
+- The status badge no longer says "Invite pending". It reads **"Never signed
+  in"**, from `auth_user_id` rather than `joined_at` — which is what it
+  actually means.
+
+### Diagnosed at the same time: the `pa_…@` Supabase user
+
+A Supabase user appeared as
+`pa_5ee3118fa477706539e8a809@schoolhub.codexmill.com`, minutes after the
+school user was created, and looked like the missing invitation. It is not.
+`pa_` is a **platform-admin impersonation account**, minted by "Login as
+Admin" — the one thing `app_metadata` is used for (§5d). It has no connection
+to the school member. Nothing was ever sent to `ray.pro1112@gmail.com` because
+nothing was ever going to be.
+
+### ⚠️ `SMTP_PORT` is not set in `.env.local`
+
+`lib/email-sender.ts` defaults to **587** with STARTTLS. The Supabase dashboard
+is configured against `smtp.titan.email` on **465**, which is implicit TLS. If
+"Send sign-in email" reports a transport error, set `SMTP_PORT=465` — the two
+are separate credentials and Supabase's setting does not reach this code.
+
+---
+
+## 5h. Super Admin user and school controls — done 2026-08-08
+
+- **`PATCH .../users/[userId]`** — activate / deactivate. Instant: `is_active`
+  is read per request by `membershipFor()`, never carried in a token, so there
+  is no session to revoke separately.
+- **`DELETE .../users/[userId]`** — removes a member. Several foreign keys into
+  `school_users` are `NO ACTION` (attendance marked, leave decided, payroll
+  run, periods taught), so Postgres refuses the delete once the person's name
+  is on any record. **That refusal is correct** — who marked a register is part
+  of the register — and it is translated into an explanation pointing at
+  deactivate. In practice: delete works for people who never got started, which
+  is the case it is for; deactivate is the answer for everyone else.
+- Delete is confirmed inline rather than with `window.confirm`, which is
+  unstyled and dismissed by reflex.
+- **Schools list** — Edit / Login as Admin / Deactivate are now three buttons of
+  one size on one baseline, right-aligned with the column header. They were two
+  links and a button: three heights, two hit areas, for actions of equal weight.
+- **"Login as Admin" added to the school Overview page**, same pair and order as
+  the list so the two places an operator acts on a school agree.
+- **"GHL Location ID" column renamed "Tenant ID"**, and the page description no
+  longer says schools are "keyed by GHL Location ID". Both were left over from
+  before the decoupling: the column holds `schools.location_id`, a plain uuid.
+  The GHL sub-account is `ghl_location_id` and lives on the Integrations tab.
+
+typecheck, lint and build green. Routes confirmed reachable (401, not 404).
+**The UI has not been clicked** — see §5i.
+
+---
+
+## 5i. Browser verification — how far it got
+
+The dev server runs from this worktree. `.env.local` was copied in from the
+main repo (`.env*.local` is gitignored here, so it cannot be committed) and
+`.claude/launch.json` added.
+
+**Everything Super Admin needs is already configured** — `DATABASE_URL`,
+`SUPER_ADMIN_EMAIL`, `SUPER_ADMIN_PASSWORD_HASH`, `SUPER_ADMIN_JWT_SECRET` are
+all present and filled. **Super Admin does not use Supabase Auth**; it is
+bcrypt + its own JWT (`lib/super-admin-credentials.ts`). An earlier note in
+this file claiming the panel was blocked on Supabase Auth was wrong — only the
+*school* portals are.
+
+The user has signed in and created "Sample Test School" successfully.
+
+**What still blocks it:** the assistant's in-app browser has its own cookie jar
+and is not signed in, and passwords are not something it types. Someone has to
+sign in to that browser once per session; everything after that is drivable.
+
+The Supabase dashboard is now configured: Email provider enabled, Confirm email
+on, custom SMTP through `smtp.titan.email:465`.
+
+---
+
 ## 6. Open items for the user
 
 1. ~~Install GitHub CLI~~ — done. `gh` 2.97.0, authenticated as `Haznain666`,
@@ -815,6 +923,7 @@ the first Hostinger deploy** — a worktree build is not the artifact that ships
 | 2026-08-08 | **WhatsApp gated (step 8) — Stage 4 code-complete.** New `whatsapp` channel flag in `school_modules`, declared separately from the product modules and rendered in its own Channels section. All five live send paths gated; the invite passcode moved to email, killing the last WhatsApp dependency in auth; the orphaned `lib/otp-sender.ts` deleted and its duplicated SMTP transport extracted to `lib/email-sender.ts`. Fee reminders now report how many guardians nobody could reach. Migration 0012. typecheck + lint + build green. | **Run 0011 + 0012, configure Supabase Auth, then sign in for real.** Nothing here has touched the live database. |
 | 2026-08-08 | **Login UI rebuilt.** `EmailLoginForm` replaces `LoginOTPForm`: password sign-in plus a code path for first-time and forgotten passwords. `PasswordField` + `lib/password-strength.ts` lifted from the email-auth branch and made the single source the password route also reads. Closed a hole this created: invitations now require an email address, because the address is the identity. typecheck + lint + build green. | **WhatsApp gating (step 8)**, then run migration 0011 and try signing in for real. |
 | 2026-08-08 | **Stage 4 auth substrate.** Firebase Authentication → Supabase Auth. New `lib/supabase-auth.ts`; `lib/school-auth.ts` now resolves claims from `school_users` per request instead of from the token, which retires the stale-claims hazard. Login/OTP/password/logout/platform-session/emergency-login/invite-accept all reworked; `/api/school/auth/session` and the browser round trip deleted. `firebase_uid` → `auth_user_id` + migration `0011`. Firebase removed entirely. typecheck + lint + build green. | **The login UI (§5d item 1) — it is broken until then.** Then WhatsApp gating (step 8). |
+| 2026-08-08 | **Found why school users get no email** (§5g): "Add administrator" was never designed to send one, and after Stage 4 that leaves an account nobody can find. Added "Send sign-in email", made email required, and corrected the misleading "Invite pending" badge. Also added deactivate/delete for members (§5h), turned the schools-list actions into aligned buttons, put "Login as Admin" on the Overview page, and renamed the stale "GHL Location ID" column. | **Sign in to the assistant's browser once** so this can finally be clicked through. |
 | 2026-08-08 | **Integrations tab + bulk module management** (§5f). GHL can finally be connected to a school — the write path never existed. New cross-school `/super-admin/modules`: multi-select schools as named chips, all ten modules plus WhatsApp plus GoHighLevel, three-state On/Off/Leave so an apply cannot clobber untouched flags. GHL is off-only in bulk, because connecting needs a per-school id. Also found and documented a build hazard: `next build` in a worktree creates `.claude/worktrees/node_modules`, which breaks the next build. | **Configure Supabase Auth**, then sign in and exercise this — none of it has been seen in a browser. |
 | 2026-08-08 | **"Print selected" on the challan list** (§5e) — checkboxes on `ChallanTable`, selection that survives paging but not filtering, and a shared `lib/challan-print.ts` so the 200-challan cap cannot drift between the list and the print page. Also **confirmed there is still no Integrations tab**: nothing in the app writes `schools.ghl_location_id`, so GHL cannot be switched on for a school. typecheck + lint + build green; nothing browser-verified, because sign-in is still blocked. | **Configure Supabase Auth in the Supabase dashboard** (§5d item 2) — it now blocks every remaining item. Then build the Integrations tab. |
 | 2026-08-07 | **Print framework built** — `components/print/PrintSheet.tsx`, generic `@media print` rules, school logo wired in, and bulk challan printing at `dashboard/fees/challans/print?ids=…`. Also **revised the WhatsApp decision to a paid per-school add-on** (see §3.3 and `ROADMAP.md` §4), and folded the user's video-derived module directory into `ROADMAP.md` §2b — which surfaced student promotion, Excel import, POS and e-learning as previously unknown gaps. | **Stage 4 (§5b), in a fresh session.** Check `claude/school-email-auth-7f5vuh` first. The parent-email risk is now *resolved* by the WhatsApp add-on decision, so it no longer blocks. |

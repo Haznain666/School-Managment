@@ -12,7 +12,7 @@ import { db } from '@/lib/drizzle';
 import { createFirstSchoolAdmin } from '@/lib/school-bootstrap';
 import { resolveLocationId } from '@/lib/schools';
 import { requireSuperAdmin } from '@/lib/super-admin-guard';
-import { isUuid, readOptionalString, readString } from '@/lib/validation';
+import { isUuid, readString } from '@/lib/validation';
 
 /**
  * /api/super-admin/schools/[schoolId]/users
@@ -53,8 +53,10 @@ export async function GET(_request: NextRequest, context: RouteContext) {
         isActive: schoolUsers.isActive,
         branchName: branches.name,
         joinedAt: schoolUsers.joinedAt,
-        // Drives whether an emergency link can be issued at all.
-        hasFirebaseAccount: schoolUsers.authUserId,
+        // Drives whether an emergency link can be issued at all. A row only
+        // gains an `auth_user_id` once the person has signed in for the first
+        // time, so this doubles as "has ever got in".
+        hasAuthAccount: schoolUsers.authUserId,
       })
       .from(schoolUsers)
       .leftJoin(branches, eq(branches.id, schoolUsers.branchId))
@@ -71,7 +73,7 @@ export async function GET(_request: NextRequest, context: RouteContext) {
         isActive: row.isActive,
         branchName: row.branchName,
         joinedAt: row.joinedAt,
-        hasFirebaseAccount: row.hasFirebaseAccount !== null,
+        hasAuthAccount: row.hasAuthAccount !== null,
       })),
     });
   } catch (error) {
@@ -116,6 +118,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
 
     const name = readString(body.name);
     const phone = readString(body.phone);
+    const email = readString(body.email).toLowerCase();
 
     if (name === '') {
       return apiFailure('invalid_body', "Enter the administrator's name.", 400);
@@ -123,12 +126,24 @@ export async function POST(request: NextRequest, context: RouteContext) {
     if (phone === '') {
       return apiFailure('invalid_body', 'Enter a mobile number.', 400);
     }
+    // Required here, though `createFirstSchoolAdmin` still tolerates its
+    // absence for the school-provisioning path that infers it from the
+    // principal. Sign-in is by email: an administrator created without one is
+    // an account nobody can ever use, and this is the screen where that
+    // mistake is made deliberately rather than inherited.
+    if (!email.includes('@') || email.length < 3) {
+      return apiFailure(
+        'invalid_body',
+        'Enter an email address — it is how they sign in.',
+        400,
+      );
+    }
 
     const result = await createFirstSchoolAdmin(db, {
       locationId,
       name,
       phone,
-      email: readOptionalString(body.email),
+      email,
     });
 
     // Here the details were typed deliberately rather than inherited from a
@@ -146,7 +161,12 @@ export async function POST(request: NextRequest, context: RouteContext) {
       );
     }
 
-    return apiSuccess({ userId: result.userId, phone: result.phone }, 201);
+    // The email is echoed back because the panel's next instruction names it:
+    // nothing has been sent yet, and "Send sign-in email" is the next step.
+    return apiSuccess(
+      { userId: result.userId, phone: result.phone, email },
+      201,
+    );
   } catch (error) {
     return handleApiError(error);
   }
