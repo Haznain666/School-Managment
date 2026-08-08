@@ -19,9 +19,21 @@ step, before the session ends.
 ## 1. What this project is
 
 Multi-tenant SaaS school management system for Pakistani schools.
-Each school is a **GoHighLevel (GHL) sub-account**; its **GHL Location ID is the
-tenant key**, threaded through subdomain resolution → JWT claims → every database
-row → outbound GHL calls.
+
+**The tenant key is the school's own id** — `schools.location_id`, set to
+`schools.id` at creation — threaded through subdomain resolution → the
+`school_users` lookup → every database row.
+
+⚠️ **This reversed on 2026-08-08.** The platform was built on the premise that
+each school *is* a GoHighLevel sub-account and its GHL Location ID is the
+tenant key. GoHighLevel is now an **opt-in per-school integration**: a school
+is created without one, and `schools.ghl_location_id` holds the sub-account if
+and when it connects. Any older note calling the GHL Location ID "the tenant
+key" is historical — including most of `README.md`.
+
+The column is still physically named `location_id` on 43 tables. Renaming it
+was considered and deferred: ~1,241 references, an unreviewable diff, and every
+miss a runtime failure rather than a compile error. Read it as "tenant key".
 
 Built through Sprint 8. Working: super-admin panel, school portals, branches,
 students, admissions, fees/challans, academics, attendance, HR & payroll, roles
@@ -583,6 +595,22 @@ last WhatsApp dependency in the auth path is gone. `lib/otp.ts` and
 as a side effect, which is the accept route's job and must happen after the
 membership row is written.
 
+### ⚠️ Outstanding after the GHL decoupling
+
+**1. There is no Integrations tab yet.** `ghl_location_id` exists and
+`ghlLocationFor()` reads it, but nothing in the Super Admin panel can *set* it
+— so GHL cannot actually be activated for a school. Needs a route and a panel
+on the school page, alongside the Channels section built for WhatsApp.
+
+**2. "Print selected" on the challan list** — still item 2 of the agreed work
+order in §5c. The bulk print route works; nothing links to it.
+
+**3. One unexplained error.** The user hit a generic "Something went wrong" on
+school creation before this change. The stack was lost to a server restart. The
+GHL requirement was *not* the cause — the submitted value passed validation,
+and the inserts succeed in isolation. If it recurs, the trace is in the dev
+server log.
+
 ### ⚠️ What is NOT done — read before calling Stage 4 finished Unchanged from §5b: add
 `whatsapp_enabled` to `school_modules`, a "Connect WhatsApp" control on the
 Super Admin school page, and make `lib/ghl-fees.ts`, `lib/invite-sender.ts`,
@@ -651,6 +679,7 @@ time.
 | 2026-08-07 | **Stage 3 documented.** User confirmed Hostinger supports Node.js and auto-issues HTTPS per subdomain. Wrote `DEPLOYMENT.md`; de-Vercel'd the operator-facing strings in the storage diagnostics route. | — |
 | 2026-08-07 | **Stage 2 started.** `is_active` enforcement landed in `verifySchoolSession()` — the revocation guarantee is now provider-independent. Wrote up the provider-swap design. 4 commits made; **could not push — no git credential and no `gh` on this machine.** | — |
 | 2026-08-07 | **Direction changed by the user.** Login becomes email + password; signup uses an email OTP to set a password; everything merges to main as one piece. This makes Supabase Auth the right answer and supersedes the earlier design — see the ⚠️ block in §3. | — |
+| 2026-08-08 | **GoHighLevel decoupled from tenant identity.** A school no longer needs a GHL sub-account to exist: `location_id` is now the school's own uuid, and the new nullable `schools.ghl_location_id` carries the GHL account when one is connected. Every call that names a location to GHL goes through `ghlLocationFor()`, which refuses clearly when a school has not connected. Migration 0013. **Tested end to end against the live database** — school created with no GHL id (201), tenant resolved through Edge middleware, first admin provisioned, test data removed. | **Build the Integrations tab** so GHL can actually be switched on, then "Print selected" on the challan list. |
 | 2026-08-08 | **Migrations 0011 + 0012 applied** — the first time any Stage 4 work touched the live database. 13 recorded; every effect verified, including the per-tenant unique index that lets one person hold accounts at two schools. Corrected `drizzle.config.ts`, which pointed at the IPv6-only direct connection. | **Configure Supabase Auth (email provider + SMTP), then sign in for real.** |
 | 2026-08-08 | **WhatsApp gated (step 8) — Stage 4 code-complete.** New `whatsapp` channel flag in `school_modules`, declared separately from the product modules and rendered in its own Channels section. All five live send paths gated; the invite passcode moved to email, killing the last WhatsApp dependency in auth; the orphaned `lib/otp-sender.ts` deleted and its duplicated SMTP transport extracted to `lib/email-sender.ts`. Fee reminders now report how many guardians nobody could reach. Migration 0012. typecheck + lint + build green. | **Run 0011 + 0012, configure Supabase Auth, then sign in for real.** Nothing here has touched the live database. |
 | 2026-08-08 | **Login UI rebuilt.** `EmailLoginForm` replaces `LoginOTPForm`: password sign-in plus a code path for first-time and forgotten passwords. `PasswordField` + `lib/password-strength.ts` lifted from the email-auth branch and made the single source the password route also reads. Closed a hole this created: invitations now require an email address, because the address is the identity. typecheck + lint + build green. | **WhatsApp gating (step 8)**, then run migration 0011 and try signing in for real. |

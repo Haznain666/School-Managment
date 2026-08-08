@@ -15,7 +15,6 @@ export interface SchoolFormValues {
   id?: string;
   name: string;
   slug: string;
-  locationId: string;
   /** Prefix for this school's student IDs, e.g. `GVS` -> `GVS-2025-0001`. */
   schoolCode: string;
   city: string;
@@ -34,7 +33,6 @@ export interface SchoolFormProps {
 const EMPTY: SchoolFormValues = {
   name: '',
   slug: '',
-  locationId: '',
   schoolCode: '',
   city: '',
   address: '',
@@ -157,7 +155,6 @@ export function SchoolForm({ initial, appDomain }: SchoolFormProps) {
         email: values.email,
         principalName: values.principalName,
         // The Location ID is the tenant key and is fixed once a school exists.
-        ...(isEdit ? {} : { locationId: values.locationId }),
       };
 
       try {
@@ -256,21 +253,6 @@ export function SchoolForm({ initial, appDomain }: SchoolFormProps) {
               <p className="mt-1 text-xs text-emerald-600">Subdomain is available.</p>
             ) : null}
           </div>
-
-          <Input
-            label="GHL Location ID"
-            required={!isEdit}
-            value={values.locationId}
-            onChange={(event) => {
-              setField('locationId', event.target.value);
-            }}
-            disabled={isSubmitting || isEdit}
-            hint={
-              isEdit
-                ? 'Fixed after creation — it is the tenant key for all of this school’s data.'
-                : 'The GoHighLevel sub-account ID for this school.'
-            }
-          />
 
           <Input
             label="School Code (for Student IDs)"

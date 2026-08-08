@@ -328,9 +328,16 @@ export interface GhlContact {
 }
 
 /** Fetches the GHL sub-account (location) record for a school. */
-export async function getGhlLocation(locationId: string): Promise<GhlLocation> {
+export async function getGhlLocation(
+  db: Database,
+  locationId: string,
+): Promise<GhlLocation> {
+  // The path names a GHL sub-account, so it needs the connected GHL id — not
+  // the tenant key, which since GHL became optional is the school's own uuid.
+  const ghlLocationId = await ghlLocationFor(db, locationId);
+
   const result = await ghlFetch<{ location: GhlLocation }>(
-    `/locations/${locationId}`,
+    `/locations/${ghlLocationId}`,
     locationId,
   );
   return result.location;
@@ -338,12 +345,15 @@ export async function getGhlLocation(locationId: string): Promise<GhlLocation> {
 
 /** Lists contacts in a school's sub-account. */
 export async function listGhlContacts(
+  db: Database,
   locationId: string,
   params: { limit?: number; startAfterId?: string } = {},
 ): Promise<GhlContact[]> {
+  const ghlLocationId = await ghlLocationFor(db, locationId);
+
   const result = await ghlFetch<{ contacts: GhlContact[] }>('/contacts/', locationId, {
     query: {
-      locationId,
+      locationId: ghlLocationId,
       limit: params.limit ?? 100,
       startAfterId: params.startAfterId,
     },
@@ -423,6 +433,45 @@ export async function exchangeGhlAuthorizationCode(code: string): Promise<GhlTok
  * Results are cached briefly: these calls arrive in bursts (find contact, then
  * send message) and the check is a guard, not a source of truth.
  */
+/**
+ * The GoHighLevel sub-account for a tenant, or a clear refusal.
+ *
+ * ── Why this exists ──────────────────────────────────────────────────────
+ * `location_id` used to be the GHL Location ID, so any code holding a tenant
+ * key could hand it straight to GoHighLevel. That is no longer true: GHL is
+ * opt-in per school, and a school that has not connected one has no GHL
+ * identity at all. Passing the tenant key would address a sub-account that
+ * belongs to somebody else, or to nobody.
+ *
+ * Every call that names a location to GHL must go through here first.
+ *
+ * @throws {GhlTokenError} when the school has not connected GoHighLevel. The
+ *   message is the one an operator needs — connect it in the Super Admin panel
+ *   — rather than a null-reference further down.
+ */
+export async function ghlLocationFor(
+  db: Database,
+  locationId: string,
+): Promise<string> {
+  const rows = await db
+    .select({ ghlLocationId: schools.ghlLocationId })
+    .from(schools)
+    .where(eq(schools.locationId, locationId))
+    .limit(1);
+
+  const ghlLocationId = rows[0]?.ghlLocationId ?? null;
+
+  if (ghlLocationId === null || ghlLocationId.trim() === '') {
+    throw new GhlTokenError(
+      locationId,
+      'This school has not connected GoHighLevel. Connect it from the ' +
+        'Integrations tab on the school in the Super Admin panel.',
+    );
+  }
+
+  return ghlLocationId;
+}
+
 const _validatedSchoolCache = new Map<string, number>();
 const CACHE_TTL_MS = 30_000;
 
@@ -521,9 +570,12 @@ export async function findOrCreateContact(
 ): Promise<GhlContactRef> {
   await validateSchool(db, locationId);
 
+  // The tenant key is not the GHL sub-account any more; see `ghlLocationFor`.
+  const ghlLocationId = await ghlLocationFor(db, locationId);
+
   const found = await agencyFetch<ContactSearchResponse>('/contacts/', {
     method: 'GET',
-    query: { locationId, query: contact.phone },
+    query: { locationId: ghlLocationId, query: contact.phone },
   });
 
   const existingId = found.contacts?.[0]?.id;
@@ -536,7 +588,7 @@ export async function findOrCreateContact(
   const created = await agencyFetch<ContactUpsertResponse>('/contacts/', {
     method: 'POST',
     body: {
-      locationId,
+      locationId: ghlLocationId,
       phone: contact.phone,
       firstName: firstName ?? contact.name,
       lastName: rest.join(' '),

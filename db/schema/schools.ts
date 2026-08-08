@@ -10,9 +10,20 @@ import {
 /**
  * schools — the tenant directory, and the anchor for every other table.
  *
- * `location_id` is the GHL Location ID and is the tenant key for the whole
- * platform. `slug` is the subdomain a school is reached on
- * (`slug.platform.com`), so middleware resolves slug -> location_id here.
+ * ── `location_id` is the tenant key, and no longer a GHL value ───────────
+ * It began life as the GoHighLevel Location ID, which meant no school could
+ * exist without a GHL sub-account. GHL is now opt-in per school, so a school
+ * owns its own tenant identity: `location_id` is set to the school's own `id`
+ * at creation, and `ghl_location_id` below holds the GHL sub-account if and
+ * when one is connected.
+ *
+ * The column keeps its name deliberately. It is the foreign key on 43 tables
+ * and appears in ~1,241 places in code; renaming it buys accurate naming and
+ * costs an unreviewable diff where every miss is a runtime failure rather than
+ * a compile error. Read it as "tenant key" wherever it appears.
+ *
+ * `slug` is the subdomain a school is reached on (`slug.platform.com`), so
+ * middleware resolves slug -> location_id here.
  *
  * This table replaces Sprint 1's `school_subdomains`: it holds the same
  * subdomain -> location_id mapping plus the school profile the Super Admin
@@ -23,8 +34,20 @@ export const schools = pgTable(
   'schools',
   {
     id: uuid('id').primaryKey().defaultRandom(),
-    /** GHL Location ID — the tenant key. */
+    /**
+     * The tenant key. Equal to `id` for every school created since GHL became
+     * optional; older rows carry the GHL Location ID they were provisioned
+     * with, which is why this is not simply a generated column.
+     */
     locationId: text('location_id').notNull().unique(),
+    /**
+     * The GoHighLevel sub-account, when this school has connected one.
+     *
+     * Null for every school that has not. This is the value that goes to the
+     * GHL API — `lib/ghl-client.ts` resolves it from the tenant key rather
+     * than assuming the two are the same, which they no longer are.
+     */
+    ghlLocationId: text('ghl_location_id').unique(),
     name: text('name').notNull(),
     /** Subdomain label: `slug.platform.com`. Lowercase, hyphenated. */
     slug: text('slug').notNull().unique(),

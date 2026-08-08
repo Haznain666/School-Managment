@@ -33,3 +33,9 @@ serviceAccountKey.json
 .DS_Store
 Thumbs.db
 .idea/
+
+# Claude Code. `launch.json` is shared — it is how the dev server is started.
+# `worktrees/` holds live git worktrees and must never be committed: it would
+# nest a checkout inside its own repository.
+.claude/worktrees/
+.claude/settings.local.json

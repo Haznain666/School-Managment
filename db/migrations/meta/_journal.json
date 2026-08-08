@@ -92,6 +92,13 @@
       "when": 1786131160960,
       "tag": "0012_stage4_whatsapp_channel",
       "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1786145817739,
+      "tag": "0013_ghl_becomes_optional",
+      "breakpoints": true
     }
   ]
 }

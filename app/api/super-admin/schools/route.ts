@@ -1,3 +1,5 @@
+import { randomUUID } from 'node:crypto';
+
 import { and, desc, eq, ilike, or, type SQL } from 'drizzle-orm';
 import type { NextRequest } from 'next/server';
 
@@ -63,7 +65,6 @@ export async function GET(request: NextRequest) {
 interface CreateSchoolBody {
   name?: unknown;
   slug?: unknown;
-  locationId?: unknown;
   schoolCode?: unknown;
   city?: unknown;
   address?: unknown;
@@ -87,7 +88,6 @@ export async function POST(request: NextRequest) {
 
     const name = readString(body.name);
     const slug = readString(body.slug).toLowerCase();
-    const locationId = readString(body.locationId);
     const city = readString(body.city);
 
     if (name === '') {
@@ -97,10 +97,6 @@ export async function POST(request: NextRequest) {
     const slugProblem = slugRejectionReason(slug);
     if (slugProblem !== null) {
       return apiFailure('invalid_slug', slugProblem, 400);
-    }
-
-    if (locationId === '') {
-      return apiFailure('invalid_body', 'GHL Location ID is required.', 400);
     }
 
     if (!isPakistaniCity(city)) {
@@ -119,12 +115,26 @@ export async function POST(request: NextRequest) {
     const schoolCode =
       schoolCodeInput === '' ? deriveSchoolCode(name) : schoolCodeInput;
 
+    /**
+     * The school owns its tenant identity.
+     *
+     * `location_id` used to be the GoHighLevel Location ID, which made a GHL
+     * sub-account a prerequisite for existing. It is now the school's own id,
+     * generated here rather than defaulted in the database so that both
+     * columns can be given the same value in one insert.
+     *
+     * GHL, when a school wants it, is connected afterwards from the Super
+     * Admin panel and lands in `ghl_location_id`.
+     */
+    const id = randomUUID();
+
     const inserted = await db
       .insert(schools)
       .values({
+        id,
         name,
         slug,
-        locationId,
+        locationId: id,
         schoolCode,
         city,
         address: readOptionalString(body.address),
@@ -132,18 +142,14 @@ export async function POST(request: NextRequest) {
         email: readOptionalString(body.email),
         principalName: readOptionalString(body.principalName),
       })
-      // `slug` and `location_id` are both unique; a clash means this school or
-      // this subdomain is already registered.
+      // `slug` is unique. `location_id` is a fresh uuid and cannot clash, so a
+      // conflict here means the subdomain is taken.
       .onConflictDoNothing()
       .returning();
 
     const school = inserted[0];
     if (school === undefined) {
-      return apiFailure(
-        'already_exists',
-        'That subdomain or GHL Location ID is already registered.',
-        409,
-      );
+      return apiFailure('already_exists', 'That subdomain is already registered.', 409);
     }
 
     /**
