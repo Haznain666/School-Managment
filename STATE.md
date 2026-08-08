@@ -4,10 +4,15 @@
 resume without re-deriving context. Updated at the end of every development
 step, before the session ends.
 
-**Last updated:** 2026-08-08 (third session)
-**Branch:** `claude/stage-4-state-md-100f15` (worktree) — fast-forwarded from
-`claude/school-management-system-access-92a218`, so it carries Stages 1 and 3.
-**Main branch:** `main` — last commit `81d0cfc` (send apikey header, accept `sb_secret_` keys)
+**Last updated:** 2026-08-08 (fourth session)
+**Branch:** everything below is **merged to `main`**. The Stage-4 worktree
+branches (`stage-4-state-md-100f15`, `school-management-system-access-92a218`)
+are merged and stale — prune them.
+**Main branch:** `main` — last commit `25e1eab`, in sync with `origin/main`.
+Migrations `0000`–`0014` applied. Next free migration number: **`0015`**.
+
+**The delivery plan now lives in `SPRINTS.md`** — 17 sprints across three
+releases, reconciling `remaining work.docx` with this file and `ROADMAP.md`.
 
 > **Stage 4 (§5b) is code-complete and its migrations are applied.** The one
 > thing still blocking a real sign-in is Supabase Auth configuration, which is
@@ -348,7 +353,11 @@ Remaining, and all of it is the user's to do rather than code:
 
 ---
 
-## 5b. Stage 4 — email/password auth + WhatsApp removal (NEXT, not started)
+## 5b. Stage 4 — email/password auth + WhatsApp removal ✅ COMPLETE
+
+*(This section is the original plan, kept because its reasoning is still the
+best record of why each step exists. All ten steps are done — see the progress
+table in §5d. Read §5d for how the delivered design differs from this plan.)*
 
 Ordered so each step leaves the build green. Do not start in a session that is
 already low on context; this is the most security-sensitive code in the repo.
@@ -605,11 +614,11 @@ GHL requirement was *not* the cause — the submitted value passed validation,
 and the inserts succeed in isolation. If it recurs, the trace is in the dev
 server log.
 
-### ⚠️ What is NOT done — read before calling Stage 4 finished Unchanged from §5b: add
-`whatsapp_enabled` to `school_modules`, a "Connect WhatsApp" control on the
-Super Admin school page, and make `lib/ghl-fees.ts`, `lib/invite-sender.ts`,
-`lib/otp-sender.ts` and `lib/ghl-admissions.ts` check it with an email
-fallback. **Gate, do not delete.**
+### ⚠️ What is NOT done — read before calling Stage 4 finished
+
+*(The WhatsApp-gating paragraph that stood here is deleted: it was done on
+2026-08-08 and is written up below under "WhatsApp gating (step 8)".
+`lib/otp-sender.ts` no longer exists.)*
 
 **1. ~~Migrations 0011 and 0012~~ — APPLIED 2026-08-08.** 13 recorded, and
 every effect verified against the live database: `auth_user_id` on all three
@@ -1050,8 +1059,10 @@ on, custom SMTP through `smtp.titan.email:465`.
 
 ## 6. Open items for the user
 
-1. ~~Install GitHub CLI~~ — done. `gh` 2.97.0, authenticated as `Haznain666`,
-   and git has a stored credential. Push and PR creation both work.
+1. ~~Install GitHub CLI~~ — **partly regressed.** Git has a stored credential
+   and push works, but `gh` is **not on PATH** in this environment (checked
+   2026-08-08, both Bash and PowerShell). PR creation from a session does not
+   work; push and merge do.
 2. ~~Do students and parents have email addresses?~~ — moot. The internal chat
    decision (§3.3) removes the dependency on either email or phone reach.
 3. ~~Create the Supabase database~~ — done, see §5c.
