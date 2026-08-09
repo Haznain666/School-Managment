@@ -69,3 +69,13 @@ export * from './exam-results';
 // and `email_outbox` also carries platform mail, which belongs to no school.
 export * from './auth-attempts';
 export * from './email-outbox';
+
+// Sprint 10 — onboarding: getting a real school's roll into the system, moving
+// it up a year, moving a student between campuses, and billing a family once.
+// `family-challans` is exported before nothing in particular, but note
+// `fee-challans` imports it: a challan may belong to a family voucher, never
+// the other way round.
+export * from './student-imports';
+export * from './student-promotions';
+export * from './student-transfers';
+export * from './family-challans';

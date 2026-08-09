@@ -13,6 +13,7 @@ import {
 } from 'drizzle-orm/pg-core';
 
 import { academicYears } from './academic-years';
+import { familyChallans } from './family-challans';
 import { schools } from './schools';
 import { studentProfiles } from './student-profiles';
 
@@ -90,6 +91,21 @@ export const feeChallans = pgTable(
       .notNull()
       .default('0'),
     status: text('status').notNull().default('unpaid').$type<ChallanStatus>(),
+    /**
+     * Set when this challan has been folded into a family voucher (Sprint 10).
+     *
+     * The challan is still the authority on what this child owes — reports,
+     * defaulter lists and concessions all read it, and none of them know or
+     * care about the voucher. What the link changes is where the *payment*
+     * arrives: `lib/family-challans.ts` distributes one family payment across
+     * the members, so this row must not also be paid directly.
+     *
+     * `set null` on delete, so cancelling a voucher releases its members back
+     * to being billed individually rather than taking them with it.
+     */
+    familyChallanId: uuid('family_challan_id').references(() => familyChallans.id, {
+      onDelete: 'set null',
+    }),
     notes: text('notes'),
     /** Firebase uid of whoever generated it. */
     generatedByUid: text('generated_by_uid'),
@@ -105,6 +121,7 @@ export const feeChallans = pgTable(
     index('fee_challans_student_profile_id_idx').on(table.studentProfileId),
     index('fee_challans_location_id_status_idx').on(table.locationId, table.status),
     index('fee_challans_location_id_due_date_idx').on(table.locationId, table.dueDate),
+    index('fee_challans_family_challan_id_idx').on(table.familyChallanId),
     // What makes a re-run of bulk generation skip rather than duplicate.
     uniqueIndex('fee_challans_student_month_year_idx').on(
       table.studentProfileId,

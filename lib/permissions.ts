@@ -28,6 +28,9 @@ export const PERMISSIONS = [
   'users.write',
   'admissions.read',
   'admissions.write',
+  'students.import',
+  'students.promote',
+  'students.transfer',
   'fees.read',
   'fees.write',
   'academics.read',
@@ -67,6 +70,11 @@ export const PERMISSION_GROUPS: readonly PermissionGroup[] = [
     label: 'Admissions',
     permissions: ['admissions.read', 'admissions.write'],
   },
+  {
+    key: 'roll',
+    label: 'Roll management',
+    permissions: ['students.import', 'students.promote', 'students.transfer'],
+  },
   { key: 'fees', label: 'Fees', permissions: ['fees.read', 'fees.write'] },
   {
     key: 'academics',
@@ -98,6 +106,9 @@ export const PERMISSION_LABELS: Record<Permission, string> = {
   'users.write': 'Invite, edit and deactivate users',
   'admissions.read': 'See students, grades and applications',
   'admissions.write': 'Enrol students and decide applications',
+  'students.import': 'Bulk-import students from a spreadsheet',
+  'students.promote': 'Roll the school over to the next academic year',
+  'students.transfer': 'Move a student to another branch',
   'fees.read': 'See challans, the price list and fee reports',
   'fees.write': 'Set prices, raise challans and take payments',
   'academics.read': 'See subjects, the timetable and the register',
@@ -132,6 +143,16 @@ export const PERMISSION_DESCRIPTIONS: Partial<Record<Permission, string>> = {
     'complaint about a wrong grade comes back to.',
   'exams.publish':
     'Publishing a term issues its report cards. Separate from exams.write on purpose.',
+  'students.import':
+    'Writes hundreds of student records in one action. Separate from ' +
+    'admissions.write because enrolling one child and loading a whole school ' +
+    'are different-sized mistakes.',
+  'students.promote':
+    'Moves the whole school up a year. Done once, affects every student, and ' +
+    'is not a single click to undo.',
+  'students.transfer':
+    'Moving a student between branches also moves their fees. A branch ' +
+    'administrator does not hold this — the receiving branch has to agree.',
 };
 
 /**
@@ -168,6 +189,19 @@ export const UNREVOKABLE: { role: UserRole; permission: Permission } = {
  * not a finance, personnel or enquiry record, and the one thing those three
  * roles might genuinely want — knowing an exam is on — is on the datesheet.
  * A school that disagrees grants it, which is what Sprint 8 is for.
+ *
+ * Sprint 10 added the three roll-management keys, and they are deliberately
+ * narrower than `admissions.write`:
+ *
+ *   students.import   — `school_admin` and `principal` only. Enrolling one
+ *                       child is a decision; loading eight hundred is an
+ *                       operation, and one bad mapping writes every one of them
+ *                       wrong. A `branch_admin` who wants it can be granted it.
+ *   students.promote  — the same two. It moves the entire school up a year.
+ *   students.transfer — `school_admin` only. A transfer moves a student *and*
+ *                       their fees between two branches, and a branch
+ *                       administrator holding it could move a student out of a
+ *                       branch they do not run — or, worse, into one.
  */
 export const DEFAULT_ROLE_PERMISSIONS: Record<UserRole, readonly Permission[]> = {
   school_admin: [...PERMISSIONS],
@@ -192,6 +226,8 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<UserRole, readonly Permission[]> =
     'users.read',
     'admissions.read',
     'admissions.write',
+    'students.import',
+    'students.promote',
     'fees.read',
     'academics.read',
     'academics.write',
