@@ -13,8 +13,9 @@ branches to prune: `stage-4-state-md-100f15`,
 from this session (`worktree-agent-*`), whose commits are already on the sprint
 branch.
 **Main branch:** `main` — last commit `d0e7dc0`, in sync with `origin/main`.
-**Migrations `0000`–`0016` are all applied and verified** against the live
-database; `0016` was applied 2026-08-09 (§5n). Next free number: **`0017`**.
+**Migrations `0000`–`0017` are all applied and verified** against the live
+database; `0016` and `0017` were both applied 2026-08-09 (§5n, §5o). Next free
+number: **`0018`**.
 
 **The delivery plan now lives in `SPRINTS.md`** — 17 sprints across three
 releases, reconciling `remaining work.docx` with this file and `ROADMAP.md`.
@@ -1605,6 +1606,137 @@ build** — the next agent in this tree starts clean.
 **`head` on a piped build kills it.** `npx next build | head -30` SIGPIPEs the
 build part-way and leaves no `.next/standalone`, which reads exactly like a
 failed build. Redirect to a file and read the file.
+
+---
+
+## 5o. Branding — the logo upload has never worked, and why
+
+Migration **`0017_branding_presets.sql`**, applied and verified 2026-08-09.
+Two unrelated things, and the second is the more serious.
+
+### 1. The bucket name was wrong, and the error said nothing useful
+
+`lib/storage.ts` defaulted to a bucket called **`school-files`**, and
+`SUPABASE_STORAGE_BUCKET` was unset. The only bucket in the project is
+**`school-assets`**, created 2026-08-03. Nothing ever reconciled the two, so
+**every logo upload since then failed** and the Branding tab was dead.
+
+That alone would have been a one-line fix. What made it cost an investigation
+is that Supabase answers a request for a missing bucket with **HTTP 400**, and
+puts the real code in the *body*:
+
+```
+HTTP/1.1 400
+{"statusCode":"404","error":"Bucket not found","code":"NoSuchBucket"}
+```
+
+`storageFailure()` tested `response.status === 404`, which never matched — so
+the actionable "that bucket does not exist" message was dead code, and the
+operator got `Supabase Storage upload failed (HTTP 400)`. That reads like a
+malformed request and sends you at the file, not the configuration.
+`inspectStorage()` had the same blind spot and reported `bucketExists: null`
+about the one thing it exists to check.
+
+Both now go through `looksLikeMissingBucket(status, body)`, which reads the
+body and tolerates either status. **The default is now `school-assets`** rather
+than an environment variable every deployment must remember: a default that
+matches nothing is not a default.
+
+Verified against live Storage: `GET bucket` 200 and public, `POST object` 200,
+public URL readable, `DELETE` 200. Then through the real route with a real
+session — **200, logo stored, public URL minted, three palettes extracted from
+the actual pixels**, and the image rendering at 512×512 in the browser.
+
+### 2. ⚠️ Sprint 9 shipped five permission keys the database refused
+
+Found by drizzle-kit's diff while generating `0017`, not by anything that was
+looking for it. `exams.read`, `exams.write`, `exams.publish`, `results.enter`
+and `results.publish` went into `PERMISSIONS` and `DEFAULT_ROLE_PERMISSIONS`
+but **never into the `role_permissions` CHECK constraint**. Confirmed against
+the live database before fixing: the constraint listed 16 keys and none of the
+five.
+
+Nothing caught it and nothing could have. Typecheck and lint cannot see a CHECK
+constraint. QA exercised the *default* role matrix, which is code and never
+touches that table. Only a school editing a role's permissions by hand would
+have hit it — a real customer, not a test.
+
+Now verified by inserting all five against a real role: accepted, then cleaned
+up. **The lesson worth keeping: adding a permission key is a two-place change,
+and the second place is a migration.**
+
+### 3. The logo can now be framed before it is stored
+
+`components/super-admin/LogoCanvasEditor.tsx`. Choosing a file no longer
+uploads it — it opens an editor with drag-to-pan, a zoom slider and a backdrop
+choice (transparent / white / dark), and only what the operator approves is
+sent. Output is always a square **512×512 PNG**.
+
+**The framing is baked into the pixels rather than stored as a transform.** A
+transform would have to be re-applied by the portal shell, the login page, the
+invite page and four printed documents, each a different rendering context —
+and `PrintLetterhead` is an `<img>` inside a print stylesheet, with nowhere to
+put a crop matrix. Baking it in means every existing consumer kept working
+untouched, which is why nothing outside the editor and `BrandingManager`
+changed.
+
+The cost, and it is real: **framing is destructive and not re-editable.**
+Redoing it means choosing the file again. The alternative was storing an
+original *and* a rendered copy and keeping two objects in step, which is not
+worth it at this size. The editor also works on the chosen `File` rather than
+the stored logo on purpose — an object URL is same-origin, so the canvas is
+never tainted and `toBlob()` works.
+
+One consequence worth knowing: because the palettes are extracted from the
+uploaded bytes, they now follow the *framed* logo rather than a cropped-away
+corner.
+
+### 4. Three preset palettes, alongside the derived ones
+
+`lib/palette-presets.ts` — **Crimson & Gold**, **Forest Linen**, **Cobalt**.
+Sourced from the 21st.dev community theme catalog (Elegant Luxury, Forest
+Linen, Cobalt Mono) over its HTTP MCP endpoint, then **adapted rather than
+copied**: shadcn themes spend `secondary` and `accent` on pale surface tints,
+where this application paints them on live elements. Copied verbatim they would
+have been invisible on a white page.
+
+Presets sit *alongside* logo extraction, not instead of it — a school with
+strong brand colours keeps them; a school whose logo is mostly grey gets
+something deliberate. `school_branding.preset_key` holds the **key**, not the
+colours, so improving a preset re-themes every school on it. **Never rename a
+key** — that silently drops those schools back to their derived palette.
+
+A preset outranks the derived palettes, and the two are one setting with two
+sources: selecting a derived palette clears `preset_key` in the same statement,
+so no row can have both with no defined winner. `selectedPaletteOf()` was the
+single choke point all six consumers already read through, so presets reached
+the portal shell, both login surfaces and all four printed documents without a
+change at any call site.
+
+`applyPresetToSchool` **creates the branding row if there is none** — a preset
+is the one branding choice that does not need a logo, and a school without one
+is exactly the school most likely to want it.
+
+### 5. The logo on printables — already wired, never exercised
+
+All five printable surfaces (report card, tabulation sheet, admit card, and
+both challan copies) already passed `logoUrl` into `PrintLetterhead`. Nothing
+needed adding. They looked broken only because **no school had ever
+successfully uploaded a logo**, so `PrintLetterhead` had been rendering its
+name-only fallback for its entire life — which is also why §5n could only
+report that fallback as tested.
+
+Verified on a real print page: six report cards, six logos, **all six loaded**,
+with the print root resolving to `display: none` on screen and
+`display: block` under `@media print` — which independently re-confirms §5n's
+blank-page fix.
+
+### Test data left in the live database
+
+`Sample Test School` now carries a **synthetic placeholder logo** (a green and
+gold "STS" mark) uploaded to prove the path, and its palette is set to the
+**Cobalt** preset. Both are meant to be replaced — upload a real logo and pick
+a palette and they are gone. Nothing else was changed.
 
 ---
 

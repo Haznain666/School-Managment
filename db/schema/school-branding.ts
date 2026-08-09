@@ -8,6 +8,8 @@ import {
   uuid,
 } from 'drizzle-orm/pg-core';
 
+import { PALETTE_PRESETS } from '@/lib/palette-presets';
+
 import { schools } from './schools';
 
 /**
@@ -43,6 +45,20 @@ export const schoolBranding = pgTable(
     logoStoragePath: text('logo_storage_path'),
     /** Index into palette_0 / palette_1 / palette_2. */
     selectedPalette: integer('selected_palette').notNull().default(0),
+    /**
+     * A curated preset from `lib/palette-presets.ts`, when the school has
+     * chosen one instead of a palette derived from its logo.
+     *
+     * Null means "use the derived palette at `selected_palette`", which is the
+     * behaviour every existing row already has — so this column defaults to
+     * null and nothing needed back-filling.
+     *
+     * The *key* is stored rather than the colours, so improving a preset
+     * re-themes every school on it. The cost of that choice is that renaming a
+     * key silently drops those schools back to their derived palette; the
+     * presets module carries the warning.
+     */
+    presetKey: text('preset_key'),
     palette0: jsonb('palette_0').$type<Palette>(),
     palette1: jsonb('palette_1').$type<Palette>(),
     palette2: jsonb('palette_2').$type<Palette>(),
@@ -58,8 +74,27 @@ export const schoolBranding = pgTable(
 export type SchoolBrandingRow = typeof schoolBranding.$inferSelect;
 export type NewSchoolBrandingRow = typeof schoolBranding.$inferInsert;
 
-/** Reads the live palette out of a branding row, or null if none is stored. */
+/**
+ * Reads the live palette out of a branding row, or null if none is stored.
+ *
+ * A chosen preset outranks the derived palettes. This is the single choke
+ * point every consumer already reads through — the portal shell, the login
+ * page, the invite page and both branding APIs — so presets reach all of them
+ * without a change at any call site.
+ *
+ * `lib/palette-presets.ts` imports the `Palette` *type* from this file and
+ * nothing else, and a type import is erased at compile time — so importing the
+ * preset values back the other way is not a runtime cycle.
+ */
 export function selectedPaletteOf(row: SchoolBrandingRow): Palette | null {
+  if (row.presetKey != null && row.presetKey !== '') {
+    const preset = PALETTE_PRESETS.find((entry) => entry.key === row.presetKey);
+    if (preset !== undefined) return preset.palette;
+    // An unknown key means a preset was removed from the code. Falling through
+    // to the derived palette is the honest answer — better a school's own
+    // colours than a hard failure on every page it themes.
+  }
+
   const palettes = [row.palette0, row.palette1, row.palette2];
   return palettes[row.selectedPalette] ?? null;
 }

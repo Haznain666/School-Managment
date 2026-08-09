@@ -46,8 +46,18 @@ export interface UploadResult {
 /** Placeholder branch segment for school-wide assets. */
 export const SCHOOL_WIDE_SEGMENT = '_school';
 
-/** Default bucket name, overridable per deployment. */
-const DEFAULT_BUCKET = 'school-files';
+/**
+ * Default bucket name, overridable per deployment with
+ * `SUPABASE_STORAGE_BUCKET`.
+ *
+ * This was `school-files` and **no such bucket has ever existed**. The bucket
+ * in the project is `school-assets`, created 2026-08-03, and nothing reconciled
+ * the two — so every logo upload since then failed, and the Branding tab was
+ * unusable. Changed to match the bucket that is actually there rather than
+ * carried as an environment variable every deployment must remember to set: a
+ * default that matches nothing is not a default.
+ */
+const DEFAULT_BUCKET = 'school-assets';
 
 /**
  * Builds a tenant-scoped object path.
@@ -242,6 +252,38 @@ export function publicUrl(storagePath: string, version?: number): string {
   return version === undefined ? base : `${base}?v=${version}`;
 }
 
+/**
+ * Whether a failed Storage response means "that bucket is not there".
+ *
+ * ── Why this cannot just check `status === 404` ──────────────────────────
+ * Supabase Storage answers a request for a bucket that does not exist with
+ * **HTTP 400**, and puts the real code in the body:
+ *
+ *     HTTP/1.1 400
+ *     {"statusCode":"404","error":"Bucket not found",
+ *      "message":"Bucket not found","code":"NoSuchBucket"}
+ *
+ * The transport status and the body's `statusCode` disagree, and the body is
+ * the one telling the truth. A `status === 404` test therefore never matched,
+ * so the actionable message below was dead code and the operator got the
+ * generic "upload failed (HTTP 400)" instead — which reads like a malformed
+ * request, and sends the investigation at the file rather than at the config.
+ * That is exactly how this went unnoticed: the Branding tab has been broken
+ * since 2026-08-03 and never said why.
+ *
+ * Matched on the body rather than the status for that reason, and kept
+ * tolerant of either, since Supabase may well align them later.
+ */
+function looksLikeMissingBucket(status: number, body: string): boolean {
+  if (status !== 400 && status !== 404) return false;
+
+  return (
+    /NoSuchBucket/i.test(body) ||
+    /bucket not found/i.test(body) ||
+    (status === 404 && /bucket/i.test(body))
+  );
+}
+
 /** Turns a non-2xx Storage response into a message worth reading. */
 async function storageFailure(response: Response, action: string): Promise<never> {
   let detail: string;
@@ -251,11 +293,12 @@ async function storageFailure(response: Response, action: string): Promise<never
     detail = '(no response body)';
   }
 
-  if (response.status === 404 && /bucket/i.test(detail)) {
+  if (looksLikeMissingBucket(response.status, detail)) {
     throw new StorageConfigError(
-      `The Supabase Storage bucket "${bucketName()}" does not exist. ` +
-        'Create it in Supabase → Storage → New bucket, mark it Public, then ' +
-        'set SUPABASE_STORAGE_BUCKET to its name.',
+      `The Supabase Storage bucket "${bucketName()}" does not exist in this ` +
+        'project. Create it in Supabase → Storage → New bucket and mark it ' +
+        'Public, or set SUPABASE_STORAGE_BUCKET to the name of the bucket you ' +
+        'already have.',
     );
   }
 
@@ -380,26 +423,32 @@ export async function inspectStorage(): Promise<StorageDiagnostics> {
       { method: 'GET', headers: storageHeaders() },
     );
 
-    if (response.status === 404) {
-      return {
-        supabaseUrl: url,
-        bucket,
-        serviceKeyPresent: true,
-        keyKind,
-        serviceKeyLooksCorrect: looksCorrect,
-        bucketExists: false,
-        bucketIsPublic: null,
-        error: `Bucket "${bucket}" does not exist in this project.`,
-        errorBody: null,
-      };
-    }
-
     if (!response.ok) {
       let errorBody: string;
       try {
         errorBody = (await response.text()).slice(0, 300);
       } catch {
         errorBody = '(no response body)';
+      }
+
+      // Read the body, not the status — see `looksLikeMissingBucket`. Before
+      // this, a missing bucket arrived as HTTP 400 and was reported as
+      // `bucketExists: null` with a shrug, which is the least useful answer
+      // the diagnostic could give about the one thing it exists to check.
+      if (looksLikeMissingBucket(response.status, errorBody)) {
+        return {
+          supabaseUrl: url,
+          bucket,
+          serviceKeyPresent: true,
+          keyKind,
+          serviceKeyLooksCorrect: looksCorrect,
+          bucketExists: false,
+          bucketIsPublic: null,
+          error:
+            `Bucket "${bucket}" does not exist in this project. Create it, or ` +
+            'set SUPABASE_STORAGE_BUCKET to the name of the one you have.',
+          errorBody,
+        };
       }
 
       return {

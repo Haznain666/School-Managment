@@ -3,6 +3,7 @@ import { eq } from 'drizzle-orm';
 import { schoolBranding, type Palette } from '@/db/schema';
 
 import { db } from './drizzle';
+import { presetFor } from './palette-presets';
 
 /**
  * Per-tenant theming.
@@ -78,6 +79,10 @@ export const paletteToCssVariables = paletteToCSSVars;
  *
  * Returns the palette that is now live, or null when the school has no
  * branding row or the index has no palette stored against it.
+ *
+ * Always clears `presetKey`: a preset outranks the derived palettes, so
+ * leaving one set would make this call appear to do nothing. The two are one
+ * setting with two sources, not two switches.
  */
 export async function applyBrandingToSchool(
   locationId: string,
@@ -100,10 +105,37 @@ export async function applyBrandingToSchool(
 
   await db
     .update(schoolBranding)
-    .set({ selectedPalette: paletteIndex, updatedAt: new Date() })
+    .set({ selectedPalette: paletteIndex, presetKey: null, updatedAt: new Date() })
     .where(eq(schoolBranding.locationId, locationId));
 
   return chosen;
+}
+
+/**
+ * Switches a school to one of the curated presets.
+ *
+ * Unlike `applyBrandingToSchool`, this **creates the branding row if there is
+ * none**. A preset is the one branding choice that does not depend on a logo,
+ * and a school that has not uploaded one is exactly the school most likely to
+ * want it — refusing here would make the feature unavailable precisely when it
+ * is most useful.
+ */
+export async function applyPresetToSchool(
+  locationId: string,
+  presetKey: string,
+): Promise<Palette | null> {
+  const preset = presetFor(presetKey);
+  if (preset === null) return null;
+
+  await db
+    .insert(schoolBranding)
+    .values({ locationId, presetKey, updatedAt: new Date() })
+    .onConflictDoUpdate({
+      target: schoolBranding.locationId,
+      set: { presetKey, updatedAt: new Date() },
+    });
+
+  return preset.palette;
 }
 
 export type { Palette };

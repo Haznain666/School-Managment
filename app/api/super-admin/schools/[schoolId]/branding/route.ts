@@ -3,8 +3,9 @@ import type { NextRequest } from 'next/server';
 
 import { schoolBranding, schools, selectedPaletteOf } from '@/db/schema';
 import { apiFailure, apiSuccess, handleApiError, readJsonBody } from '@/lib/api-response';
-import { applyBrandingToSchool } from '@/lib/branding';
+import { applyBrandingToSchool, applyPresetToSchool } from '@/lib/branding';
 import { db } from '@/lib/drizzle';
+import { isPresetKey } from '@/lib/palette-presets';
 import { resolveLocationId } from '@/lib/schools';
 import { requireSuperAdmin } from '@/lib/super-admin-guard';
 import { isUuid } from '@/lib/validation';
@@ -52,6 +53,7 @@ export async function GET(_request: NextRequest, context: RouteContext) {
         branding: null,
         palettes: [],
         selectedPalette: 0,
+        presetKey: null,
         logoUrl: null,
       });
     }
@@ -60,6 +62,7 @@ export async function GET(_request: NextRequest, context: RouteContext) {
       branding,
       palettes: [branding.palette0, branding.palette1, branding.palette2],
       selectedPalette: branding.selectedPalette,
+      presetKey: branding.presetKey,
       logoUrl: branding.logoUrl,
       activePalette: selectedPaletteOf(branding),
     });
@@ -70,6 +73,7 @@ export async function GET(_request: NextRequest, context: RouteContext) {
 
 interface UpdateBrandingBody {
   selectedPalette?: unknown;
+  presetKey?: unknown;
 }
 
 export async function PATCH(request: NextRequest, context: RouteContext) {
@@ -87,6 +91,31 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
     }
 
     const body = await readJsonBody<UpdateBrandingBody>(request);
+
+    /**
+     * A preset is applied when `presetKey` is a non-null string. Sending
+     * `presetKey: null` explicitly means "clear it", which is what selecting a
+     * derived palette does — so an absent key and a null key are deliberately
+     * different, and only the absent case falls through to `selectedPalette`.
+     */
+    if (body?.presetKey != null) {
+      if (!isPresetKey(body.presetKey)) {
+        return apiFailure('invalid_body', 'That palette preset does not exist.', 400);
+      }
+
+      const applied = await applyPresetToSchool(locationId, body.presetKey);
+      if (applied === null) {
+        return apiFailure('invalid_body', 'That palette preset does not exist.', 400);
+      }
+
+      await db
+        .update(schools)
+        .set({ updatedAt: new Date() })
+        .where(eq(schools.locationId, locationId));
+
+      return apiSuccess({ presetKey: body.presetKey, palette: applied });
+    }
+
     const index = body?.selectedPalette;
 
     if (typeof index !== 'number' || !Number.isInteger(index) || index < 0 || index > 2) {

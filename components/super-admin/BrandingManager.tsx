@@ -9,6 +9,7 @@ import {
   type DragEvent,
 } from 'react';
 
+import { LogoCanvasEditor } from '@/components/super-admin/LogoCanvasEditor';
 import {
   PalettePreview,
   PaletteSwatches,
@@ -17,6 +18,7 @@ import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
 import type { Palette } from '@/db/schema';
+import { PALETTE_PRESETS } from '@/lib/palette-presets';
 import { superAdminFetch, superAdminUpload, SuperAdminApiError } from '@/lib/super-admin-client';
 import { cn } from '@/lib/utils';
 
@@ -27,6 +29,7 @@ export interface BrandingManagerProps {
 interface BrandingResponse {
   palettes: Array<Palette | null>;
   selectedPalette: number;
+  presetKey: string | null;
   logoUrl: string | null;
 }
 
@@ -39,11 +42,20 @@ export function BrandingManager({ schoolId }: BrandingManagerProps) {
 
   const [palettes, setPalettes] = useState<Array<Palette | null>>([]);
   const [selected, setSelected] = useState(0);
+  const [presetKey, setPresetKey] = useState<string | null>(null);
   const [logoUrl, setLogoUrl] = useState<string | null>(null);
+
+  /**
+   * The file being framed, before it becomes an upload. Holding it here rather
+   * than uploading on selection is the whole point of the editor: nothing
+   * reaches Storage until the operator has approved what it will look like.
+   */
+  const [pendingFile, setPendingFile] = useState<File | null>(null);
 
   const [isLoading, setIsLoading] = useState(true);
   const [isUploading, setIsUploading] = useState(false);
   const [pendingIndex, setPendingIndex] = useState<number | null>(null);
+  const [pendingPreset, setPendingPreset] = useState<string | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -58,6 +70,7 @@ export function BrandingManager({ schoolId }: BrandingManagerProps) {
         if (cancelled) return;
         setPalettes(data.palettes);
         setSelected(data.selectedPalette);
+        setPresetKey(data.presetKey);
         setLogoUrl(data.logoUrl);
       })
       .catch(() => {
@@ -72,25 +85,37 @@ export function BrandingManager({ schoolId }: BrandingManagerProps) {
     };
   }, [schoolId]);
 
-  const upload = useCallback(
-    async (file: File) => {
+  /**
+   * Accepts a chosen file into the editor. Nothing is uploaded here — the
+   * operator frames it first, and `uploadFramed` sends what they approved.
+   */
+  const chooseFile = useCallback((file: File) => {
+    setError(null);
+    setNotice(null);
+
+    // Checked here for an immediate message; the server enforces it again.
+    if (!ACCEPTED.includes(file.type)) {
+      setError('Logo must be a PNG, JPG, SVG or WebP image.');
+      return;
+    }
+    if (file.size > MAX_BYTES) {
+      setError('Logo must be 2 MB or smaller.');
+      return;
+    }
+
+    setPendingFile(file);
+  }, []);
+
+  const uploadFramed = useCallback(
+    async (framed: Blob) => {
       setError(null);
       setNotice(null);
-
-      // Checked here for an immediate message; the server enforces it again.
-      if (!ACCEPTED.includes(file.type)) {
-        setError('Logo must be a PNG, JPG, SVG or WebP image.');
-        return;
-      }
-      if (file.size > MAX_BYTES) {
-        setError('Logo must be 2 MB or smaller.');
-        return;
-      }
-
       setIsUploading(true);
 
       const form = new FormData();
-      form.append('logo', file);
+      // The editor always emits a square PNG, whatever went in, so the name
+      // and type are fixed rather than carried over from the source file.
+      form.append('logo', framed, 'logo.png');
 
       try {
         const result = await superAdminUpload<{
@@ -102,7 +127,15 @@ export function BrandingManager({ schoolId }: BrandingManagerProps) {
         setLogoUrl(result.logoUrl);
         setPalettes(result.palettes);
         setSelected(result.selectedPalette);
-        setNotice('Logo uploaded. Pick the palette you want to go live.');
+        // A new logo re-derives the palettes, and the upload route resets the
+        // selection to 0 — but a school sitting on a preset keeps it, because
+        // its choice was never about this logo.
+        setPendingFile(null);
+        setNotice(
+          presetKey === null
+            ? 'Logo saved. Pick the palette you want to go live.'
+            : 'Logo saved. The preset you chose is still active.',
+        );
       } catch (caught) {
         setError(
           caught instanceof SuperAdminApiError
@@ -113,17 +146,17 @@ export function BrandingManager({ schoolId }: BrandingManagerProps) {
         setIsUploading(false);
       }
     },
-    [schoolId],
+    [presetKey, schoolId],
   );
 
   const handleFileInput = useCallback(
     (event: ChangeEvent<HTMLInputElement>) => {
       const file = event.target.files?.[0];
-      if (file !== undefined) void upload(file);
+      if (file !== undefined) chooseFile(file);
       // Reset so re-selecting the same file fires change again.
       event.target.value = '';
     },
-    [upload],
+    [chooseFile],
   );
 
   const handleDrop = useCallback(
@@ -131,9 +164,9 @@ export function BrandingManager({ schoolId }: BrandingManagerProps) {
       event.preventDefault();
       setIsDragging(false);
       const file = event.dataTransfer.files[0];
-      if (file !== undefined) void upload(file);
+      if (file !== undefined) chooseFile(file);
     },
-    [upload],
+    [chooseFile],
   );
 
   const handleSelect = useCallback(
@@ -143,11 +176,15 @@ export function BrandingManager({ schoolId }: BrandingManagerProps) {
       setNotice(null);
 
       try {
+        // Sending presetKey: null is what clears a preset. The two choices are
+        // one setting with two sources, not two independent switches — a row
+        // where both were set would have no defined winner.
         await superAdminFetch(`/api/super-admin/schools/${schoolId}/branding`, {
           method: 'PATCH',
-          body: JSON.stringify({ selectedPalette: index }),
+          body: JSON.stringify({ selectedPalette: index, presetKey: null }),
         });
         setSelected(index);
+        setPresetKey(null);
         setNotice(`${PALETTE_NAMES[index] ?? 'Palette'} is now active.`);
       } catch (caught) {
         setError(
@@ -157,6 +194,34 @@ export function BrandingManager({ schoolId }: BrandingManagerProps) {
         );
       } finally {
         setPendingIndex(null);
+      }
+    },
+    [schoolId],
+  );
+
+  const handleSelectPreset = useCallback(
+    async (key: string) => {
+      setPendingPreset(key);
+      setError(null);
+      setNotice(null);
+
+      try {
+        await superAdminFetch(`/api/super-admin/schools/${schoolId}/branding`, {
+          method: 'PATCH',
+          body: JSON.stringify({ presetKey: key }),
+        });
+        setPresetKey(key);
+        setNotice(
+          `${PALETTE_PRESETS.find((preset) => preset.key === key)?.name ?? 'Preset'} is now active.`,
+        );
+      } catch (caught) {
+        setError(
+          caught instanceof SuperAdminApiError
+            ? caught.message
+            : 'Could not apply that preset.',
+        );
+      } finally {
+        setPendingPreset(null);
       }
     },
     [schoolId],
@@ -175,6 +240,23 @@ export function BrandingManager({ schoolId }: BrandingManagerProps) {
   return (
     <div className="space-y-6">
       <Card>
+        {pendingFile !== null ? (
+          <div>
+            <p className="mb-4 text-sm font-medium text-slate-900">
+              Frame the logo
+            </p>
+            <LogoCanvasEditor
+              file={pendingFile}
+              isSaving={isUploading}
+              onCancel={() => {
+                setPendingFile(null);
+              }}
+              onConfirm={(framed) => {
+                void uploadFramed(framed);
+              }}
+            />
+          </div>
+        ) : (
         <div
           onDragOver={(event) => {
             event.preventDefault();
@@ -220,14 +302,14 @@ export function BrandingManager({ schoolId }: BrandingManagerProps) {
             className="mt-4"
             variant="secondary"
             size="sm"
-            isLoading={isUploading}
             onClick={() => {
               inputRef.current?.click();
             }}
           >
-            {isUploading ? 'Uploading…' : 'Choose file'}
+            Choose file
           </Button>
         </div>
+        )}
       </Card>
 
       {error !== null ? (
@@ -242,16 +324,71 @@ export function BrandingManager({ schoolId }: BrandingManagerProps) {
         </p>
       ) : null}
 
+      <div>
+        <h3 className="mb-1 text-sm font-semibold uppercase tracking-wide text-slate-500">
+          Preset palettes
+        </h3>
+        <p className="mb-3 text-xs text-slate-500">
+          Curated, and available whether or not a logo has been uploaded. A
+          preset overrides the palettes derived from the logo.
+        </p>
+
+        <div className="grid gap-4 lg:grid-cols-3">
+          {PALETTE_PRESETS.map((preset) => {
+            const isActive = presetKey === preset.key;
+
+            return (
+              <Card
+                key={preset.key}
+                className={cn(isActive && 'ring-2 ring-brand-primary')}
+              >
+                <div className="mb-1 flex items-center justify-between gap-2">
+                  <p className="text-sm font-medium text-slate-900">{preset.name}</p>
+                  {isActive ? <Badge variant="success">Currently Active</Badge> : null}
+                </div>
+                <p className="mb-3 text-xs text-slate-500">{preset.description}</p>
+
+                <PalettePreview palette={preset.palette} />
+
+                <div className="mt-3">
+                  <PaletteSwatches palette={preset.palette} />
+                </div>
+
+                <Button
+                  className="mt-4"
+                  fullWidth
+                  variant={isActive ? 'secondary' : 'primary'}
+                  disabled={isActive || pendingPreset !== null || pendingIndex !== null}
+                  isLoading={pendingPreset === preset.key}
+                  onClick={() => {
+                    void handleSelectPreset(preset.key);
+                  }}
+                >
+                  {isActive ? 'Selected' : 'Select'}
+                </Button>
+              </Card>
+            );
+          })}
+        </div>
+      </div>
+
       {hasPalettes ? (
         <div>
-          <h3 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-500">
-            Palettes
+          <h3 className="mb-1 text-sm font-semibold uppercase tracking-wide text-slate-500">
+            From this logo
           </h3>
+          <p className="mb-3 text-xs text-slate-500">
+            {presetKey === null
+              ? 'Derived from the uploaded logo.'
+              : 'Derived from the uploaded logo. Selecting one clears the preset above.'}
+          </p>
 
           <div className="grid gap-4 lg:grid-cols-3">
             {palettes.map((palette, index) => {
               if (palette == null) return null;
-              const isActive = index === selected;
+              // Only one palette is live at a time, and a preset outranks
+              // these — so none of them shows as active while one is set.
+              const isActive = presetKey === null && index === selected;
 
               return (
                 <Card
@@ -275,7 +412,7 @@ export function BrandingManager({ schoolId }: BrandingManagerProps) {
                     className="mt-4"
                     fullWidth
                     variant={isActive ? 'secondary' : 'primary'}
-                    disabled={isActive || pendingIndex !== null}
+                    disabled={isActive || pendingIndex !== null || pendingPreset !== null}
                     isLoading={pendingIndex === index}
                     onClick={() => {
                       void handleSelect(index);
