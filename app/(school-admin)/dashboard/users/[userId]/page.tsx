@@ -58,6 +58,7 @@ export default async function UserDetailPage({
         branches={branches}
         user={{
           id: user.id,
+          authUserId: user.authUserId,
           name: user.name,
           email: user.email,
           phone: user.phone,

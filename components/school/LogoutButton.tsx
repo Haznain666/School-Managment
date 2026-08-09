@@ -35,6 +35,10 @@ export function LogoutButton({ schoolSlug }: { schoolSlug: string | null }) {
     <Button
       variant="ghost"
       size="sm"
+      // The navbar is painted in the school's primary colour, so the ghost
+      // variant's slate lettering would be the one unreadable thing on it.
+      // `cn` is tailwind-merge, so these win over the variant's own classes.
+      className="text-brand-onPrimary hover:bg-brand-onPrimary/15"
       isLoading={isSigningOut}
       onClick={() => {
         void handleSignOut();

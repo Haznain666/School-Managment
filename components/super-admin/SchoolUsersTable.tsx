@@ -1,12 +1,13 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { Card, CardTitle } from '@/components/ui/Card';
 import { Input } from '@/components/ui/Input';
 import { superAdminFetch, SuperAdminApiError } from '@/lib/super-admin-client';
+import { MAX_BULK_DELETE, type DeletionOutcome } from '@/lib/user-deletion';
 import { ROLE_LABELS, isUserRole } from '@/types/school-auth';
 
 interface SchoolUserRow {
@@ -58,6 +59,12 @@ export function SchoolUsersTable({ schoolId }: SchoolUsersTableProps) {
   const [issued, setIssued] = useState<EmergencyToken | null>(null);
   const [copied, setCopied] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
+
+  const [selected, setSelected] = useState<ReadonlySet<string>>(new Set());
+  const [confirmBulk, setConfirmBulk] = useState(false);
+  const [bulkBusy, setBulkBusy] = useState(false);
+  const [refusals, setRefusals] = useState<DeletionOutcome[]>([]);
+  const headerCheckbox = useRef<HTMLInputElement>(null);
 
   const [isAdding, setIsAdding] = useState(false);
   const [adminName, setAdminName] = useState('');
@@ -154,6 +161,71 @@ export function SchoolUsersTable({ schoolId }: SchoolUsersTableProps) {
       ),
     [act, base],
   );
+
+  const selectedCount = users === null ? 0 : users.filter((u) => selected.has(u.id)).length;
+
+  // React has no attribute for the indeterminate state, so it is set here.
+  useEffect(() => {
+    if (headerCheckbox.current === null) return;
+    const total = users?.length ?? 0;
+    headerCheckbox.current.indeterminate = selectedCount > 0 && selectedCount < total;
+  }, [selectedCount, users]);
+
+  const toggle = useCallback((userId: string) => {
+    setSelected((current) => {
+      const next = new Set(current);
+      if (next.has(userId)) next.delete(userId);
+      else next.add(userId);
+      return next;
+    });
+    setConfirmBulk(false);
+  }, []);
+
+  const togglePage = useCallback(() => {
+    setSelected((current) => {
+      if (users === null) return current;
+      const allOn = users.every((user) => current.has(user.id));
+      return allOn ? new Set() : new Set(users.map((user) => user.id));
+    });
+    setConfirmBulk(false);
+  }, [users]);
+
+  /**
+   * Bulk delete. A partial result is normal, not a failure — a member whose
+   * name is on a register cannot be deleted at all — so the refusals are listed
+   * with their reasons rather than collapsed into the count.
+   */
+  const removeSelected = useCallback(async () => {
+    setBulkBusy(true);
+    setError(null);
+    setNotice(null);
+    setRefusals([]);
+
+    try {
+      const data = await superAdminFetch<{
+        outcomes: DeletionOutcome[];
+        deleted: number;
+        summary: string;
+      }>(`${base}/bulk-delete`, {
+        method: 'POST',
+        body: JSON.stringify({ userIds: [...selected] }),
+      });
+
+      setNotice(data.summary);
+      setRefusals(data.outcomes.filter((outcome) => !outcome.deleted));
+      setSelected(new Set());
+      setConfirmBulk(false);
+      await load();
+    } catch (caught) {
+      setError(
+        caught instanceof SuperAdminApiError
+          ? caught.message
+          : 'Could not delete those users.',
+      );
+    } finally {
+      setBulkBusy(false);
+    }
+  }, [base, selected, load]);
 
   const generate = useCallback(
     async (userId: string) => {
@@ -312,6 +384,84 @@ export function SchoolUsersTable({ schoolId }: SchoolUsersTableProps) {
         </p>
       ) : null}
 
+      {refusals.length > 0 ? (
+        <div className="rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-900">
+          <p className="font-medium">These were kept:</p>
+          <ul className="mt-1 space-y-1">
+            {refusals.map((outcome) => (
+              <li key={outcome.id}>
+                <span className="font-medium">{outcome.name}</span> — {outcome.reason}
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+
+      {selected.size > 0 ? (
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-slate-200 bg-white px-4 py-3">
+          <span className="text-sm text-slate-700">
+            {selected.size} user{selected.size === 1 ? '' : 's'} selected
+            {selected.size > MAX_BULK_DELETE
+              ? ` — the limit is ${MAX_BULK_DELETE} at a time`
+              : ''}
+          </span>
+
+          <div className="flex flex-nowrap items-center gap-2 whitespace-nowrap">
+            {confirmBulk ? (
+              <>
+                <span className="text-sm text-red-700">
+                  Delete {selected.size} user{selected.size === 1 ? '' : 's'} permanently?
+                </span>
+                <Button
+                  variant="danger"
+                  size="sm"
+                  isLoading={bulkBusy}
+                  onClick={() => {
+                    void removeSelected();
+                  }}
+                >
+                  Delete
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  disabled={bulkBusy}
+                  onClick={() => {
+                    setConfirmBulk(false);
+                  }}
+                >
+                  Cancel
+                </Button>
+              </>
+            ) : (
+              <>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => {
+                    setSelected(new Set());
+                  }}
+                >
+                  Clear
+                </Button>
+                <Button
+                  variant="danger"
+                  size="sm"
+                  disabled={selected.size > MAX_BULK_DELETE}
+                  onClick={() => {
+                    setConfirmBulk(true);
+                    setError(null);
+                    setNotice(null);
+                  }}
+                >
+                  Delete selected
+                </Button>
+              </>
+            )}
+          </div>
+        </div>
+      ) : null}
+
       {isAdding ? addForm : null}
 
       {issued !== null ? (
@@ -414,6 +564,16 @@ export function SchoolUsersTable({ schoolId }: SchoolUsersTableProps) {
             <table className="w-full text-left text-sm">
               <thead className="border-b border-slate-200 text-xs uppercase tracking-wide text-slate-500">
                 <tr>
+                  <th scope="col" className="w-10 px-4 py-3">
+                    <input
+                      ref={headerCheckbox}
+                      type="checkbox"
+                      aria-label="Select every user"
+                      className="h-4 w-4 rounded border-slate-300"
+                      checked={users.length > 0 && selectedCount === users.length}
+                      onChange={togglePage}
+                    />
+                  </th>
                   <th scope="col" className="px-4 py-3 font-medium">Name</th>
                   <th scope="col" className="px-4 py-3 font-medium">Role</th>
                   <th scope="col" className="px-4 py-3 font-medium">Email</th>
@@ -430,6 +590,17 @@ export function SchoolUsersTable({ schoolId }: SchoolUsersTableProps) {
 
                   return (
                     <tr key={user.id} className={user.isActive ? undefined : 'bg-slate-50'}>
+                      <td className="px-4 py-3 align-top">
+                        <input
+                          type="checkbox"
+                          aria-label={`Select ${user.name}`}
+                          className="h-4 w-4 rounded border-slate-300"
+                          checked={selected.has(user.id)}
+                          onChange={() => {
+                            toggle(user.id);
+                          }}
+                        />
+                      </td>
                       <td className="px-4 py-3 align-top">
                         <span className="font-medium text-slate-900">{user.name}</span>
                         {user.branchName !== null ? (

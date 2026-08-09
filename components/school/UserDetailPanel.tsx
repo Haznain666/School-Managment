@@ -13,6 +13,8 @@ import { BRANCH_REQUIRED_ROLES, ROLE_LABELS, USER_ROLES, isUserRole } from '@/ty
 
 export interface UserDetail {
   id: string;
+  /** Non-null once the person has a Supabase identity — i.e. has signed in. */
+  authUserId: string | null;
   name: string;
   email: string | null;
   phone: string;
@@ -48,6 +50,12 @@ export function UserDetailPanel({ user, branches, canEdit }: UserDetailPanelProp
   const [notice, setNotice] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [isResending, setIsResending] = useState(false);
+
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
+  // Kept apart from `error` above so a refusal is reported next to the button
+  // that caused it, rather than in the Assignment card further up the page.
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   const branchRequired = isUserRole(role) && BRANCH_REQUIRED_ROLES.includes(role);
 
@@ -137,6 +145,35 @@ export function UserDetailPanel({ user, branches, canEdit }: UserDetailPanelProp
     }
   }, [user]);
 
+  const remove = useCallback(async () => {
+    setIsDeleting(true);
+    setDeleteError(null);
+
+    try {
+      const response = await fetch(`/api/school/users/${user.id}`, { method: 'DELETE' });
+      const payload = (await response.json()) as {
+        ok: boolean;
+        error?: { message: string };
+      };
+
+      if (!response.ok || payload.ok !== true) {
+        setDeleteError(payload.error?.message ?? 'Could not delete this user.');
+        setConfirmingDelete(false);
+        return;
+      }
+
+      // The profile this page shows no longer exists, so there is nothing to
+      // refresh into — go back to the directory rather than render a 404.
+      router.push('/dashboard/users');
+      router.refresh();
+    } catch {
+      setDeleteError('Could not delete this user.');
+      setConfirmingDelete(false);
+    } finally {
+      setIsDeleting(false);
+    }
+  }, [user.id, router]);
+
   const branchOptions = [
     { value: '', label: branchRequired ? 'Select a branch' : 'All branches' },
     ...branches.map((branch) => ({ value: branch.id, label: branch.name })),
@@ -159,12 +196,18 @@ export function UserDetailPanel({ user, branches, canEdit }: UserDetailPanelProp
           <div>
             <dt className="text-xs uppercase tracking-wide text-slate-500">Status</dt>
             <dd className="mt-1">
-              {user.joinedAt === null ? (
-                <Badge variant="warning">Invite pending</Badge>
+              {/*
+                From `authUserId`, not `joinedAt`. "Invite pending" implied an
+                invitation was on its way; for anyone added with "Add
+                administrator" there never was one (STATE.md §5g), and the
+                directory table was corrected but this panel was missed.
+              */}
+              {!user.isActive ? (
+                <Badge variant="danger">Deactivated</Badge>
+              ) : user.authUserId === null ? (
+                <Badge variant="warning">Never signed in</Badge>
               ) : (
-                <Badge variant={user.isActive ? 'success' : 'danger'}>
-                  {user.isActive ? 'Active' : 'Inactive'}
-                </Badge>
+                <Badge variant="success">Active</Badge>
               )}
             </dd>
           </div>
@@ -265,6 +308,76 @@ export function UserDetailPanel({ user, branches, canEdit }: UserDetailPanelProp
           </p>
         )}
       </Card>
+
+      {canEdit ? (
+        <Card
+          header={
+            <CardTitle
+              title="Delete this user"
+              description="Removes them from the directory entirely. Deactivating is reversible; this is not."
+            />
+          }
+        >
+          <p className="text-sm text-slate-600">
+            Delete is for a row that should never have existed — a mistyped
+            address, a duplicate, an invitation to the wrong person. Anyone
+            whose name is already on a record the school keeps cannot be
+            deleted, and saying so is the point: attendance they marked and
+            payroll they ran stay attributable. Deactivate those people instead.
+          </p>
+
+          {deleteError !== null ? (
+            <p
+              role="alert"
+              className="mt-4 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700"
+            >
+              {deleteError}
+            </p>
+          ) : null}
+
+          {confirmingDelete ? (
+            <div className="mt-4 flex flex-wrap items-center gap-3">
+              <span className="text-sm text-red-700">
+                Delete {user.name} permanently?
+              </span>
+              <Button
+                variant="danger"
+                size="sm"
+                isLoading={isDeleting}
+                onClick={() => {
+                  void remove();
+                }}
+              >
+                Delete
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                disabled={isDeleting}
+                onClick={() => {
+                  setConfirmingDelete(false);
+                }}
+              >
+                Cancel
+              </Button>
+            </div>
+          ) : (
+            <div className="mt-4">
+              <Button
+                variant="danger"
+                size="sm"
+                onClick={() => {
+                  setConfirmingDelete(true);
+                  setError(null);
+                  setNotice(null);
+                }}
+              >
+                Delete user
+              </Button>
+            </div>
+          )}
+        </Card>
+      ) : null}
     </div>
   );
 }

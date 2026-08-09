@@ -30,7 +30,7 @@ export default async function StudentLayout({ children }: { children: ReactNode 
   ) as unknown as CSSProperties;
 
   return (
-    <div style={brandStyle} className="flex h-screen bg-slate-50">
+    <div style={brandStyle} className="flex h-screen bg-brand-background text-brand-text">
       <StudentSidebar />
 
       <div className="flex min-w-0 flex-1 flex-col">

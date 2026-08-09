@@ -31,6 +31,18 @@ export interface PortalSidebarProps {
  * Which items appear is decided server-side (by role, and by which modules the
  * school has enabled) and passed in — a disabled module is absent from this
  * list entirely rather than hidden with CSS.
+ *
+ * ── Painted in `secondary`, which is what the preview always promised ────
+ * `PalettePreview` has drawn the sidebar in the palette's secondary colour
+ * since it was written; the real sidebar was white, and `secondary` reached
+ * nothing at all. It is now the surface, with `onSecondary` for its lettering
+ * and `accent` marking the current page.
+ *
+ * Both foregrounds are computed from the surface they sit on
+ * (`lib/color-contrast.ts`), so this holds up for a school whose secondary is
+ * pale as well as for the dark navy default. Opacity does the rest of the
+ * hierarchy — a resting link at 75%, a placeholder at 40% — because a tint of
+ * the foreground is legible against any surface, where a fixed slate is not.
  */
 export function PortalSidebar({ items, sections, ariaLabel }: PortalSidebarProps) {
   const pathname = usePathname();
@@ -62,7 +74,7 @@ export function PortalSidebar({ items, sections, ariaLabel }: PortalSidebarProps
           <span
             aria-disabled="true"
             title="Coming in a later sprint"
-            className="block cursor-not-allowed rounded-lg px-3 py-2 text-sm font-medium text-slate-400"
+            className="block cursor-not-allowed rounded-lg px-3 py-2 text-sm font-medium text-brand-onSecondary/40"
           >
             {item.label}
           </span>
@@ -80,8 +92,8 @@ export function PortalSidebar({ items, sections, ariaLabel }: PortalSidebarProps
           className={cn(
             'block rounded-lg px-3 py-2 text-sm font-medium transition',
             isActive
-              ? 'bg-brand-primary/10 text-brand-primary'
-              : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900',
+              ? 'bg-brand-accent/25 text-brand-onSecondary'
+              : 'text-brand-onSecondary/75 hover:bg-brand-onSecondary/10 hover:text-brand-onSecondary',
           )}
         >
           {item.label}
@@ -93,14 +105,14 @@ export function PortalSidebar({ items, sections, ariaLabel }: PortalSidebarProps
   return (
     <nav
       aria-label={ariaLabel}
-      className="hidden w-56 shrink-0 flex-col border-r border-slate-200 bg-white md:flex"
+      className="hidden w-56 shrink-0 flex-col bg-brand-secondary md:flex"
     >
       <div className="flex-1 overflow-y-auto p-3">
         <ul className="space-y-1">{items.map(renderItem)}</ul>
 
         {(sections ?? []).map((section) => (
           <div key={section.label} className="mt-6">
-            <h2 className="px-3 pb-1 text-xs font-semibold uppercase tracking-wide text-slate-400">
+            <h2 className="px-3 pb-1 text-xs font-semibold uppercase tracking-wide text-brand-onSecondary/50">
               {section.label}
             </h2>
             <ul className="space-y-1">{section.items.map(renderItem)}</ul>

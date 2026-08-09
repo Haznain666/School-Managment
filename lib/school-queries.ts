@@ -1,6 +1,18 @@
 import 'server-only';
 
-import { and, asc, count, eq, ilike, inArray, or, type SQL } from 'drizzle-orm';
+import {
+  and,
+  asc,
+  count,
+  eq,
+  ilike,
+  inArray,
+  isNotNull,
+  isNull,
+  or,
+  sql,
+  type SQL,
+} from 'drizzle-orm';
 
 import {
   branches,
@@ -55,42 +67,141 @@ const USER_COLUMNS = {
   createdAt: schoolUsers.createdAt,
 } as const;
 
+/**
+ * The three states the directory actually shows, and the one filter that used
+ * to disagree with them.
+ *
+ * The table has always rendered three badges, but the filter only offered two
+ * — Active and Inactive, both read from `is_active`. A member who has never
+ * signed in has `is_active = true`, so "Active only" returned every Pending row
+ * as well and the filter looked broken because it was.
+ *
+ * `pending` is read from `auth_user_id`, not `joined_at`: having a Supabase
+ * identity is what "has signed in at least once" means, and it is the same
+ * source the Super Admin table has used since STATE.md §5g.
+ */
+export const USER_STATUSES = ['active', 'pending', 'inactive'] as const;
+export type UserStatus = (typeof USER_STATUSES)[number];
+
+export function isUserStatus(value: unknown): value is UserStatus {
+  return typeof value === 'string' && (USER_STATUSES as readonly string[]).includes(value);
+}
+
+/**
+ * Sentinel for members who belong to no branch — school-wide roles such as
+ * `school_admin`, whose `branch_id` is NULL.
+ *
+ * `''` already means "do not filter on branch", so without a third value there
+ * was no way to ask for these people at all: they were visible only when the
+ * branch filter was off entirely.
+ */
+export const UNASSIGNED_BRANCH = 'unassigned';
+
 export interface ListUsersFilters {
   role?: string | undefined;
   branchId?: string | undefined;
-  isActive?: boolean | undefined;
+  status?: UserStatus | undefined;
   search?: string | undefined;
   page?: number | undefined;
   limit?: number | undefined;
 }
 
-export async function listSchoolUsers(
+/** One selectable value on a filter, with how many rows it would return. */
+export interface FacetCount {
+  value: string;
+  label: string;
+  count: number;
+}
+
+/**
+ * What each filter may offer, given the others.
+ *
+ * Every facet is counted with its **own** dimension's condition omitted and all
+ * the others applied. That asymmetry is the whole point: counting a dimension
+ * against its own selection would collapse each dropdown to the single value
+ * already chosen, and there would be no way to change your mind without
+ * clearing the filter first.
+ */
+export interface UserFacets {
+  roles: FacetCount[];
+  branches: FacetCount[];
+  statuses: FacetCount[];
+}
+
+/** SQL for one of the three displayed states. */
+function statusCondition(status: UserStatus): SQL {
+  if (status === 'inactive') return eq(schoolUsers.isActive, false);
+
+  return status === 'pending'
+    ? and(eq(schoolUsers.isActive, true), isNull(schoolUsers.authUserId))!
+    : and(eq(schoolUsers.isActive, true), isNotNull(schoolUsers.authUserId))!;
+}
+
+/** The status of a row as a value, for grouping. Mirrors `statusCondition`. */
+const STATUS_EXPRESSION = sql<string>`case
+  when ${schoolUsers.isActive} = false then 'inactive'
+  when ${schoolUsers.authUserId} is null then 'pending'
+  else 'active'
+end`;
+
+/**
+ * Builds the WHERE conditions for a filter set, optionally leaving one
+ * dimension out so that dimension's own facet can be counted.
+ */
+function userConditions(
   locationId: string,
   filters: ListUsersFilters,
-): Promise<{ users: SchoolUserRow[]; total: number; page: number; limit: number }> {
-  const limit = Math.min(Math.max(filters.limit ?? 20, 1), 100);
-  const page = Math.max(filters.page ?? 1, 1);
-
+  omit?: 'role' | 'branch' | 'status',
+): SQL[] {
   const conditions: SQL[] = [eq(schoolUsers.locationId, locationId)];
 
-  if (filters.role !== undefined && filters.role !== '') {
+  if (omit !== 'role' && filters.role !== undefined && filters.role !== '') {
     conditions.push(eq(schoolUsers.role, filters.role));
   }
-  if (filters.branchId !== undefined && filters.branchId !== '') {
-    conditions.push(eq(schoolUsers.branchId, filters.branchId));
+
+  if (omit !== 'branch' && filters.branchId !== undefined && filters.branchId !== '') {
+    conditions.push(
+      filters.branchId === UNASSIGNED_BRANCH
+        ? isNull(schoolUsers.branchId)
+        : eq(schoolUsers.branchId, filters.branchId),
+    );
   }
-  if (filters.isActive !== undefined) {
-    conditions.push(eq(schoolUsers.isActive, filters.isActive));
+
+  if (omit !== 'status' && filters.status !== undefined) {
+    conditions.push(statusCondition(filters.status));
   }
+
+  // Search is not a facet dimension — it narrows every dropdown and is never
+  // omitted, because a name is not something the filter bar offers to pick.
   if (filters.search !== undefined && filters.search.trim() !== '') {
     const pattern = `%${filters.search.trim()}%`;
-    const matches = or(ilike(schoolUsers.name, pattern), ilike(schoolUsers.phone, pattern));
+    const matches = or(
+      ilike(schoolUsers.name, pattern),
+      ilike(schoolUsers.phone, pattern),
+      ilike(schoolUsers.email, pattern),
+    );
     if (matches !== undefined) conditions.push(matches);
   }
 
-  const where = and(...conditions);
+  return conditions;
+}
 
-  const [rows, totals] = await Promise.all([
+export async function listSchoolUsers(
+  locationId: string,
+  filters: ListUsersFilters,
+): Promise<{
+  users: SchoolUserRow[];
+  total: number;
+  page: number;
+  limit: number;
+  facets: UserFacets;
+}> {
+  const limit = Math.min(Math.max(filters.limit ?? 20, 1), 100);
+  const page = Math.max(filters.page ?? 1, 1);
+
+  const where = and(...userConditions(locationId, filters));
+
+  const [rows, totals, roleFacets, branchFacets, statusFacets] = await Promise.all([
     db
       .select(USER_COLUMNS)
       .from(schoolUsers)
@@ -100,9 +211,99 @@ export async function listSchoolUsers(
       .limit(limit)
       .offset((page - 1) * limit),
     db.select({ value: count() }).from(schoolUsers).where(where),
+
+    db
+      .select({ value: schoolUsers.role, total: count() })
+      .from(schoolUsers)
+      .where(and(...userConditions(locationId, filters, 'role')))
+      .groupBy(schoolUsers.role),
+
+    db
+      .select({
+        value: schoolUsers.branchId,
+        label: branches.name,
+        total: count(),
+      })
+      .from(schoolUsers)
+      .leftJoin(branches, eq(branches.id, schoolUsers.branchId))
+      .where(and(...userConditions(locationId, filters, 'branch')))
+      .groupBy(schoolUsers.branchId, branches.name)
+      .orderBy(asc(branches.name)),
+
+    db
+      .select({ value: STATUS_EXPRESSION, total: count() })
+      .from(schoolUsers)
+      .where(and(...userConditions(locationId, filters, 'status')))
+      .groupBy(STATUS_EXPRESSION),
   ]);
 
-  return { users: rows, total: totals[0]?.value ?? 0, page, limit };
+  return {
+    users: rows,
+    total: totals[0]?.value ?? 0,
+    page,
+    limit,
+    facets: {
+      // Labels for roles and statuses are the caller's business — both are
+      // fixed vocabularies with UI copy of their own. Branch names are not,
+      // so they travel with the count.
+      roles: roleFacets.map((row) => ({
+        value: row.value,
+        label: row.value,
+        count: row.total,
+      })),
+      branches: branchFacets.map((row) => ({
+        value: row.value ?? UNASSIGNED_BRANCH,
+        label: row.label ?? 'All branches',
+        count: row.total,
+      })),
+      statuses: statusFacets
+        .filter((row) => isUserStatus(row.value))
+        .map((row) => ({ value: row.value, label: row.value, count: row.total })),
+    },
+  };
+}
+
+/**
+ * Members matching a set of ids, for the bulk actions.
+ *
+ * Tenant-filtered, so an id belonging to another school simply does not come
+ * back and the caller reports it as not found rather than acting on it.
+ */
+export async function listSchoolUsersByIds(
+  locationId: string,
+  userIds: readonly string[],
+): Promise<SchoolUserRow[]> {
+  if (userIds.length === 0) return [];
+
+  return db
+    .select(USER_COLUMNS)
+    .from(schoolUsers)
+    .leftJoin(branches, eq(branches.id, schoolUsers.branchId))
+    .where(
+      and(eq(schoolUsers.locationId, locationId), inArray(schoolUsers.id, [...userIds])),
+    )
+    .orderBy(asc(schoolUsers.name));
+}
+
+/**
+ * How many active `school_admin` members a school has.
+ *
+ * Guards the delete paths: a school with nobody left who can administer it
+ * cannot invite anyone, and recovering it takes a platform operator.
+ */
+export async function countActiveSchoolAdmins(locationId: string): Promise<number> {
+  const rows = await db
+    .select({ value: count() })
+    .from(schoolUsers)
+    .where(
+      and(
+        eq(schoolUsers.locationId, locationId),
+        eq(schoolUsers.role, 'school_admin'),
+        eq(schoolUsers.isActive, true),
+      ),
+    );
+
+  return rows[0]?.value ?? 0;
 }
 
 export async function getSchoolUserById(
@@ -133,6 +334,48 @@ export async function getSchoolUserByUid(
     .limit(1);
 
   return rows[0] ?? null;
+}
+
+/** Postgres foreign_key_violation. */
+const FOREIGN_KEY_VIOLATION = '23503';
+
+function isForeignKeyViolation(error: unknown): boolean {
+  return (
+    typeof error === 'object' &&
+    error !== null &&
+    'code' in error &&
+    (error as { code?: unknown }).code === FOREIGN_KEY_VIOLATION
+  );
+}
+
+/**
+ * Deletes one member, translating the referential refusal into words.
+ *
+ * Tenant-filtered in the statement itself, so a member id from another school
+ * deletes nothing and is reported as not found. Callers are responsible for the
+ * *policy* refusals — self-delete, the last administrator, a branch admin
+ * reaching outside their branch — because those differ by surface; this
+ * function owns only what the database has to say.
+ */
+export type DeleteRefusal = 'not_found' | 'referenced';
+
+export async function deleteSchoolMember(
+  locationId: string,
+  userId: string,
+): Promise<{ deleted: true } | { deleted: false; refusal: DeleteRefusal }> {
+  try {
+    const removed = await db
+      .delete(schoolUsers)
+      .where(and(eq(schoolUsers.locationId, locationId), eq(schoolUsers.id, userId)))
+      .returning({ id: schoolUsers.id });
+
+    return removed[0] === undefined
+      ? { deleted: false, refusal: 'not_found' }
+      : { deleted: true };
+  } catch (error) {
+    if (isForeignKeyViolation(error)) return { deleted: false, refusal: 'referenced' };
+    throw error;
+  }
 }
 
 /** Enabled-module flags for one school. */

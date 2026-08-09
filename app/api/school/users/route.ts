@@ -4,7 +4,7 @@ import { branches, schoolUsers } from '@/db/schema';
 import { apiFailure, apiSuccess, handleApiError, readJsonBody } from '@/lib/api-response';
 import { withSchoolAuth } from '@/lib/api-auth';
 import { db } from '@/lib/drizzle';
-import { listSchoolUsers } from '@/lib/school-queries';
+import { isUserStatus, listSchoolUsers } from '@/lib/school-queries';
 import { isUuid, readOptionalString, readString } from '@/lib/validation';
 import { BRANCH_REQUIRED_ROLES, isUserRole } from '@/types/school-auth';
 
@@ -26,11 +26,11 @@ export const GET = withSchoolAuth(
     try {
       const url = new URL(request.url);
 
-      const isActiveParam = url.searchParams.get('isActive');
-      const isActive =
-        isActiveParam === null || isActiveParam === ''
-          ? undefined
-          : isActiveParam === 'true';
+      // Three displayed states, not two. `isActive` used to be the whole
+      // filter, which meant "Active only" also returned everyone who had never
+      // signed in — see `USER_STATUSES` in `lib/school-queries.ts`.
+      const statusParam = url.searchParams.get('status');
+      const status = isUserStatus(statusParam) ? statusParam : undefined;
 
       // A branch-scoped admin is confined to their branch regardless of input.
       const branchId =
@@ -42,7 +42,7 @@ export const GET = withSchoolAuth(
       const result = await listSchoolUsers(auth.locationId, {
         role: url.searchParams.get('role') ?? undefined,
         branchId: branchId === null ? undefined : branchId,
-        isActive,
+        status,
         search: url.searchParams.get('search') ?? undefined,
         page: Number.isFinite(pageRaw) ? pageRaw : 1,
         limit: Number.isFinite(limitRaw) ? limitRaw : 20,

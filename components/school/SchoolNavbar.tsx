@@ -1,4 +1,3 @@
-import { Badge } from '@/components/ui/Badge';
 import { LogoutButton } from '@/components/school/LogoutButton';
 import { ROLE_LABELS, type UserRole } from '@/types/school-auth';
 
@@ -18,7 +17,15 @@ export interface SchoolNavbarProps {
   platformAdminEmail?: string | null;
 }
 
-/** Top bar shared by every school portal. */
+/**
+ * Top bar shared by every school portal.
+ *
+ * Painted in the palette's `primary`, as `PalettePreview` has always drawn it.
+ * The lettering is `onPrimary` — computed from that colour rather than assumed
+ * white — and the two badges are drawn as tints of the foreground so they read
+ * on a light primary as well as a dark one, which the fixed amber and slate
+ * chips of the shared `Badge` would not.
+ */
 export function SchoolNavbar({
   schoolName,
   logoUrl,
@@ -31,7 +38,7 @@ export function SchoolNavbar({
   const isPlatformSession = platformAdminEmail !== null && platformAdminEmail !== '';
 
   return (
-    <header className="flex h-16 shrink-0 items-center justify-between gap-4 border-b border-slate-200 bg-white px-4 sm:px-6">
+    <header className="flex h-16 shrink-0 items-center justify-between gap-4 bg-brand-primary px-4 text-brand-onPrimary sm:px-6">
       <div className="flex min-w-0 items-center gap-3">
         {logoUrl !== null && logoUrl !== '' ? (
           // School logos arrive at unpredictable dimensions; a plain <img>
@@ -46,26 +53,30 @@ export function SchoolNavbar({
         ) : (
           <span
             aria-hidden="true"
-            className="flex h-9 w-9 items-center justify-center rounded-md bg-brand-primary text-sm font-semibold text-white"
+            className="flex h-9 w-9 items-center justify-center rounded-md bg-brand-onPrimary/15 text-sm font-semibold text-brand-onPrimary"
           >
             {schoolName.slice(0, 2).toUpperCase()}
           </span>
         )}
 
         <div className="min-w-0">
-          <p className="truncate text-sm font-semibold text-slate-900">{schoolName}</p>
+          <p className="truncate text-sm font-semibold">{schoolName}</p>
           {portalLabel !== undefined ? (
-            <p className="text-xs text-slate-500">{portalLabel}</p>
+            <p className="text-xs opacity-75">{portalLabel}</p>
           ) : null}
         </div>
       </div>
 
       <div className="flex items-center gap-3">
         {isPlatformSession ? (
-          <Badge variant="warning">Platform Super Admin</Badge>
+          <span className="rounded-full bg-brand-onPrimary/20 px-2 py-0.5 text-xs font-medium ring-1 ring-inset ring-current">
+            Platform Super Admin
+          </span>
         ) : null}
-        <Badge variant="neutral">{ROLE_LABELS[role]}</Badge>
-        <span className="hidden truncate text-sm text-slate-600 sm:inline">
+        <span className="rounded-full bg-brand-onPrimary/10 px-2 py-0.5 text-xs font-medium">
+          {ROLE_LABELS[role]}
+        </span>
+        <span className="hidden truncate text-sm opacity-90 sm:inline">
           {isPlatformSession ? platformAdminEmail : userName}
         </span>
         <LogoutButton schoolSlug={schoolSlug} />

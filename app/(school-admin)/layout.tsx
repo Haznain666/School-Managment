@@ -40,7 +40,10 @@ export default async function SchoolAdminLayout({ children }: { children: ReactN
   const brandStyle = paletteToCSSVars(branding?.palette ?? null) as unknown as CSSProperties;
 
   return (
-    <div style={brandStyle} className="flex h-screen bg-slate-50">
+    // `bg-brand-background`, not `bg-slate-50`: the page itself is one of the
+    // five colours a school chooses, and painting it slate was most of why a
+    // selected palette barely showed. See `lib/branding.ts`.
+    <div style={brandStyle} className="flex h-screen bg-brand-background text-brand-text">
       <SchoolSidebar
         role={claims.role}
         permissions={permissions}

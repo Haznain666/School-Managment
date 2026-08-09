@@ -4,8 +4,10 @@ import type { NextRequest } from 'next/server';
 import { schoolUsers } from '@/db/schema';
 import { apiFailure, apiSuccess, handleApiError, readJsonBody } from '@/lib/api-response';
 import { db } from '@/lib/drizzle';
+import { deleteSchoolMember } from '@/lib/school-queries';
 import { resolveLocationId } from '@/lib/schools';
 import { requireSuperAdmin } from '@/lib/super-admin-guard';
+import { referencedExplanation } from '@/lib/user-deletion';
 import { isUuid } from '@/lib/validation';
 
 /**
@@ -30,24 +32,16 @@ import { isUuid } from '@/lib/validation';
  *
  * So in practice delete succeeds for people who never got started — the case
  * it is actually for — and deactivate is the answer for everyone else.
+ *
+ * The delete itself and its wording are shared with the school portal's own
+ * delete (`deleteSchoolMember`, `referencedExplanation`): two surfaces refusing
+ * for the same reason must not explain it two different ways.
  */
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 type RouteContext = { params: Promise<{ schoolId: string; userId: string }> };
-
-/** Postgres foreign_key_violation. */
-const FOREIGN_KEY_VIOLATION = '23503';
-
-function isForeignKeyViolation(error: unknown): boolean {
-  return (
-    typeof error === 'object' &&
-    error !== null &&
-    'code' in error &&
-    (error as { code?: unknown }).code === FOREIGN_KEY_VIOLATION
-  );
-}
 
 /**
  * Resolves the school and checks the member belongs to it.
@@ -120,21 +114,12 @@ export async function DELETE(_request: NextRequest, context: RouteContext) {
       return apiFailure('not_found', 'That user is not a member of this school.', 404);
     }
 
-    try {
-      await db.delete(schoolUsers).where(eq(schoolUsers.id, userId));
-    } catch (error) {
-      if (isForeignKeyViolation(error)) {
-        return apiFailure(
-          'conflict',
-          `${resolved.member.name} cannot be deleted because their name is on ` +
-            'records the school keeps — attendance they marked, leave they ' +
-            'approved, payroll they ran, or periods they taught. Deactivate ' +
-            'them instead: they lose access immediately and the records stay ' +
-            'attributable.',
-          409,
-        );
-      }
-      throw error;
+    const result = await deleteSchoolMember(resolved.locationId, userId);
+
+    if (!result.deleted) {
+      return result.refusal === 'referenced'
+        ? apiFailure('conflict', referencedExplanation(resolved.member.name), 409)
+        : apiFailure('not_found', 'That user is not a member of this school.', 404);
     }
 
     return apiSuccess({ deleted: true, name: resolved.member.name });

@@ -4,7 +4,13 @@ import { branches, schoolUsers } from '@/db/schema';
 import { apiFailure, apiSuccess, handleApiError, readJsonBody } from '@/lib/api-response';
 import { withSchoolAuth } from '@/lib/api-auth';
 import { db } from '@/lib/drizzle';
-import { getSchoolUserById } from '@/lib/school-queries';
+import {
+  countActiveSchoolAdmins,
+  deleteSchoolMember,
+  getSchoolUserById,
+} from '@/lib/school-queries';
+import { schoolDeleteRefusal } from '@/lib/school-user-policy';
+import { referencedExplanation } from '@/lib/user-deletion';
 import { revokeSchoolSession } from '@/lib/school-auth';
 import { isUuid, readString } from '@/lib/validation';
 import { BRANCH_REQUIRED_ROLES, isUserRole } from '@/types/school-auth';
@@ -14,11 +20,24 @@ import { BRANCH_REQUIRED_ROLES, isUserRole } from '@/types/school-auth';
  *
  * GET    one member
  * PATCH  update name, role, branch or active status
- * DELETE not supported — deactivate instead
+ * DELETE remove a member outright
  *
- * Role and branch changes are mirrored into the user's Firebase claims and
- * their sessions revoked, so a demotion takes effect on the next request
- * rather than whenever their cookie happens to expire.
+ * ── Deactivate is still the ordinary answer ──────────────────────────────
+ * `is_active` is read per request by `membershipFor()`, never carried in a
+ * token, so a PATCH ends someone's access on their very next request and can be
+ * undone. DELETE is for the case deactivate does not cover: a member created by
+ * mistake — a mistyped address, a duplicate row, an invitation to the wrong
+ * person — who should not be carried in the directory forever.
+ *
+ * It refuses in four situations, three of them policy (`schoolDeleteRefusal`)
+ * and one referential: Postgres will not orphan a register, so anyone whose
+ * name is on a record the school keeps cannot be deleted at all, and the error
+ * says so and points at deactivate.
+ *
+ * DELETE used to answer 405 with "users are deactivated, not deleted". That was
+ * true of the schema and false of the product — the Super Admin panel has had a
+ * working delete since STATE.md §5h, so the rule was really "school
+ * administrators must ask us", which is not a rule anybody agreed to.
  */
 
 export const runtime = 'nodejs';
@@ -170,12 +189,34 @@ export const PATCH = withSchoolAuth<RouteContext>(
   { permission: 'users.write' },
 );
 
-export const DELETE = withSchoolAuth(
-  () =>
-    apiFailure(
-      'method_not_allowed',
-      'Users are deactivated, not deleted. PATCH with isActive: false.',
-      405,
-    ),
+export const DELETE = withSchoolAuth<RouteContext>(
+  async (_request, auth, context) => {
+    try {
+      const { userId } = await context.params;
+      if (!isUuid(userId)) return apiFailure('not_found', 'User not found.', 404);
+
+      const existing = await getSchoolUserById(auth.locationId, userId);
+      if (existing === null) return apiFailure('not_found', 'User not found.', 404);
+
+      const refusal = schoolDeleteRefusal(
+        auth,
+        existing,
+        await countActiveSchoolAdmins(auth.locationId),
+      );
+      if (refusal !== null) return apiFailure('conflict', refusal, 409);
+
+      const result = await deleteSchoolMember(auth.locationId, userId);
+
+      if (!result.deleted) {
+        return result.refusal === 'not_found'
+          ? apiFailure('not_found', 'User not found.', 404)
+          : apiFailure('conflict', referencedExplanation(existing.name), 409);
+      }
+
+      return apiSuccess({ deleted: true, name: existing.name });
+    } catch (error) {
+      return handleApiError(error);
+    }
+  },
   { permission: 'users.write' },
 );

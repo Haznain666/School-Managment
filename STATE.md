@@ -4,14 +4,14 @@
 resume without re-deriving context. Updated at the end of every development
 step, before the session ends.
 
-**Last updated:** 2026-08-09 (sixth session — Sprint 9)
+**Last updated:** 2026-08-09 (seventh session — QA fixes before Sprint 10)
 **Branch:** Sprint 0 (§5m) **is merged to `main`** — an earlier version of this
 header said it was not, and was stale. Sprint 9 (§5n) is on
 `claude/sprint-9-execution-f8776f`, built and QA'd and awaiting merge. Stale
 branches to prune: `stage-4-state-md-100f15`,
 `school-management-system-access-92a218`, and the two agent worktree branches
-from this session (`worktree-agent-*`), whose commits are already on the sprint
-branch.
+from the sixth session (`worktree-agent-*`), whose commits are already on the
+sprint branch.
 **Main branch:** `main` — last commit `d0e7dc0`, in sync with `origin/main`.
 **Migrations `0000`–`0017` are all applied and verified** against the live
 database; `0016` and `0017` were both applied 2026-08-09 (§5n, §5o). Next free
@@ -1740,6 +1740,186 @@ a palette and they are gone. Nothing else was changed.
 
 ---
 
+## 5p. QA fixes on Users & Staff, and the branding template — 2026-08-09
+
+Three defects the user found by clicking around the school portal. No
+migration; all three are application code.
+
+### 1. Delete and bulk delete for school members
+
+The Super Admin has been able to delete a member since §5h. A school
+administrator could not — `DELETE /api/school/users/[userId]` answered **405**,
+"users are deactivated, not deleted". That was true of the schema and false of
+the product: the capability existed, it was simply only available to us, so the
+real rule was "schools must ask the platform operator", which nobody agreed to.
+
+Now on both sides, singly and in bulk:
+
+| Surface | Single | Bulk |
+| --- | --- | --- |
+| School portal | Danger card on `/dashboard/users/[userId]` | Checkbox column + selection bar on the directory |
+| Super Admin | Existing per-row button | Checkbox column + selection bar |
+
+**Bulk delete is deliberately not one statement.** Several foreign keys into
+`school_users` are `NO ACTION`, so `DELETE ... WHERE id IN (...)` is
+all-or-nothing and one member whose name is on a register would refuse the
+other ninety-nine — with no way to discover which one short of deleting them
+individually, which is the work the tool exists to avoid. Each row is attempted
+on its own and the refusals come back with reasons. **A partial result is the
+normal outcome, not an error**, and the UI lists what it kept and why.
+
+`MAX_BULK_DELETE` is 100, in the dependency-free `lib/user-deletion.ts` for the
+same reason `lib/challan-print.ts` exists: the cap is checked in the browser and
+again in the route, and a number that drifted would either offer a selection the
+route refuses or refuse one it would take.
+
+**Three policy refusals on the school side only** (`lib/school-user-policy.ts`),
+each of them a way to lock a school out of its own portal: you cannot delete
+**yourself**; you cannot delete the **last active `school_admin`**, because
+invitations are sent from inside the portal so there would be nobody left to
+appoint a replacement; and a `branch_admin` cannot reach outside their branch,
+which is the one place their scope would otherwise leak. The bulk path
+decrements the administrator count as deletions succeed, so selecting all three
+administrators deletes two and refuses the third rather than refusing all three.
+
+The Super Admin path has none of these on purpose — the platform operator *is*
+the recovery path, and refusing them would only mean doing it in SQL.
+
+`deleteSchoolMember` and `referencedExplanation` are shared by all four
+surfaces: two places refusing for the same reason must not word it differently.
+
+**No new permission key.** Delete is gated on `users.write`, the same key that
+already permits deactivating and re-roling. A `users.delete` key would be a
+two-place change requiring a migration (§5o) for a distinction nobody asked to
+draw.
+
+### 2. The selected branding template reached one colour out of five
+
+`school_branding` stores five colours. `PalettePreview` draws a portal mock-up
+in all five — header in `primary`, sidebar in `secondary`, page in
+`background`, body in `text`, a marker in `accent` — and the picker shows five
+swatches. **Only `--brand-primary` was ever consumed.** Measured before the
+fix: 136 uses of `brand-*` across 93 files, every one of them `primary`. The
+shell painted `bg-slate-50` while `--brand-background` sat set and unread.
+
+So a school chose a five-colour template and got a coloured button. That is
+exactly "the selected style template is not fully applied", and the preview was
+the specification the product had never met.
+
+The four shells now match the preview. Verified in the browser against Sample
+Test School on Crimson & Gold: `--brand-background` `250 247 245` painting the
+page, `--brand-secondary` `127 29 29` the sidebar, `--brand-primary`
+`155 44 44` the navbar, `--brand-accent` at 25% marking the current page.
+
+**Three new variables are computed, not stored.** `--brand-on-primary`,
+`--brand-on-secondary` and `--brand-on-accent` are near-black or near-white by
+WCAG luminance against the surface they sit on. Painting a surface in a
+school's colour means something must be legible on it, and the shells had
+hardcoded `text-white` — correct for the navy default and all three presets,
+**wrong for a school whose logo is yellow**, which `lib/color-extraction.ts`
+will happily produce a primary from. Computed rather than stored so schools
+themed before this change get them without a migration.
+
+`lib/color-contrast.ts` is new and dependency-free: the WCAG arithmetic used to
+live only inside `lib/color-extraction.ts`, which is `server-only` and pulls in
+sharp and node-vibrant. So contrast was checked when *deriving* a palette and
+never when *painting* with one. One implementation now does both.
+
+Sidebar hierarchy is expressed as opacity on `onSecondary` (75% resting, 40%
+placeholder, 50% section heading) rather than fixed slates, because a tint of
+the computed foreground is legible on any surface and a slate is not.
+
+**Not repainted, and deliberately:** cards and tables stay white on slate, as
+the preview has always shown them. Page bodies still set `text-slate-900`
+explicitly in many places, so `--brand-text` is inherited by the shell but
+overridden there. Since every palette's `text` is a contrast-checked near-black
+(`#1a1a1a`, `#111111`, `#0d0d12`), the visible difference is nil and the diff
+would have been sweeping.
+
+### 3. The status filter contradicted the badges beside it
+
+The table drew three states. The filter offered two — Active only / Inactive
+only — both read from `is_active`. A member who has never signed in has
+`is_active = true`, so **"Active only" returned every Pending row as well**.
+
+Status is now three values from one server-side definition
+(`USER_STATUSES`), read from `auth_user_id` rather than `joined_at` — having a
+Supabase identity is what "has signed in" means, and it is the source §5g
+already moved the Super Admin table to. The school directory and the user
+profile panel both still said "Pending" / "Invite pending"; both now read
+**Active / Never signed in / Deactivated**, matching the badge to the filter.
+
+**The filters are now faceted.** Each dropdown offers only the values that still
+return rows under the *other* filters, with counts: choosing Status = Active
+narrowed Role to `School Administrator (2), Teacher (1)` — Student disappeared,
+because no student has signed in — and Branch to `STS Main (1), No branch (2)`.
+Every facet is counted with **its own** dimension excluded and the others
+applied; counting a dimension against its own selection would collapse each
+dropdown to the value already chosen and there would be no way to change your
+mind. The current value is always kept in its own list even at zero, so a
+filter can never become impossible to clear from the control that set it.
+
+Two things fell out of this that were separately broken:
+
+- **A branch filter could not find school-wide members at all.** `''` already
+  meant "no filter", so `branch_id IS NULL` — every `school_admin` — was
+  reachable only with the filter off. There is now an explicit
+  **No branch (school-wide)** option.
+- **Search now matches email**, not just name and phone. Under Supabase Auth
+  the address is the identity; searching the directory by it and getting
+  nothing was its own small lie.
+
+Selection follows `ChallanTable`'s rule (§5e) — survives paging, cleared by any
+filter change — for the reason recorded there, which matters more here: after a
+filter change the rows chosen from are off screen, and carrying an invisible
+selection into a new result set is how somebody deletes people they never
+looked at.
+
+### Verified in a browser, and what was not
+
+Against the live database, Sample Test School, signed in as a school
+administrator. A throwaway member was created, deleted through the bulk UI
+alongside the operator's own row, and the database left exactly as found:
+
+- `1 user deleted, 1 kept.` — the probe gone, **"You cannot delete your own
+  account"** listed under "These were kept".
+- Facets narrowing each other, as above. Badges reading "Never signed in".
+- All eight brand variables present on the shell and painting the surfaces.
+- No console errors. typecheck, lint and build all green.
+
+**Not exercised:**
+
+1. **The referential refusal was not triggered.** Provoking it means selecting
+   somebody who has marked a register — and if they turn out not to have, they
+   are deleted. The FK path is shared with the Super Admin delete that has been
+   live since §5h; the translation into words is four lines. Worth doing
+   against Sprint 10's seeded school, where losing a row costs nothing.
+2. **The Super Admin bulk delete UI has not been clicked.** No operator session
+   in this browser, and signing one in is the user's to do. The route was
+   exercised through its shared code; the component is a near-copy of the
+   school one.
+3. **The last-administrator guard** was not driven to its refusal, for the same
+   reason as (1).
+
+### Two things worth knowing for the next browser session
+
+**A worktree has no `.env.local`, and the dev server fails opaquely without
+one.** It lives in the main repo (§5c) and Next loads it from the *project*
+directory, so a dev server started in a worktree has no `DATABASE_URL` and every
+school page renders **"School portal unavailable"** — which reads as a broken
+tenant, not a missing environment. Copy it in for the session and delete it
+after; `.gitignore:21` (`.env*.local`) already covers the worktree, checked with
+`git check-ignore` before copying.
+
+**`.claude/launch.json` now has `"autoPort": true.`** The user commonly has
+their own dev server on 3000; without this the preview refuses to start rather
+than picking another port. Cookies on `localhost` are not port-scoped, so a
+session established on :3000 carries to the assigned port — but the tenant does
+not, because the slug cookie is set per resolution: append
+`?school=sample-test-school`.
+
+---
+
 ## 6. Open items for the user
 
 1. ~~Install GitHub CLI~~ — **partly regressed.** Git has a stored credential
@@ -1765,6 +1945,7 @@ a palette and they are gone. Nothing else was changed.
 
 | Date | Session did | Next |
 | --- | --- | --- |
+| 2026-08-09 | **Three QA fixes from the user** (§5p), merged to `main`. School administrators can now delete members — the route had answered 405 while the Super Admin panel had done it since §5h — singly and in bulk, per-row rather than all-or-nothing because a `NO ACTION` foreign key would otherwise let one referenced member refuse ninety-nine. **The selected branding template reached one colour out of five**: `PalettePreview` had always drawn a five-colour portal and the shells consumed only `primary`, painting `bg-slate-50` over a set-and-unread `--brand-background`. All four shells now match the preview, with three computed `--brand-on-*` foregrounds so a school with a pale primary does not get white lettering on it. And the status filter, which offered two values against a table that drew three, so "Active only" also returned everyone who had never signed in; status is now three-valued from `auth_user_id`, and role/branch/status are faceted — each offers only what the others leave, with counts. Browser-verified against the live database; nothing left behind. | **Sprint 10** — onboarding: CSV import, promotion, transfer, family fees, and the seeded adversarial school. Note `SPRINTS.md` says migration `0017` for it and that number is taken: **next free is `0018`**. Trigger the referential delete refusal against that seeded school (§5p), since losing a row there costs nothing. |
 | 2026-08-09 | **Sprint 9 QA fixes** (§5n). Four defects back from QA, all fixed. The big one was not Sprint 9's: `PrintSheet` hid the print root with an unqualified `display: none`, so **every printed document in the application — fee challans included — had been coming out blank since the framework was written two days earlier**, and nobody had run a print to find out. Cured at the framework level in `globals.css`. Also: a paper's total can no longer be lowered below a mark already awarded (QA printed 178% on a report card), a school's first grading scheme now becomes its default instead of silently grading nothing, and the tabulation sheet's printed legend no longer states the absence policy backwards. typecheck + lint + build green again. | **Print one of each document on real A4** — the cascade is right but no paper has been produced, and no test school has a logo, so only the name-only letterhead has ever rendered. Then remove QA's three leftover rows (SQL in §5n) — a DevOps step, not a developer one. |
 | 2026-08-09 | **Sprint 9 built** (§5n) — the keystone. Six tables (migration `0016`, **written not applied**), nine API routes, eight admin screens plus two teacher ones, and the three printed artefacts: report card, tabulation sheet with position holders, and admit card, all on `PrintSheet`. Marks entry is one paper for one section on one screen, with save-as-draft, submit, and a publish step the teacher cannot take or undo. Grading is per-school bands resolved by a dependency-free `lib/grading.ts` the editor and the report card both call. Re-sits are attempt 2 of the same paper with their own publication lifecycle. Five permission keys in both catalogues. typecheck + lint + build green. | **Apply `0016`** (DevOps), then QA it in a browser — none of it has been clicked, and §5j is the standing evidence that matters. Then Sprint 10, which is the one not to compress. |
 | 2026-08-08 | **Sprint 0 built** (§5m) — rate limiting, account lockout and the email outbox, on `feature/sprint-0-auth-hardening`. New `auth_attempts` and `email_outbox` tables (migration `0015`, **written not applied**), `lib/auth-throttle.ts` on all five auth endpoints, `lib/email-outbox.ts` with a `FOR UPDATE SKIP LOCKED` claim, an `instrumentation.ts` interval drainer and a secret-guarded `/api/internal/email/drain`. Every screen that used to claim "sent" now says "queued", because that is now all it knows. Corrected `SPRINTS.md`: Sprint 0 does need a migration, and Sprints 9–21's numbers each shifted up by one. typecheck + lint + build green. | **Apply `0015`** (DevOps), then exercise a lockout and a drain in a browser. Then Sprint 9 — it is the keystone and everything in R1 waits on it. |

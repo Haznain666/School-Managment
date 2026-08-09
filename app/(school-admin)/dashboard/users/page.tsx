@@ -19,6 +19,11 @@ export default async function UsersPage() {
     await requireSchoolPermission('users.read');
 
   const branches = await listBranchOptions(locationId);
+
+  // `users.write` is the one gate for changing the directory: inviting,
+  // editing, deactivating and now deleting. Delete is not given a permission
+  // key of its own — that would be a two-place change requiring a migration
+  // (STATE.md §5o), for a distinction nobody has asked to draw.
   const canInvite = permissions.includes('users.write');
 
   return (
@@ -42,7 +47,11 @@ export default async function UsersPage() {
         ) : null}
       </div>
 
-      <UserTable branches={branches} lockedBranchId={claims.branchId} />
+      <UserTable
+        branches={branches}
+        lockedBranchId={claims.branchId}
+        canManage={canInvite}
+      />
 
       {canInvite ? <PendingInvitesTable /> : null}
     </div>

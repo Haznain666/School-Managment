@@ -15,6 +15,16 @@
     --brand-accent: 14 165 233;
     --brand-background: 248 250 252;
     --brand-text: 15 23 42;
+
+    /*
+     * Foregrounds for the three surfaces that get painted in a brand colour.
+     * `paletteToCSSVars` recomputes these per school from the palette's own
+     * luminance; the values here are the same computation applied to the
+     * defaults above, and are what public pages outside any portal use.
+     */
+    --brand-on-primary: 248 250 252;
+    --brand-on-secondary: 248 250 252;
+    --brand-on-accent: 15 23 42;
   }
 
   :root {

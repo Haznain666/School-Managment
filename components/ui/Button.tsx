@@ -6,8 +6,11 @@ export type ButtonVariant = 'primary' | 'secondary' | 'danger' | 'ghost';
 export type ButtonSize = 'sm' | 'md' | 'lg';
 
 const VARIANT_CLASSES: Record<ButtonVariant, string> = {
+  // `text-brand-onPrimary`, not `text-white`: the fill is the school's colour,
+  // so the lettering on it has to be chosen from that colour. See
+  // `lib/color-contrast.ts`.
   primary:
-    'bg-brand-primary text-white hover:opacity-90 focus-visible:outline-brand-primary',
+    'bg-brand-primary text-brand-onPrimary hover:opacity-90 focus-visible:outline-brand-primary',
   secondary:
     'bg-white text-slate-900 border border-slate-300 hover:bg-slate-50 focus-visible:outline-slate-400',
   danger: 'bg-red-600 text-white hover:bg-red-700 focus-visible:outline-red-600',

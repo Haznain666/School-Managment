@@ -2,6 +2,7 @@ import { eq } from 'drizzle-orm';
 
 import { schoolBranding, type Palette } from '@/db/schema';
 
+import { readableForeground, toRgbChannels } from './color-contrast';
 import { db } from './drizzle';
 import { presetFor } from './palette-presets';
 
@@ -12,6 +13,27 @@ import { presetFor } from './palette-presets';
  * `tailwind.config.ts`). A school's selected palette is turned into those
  * variables and applied on the portal shell, so the same components render in
  * each school's colours without any per-tenant CSS build.
+ *
+ * ── Five colours are stored; five colours are now used ───────────────────
+ * Until 2026-08-09 only `--brand-primary` was ever consumed. The other four
+ * were extracted from the logo, offered as three candidate palettes, drawn as
+ * swatches, rendered in a portal mock-up by `PalettePreview`, stored, selected —
+ * and then nothing read them. A school picked a five-colour template and got
+ * one colour, which is exactly what "the selected template is not fully
+ * applied" describes.
+ *
+ * The preview is the specification, and the shells were brought up to it:
+ * `background` paints the page, `secondary` the sidebar, `primary` the header,
+ * `text` the body copy, `accent` the active marker.
+ *
+ * ── The three variables that are not stored ──────────────────────────────
+ * `--brand-on-primary`, `--brand-on-secondary` and `--brand-on-accent` are
+ * *computed* here, per palette, by the same WCAG arithmetic that decided the
+ * palette's own `text`. Painting a surface in a school's colour means something
+ * has to be legible on top of it, and the shells previously hardcoded
+ * `text-white` — fine for the navy default and for all three presets, wrong for
+ * a school whose logo is yellow. They are derived rather than stored so that
+ * schools themed before this change get them too, without a migration.
  */
 
 export const DEFAULT_PALETTE: Palette = {
@@ -22,34 +44,19 @@ export const DEFAULT_PALETTE: Palette = {
   text: '#0f172a',
 };
 
-/** `#1d4ed8` -> `29 78 216`, the space-separated form Tailwind's alpha syntax needs. */
-function hexToRgbChannels(hex: string): string | null {
-  const cleaned = hex.trim().replace(/^#/, '');
-
-  const expanded =
-    cleaned.length === 3
-      ? cleaned
-          .split('')
-          .map((char) => char + char)
-          .join('')
-      : cleaned;
-
-  if (!/^[0-9a-fA-F]{6}$/.test(expanded)) return null;
-
-  const value = Number.parseInt(expanded, 16);
-  const red = (value >> 16) & 0xff;
-  const green = (value >> 8) & 0xff;
-  const blue = value & 0xff;
-
-  return `${red} ${green} ${blue}`;
-}
-
 const VARIABLE_NAMES: ReadonlyArray<[keyof Palette, string]> = [
   ['primary', '--brand-primary'],
   ['secondary', '--brand-secondary'],
   ['accent', '--brand-accent'],
   ['background', '--brand-background'],
   ['text', '--brand-text'],
+];
+
+/** Surfaces that get painted in a brand colour, and so need a foreground. */
+const FOREGROUND_NAMES: ReadonlyArray<[keyof Palette, string]> = [
+  ['primary', '--brand-on-primary'],
+  ['secondary', '--brand-on-secondary'],
+  ['accent', '--brand-on-accent'],
 ];
 
 /**
@@ -64,7 +71,16 @@ export function paletteToCSSVars(palette: Palette | null): Record<string, string
 
   for (const [key, variableName] of VARIABLE_NAMES) {
     const channels =
-      hexToRgbChannels(effective[key]) ?? hexToRgbChannels(DEFAULT_PALETTE[key]);
+      toRgbChannels(effective[key]) ?? toRgbChannels(DEFAULT_PALETTE[key]);
+    if (channels !== null) variables[variableName] = channels;
+  }
+
+  for (const [key, variableName] of FOREGROUND_NAMES) {
+    // Resolved against the colour that will actually be painted, which may be
+    // the platform default if the school's own value did not parse.
+    const surface =
+      toRgbChannels(effective[key]) === null ? DEFAULT_PALETTE[key] : effective[key];
+    const channels = toRgbChannels(readableForeground(surface));
     if (channels !== null) variables[variableName] = channels;
   }
 
