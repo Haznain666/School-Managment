@@ -13,9 +13,9 @@ branches to prune: `stage-4-state-md-100f15`,
 from the sixth session (`worktree-agent-*`), whose commits are already on the
 sprint branch.
 **Main branch:** `main` — last commit `d0e7dc0`, in sync with `origin/main`.
-**Migrations `0000`–`0017` are all applied and verified** against the live
-database; `0016` and `0017` were both applied 2026-08-09 (§5n, §5o). Next free
-number: **`0018`**.
+**Migrations `0000`–`0018` are all applied and verified** against the live
+database; `0016` and `0017` were applied 2026-08-09 (§5n, §5o) and `0018` the
+same day (§5q). Next free number: **`0019`**.
 
 **The delivery plan now lives in `SPRINTS.md`** — 17 sprints across three
 releases, reconciling `remaining work.docx` with this file and `ROADMAP.md`.
@@ -1920,6 +1920,104 @@ not, because the slug cookie is set per resolution: append
 
 ---
 
+## 5q. Sprint 10 — in progress (started 2026-08-09)
+
+On `claude/pending-items-next-sprint-bfa612`, three commits past `main`.
+**Migration `0018` is applied and verified** against the live database — six
+tables, `fee_challans.family_challan_id`, and the `role_permissions` CHECK
+widened. 19 migrations recorded. Next free number: **`0019`**.
+
+> `SPRINTS.md` names this sprint's migration `0017`. That number was taken by
+> `0017_branding_presets.sql`. Every migration number in `SPRINTS.md` from
+> Sprint 10 onward is one behind the repo.
+
+### Done
+
+| Piece | State |
+| --- | --- |
+| Schema + migration `0018` | ✅ applied and verified |
+| Permission keys ×3 | ✅ both catalogues **and** the CHECK |
+| CSV parsing + row validation | ✅ browser-verified |
+| Import: upload → map → dry run → commit | ✅ browser-verified end to end |
+| Promotion | ⬜ tables exist, nothing built on them |
+| Transfer | ⬜ tables exist |
+| Family voucher | ⬜ tables exist |
+| Defaulter list with aging | ⬜ |
+| Adversarial seed script | ⬜ |
+
+### The permission CHECK problem is now structural, not remembered
+
+`db/schema/role-permissions.ts` builds the constraint from the `PERMISSIONS`
+array rather than restating the keys, so drizzle-kit regenerated it on its own
+when the three new keys were added. §5o's failure — five keys shipped that the
+database refused — cannot recur by forgetting. It can still recur by
+hand-writing a migration that restates the list; do not.
+
+### What the browser caught in the import that the build did not
+
+The standing evidence of §5j, again. All three were found by running a
+deliberately messy file against the live database, and all three are fixed.
+
+**1. The dry run was one round trip per row.** Seven rows took 25 seconds. At
+the 2000 rows the importer accepts that is a request nobody waits out, with a
+transaction held open across all of it. Now one
+`UPDATE ... FROM (VALUES ...)` — one round trip whatever the file's size.
+
+**2. Duplicate admission numbers went unreported when the row had a second
+fault.** The check read the number off the parsed candidate, which is null the
+moment a row has any error, so a duplicate hid behind a bad email address: fix
+the email, re-upload, *then* discover the collision. It reads the raw mapped
+value now.
+
+**3. The supplied admission number was used to detect duplicates and then
+thrown away.** The field's own hint promised "their existing number". A school
+migrating eight hundred children has every fee receipt, certificate and filing
+cabinet filed under the old number, so renumbering them on day one breaks the
+link to all of it. `enrollStudent` takes `existingStudentId`; the counter is
+deliberately not advanced past a supplied number, because the school's sequence
+and ours need not be compatible.
+
+### Measured: this machine is ~2.4 seconds per round trip to Supabase
+
+Not a code problem and not fixable in code — page loads took 17–22 seconds in
+dev against the same pooler. It matters for one design decision: **the commit
+loop is one `enrollStudent` per student and cannot be batched**, because each
+issues an admission number from a per-school counter and holds a connection for
+its own transaction. 400 students would be ~13 minutes *from here*. Co-located
+on Hostinger it is seconds. **Do not conclude the importer is slow from a
+measurement taken on this machine** — but do re-measure it once deployed,
+because if it is slow there it needs a job queue rather than a request.
+
+### Changed on the live database, and reversible
+
+- **The Admissions module was switched on for `Sample Test School`** (direct
+  SQL, so no audit row). Sprint 10 is entirely admissions-side and none of it
+  is reachable with the module off. Switch it back from
+  `/super-admin/modules` if it should be off.
+- Test students and import batches created during verification were **removed**.
+  `student_import_batches` and `student_import_rows` are both empty;
+  `student_profiles` is back to 8.
+
+### Verified in the browser
+
+Against `Sample Test School` with an eight-row file written to be hostile: a
+UTF-8 BOM, a quoted field containing a comma, `M`/`F` genders, a day-first
+date, an ISO date, `31/02/2015`, a malformed phone, a missing name, an
+unrecognised relationship, a bad email, and the same admission number twice.
+
+All eight columns were guessed from headers like `Father Mobile` and `Sex`.
+Five rows were refused with their own reasons, by spreadsheet row number. Two
+imported. `09/03/2015` stored as `2015-03-09`, `uncle` folded to `other`,
+`03001112221` normalised to `+923001112221`. A second file proved a supplied
+`GVS-2019-0042` is kept while a blank one gets `STS-2026-0003`.
+
+**Not verified:** a file anywhere near 2000 rows, and therefore neither the
+commit loop's real duration nor whether the report screen is usable with
+hundreds of failures. Both belong with the seed script, which is the first
+thing that will produce a file that size.
+
+---
+
 ## 6. Open items for the user
 
 1. ~~Install GitHub CLI~~ — **partly regressed.** Git has a stored credential
@@ -1945,6 +2043,7 @@ not, because the slug cookie is set per resolution: append
 
 | Date | Session did | Next |
 | --- | --- | --- |
+| 2026-08-09 | **Sprint 10 started** (§5q) — migration `0018` applied and verified, three permission keys, and the CSV student import built and browser-verified end to end against a deliberately hostile file. Three defects the build could not see: the dry run was one round trip per row (25 seconds for seven rows, unusable at the 2000 it accepts — now one statement whatever the size); a duplicate admission number went unreported whenever the row also had a second fault, so it surfaced only after the operator fixed the *other* problem and re-uploaded; and the supplied admission number was used to detect duplicates and then discarded, which would renumber a migrated roll and break its link to every fee receipt and certificate the school holds. Also measured: ~2.4s per round trip to Supabase from this machine, which is why the commit loop must be re-timed once deployed rather than judged from here. | **Promotion, transfer, family vouchers, the defaulter list, and the adversarial seed** — the rest of Sprint 10. The seed is what first produces a file big enough to test the importer at real size. |
 | 2026-08-09 | **Three QA fixes from the user** (§5p), merged to `main`. School administrators can now delete members — the route had answered 405 while the Super Admin panel had done it since §5h — singly and in bulk, per-row rather than all-or-nothing because a `NO ACTION` foreign key would otherwise let one referenced member refuse ninety-nine. **The selected branding template reached one colour out of five**: `PalettePreview` had always drawn a five-colour portal and the shells consumed only `primary`, painting `bg-slate-50` over a set-and-unread `--brand-background`. All four shells now match the preview, with three computed `--brand-on-*` foregrounds so a school with a pale primary does not get white lettering on it. And the status filter, which offered two values against a table that drew three, so "Active only" also returned everyone who had never signed in; status is now three-valued from `auth_user_id`, and role/branch/status are faceted — each offers only what the others leave, with counts. Browser-verified against the live database; nothing left behind. | **Sprint 10** — onboarding: CSV import, promotion, transfer, family fees, and the seeded adversarial school. Note `SPRINTS.md` says migration `0017` for it and that number is taken: **next free is `0018`**. Trigger the referential delete refusal against that seeded school (§5p), since losing a row there costs nothing. |
 | 2026-08-09 | **Sprint 9 QA fixes** (§5n). Four defects back from QA, all fixed. The big one was not Sprint 9's: `PrintSheet` hid the print root with an unqualified `display: none`, so **every printed document in the application — fee challans included — had been coming out blank since the framework was written two days earlier**, and nobody had run a print to find out. Cured at the framework level in `globals.css`. Also: a paper's total can no longer be lowered below a mark already awarded (QA printed 178% on a report card), a school's first grading scheme now becomes its default instead of silently grading nothing, and the tabulation sheet's printed legend no longer states the absence policy backwards. typecheck + lint + build green again. | **Print one of each document on real A4** — the cascade is right but no paper has been produced, and no test school has a logo, so only the name-only letterhead has ever rendered. Then remove QA's three leftover rows (SQL in §5n) — a DevOps step, not a developer one. |
 | 2026-08-09 | **Sprint 9 built** (§5n) — the keystone. Six tables (migration `0016`, **written not applied**), nine API routes, eight admin screens plus two teacher ones, and the three printed artefacts: report card, tabulation sheet with position holders, and admit card, all on `PrintSheet`. Marks entry is one paper for one section on one screen, with save-as-draft, submit, and a publish step the teacher cannot take or undo. Grading is per-school bands resolved by a dependency-free `lib/grading.ts` the editor and the report card both call. Re-sits are attempt 2 of the same paper with their own publication lifecycle. Five permission keys in both catalogues. typecheck + lint + build green. | **Apply `0016`** (DevOps), then QA it in a browser — none of it has been clicked, and §5j is the standing evidence that matters. Then Sprint 10, which is the one not to compress. |
