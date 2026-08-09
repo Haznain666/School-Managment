@@ -694,6 +694,12 @@ school-admin session, and nothing can sign in until Supabase Auth is configured
 (§5d item 2). `npm run typecheck` · `npm run lint` · `npm run build` all green.
 This is the first thing to click once sign-in works.
 
+> ⚠️ **It was never clicked, and it was broken.** Sprint 9's QA found that
+> `PrintSheet` hid the print root with `display: none` unqualified by media, so
+> **every challan printed blank** from the day the framework landed. Fixed
+> 2026-08-09 in `globals.css` — see §5n. Bulk challan printing still has not
+> been run against a printer; it is now merely capable of producing a page.
+
 **Known limit, not worth acting on yet:** the ids travel on the query string, so
 200 uuids is ~7 KB of URL sitting alongside the session cookie inside Node's
 16 KB header budget. Raising the cap materially means moving the selection off
@@ -1428,15 +1434,104 @@ one number is easier to remember than three. Report cards print a section at a
 time because that is how a school hands them out, and because a whole-school
 button would be one click from eight hundred cards.
 
+### QA — 2026-08-09, against the live database with `0016` applied
+
+**What QA proved.** Tenancy was clean on all nine routes: 404 across the board
+on cross-tenant ids, and a `locationId` planted in a POST body was ignored. The
+aggregate policy, the three publish gates, the permission split, the
+minimum-only band rule and the re-sit lifecycle all held under adversarial
+probing.
+
+**Four defects, all fixed in this pass.**
+
+**1. Every printed document came out blank — and had been since the print
+framework was written on 2026-08-07.** Not a Sprint 9 bug, but squarely in its
+path: three of this sprint's deliverables are printed documents.
+`PrintSheet` hid the print root with Tailwind's `hidden`, which is an
+unqualified `display: none` and therefore applied while printing. A
+`display: none` subtree is never laid out, so the `visibility: visible` in the
+`@media print` block had nothing to reveal. **The fee challan was broken the
+same way** — §5e records that print was never actually run, which is exactly
+why two days of "shipped" print work had never produced a page.
+
+Fixed at the framework level, in `globals.css` rather than on the component:
+`@media screen { [data-print-root] { display: none } }` hides it off-media, and
+the print block now sets `display: block` as well as `visibility`. The
+`display` line is belt-and-braces — this file loads after Tailwind's utilities,
+so on a specificity tie the attribute selector beats a stray `hidden`, and no
+future caller can reintroduce the blank page. Verified in the compiled
+stylesheet, not just the source. **The challan path is cured by the same
+change**; nothing about its on-screen behaviour moves.
+
+**2. Lowering a paper's `maxMarks` after marks were entered was accepted.** QA
+took a 100-mark paper with marks up to 90 down to 50 and the report card
+printed `Science 89/50 = 178%`, with grade, GPA and position computed from it.
+`POST .../results` refuses a mark above the max; the same invariant simply was
+not enforced from the other direction. The rule is now **"a paper's total may
+not fall below a mark somebody has already been given"** — deliberately that,
+and not "no edits once marks exist": correcting a paper keyed in as out of 50
+when it was out of 100 is a real and common fix, and forbidding it would send
+schools to delete a class's marking to change one number. Both attempts are
+considered, and the error names the offending mark because correcting it is the
+way out.
+
+**3. A school's first grading scheme did nothing until someone pressed "Make
+default".** `isDefault` came from the body defaulting to false and the editor
+never sent it, so a fully configured six-band ladder still printed a dash for
+every grade — indistinguishable from a school that had configured nothing.
+That ambiguity is worse than either state alone, because it destroys exactly
+the legibility the "no invented F" rule exists to create. **The first scheme a
+school creates is now its default**; later ones still have to be promoted
+deliberately, because then the choice is real. The editor also warns when
+schemes exist but none is the active default, which covers a retired default
+and any school predating the rule.
+
+**4. The tabulation sheet's printed legend stated the absence policy
+backwards** — the sentence a principal reads to interpret the grid. Corrected,
+with a comment saying so, because the grid itself was already right.
+
+**Also closed, non-blocking:** `GET /exams/[examId]/subjects` answered
+`200 {"papers": []}` for another tenant's exam where all eight siblings answer
+404. It leaked nothing — the query was tenant-filtered — but it made "no papers
+yet" and "not your exam" indistinguishable. It now checks the exam first.
+
+**What QA could not verify, and nobody should assume.**
+
+- **Nothing has been printed on paper.** QA inspected the documents by
+  unhiding the print root in the DOM. The `@media print` cascade is now correct
+  in the compiled stylesheet, but no A4 sheet has come out of a printer, and
+  the margins, the two-cards-to-a-sheet break and the landscape tabulation grid
+  are all unproven at their real size.
+- **No test school has a logo**, so only `PrintLetterhead`'s name-only fallback
+  was exercised. The logo path through `next/image`'s `remotePatterns` is
+  untested on a printed page.
+
 ### What is NOT done
 
-1. **Nothing has been clicked.** No browser verification at all — the in-app
-   browser is still not signed in (§5i). Every claim above is from typecheck,
-   lint, build and reading. §5j is the standing evidence that this is not
-   enough.
-2. **Migration `0016` is not applied.** DevOps' step. Until it is, every exam
-   screen will fail on its first query rather than degrade — unlike Sprint 0's
-   paths, these have no fail-open.
+1. **Migration `0016` is applied** (DevOps did it for QA). Note for a fresh
+   environment: unlike Sprint 0's paths, nothing here fails open — every exam
+   screen dies on its first query if the tables are missing.
+2. **QA left test data in the live database, and I did not remove it.**
+   Deleting rows from the live database is a DevOps step, not a developer one,
+   and no instruction in a task message changes that. Handing it over instead,
+   with the exact statements — all three are `Sample Test School` / `My Second
+   Home School` and none is referenced by an exam:
+
+   ```sql
+   DELETE FROM exam_terms      WHERE name = 'Body LocationId Term';
+   DELETE FROM grading_schemes WHERE name IN ('B Scheme', 'B Scheme 2');
+   ```
+
+   `grading_bands` cascades from `grading_schemes`. Check `exams` is empty for
+   that term first — the DELETE will fail loudly if not, which is correct.
+   The rest of the seeded academic data should stay; it is what makes the
+   module demonstrable.
+3. **There is no DELETE route for an exam term.** QA had to point this out to
+   ask for cleanup, which is the tell. A term opened by mistake cannot be
+   removed through the app. Not added here: it needs the same
+   "refuse once anything hangs off it" treatment the exam and paper deletes
+   got, and that is a decision better made with the next sprint's eyes than
+   bolted onto a fix pass.
 3. **Nothing prints marks to parents or students yet.** The parent and student
    portals have no results view; that is Sprint 13, which this sprint exists to
    unblock. Report cards today are printed by staff.
@@ -1499,6 +1594,7 @@ failed build. Redirect to a file and read the file.
 
 | Date | Session did | Next |
 | --- | --- | --- |
+| 2026-08-09 | **Sprint 9 QA fixes** (§5n). Four defects back from QA, all fixed. The big one was not Sprint 9's: `PrintSheet` hid the print root with an unqualified `display: none`, so **every printed document in the application — fee challans included — had been coming out blank since the framework was written two days earlier**, and nobody had run a print to find out. Cured at the framework level in `globals.css`. Also: a paper's total can no longer be lowered below a mark already awarded (QA printed 178% on a report card), a school's first grading scheme now becomes its default instead of silently grading nothing, and the tabulation sheet's printed legend no longer states the absence policy backwards. typecheck + lint + build green again. | **Print one of each document on real A4** — the cascade is right but no paper has been produced, and no test school has a logo, so only the name-only letterhead has ever rendered. Then remove QA's three leftover rows (SQL in §5n) — a DevOps step, not a developer one. |
 | 2026-08-09 | **Sprint 9 built** (§5n) — the keystone. Six tables (migration `0016`, **written not applied**), nine API routes, eight admin screens plus two teacher ones, and the three printed artefacts: report card, tabulation sheet with position holders, and admit card, all on `PrintSheet`. Marks entry is one paper for one section on one screen, with save-as-draft, submit, and a publish step the teacher cannot take or undo. Grading is per-school bands resolved by a dependency-free `lib/grading.ts` the editor and the report card both call. Re-sits are attempt 2 of the same paper with their own publication lifecycle. Five permission keys in both catalogues. typecheck + lint + build green. | **Apply `0016`** (DevOps), then QA it in a browser — none of it has been clicked, and §5j is the standing evidence that matters. Then Sprint 10, which is the one not to compress. |
 | 2026-08-08 | **Sprint 0 built** (§5m) — rate limiting, account lockout and the email outbox, on `feature/sprint-0-auth-hardening`. New `auth_attempts` and `email_outbox` tables (migration `0015`, **written not applied**), `lib/auth-throttle.ts` on all five auth endpoints, `lib/email-outbox.ts` with a `FOR UPDATE SKIP LOCKED` claim, an `instrumentation.ts` interval drainer and a secret-guarded `/api/internal/email/drain`. Every screen that used to claim "sent" now says "queued", because that is now all it knows. Corrected `SPRINTS.md`: Sprint 0 does need a migration, and Sprints 9–21's numbers each shifted up by one. typecheck + lint + build green. | **Apply `0015`** (DevOps), then exercise a lockout and a drain in a browser. Then Sprint 9 — it is the keystone and everything in R1 waits on it. |
 | 2026-08-07 | Surveyed codebase, established STATE.md, scoped both migrations, identified the Edge-middleware DB hazard. | — |

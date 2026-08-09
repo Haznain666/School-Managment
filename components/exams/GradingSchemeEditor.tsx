@@ -165,6 +165,21 @@ export function GradingSchemeEditor({ schemes, canWrite }: GradingSchemeEditorPr
           </p>
         ) : null}
 
+        {/* A school with schemes but no active default grades exactly like a
+            school with none — a dash everywhere — and the two are impossible to
+            tell apart from a report card. The API now makes a first scheme the
+            default, so this only shows for a school whose default was retired
+            or which predates that rule; saying so beats leaving them to wonder
+            why their bands do nothing. */}
+        {schemes.length > 0 &&
+        !schemes.some((scheme) => scheme.isDefault && scheme.isActive) ? (
+          <p className="mb-4 rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-800">
+            None of these schemes is the active default, so report cards and
+            tabulation sheets are printing a dash for every grade. Choose one
+            with <strong>Make default</strong>.
+          </p>
+        ) : null}
+
         {schemes.length === 0 && !isEditing ? (
           <p className="text-sm text-slate-600">
             No grading scheme yet, so report cards will print marks and

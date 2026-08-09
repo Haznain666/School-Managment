@@ -35,30 +35,47 @@
   }
 }
 
-/*
- * Printing a fee challan.
- *
- * A challan is handed over a counter, so the printed sheet must carry the slip
- * and nothing else — not the sidebar, not the navbar, not the action buttons.
- * Hiding the shell by `visibility` rather than `display` keeps the print
- * container's own layout intact while everything around it stops painting,
- * which is what makes the three copies fall on one A4 page.
- *
- * `#challan-print` is rendered by `components/fees/ChallanPrintView.tsx` and is
- * the only element in the application that uses this id.
- */
 /* -----------------------------------------------------------------------------
  * Printing.
  *
  * Generic, and keyed off `[data-print-root]` rather than any one document's id,
- * so every printable — fee vouchers today, receipts, ID cards, certificates and
- * marksheets later — gets this for free by rendering inside `<PrintSheet>`.
- * See `components/print/PrintSheet.tsx`.
+ * so every printable — fee vouchers, report cards, tabulation sheets, admit
+ * cards and whatever comes next — gets this for free by rendering inside
+ * `<PrintSheet>`. See `components/print/PrintSheet.tsx`.
+ *
+ * A printed sheet must carry the document and nothing else: not the sidebar,
+ * not the navbar, not the action buttons. The shell is hidden by `visibility`
+ * rather than `display` because that keeps the print container's own layout
+ * intact while everything around it stops painting, which is what makes the
+ * three copies of a challan fall on one A4 page.
  *
  * The page size lives with the component rather than here: `@page` is
  * per-document and cannot be scoped by selector, so `PrintSheet` injects the
  * rule for the paper it was asked for.
+ *
+ * ── The screen/print split, and the bug it exists to prevent ──────────────
+ * The sheet must be invisible on screen — it sits inside an ordinary page — and
+ * that hiding has to be **scoped to screen media**, which is why it lives here
+ * rather than as a `hidden` class on the component.
+ *
+ * Until 2026-08-09 `PrintSheet` carried Tailwind's `hidden`, which is an
+ * unqualified `display: none` and so applied while printing too. A
+ * `display: none` subtree is never laid out, so the `visibility: visible` below
+ * had nothing to reveal and **every printed document came out blank** — fee
+ * challans included, from the day the framework was written, which is why
+ * nobody caught it: STATE.md §5e records that print was never actually run.
+ *
+ * The `display` override inside the print block is deliberate belt-and-braces.
+ * This file loads after Tailwind's utilities, so on a specificity tie the
+ * attribute selector wins over a stray `hidden`, and a future caller cannot
+ * reintroduce the same blank page.
  * -------------------------------------------------------------------------- */
+@media screen {
+  [data-print-root] {
+    display: none;
+  }
+}
+
 @media print {
   body * {
     visibility: hidden;
@@ -70,6 +87,7 @@
   }
 
   [data-print-root] {
+    display: block;
     position: absolute;
     left: 0;
     top: 0;

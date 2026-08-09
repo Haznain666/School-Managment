@@ -32,6 +32,15 @@ export const GET = withSchoolAuth<RouteContext>(
       const { examId } = await context.params;
       if (!isUuid(examId)) return apiFailure('not_found', 'Exam not found.', 404);
 
+      // `listExamPapers` is tenant-filtered, so another school's exam already
+      // came back as an empty list rather than leaking. But every sibling route
+      // answers 404 for an id that is not this school's, and being the one that
+      // answers `200 {papers: []}` makes "no papers yet" and "not your exam"
+      // indistinguishable to a caller. QA flagged the inconsistency; this is it
+      // closed.
+      const exam = await getExamDetail(auth.locationId, examId);
+      if (exam === null) return apiFailure('not_found', 'Exam not found.', 404);
+
       return apiSuccess({ papers: await listExamPapers(auth.locationId, examId) });
     } catch (error) {
       return handleApiError(error);

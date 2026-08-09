@@ -18,6 +18,21 @@ import { readBoolean, readString } from '@/lib/validation';
  * scheme with no bands grades nothing — creating one and then failing to add
  * bands would leave a school with a grading scheme that silently produces no
  * grades at all.
+ *
+ * ── The first scheme a school creates becomes its default ────────────────
+ * `is_default` used to come from the body and default to false, and nothing in
+ * the UI sent it. So a school could configure a complete six-band ladder and
+ * every report card and tabulation sheet would still print a dash for every
+ * grade, because `bandsForTerm()` found no default to fall back to — the exact
+ * output as a school that had configured nothing at all. QA hit this on
+ * 2026-08-09.
+ *
+ * That ambiguity is worse than either state on its own: "no grades because
+ * nobody has said what an A is" is a deliberate, legible answer (see
+ * `lib/grading.ts`), and it stops being legible the moment it also means "you
+ * did say, and we ignored it". A school with exactly one scheme has, by
+ * construction, told us which one to grade by. Subsequent schemes still have
+ * to be promoted deliberately, because then the choice is real.
  */
 
 export const runtime = 'nodejs';
@@ -63,22 +78,18 @@ export const POST = withSchoolAuth(
         return apiFailure('invalid_body', problem, 400);
       }
 
-      const clash = await db
-        .select({ id: gradingSchemes.id })
+      const existing = await db
+        .select({ id: gradingSchemes.id, name: gradingSchemes.name })
         .from(gradingSchemes)
-        .where(
-          and(
-            eq(gradingSchemes.locationId, auth.locationId),
-            eq(gradingSchemes.name, name),
-          ),
-        )
-        .limit(1);
+        .where(eq(gradingSchemes.locationId, auth.locationId));
 
-      if (clash[0] !== undefined) {
+      if (existing.some((scheme) => scheme.name === name)) {
         return apiFailure('duplicate', `There is already a scheme called "${name}".`, 409);
       }
 
-      const isDefault = readBoolean(body.isDefault, false);
+      // The first scheme a school creates is its default whatever the body
+      // says — see the docblock. After that, promotion is deliberate.
+      const isDefault = existing.length === 0 || readBoolean(body.isDefault, false);
 
       const created = await db
         .insert(gradingSchemes)

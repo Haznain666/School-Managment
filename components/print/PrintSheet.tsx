@@ -19,10 +19,17 @@
  * its money.
  *
  * ── Screen vs paper ──────────────────────────────────────────────────────
- * The sheet is `hidden` on screen and revealed only by the `@media print`
- * rules in `globals.css`, which key off `[data-print-root]`. That is why this
- * component can sit inside an ordinary page: it costs nothing visually until
- * someone prints.
+ * The sheet is hidden on screen and revealed only when printing. **Both halves
+ * of that live in `globals.css`, keyed off `[data-print-root]`, and neither
+ * belongs on this element as a class.** Tailwind's `hidden` was used here
+ * until 2026-08-09; it is an unqualified `display: none`, so it applied while
+ * printing too, and a `display: none` subtree is never laid out — which meant
+ * `visibility: visible` had nothing to reveal and every printed document,
+ * including the fee challan, came out blank. The hiding is now scoped to
+ * `@media screen`, where it can be undone by the print rules.
+ *
+ * So this component can still sit inside an ordinary page and cost nothing
+ * visually until someone prints — it just no longer takes the paper with it.
  */
 
 /** Paper the document is designed for. */
@@ -52,7 +59,9 @@ export function PrintSheet({
       {/* Fixed strings from the record above; nothing caller-supplied is
           interpolated, so there is no injection surface here. */}
       <style dangerouslySetInnerHTML={{ __html: PAGE_RULES[paper] }} />
-      <div data-print-root="" className="hidden bg-white text-black">
+      {/* No `hidden` here: `globals.css` hides this off-screen under
+          `@media screen` so the print rules can undo it. See the docblock. */}
+      <div data-print-root="" className="bg-white text-black">
         {children}
       </div>
     </>

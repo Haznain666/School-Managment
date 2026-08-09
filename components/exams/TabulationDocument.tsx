@@ -123,10 +123,14 @@ export function TabulationDocument({
           </tbody>
         </table>
 
+        {/* This sentence is what a principal reads to interpret the grid, so it
+            has to state the policy the code actually implements: the paper's
+            maximum stays in the denominator, the absent student contributes
+            nothing to the numerator. It said the reverse until 2026-08-09. */}
         <p className="mt-1 text-[8px] italic">
-          * re-sit mark · ABS absent, counted out of the marks obtained but not
-          out of the marks available · a student absent from any paper takes no
-          position.
+          * re-sit mark · ABS absent: the paper still counts towards the marks
+          available, and nothing is added to the marks obtained · a student
+          absent from any paper takes no position.
         </p>
 
         <section className="mt-3 border border-black p-1.5">
