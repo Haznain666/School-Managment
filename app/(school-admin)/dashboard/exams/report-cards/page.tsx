@@ -3,7 +3,8 @@ import Link from 'next/link';
 
 import { ReportCardPicker } from '@/components/exams/ReportCardPicker';
 import { Card } from '@/components/ui/Card';
-import { listGrades, listSections } from '@/lib/admissions-queries';
+import { listAdmissionsBranches, listGrades, listSections } from '@/lib/admissions-queries';
+import { gradeLabels, sectionLabel } from '@/lib/class-labels';
 import { listExamTerms } from '@/lib/exam-queries';
 import { requireSchoolPermission } from '@/lib/school-guard';
 
@@ -17,13 +18,16 @@ export const runtime = 'nodejs';
 export default async function ReportCardsPage() {
   const { locationId } = await requireSchoolPermission('exams.read');
 
-  const [terms, sections, grades] = await Promise.all([
+  const [terms, sections, grades, branches] = await Promise.all([
     listExamTerms(locationId),
     listSections(locationId, {}),
     listGrades(locationId),
+    listAdmissionsBranches(locationId),
   ]);
 
-  const gradeById = new Map(grades.map((grade) => [grade.id, grade.label]));
+  // Qualified by campus only where two grades share a name — see
+  // `lib/class-labels.ts` for why that rule lives in one place now.
+  const gradeById = gradeLabels(grades, branches);
 
   return (
     <div className="space-y-6">
@@ -53,7 +57,10 @@ export default async function ReportCardsPage() {
           sections={sections.map((section) => ({
             id: section.id,
             academicYearId: section.academicYearId,
-            label: `${gradeById.get(section.gradeId) ?? 'Class'} — ${section.name}`,
+            label: sectionLabel(
+              gradeById.get(section.gradeId) ?? 'Class',
+              section.name,
+            ),
           }))}
         />
       )}

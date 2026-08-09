@@ -5,9 +5,11 @@ import { StudentImporter } from '@/components/admissions/StudentImporter';
 import { Card } from '@/components/ui/Card';
 import {
   getActiveAcademicYear,
+  listAdmissionsBranches,
   listGrades,
   listSections,
 } from '@/lib/admissions-queries';
+import { gradeLabels, sectionLabel } from '@/lib/class-labels';
 import { requireSchoolPermission } from '@/lib/school-guard';
 
 export const metadata: Metadata = {
@@ -65,15 +67,27 @@ export default async function ImportStudentsPage() {
     })),
   );
 
-  // "Grade 6 — A (28 students)". The count is there because loading forty
-  // children into a section that already has thirty is a mistake somebody
-  // makes once, and the only moment to catch it is while choosing.
+  /*
+   * "Grade 6 (Johar Town) — A (28)".
+   *
+   * The count is there because loading forty children into a section that
+   * already has thirty is a mistake somebody makes once, and the only moment to
+   * catch it is while choosing. The campus, where it is needed, is there for the
+   * same reason: loading a class into the wrong one is discovered when the
+   * register comes out. See `lib/class-labels.ts`.
+   */
+  const classNames = gradeLabels(grades, await listAdmissionsBranches(locationId));
+
   const options = sectionLists.flatMap(({ grade, sections }) =>
     sections
       .filter((section) => section.isActive)
       .map((section) => ({
         id: section.id,
-        label: `${grade.label} — ${section.name} (${section.studentCount} student${section.studentCount === 1 ? '' : 's'})`,
+        label: sectionLabel(
+          classNames.get(grade.id) ?? grade.label,
+          section.name,
+          section.studentCount,
+        ),
       })),
   );
 

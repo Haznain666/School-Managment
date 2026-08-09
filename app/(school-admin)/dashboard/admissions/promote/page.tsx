@@ -10,6 +10,7 @@ import {
   listGrades,
   listSections,
 } from '@/lib/admissions-queries';
+import { gradeLabels, sectionLabel } from '@/lib/class-labels';
 import { requireSchoolPermission } from '@/lib/school-guard';
 
 export const metadata: Metadata = {
@@ -71,22 +72,10 @@ export default async function PromoteStudentsPage() {
     })),
   );
 
-  /**
-   * Disambiguates a grade name that exists at more than one campus.
-   *
-   * A school running "Grade 5" at two branches otherwise gets a picker reading
-   * "Grade 4, Grade 5, Grade 6, Grade 5", and promoting into the wrong campus
-   * is not a mistake anyone would notice until the register came out. The
-   * campus is added only when it is needed, so a single-campus school is not
-   * made to read its own name against every class.
-   */
-  function gradeLabel(grade: (typeof grades)[number]): string {
-    const duplicated = grades.filter((other) => other.label === grade.label).length > 1;
-    if (!duplicated) return grade.label;
-
-    const campus = branches.find((branch) => branch.id === grade.branchId);
-    return campus === undefined ? grade.label : `${grade.label} (${campus.name})`;
-  }
+  // Qualified by campus only where two grades share a name. Promoting into the
+  // wrong campus is not a mistake anyone would notice until the register came
+  // out. See `lib/class-labels.ts`.
+  const labelForGrade = gradeLabels(grades, branches);
 
   const sections = sectionLists.flatMap(({ grade, sections: rows }) =>
     rows
@@ -95,7 +84,11 @@ export default async function PromoteStudentsPage() {
         id: section.id,
         gradeId: grade.id,
         academicYearId: section.academicYearId,
-        label: `${gradeLabel(grade)} — ${section.name} (${section.studentCount})`,
+        label: sectionLabel(
+          labelForGrade.get(grade.id) ?? grade.label,
+          section.name,
+          section.studentCount,
+        ),
       })),
   );
 
@@ -110,7 +103,10 @@ export default async function PromoteStudentsPage() {
       </div>
 
       <PromotionRunner
-        grades={grades.map((grade) => ({ id: grade.id, label: gradeLabel(grade) }))}
+        grades={grades.map((grade) => ({
+          id: grade.id,
+          label: labelForGrade.get(grade.id) ?? grade.label,
+        }))}
         years={years.map((year) => ({
           id: year.id,
           name: year.name,

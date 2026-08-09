@@ -2142,6 +2142,91 @@ thing that will produce a file that size.
 
 ---
 
+## 5r. Dress rehearsal — started 2026-08-10
+
+### ⚠️ This is not the R1 exit gate, and cannot be yet
+
+`SPRINTS.md` §1.1 schedules the rehearsal for **Sep 4–7, after Sprints 11, 12
+and 13**. None of those exist. So what has been run is a rehearsal of Sprints
+0–10 — everything built — and it certifies nothing about R1. Its value is that
+it finds defects now rather than in September, and on that it delivered
+immediately.
+
+**Still missing from R1:** Sprint 11 (communications), Sprint 12 (reports &
+analytics), Sprint 13 (portals + PWA + BR4). The parent and student portals in
+particular have no results view, so "every role" cannot be exercised.
+
+### The seed now carries a full examined term
+
+Printing was unprovable without one: a report card, a tabulation sheet and an
+admit card are all views over exam data, and the fixture had none. The seed now
+adds 5 subjects, a grading scheme, a **published** First Term, one exam per
+section, **50 papers, 2,121 marks, 63 absences and 76 re-sits**, plus a
+fortnight of registers so the attendance panel is not blank.
+
+Deliberately imperfect, like the rest of it: absences are `is_absent` with a
+null mark rather than a zero, some marks fall below the pass mark, one paper per
+exam stays **unpublished** so the report card has something it must not show,
+and mid-term joiners are skipped in the register rather than marked absent.
+
+### All four printed documents render, and are correct
+
+Verified by revealing the print root and reading the compiled `@media print`
+rules — the same method §5n used, and still **not** a sheet of A4.
+
+| Document | Result |
+| --- | --- |
+| Report card | 44 cards, 43 page breaks. The unpublished paper correctly absent from both the subject list and the `/400` denominator. `ABS` printed, and **"Not ranked (absent from 2 papers)"** — §5n's policy, working. |
+| Tabulation sheet | 44 rows, unpublished paper daggered and **included** at `/500` — right, it is a review sheet behind `exams.read`. Legend states the absence policy correctly. Position holders block. |
+| Admit card | 44 cards, all five papers including the unpublished one — right, a datesheet is not a result. |
+| Fee challan | Three copies, cut line, amount in words, concession column. |
+
+The cascade is right in the compiled stylesheet: `display: none` on screen,
+`display: block` + `visibility: visible` under print.
+
+### Three defects found
+
+**1. The suggested grading ladder had no band below 33%.** A card printed
+`Mathematics 22% —` beside `Science 71% A`. §5n's "a dash, not an invented F"
+rule is about a school that has configured *nothing*; for a school that has
+configured a ladder and simply had a child fail, a blank grade reads as a broken
+report card. `SUGGESTED_BANDS` now offers **F, 0–32.99**. The resolver is
+unchanged, and a school that would rather leave failures blank deletes the band.
+
+**2. The seed marker was printing on every fee challan.** It lived in the
+school's postal address — which the challan carries, along with the name,
+campus and telephone — so every voucher a parent would take to a bank read
+`12 Ferozepur Road, Lahore — SEEDED-BY db/seed/adversarial-school.ts`. It has
+moved to the school's **email**, on a `.invalid` domain that RFC 2606 reserves,
+so no real school can hold it by accident.
+
+*The guard proved itself in the process*: after the change, re-running the seed
+**refused** to delete the school still carrying the old marker, exactly as
+designed. It had to be removed deliberately once.
+
+**3. Ambiguous class names, for the fourth and fifth time.** The report-card
+picker showed "Grade 5 — A" twice with nothing to distinguish the campuses, and
+so did the exam scheduler. That is the same defect already fixed in the
+promotion picker, the aged-debt filter and the transfer picker — **fixed four
+times and still present in a fifth place**, which is the tell that it needed one
+home rather than four patches.
+
+`lib/class-labels.ts` now owns the rule and all five call sites use it. The rule
+itself is unchanged: **qualify only what is actually ambiguous**, so a
+single-campus school is never made to read its own name against every class.
+
+### Still not verified
+
+1. **Nothing has been on paper.** Unchanged, and now the only thing between
+   here and a printed-document sign-off. Margins, the A4 page break and the
+   landscape tabulation grid are all unproven at real size.
+2. **No school in the fixture has a logo**, so `PrintLetterhead` has still only
+   ever rendered its name-only fallback on these documents (§5o proved the logo
+   path separately, on `Sample Test School`).
+3. **Sprints 11–13**, as above.
+
+---
+
 ## 6. Open items for the user
 
 1. ~~Install GitHub CLI~~ — **partly regressed.** Git has a stored credential
@@ -2167,6 +2252,7 @@ thing that will produce a file that size.
 
 | Date | Session did | Next |
 | --- | --- | --- |
+| 2026-08-10 | **Dress rehearsal started** (§5r) — of Sprints 0–10, not of R1, which cannot be rehearsed because Sprints 11–13 do not exist. Extended the seed with a full published examined term (50 papers, 2,121 marks, 63 absences, 76 re-sits) and a fortnight of registers, because none of the four printed documents could be produced without one. **All four render and are correct**: the report card excludes the unpublished paper from its list *and* its denominator, prints `ABS` and refuses a position to anyone absent; the tabulation sheet daggers the unpublished paper and includes it, being a review document; the admit card carries all five, being a datesheet. Three defects: the suggested grading ladder had no band below 33%, so a genuine fail printed a blank grade beside a passing A; the seed's own marker was printing on every fee challan, having been put in the postal address; and class names were ambiguous across campuses for the fourth and fifth time, which is what finally moved the rule into `lib/class-labels.ts`. | **Print one of each on real A4.** It is now the only thing left before the printed documents can be signed off, and it needs a person with a printer. Then Sprint 11. |
 | 2026-08-10 | **Sprint 10 complete, every piece clicked** (§5q). Transfer and family vouchers verified against the seeded school, and doing it found the sprint's most consequential defect: `student_enrollments` was uniquely indexed on (student, year), so a transfer — which by design opens a second enrolment in the same year — failed at the database every time. Editing the row in place would have been worse, because `attendance_records.enrollment_id` points at it and a register taken at the old campus would afterwards claim the new one. Migration `0019` makes the index partial on `status = 'active'`: one *placement* at a time, closed rows accumulating as history. Also: the transfer picker had promotion's year-duplication defect (written twice, seen once), and family vouchers could be issued but not paid — the route distributed a payment across the children's challans and no screen offered to record one. | **Print one of each document on real A4.** It is now the largest unverified thing in the project, and has been since §5n. Then the dress rehearsal. |
 | 2026-08-10 | **Sprint 10 feature-complete** (§5q). Promotion, transfer with proration, family vouchers, the aged-debt report and the adversarial seed — 409 students, 10 classes, 2 campuses, 3 years, 3 months of challans, with siblings, missing emails, mid-term joiners, partial payments, concessions and names carrying commas and non-ASCII. Promotion and the aged-debt report were run against that data and seven more defects came out of it, **three of them the same performance defect in three different features**: a loop of single-row writes, which against Supabase is one round trip each. Saving and applying a 128-student promotion was nearly 400 of them inside a held-open transaction; set-based it is four statements and 20 seconds. Also: promotion offered *earlier* years as destinations, destination classes appeared once per academic year, "Grade 5" was ambiguous across campuses, and re-opening an existing run said "Something went wrong". | **Click transfer and family vouchers** — both are built and neither has been run, and the seeded school has the second campus and the 36 sibling families they need. Then the dress rehearsal. |
 | 2026-08-09 | **Sprint 10 started** (§5q) — migration `0018` applied and verified, three permission keys, and the CSV student import built and browser-verified end to end against a deliberately hostile file. Three defects the build could not see: the dry run was one round trip per row (25 seconds for seven rows, unusable at the 2000 it accepts — now one statement whatever the size); a duplicate admission number went unreported whenever the row also had a second fault, so it surfaced only after the operator fixed the *other* problem and re-uploaded; and the supplied admission number was used to detect duplicates and then discarded, which would renumber a migrated roll and break its link to every fee receipt and certificate the school holds. Also measured: ~2.4s per round trip to Supabase from this machine, which is why the commit loop must be re-timed once deployed rather than judged from here. | **Promotion, transfer, family vouchers, the defaulter list, and the adversarial seed** — the rest of Sprint 10. The seed is what first produces a file big enough to test the importer at real size. |

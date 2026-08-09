@@ -10,6 +10,7 @@ import {
   isAgingBucket,
   listDefaulters,
 } from '@/lib/defaulters';
+import { gradeLabels } from '@/lib/class-labels';
 import { requireSchoolPermission } from '@/lib/school-guard';
 
 export const metadata: Metadata = {
@@ -61,6 +62,10 @@ export default async function DefaultersPage({
     listAdmissionsBranches(locationId),
     listGrades(locationId, claims.branchId ?? undefined),
   ]);
+
+  // "Grade 5, Grade 5" is unreadable when a school runs one at each campus.
+  // See `lib/class-labels.ts` — the rule is shared, not repeated here.
+  const classNames = gradeLabels(grades, branches);
 
   const linkFor = (patch: Record<string, string | undefined>) => {
     const query = new URLSearchParams();
@@ -153,27 +158,15 @@ export default async function DefaultersPage({
           >
             All classes
           </Link>
-          {grades.map((grade) => {
-            // A school with the same grade at two campuses has two rows here,
-            // and "Grade 5, Grade 5" is unreadable. The campus disambiguates
-            // them — but only when it has to, so a single-campus school is not
-            // made to read its own name against every class.
-            const duplicated =
-              grades.filter((other) => other.label === grade.label).length > 1;
-            const campus = branches.find((branch) => branch.id === grade.branchId);
-
-            return (
-              <Link
-                key={grade.id}
-                href={linkFor({ grade: grade.id })}
-                className={filters.grade === grade.id ? 'font-semibold text-brand-primary' : 'text-slate-600 hover:underline'}
-              >
-                {duplicated && campus !== undefined
-                  ? `${grade.label} (${campus.name})`
-                  : grade.label}
-              </Link>
-            );
-          })}
+          {grades.map((grade) => (
+            <Link
+              key={grade.id}
+              href={linkFor({ grade: grade.id })}
+              className={filters.grade === grade.id ? 'font-semibold text-brand-primary' : 'text-slate-600 hover:underline'}
+            >
+              {classNames.get(grade.id) ?? grade.label}
+            </Link>
+          ))}
         </div>
       ) : null}
 

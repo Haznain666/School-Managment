@@ -196,6 +196,22 @@ export const SUGGESTED_BANDS: readonly ResolvedBand[] = [
   { label: 'C', minPercentage: 50, maxPercentage: 59.99, gpa: 2.5, remark: 'Good' },
   { label: 'D', minPercentage: 40, maxPercentage: 49.99, gpa: 2, remark: 'Satisfactory' },
   { label: 'E', minPercentage: 33, maxPercentage: 39.99, gpa: 1, remark: 'Pass' },
+  /*
+   * The ladder has to reach the floor.
+   *
+   * Without this band a mark below 33 falls outside every band and the resolver
+   * — correctly, by the "no invented grade" rule — prints a dash. That rule is
+   * about a school which has configured *nothing*: a dash then means "this
+   * school does not grade", which is honest. It is the wrong answer for a
+   * school that has configured a ladder and simply had a child fail, where a
+   * blank grade beside 22% reads as a broken report card rather than as a fail.
+   *
+   * Found in the dress rehearsal: a card printed `Mathematics 22% —` next to
+   * `Science 71% A`. Adding F to what the editor *suggests* changes nothing
+   * about the resolver, and a school that would rather leave failures blank
+   * simply deletes the band.
+   */
+  { label: 'F', minPercentage: 0, maxPercentage: 32.99, gpa: 0, remark: 'Fail' },
 ];
 
 /**

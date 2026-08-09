@@ -4,7 +4,8 @@ import Link from 'next/link';
 import { ExamScheduler } from '@/components/exams/ExamScheduler';
 import { TermManager } from '@/components/exams/TermManager';
 import { Card } from '@/components/ui/Card';
-import { listGrades, listSections } from '@/lib/admissions-queries';
+import { listAdmissionsBranches, listGrades, listSections } from '@/lib/admissions-queries';
+import { gradeLabels, sectionLabel } from '@/lib/class-labels';
 import { listAcademicYearOptions } from '@/lib/academics-queries';
 import { listExamTerms, listExams, listGradingSchemes } from '@/lib/exam-queries';
 import { requireSchoolPermission } from '@/lib/school-guard';
@@ -28,16 +29,19 @@ export const runtime = 'nodejs';
 export default async function ExamsOverviewPage() {
   const { locationId, permissions } = await requireSchoolPermission('exams.read');
 
-  const [terms, exams, years, schemes, sections, grades] = await Promise.all([
+  const [terms, exams, years, schemes, sections, grades, branches] = await Promise.all([
     listExamTerms(locationId),
     listExams(locationId),
     listAcademicYearOptions(locationId),
     listGradingSchemes(locationId),
     listSections(locationId, {}),
     listGrades(locationId),
+    listAdmissionsBranches(locationId),
   ]);
 
-  const gradeById = new Map(grades.map((grade) => [grade.id, grade.label]));
+  // Qualified by campus only where two grades share a name — see
+  // `lib/class-labels.ts`.
+  const gradeById = gradeLabels(grades, branches);
 
   return (
     <div className="space-y-6">
@@ -98,7 +102,10 @@ export default async function ExamsOverviewPage() {
           id: section.id,
           gradeId: section.gradeId,
           academicYearId: section.academicYearId,
-          label: `${gradeById.get(section.gradeId) ?? 'Class'} — ${section.name}`,
+          label: sectionLabel(
+            gradeById.get(section.gradeId) ?? 'Class',
+            section.name,
+          ),
         }))}
         exams={exams}
         canWrite={permissions.includes('exams.write')}

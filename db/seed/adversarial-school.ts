@@ -31,9 +31,11 @@
  * cascades to all 43 tenant tables, so there is nothing to clean up by hand
  * and no half-seeded state to reason about.
  *
- * **It refuses to touch a school it did not create.** The slug is fixed and
- * the school carries a marker in its address; if a school exists on that slug
- * without the marker, the script stops rather than deleting somebody's data.
+ * **It refuses to touch a school it did not create.** The slug is fixed and the
+ * school carries a marker in its email address — see `MARKER_EMAIL`, and note
+ * that it deliberately does *not* live in the postal address, which is printed
+ * on every fee challan. If a school exists on that slug without the marker, the
+ * script stops rather than deleting somebody's data.
  *
  * ## Running it
  *
@@ -46,13 +48,22 @@
  * them. That is the same split `db:migrate` needs — see STATE.md §5d.
  */
 
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import postgres from 'postgres';
 import { drizzle } from 'drizzle-orm/postgres-js';
 
+import { SUGGESTED_BANDS } from '../../lib/grading';
 import {
   academicYears,
+  attendanceRecords,
   branches,
+  examResults,
+  examSubjects,
+  examTerms,
+  exams,
+  gradingBands,
+  gradingSchemes,
+  subjects,
   feeChallanItems,
   feeChallans,
   feePayments,
@@ -70,8 +81,18 @@ import {
 
 const SLUG = 'rehearsal-academy';
 const SCHOOL_CODE = 'RHA';
-/** Written into the school's address so the script can recognise its own work. */
-const MARKER = 'SEEDED-BY db/seed/adversarial-school.ts';
+/**
+ * How the script recognises its own work before deleting anything.
+ *
+ * It lives in the school's **email**, not its address. The address is printed:
+ * a fee challan carries the school's name, campus, address and telephone, and
+ * the marker was appearing on every voucher a parent would take to a bank —
+ * found in the dress rehearsal, on the first challan opened.
+ *
+ * `.invalid` is reserved by RFC 2606 and can never be a real domain, so no
+ * school this script did not create can hold this address by accident.
+ */
+const MARKER_EMAIL = 'seeded@rehearsal-academy.invalid';
 
 // -----------------------------------------------------------------------------
 // Deterministic randomness
@@ -156,8 +177,10 @@ async function main(): Promise<void> {
     const fees = await seedFeeHeads(ctx, gradeRows, thisYear);
     const students = await seedStudents(ctx, sectionRows, thisYear);
     await seedFees(ctx, students, fees, thisYear);
+    const exams = await seedExams(ctx, sectionRows, students, thisYear);
+    await seedAttendance(ctx, students, thisYear);
 
-    report(students, sectionRows);
+    report(students, sectionRows, exams);
   } finally {
     await sql.end();
   }
@@ -171,7 +194,7 @@ async function main(): Promise<void> {
  */
 async function reset(db: Ctx['db']): Promise<void> {
   const existing = await db
-    .select({ id: schools.id, address: schools.address, name: schools.name })
+    .select({ id: schools.id, email: schools.email, name: schools.name })
     .from(schools)
     .where(eq(schools.slug, SLUG))
     .limit(1);
@@ -179,7 +202,7 @@ async function reset(db: Ctx['db']): Promise<void> {
   const school = existing[0];
   if (school === undefined) return;
 
-  if (school.address === null || !school.address.includes(MARKER)) {
+  if (school.email !== MARKER_EMAIL) {
     throw new Error(
       `A school already exists on the slug "${SLUG}" and it was not seeded by this script ` +
         `("${school.name}"). Refusing to delete it. Change SLUG or remove that school by hand.`,
@@ -202,9 +225,10 @@ async function seedSchool(db: Ctx['db']): Promise<string> {
     slug: SLUG,
     schoolCode: SCHOOL_CODE,
     city: 'Lahore',
-    address: `12 Ferozepur Road, Lahore — ${MARKER}`,
+    // Printed on every challan, so it carries nothing but an address.
+    address: '12 Ferozepur Road, Gulberg III, Lahore',
     phone: '+924235000000',
-    email: 'office@rehearsal.invalid',
+    email: MARKER_EMAIL,
     isActive: true,
   });
 
@@ -679,6 +703,302 @@ async function seedFees(
   await insertInChunks(db, feePayments, payments);
 }
 
+const SUBJECT_NAMES = [
+  { name: 'English', code: 'ENG' },
+  { name: 'Urdu', code: 'URD' },
+  { name: 'Mathematics', code: 'MTH' },
+  { name: 'Science', code: 'SCI' },
+  { name: 'Islamiat', code: 'ISL' },
+] as const;
+
+interface SeededExams {
+  papers: number;
+  results: number;
+  absences: number;
+  resits: number;
+}
+
+/**
+ * A complete, published examined term — the thing every printed document needs.
+ *
+ * Without this there is nothing to print: a report card, a tabulation sheet and
+ * an admit card are all views over exam data, and the rehearsal's whole purpose
+ * is to put each of them on paper. Seeding it here rather than clicking through
+ * eight screens per section is the difference between a rehearsal that can be
+ * repeated and one that can be done once.
+ *
+ * Deliberately imperfect, for the same reason as everything else in this file:
+ *
+ *   - **Absences.** `is_absent` with a null mark, not a zero — zero is a real
+ *     mark and Sprint 9's aggregate policy turns on the difference. A student
+ *     absent from any paper takes no position in class, so the tabulation sheet
+ *     has to have some.
+ *   - **Failures.** Marks below the pass mark, so a report card prints a fail
+ *     and the grading bands are exercised at their bottom end.
+ *   - **A re-sit.** One paper carries attempt 2, which is its own publication
+ *     lifecycle and is the case most likely to be wrong on a printed card.
+ *   - **One unpublished paper per term.** The report card must show published
+ *     papers only, and a term where everything is published cannot prove it.
+ */
+async function seedExams(
+  { db, locationId }: Ctx,
+  sectionRows: SectionRow[],
+  students: SeededStudent[],
+  thisYear: string,
+): Promise<SeededExams> {
+  const subjectRows = await db
+    .insert(subjects)
+    .values(
+      SUBJECT_NAMES.map((subject) => ({
+        locationId,
+        name: subject.name,
+        code: subject.code,
+        isActive: true,
+      })),
+    )
+    .returning({ id: subjects.id, name: subjects.name });
+
+  // The bands a school would actually configure. `SUGGESTED_BANDS` is what the
+  // editor offers; using the same ladder here means a report card printed from
+  // the seed matches what a school setting itself up would see.
+  const schemeRows = await db
+    .insert(gradingSchemes)
+    .values({
+      locationId,
+      name: 'Standard Ladder',
+      isDefault: true,
+      isActive: true,
+    })
+    .returning({ id: gradingSchemes.id });
+
+  const schemeId = schemeRows[0]!.id;
+
+  await db.insert(gradingBands).values(
+    SUGGESTED_BANDS.map((band, index) => ({
+      locationId,
+      schemeId,
+      label: band.label,
+      minPercentage: String(band.minPercentage),
+      maxPercentage: String(band.maxPercentage),
+      gpa: band.gpa === null ? null : String(band.gpa),
+      remark: band.remark,
+      sortOrder: index,
+    })),
+  );
+
+  const termRows = await db
+    .insert(examTerms)
+    .values({
+      locationId,
+      academicYearId: thisYear,
+      name: 'First Term',
+      startDate: '2026-07-06',
+      endDate: '2026-07-17',
+      gradingSchemeId: schemeId,
+      // Published, so report cards can be printed. That is the whole point.
+      isPublished: true,
+      publishedAt: new Date(),
+    })
+    .returning({ id: examTerms.id });
+
+  const termId = termRows[0]!.id;
+
+  // One exam per section — Sprint 9's rule, and the reason the tabulation sheet
+  // is a class grid and "position in class" means anything.
+  const current = sectionRows.filter((section) => section.academicYearId === thisYear);
+
+  const examValues = current.map((section) => ({
+    locationId,
+    termId,
+    gradeId: section.grade.id,
+    sectionId: section.id,
+    // Not "First Term — …": the tabulation sheet prints the exam title *and*
+    // the term name, and a school naming its exam after the term gets
+    // "First Term — Grade 4 A · First Term" across the top of the page.
+    title: 'Mid-Session Examination',
+    examDate: '2026-07-06',
+    isPublished: true,
+    publishedAt: new Date(),
+  }));
+
+  const examRows = await db
+    .insert(exams)
+    .values(examValues)
+    .returning({ id: exams.id, sectionId: exams.sectionId });
+
+  const paperValues: Array<typeof examSubjects.$inferInsert> = [];
+
+  for (const exam of examRows) {
+    subjectRows.forEach((subject, index) => {
+      paperValues.push({
+        locationId,
+        examId: exam.id,
+        subjectId: subject.id,
+        maxMarks: '100',
+        passingMarks: '33',
+        examDate: `2026-07-${String(6 + index).padStart(2, '0')}`,
+        orderIndex: index,
+        // The last paper of each exam stays unpublished, so a report card has
+        // something it must *not* show.
+        resultsStatus: index === subjectRows.length - 1 ? 'submitted' : 'published',
+        publishedAt: index === subjectRows.length - 1 ? null : new Date(),
+      });
+    });
+  }
+
+  const paperRows = await db
+    .insert(examSubjects)
+    .values(paperValues)
+    .returning({
+      id: examSubjects.id,
+      examId: examSubjects.examId,
+      orderIndex: examSubjects.orderIndex,
+    });
+
+  const papersByExam = new Map<string, typeof paperRows>();
+  for (const paper of paperRows) {
+    papersByExam.set(paper.examId, [...(papersByExam.get(paper.examId) ?? []), paper]);
+  }
+
+  const examBySection = new Map(examRows.map((exam) => [exam.sectionId, exam.id]));
+
+  const resultValues: Array<typeof examResults.$inferInsert> = [];
+  let absences = 0;
+  let resits = 0;
+
+  for (const student of students) {
+    const examId = examBySection.get(student.sectionId);
+    if (examId === undefined) continue;
+
+    for (const paper of papersByExam.get(examId) ?? []) {
+      // 3% miss a paper. Absent is `is_absent` + a null mark, never a zero:
+      // zero means "sat it and answered nothing", and the two produce
+      // different report cards.
+      const absent = chance(0.03);
+      if (absent) {
+        absences += 1;
+        resultValues.push({
+          locationId,
+          examSubjectId: paper.id,
+          studentProfileId: student.profileId,
+          marksObtained: null,
+          isAbsent: true,
+        });
+        continue;
+      }
+
+      // A spread that reaches both ends of the ladder: some outstanding, some
+      // below the pass mark. A seed clustered around 70 exercises one band.
+      const roll = random();
+      const mark =
+        roll < 0.08 ? 15 + Math.floor(random() * 18)
+        : roll < 0.2 ? 33 + Math.floor(random() * 12)
+        : roll < 0.75 ? 45 + Math.floor(random() * 30)
+        : 75 + Math.floor(random() * 26);
+
+      resultValues.push({
+        locationId,
+        examSubjectId: paper.id,
+        studentProfileId: student.profileId,
+        marksObtained: String(mark),
+        isAbsent: false,
+      });
+
+      // A handful of the failures are re-sat. Attempt 2 of the same paper —
+      // not a second exam, which would double every tabulation sheet.
+      if (mark < 33 && chance(0.4)) {
+        resits += 1;
+        resultValues.push({
+          locationId,
+          examSubjectId: paper.id,
+          studentProfileId: student.profileId,
+          attempt: 2,
+          marksObtained: String(33 + Math.floor(random() * 15)),
+          isAbsent: false,
+          remarks: 'Re-sit',
+        });
+      }
+    }
+  }
+
+  await insertInChunks(db, examResults, resultValues);
+
+  return {
+    papers: paperRows.length,
+    results: resultValues.length,
+    absences,
+    resits,
+  };
+}
+
+/**
+ * Two weeks of registers, so a report card's attendance summary is not blank.
+ *
+ * Only a fortnight rather than a term: the summary is a count, the printed card
+ * shows it, and 409 students × 60 school days is 24,000 rows that prove nothing
+ * more than 4,000 do. Mid-term joiners are skipped before their start date,
+ * which is the case a naive percentage gets wrong.
+ */
+async function seedAttendance(
+  { db, locationId }: Ctx,
+  students: SeededStudent[],
+  thisYear: string,
+): Promise<void> {
+  const enrollments = await db
+    .select({
+      id: studentEnrollments.id,
+      studentProfileId: studentEnrollments.studentProfileId,
+      enrollmentDate: studentEnrollments.enrollmentDate,
+    })
+    .from(studentEnrollments)
+    .where(
+      and(
+        eq(studentEnrollments.locationId, locationId),
+        eq(studentEnrollments.academicYearId, thisYear),
+        eq(studentEnrollments.status, 'active'),
+      ),
+    );
+
+  const known = new Set(students.map((student) => student.profileId));
+  const values: Array<typeof attendanceRecords.$inferInsert> = [];
+
+  // 6–17 July 2026, weekdays only — the fortnight the exams sat in.
+  const days: string[] = [];
+  for (let day = 6; day <= 17; day += 1) {
+    const date = new Date(Date.UTC(2026, 6, day));
+    const weekday = date.getUTCDay();
+    if (weekday === 0 || weekday === 6) continue;
+    days.push(`2026-07-${String(day).padStart(2, '0')}`);
+  }
+
+  for (const enrollment of enrollments) {
+    if (!known.has(enrollment.studentProfileId)) continue;
+
+    const joined = String(enrollment.enrollmentDate).slice(0, 10);
+
+    for (const date of days) {
+      // A child who had not joined yet was not absent — they were not there to
+      // be marked, and counting those days would give every mid-term joiner a
+      // terrible attendance percentage.
+      if (date < joined) continue;
+
+      const roll = random();
+      const status = roll < 0.9 ? 'present' : roll < 0.96 ? 'absent' : 'late';
+
+      values.push({
+        locationId,
+        academicYearId: thisYear,
+        date,
+        studentProfileId: enrollment.studentProfileId,
+        enrollmentId: enrollment.id,
+        status,
+      });
+    }
+  }
+
+  await insertInChunks(db, attendanceRecords, values);
+}
+
 /**
  * Inserts in batches.
  *
@@ -700,7 +1020,11 @@ async function insertInChunks<T extends Record<string, unknown>>(
   }
 }
 
-function report(students: SeededStudent[], sectionRows: SectionRow[]): void {
+function report(
+  students: SeededStudent[],
+  sectionRows: SectionRow[],
+  exams: SeededExams,
+): void {
   const withoutGuardian = students.filter((student) => !student.hasGuardian).length;
   const unreachable = students.filter(
     (student) => student.hasGuardian && !student.reachable,
@@ -718,6 +1042,9 @@ Seeded "Rehearsal Academy" (${SLUG}):
   ${unreachable} whose guardian has no email address
   ${withConcession} holding a concession
   3 months of challans — paid, partly paid and unpaid
+  a published First Term: ${exams.papers} papers, ${exams.results} marks,
+    ${exams.absences} absences and ${exams.resits} re-sits
+  two weeks of registers
 
 Sign in as a platform operator and use "Login as Admin", or add an
 administrator from the Super Admin school page. The Admissions and Fee
