@@ -130,6 +130,11 @@ export function SchoolSidebar({ role, permissions, moduleFlags }: SchoolSidebarP
         { label: 'Overview', href: '/dashboard/fees' },
         { label: 'Fee Structure', href: '/dashboard/fees/types' },
         { label: 'Challans', href: '/dashboard/fees/challans' },
+        { label: 'Family Vouchers', href: '/dashboard/fees/family' },
+        // Aged debt per student. Distinct from the Defaulters *tab* inside Fee
+        // Reports, which is a per-challan chase list feeding the reminder
+        // sender — see the page's docblock for why both exist.
+        { label: 'Aged Debt', href: '/dashboard/fees/defaulters' },
         { label: 'Reports', href: '/dashboard/fees/reports' },
         ...(can('fees.write')
           ? [{ label: 'Settings', href: '/dashboard/fees/settings' }]
