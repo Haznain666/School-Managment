@@ -242,7 +242,17 @@ export function normaliseImportPhone(value: string): string | null {
   return /^3\d{9}$/.test(bare) ? `+92${bare}` : null;
 }
 
-function readMapped(
+/**
+ * One mapped value out of a raw row.
+ *
+ * Exported because the duplicate-admission-number check needs the number
+ * whether or not the rest of the row is valid. Reading it off the parsed
+ * candidate instead — which is null the moment a row has any other error —
+ * makes a duplicate invisible until the *other* problem is fixed, so the
+ * operator corrects an email address, re-uploads, and only then discovers the
+ * collision. See `validateBatch`.
+ */
+export function mappedValue(
   row: Record<string, string>,
   columnMap: Record<string, string>,
   field: string,
@@ -251,6 +261,8 @@ function readMapped(
   if (column === undefined || column === '') return '';
   return (row[column] ?? '').trim();
 }
+
+const readMapped = mappedValue;
 
 /**
  * Validates one row against the mapping.

@@ -79,6 +79,12 @@ export function SchoolSidebar({ role, permissions, moduleFlags }: SchoolSidebarP
         ...(can('admissions.write')
           ? [{ label: 'Enroll Student', href: '/dashboard/admissions/enroll' }]
           : []),
+        // Gated on its own key, not on `admissions.write`: enrolling one child
+        // and loading eight hundred are different-sized mistakes, which is why
+        // Sprint 10 gave the import a permission of its own.
+        ...(can('students.import')
+          ? [{ label: 'Import Students', href: '/dashboard/admissions/import' }]
+          : []),
         { label: 'All Students', href: '/dashboard/admissions/students' },
         { label: 'Applications', href: '/dashboard/admissions/applications' },
       ],

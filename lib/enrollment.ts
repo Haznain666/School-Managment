@@ -110,6 +110,14 @@ export interface EnrollStudentParams {
   student: StudentInput;
   guardians: readonly GuardianInput[];
   placement: PlacementInput;
+  /**
+   * Keep the school's own admission number instead of issuing one.
+   *
+   * Set only by the bulk import, and only when the operator mapped a column
+   * for it. See where it is used, below, for why renumbering a migrated roll
+   * is destructive.
+   */
+  existingStudentId?: string | undefined;
 }
 
 export interface EnrolledGuardian {
@@ -487,12 +495,26 @@ export async function enrollStudent(
 
   const userIdByPhone = new Map(existingByPhone.map((row) => [row.phone, row.id]));
 
-  const studentId = await generateStudentId(
-    db,
-    locationId,
-    resolved.academicYearId,
-    school.schoolCode,
-  );
+  /*
+   * A school migrating its roll keeps its own admission numbers.
+   *
+   * `existingStudentId` is set only by the bulk import, and only when the
+   * operator mapped an admission-number column. Issuing fresh numbers there
+   * would be silently destructive: every fee receipt, certificate, mark sheet
+   * and filing cabinet at that school is filed under the old number, and a
+   * migration that renumbers eight hundred children breaks the link to all of
+   * it on day one.
+   *
+   * The counter is deliberately *not* advanced past a supplied number. The two
+   * sequences are the school's and ours, they need not be compatible — a
+   * school's existing numbers are usually not in our `STS-2026-0001` shape at
+   * all — and the uniqueness that matters is enforced by
+   * `student_profiles_location_id_student_id_idx`, which the import checks
+   * against before it writes.
+   */
+  const studentId =
+    params.existingStudentId ??
+    (await generateStudentId(db, locationId, resolved.academicYearId, school.schoolCode));
 
   const schoolUserId = randomUUID();
   const studentProfileId = randomUUID();
