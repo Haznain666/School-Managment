@@ -10,6 +10,8 @@ import { Select } from '@/components/ui/Select';
 export interface TransferSectionOption {
   id: string;
   branchId: string;
+  /** Sections exist once per academic year — see `destinations`. */
+  academicYearId: string;
   label: string;
 }
 
@@ -24,6 +26,7 @@ interface Current {
   branchName: string;
   gradeName: string;
   sectionName: string;
+  academicYearId: string;
 }
 
 interface Quote {
@@ -160,12 +163,29 @@ export function TransferPanel({
     );
   }
 
-  // Only classes at a *different* campus: a move within one branch is a
-  // section change, which the student profile already does, and offering it
-  // here would produce a transfer record with nothing to explain.
-  const destinations = sections.filter(
-    (section) => current === null || section.branchId !== current.branchId,
-  );
+  /*
+   * Where this student could go.
+   *
+   * Two filters, and both are load-bearing:
+   *
+   *   - **A different campus.** A move within one branch is a section change,
+   *     which the student profile already does, and offering it here would
+   *     produce a transfer record with nothing to explain. The route refuses
+   *     it too.
+   *   - **The same academic year.** A section exists once per year, so an
+   *     unfiltered list showed "Grade 5 — A" three times with nothing to tell
+   *     them apart and two of the three refused by the route. The same defect
+   *     the promotion picker had, found the same way — worth noting that it
+   *     was written twice before it was seen once.
+   */
+  const destinations =
+    current === null
+      ? []
+      : sections.filter(
+          (section) =>
+            section.branchId !== current.branchId &&
+            section.academicYearId === current.academicYearId,
+        );
 
   return (
     <div className="space-y-4">

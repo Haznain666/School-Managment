@@ -112,6 +112,10 @@ export async function listPromotionCandidates(
       and(
         eq(studentEnrollments.locationId, locationId),
         eq(studentEnrollments.academicYearId, toAcademicYearId),
+        // *Actively* enrolled. A student transferred between campuses within
+        // the receiving year leaves a closed row there, and counting that as
+        // "already promoted" would refuse to roll them over at all.
+        eq(studentEnrollments.status, 'active'),
         inArray(
           studentEnrollments.studentProfileId,
           rows.map((row) => row.studentProfileId),
@@ -252,6 +256,9 @@ export async function applyPromotionRun(
       and(
         eq(studentEnrollments.locationId, run.locationId),
         eq(studentEnrollments.academicYearId, run.toAcademicYearId),
+        // See `listPromotionCandidates` — a closed row in the receiving year
+        // is history, not a promotion that already happened.
+        eq(studentEnrollments.status, 'active'),
         inArray(
           studentEnrollments.studentProfileId,
           decisions.map((decision) => decision.studentProfileId),

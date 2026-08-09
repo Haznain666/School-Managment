@@ -4,7 +4,12 @@ import { notFound } from 'next/navigation';
 
 import { TransferPanel } from '@/components/admissions/TransferPanel';
 import { Card } from '@/components/ui/Card';
-import { getStudentDetail, listGrades, listSections } from '@/lib/admissions-queries';
+import {
+  getStudentDetail,
+  listAdmissionsBranches,
+  listGrades,
+  listSections,
+} from '@/lib/admissions-queries';
 import { requireSchoolPermission } from '@/lib/school-guard';
 import { isUuid } from '@/lib/validation';
 
@@ -49,13 +54,20 @@ export default async function TransferStudentPage({
     })),
   );
 
+  const branches = await listAdmissionsBranches(locationId);
+  const campusName = new Map(branches.map((branch) => [branch.id, branch.name]));
+
+  // The campus is named on every option, not only when it disambiguates. This
+  // screen exists to move a child between campuses; which one they are going
+  // to is the decision being made, not a detail.
   const sections = sectionLists.flatMap(({ grade, sections: rows }) =>
     rows
       .filter((section) => section.isActive)
       .map((section) => ({
         id: section.id,
         branchId: grade.branchId,
-        label: `${grade.label} — ${section.name} (${section.studentCount})`,
+        academicYearId: section.academicYearId,
+        label: `${campusName.get(grade.branchId) ?? 'Campus'} — ${grade.label} ${section.name} (${section.studentCount})`,
       })),
   );
 

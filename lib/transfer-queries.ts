@@ -274,6 +274,24 @@ export async function transferStudent(params: TransferParams): Promise<TransferR
   const transferId = crypto.randomUUID();
 
   await db.transaction(async (tx) => {
+    /*
+     * Close the old enrolment *before* opening the new one.
+     *
+     * `student_enrollments_location_id_profile_year_idx` is unique on
+     * (location, student, year) **where status = 'active'** — one active
+     * placement at a time, which is the real invariant. Inserting first leaves
+     * two active rows for the instant between the statements, and Postgres
+     * checks the index on the insert, not at commit. So the order is not
+     * cosmetic: reversed, every transfer fails.
+     *
+     * Both orders end identically, and the whole thing is one transaction, so
+     * no reader ever sees the student with no active placement.
+     */
+    await tx
+      .update(studentEnrollments)
+      .set({ status: 'transferred' })
+      .where(eq(studentEnrollments.id, current.enrollmentId));
+
     const inserted = await tx
       .insert(studentEnrollments)
       .values({
@@ -285,11 +303,6 @@ export async function transferStudent(params: TransferParams): Promise<TransferR
         enrollmentDate: effectiveDate,
       })
       .returning({ id: studentEnrollments.id });
-
-    await tx
-      .update(studentEnrollments)
-      .set({ status: 'transferred' })
-      .where(eq(studentEnrollments.id, current.enrollmentId));
 
     if (quote.challanIds.length > 0) {
       await tx

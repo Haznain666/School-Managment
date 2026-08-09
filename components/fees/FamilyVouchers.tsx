@@ -68,6 +68,11 @@ export function FamilyVouchers({ canWrite, defaultMonth, defaultYear }: FamilyVo
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
+  const [payingId, setPayingId] = useState<string | null>(null);
+  const [amount, setAmount] = useState('');
+  const [method, setMethod] = useState('cash');
+  const [reference, setReference] = useState('');
+
   const loadIssued = useCallback(async () => {
     const response = await fetch('/api/school/family-challans');
     const payload = (await response.json()) as { ok: boolean; data?: { challans: Issued[] } };
@@ -136,6 +141,60 @@ export function FamilyVouchers({ canWrite, defaultMonth, defaultYear }: FamilyVo
       }
     },
     [dueDate, loadGroups, loadIssued],
+  );
+
+  /**
+   * Takes money against a voucher.
+   *
+   * The route spreads it across the children's own challans, oldest first, and
+   * writes a `fee_payments` row against each — which is the whole point of the
+   * feature. Without this control the voucher could be issued and then only
+   * paid a child at a time, which is the queueing it exists to remove.
+   */
+  const pay = useCallback(
+    async (voucher: Issued) => {
+      setBusyId(voucher.id);
+      setError(null);
+      setNotice(null);
+
+      try {
+        const response = await fetch(`/api/school/family-challans/${voucher.id}`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            amount: Number(amount),
+            paymentMethod: method,
+            reference: reference.trim() === '' ? undefined : reference.trim(),
+          }),
+        });
+
+        const payload = (await response.json()) as {
+          ok: boolean;
+          data?: { result: { distributed: Array<{ amount: string }> } };
+          error?: { message: string };
+        };
+
+        if (!response.ok || payload.ok !== true || payload.data === undefined) {
+          setError(payload.error?.message ?? 'Could not record that payment.');
+          return;
+        }
+
+        const across = payload.data.result.distributed.length;
+        setNotice(
+          `PKR ${Number(amount).toFixed(2)} recorded against ${voucher.challanNumber}, ` +
+            `spread across ${across} child${across === 1 ? '' : 'ren'}’s challans, oldest first.`,
+        );
+        setPayingId(null);
+        setAmount('');
+        setReference('');
+        await Promise.all([loadGroups(), loadIssued()]);
+      } catch {
+        setError('Could not record that payment.');
+      } finally {
+        setBusyId(null);
+      }
+    },
+    [amount, method, reference, loadGroups, loadIssued],
   );
 
   return (
@@ -249,6 +308,11 @@ export function FamilyVouchers({ canWrite, defaultMonth, defaultYear }: FamilyVo
                   <th scope="col" className="px-4 py-3 font-medium">Due</th>
                   <th scope="col" className="px-4 py-3 font-medium">Status</th>
                   <th scope="col" className="px-4 py-3 text-right font-medium">Total</th>
+                  {canWrite ? (
+                    <th scope="col" className="px-4 py-3 text-right font-medium">
+                      Payment
+                    </th>
+                  ) : null}
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
@@ -287,6 +351,88 @@ export function FamilyVouchers({ canWrite, defaultMonth, defaultYear }: FamilyVo
                         ? row.totalAmount
                         : `${row.paidAmount} / ${row.totalAmount}`}
                     </td>
+                    {canWrite ? (
+                      <td className="px-4 py-3 text-right">
+                        {row.status === 'paid' || row.status === 'cancelled' ? (
+                          <span className="text-xs text-slate-400">—</span>
+                        ) : payingId === row.id ? (
+                          <div className="flex flex-nowrap items-center justify-end gap-2 whitespace-nowrap">
+                            <input
+                              type="number"
+                              aria-label={`Amount received for ${row.challanNumber}`}
+                              placeholder="Amount"
+                              value={amount}
+                              className="w-28 rounded-lg border border-slate-300 px-2 py-1 text-sm"
+                              onChange={(event) => {
+                                setAmount(event.target.value);
+                              }}
+                            />
+                            <select
+                              aria-label="Payment method"
+                              value={method}
+                              className="rounded-lg border border-slate-300 px-2 py-1 text-sm"
+                              onChange={(event) => {
+                                setMethod(event.target.value);
+                              }}
+                            >
+                              <option value="cash">Cash</option>
+                              <option value="bank_transfer">Bank transfer</option>
+                              <option value="cheque">Cheque</option>
+                            </select>
+                            <input
+                              type="text"
+                              aria-label="Reference"
+                              placeholder="Slip no."
+                              value={reference}
+                              className="w-24 rounded-lg border border-slate-300 px-2 py-1 text-sm"
+                              onChange={(event) => {
+                                setReference(event.target.value);
+                              }}
+                            />
+                            <Button
+                              size="sm"
+                              isLoading={busyId === row.id}
+                              disabled={Number(amount) <= 0}
+                              onClick={() => {
+                                void pay(row);
+                              }}
+                            >
+                              Record
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              disabled={busyId === row.id}
+                              onClick={() => {
+                                setPayingId(null);
+                              }}
+                            >
+                              Cancel
+                            </Button>
+                          </div>
+                        ) : (
+                          <Button
+                            variant="secondary"
+                            size="sm"
+                            onClick={() => {
+                              setPayingId(row.id);
+                              // Pre-filled with what is still owed, because
+                              // paying the voucher in full is the ordinary case
+                              // and retyping it is how a digit gets dropped.
+                              setAmount(
+                                (
+                                  Number(row.totalAmount) - Number(row.paidAmount)
+                                ).toFixed(2),
+                              );
+                              setError(null);
+                              setNotice(null);
+                            }}
+                          >
+                            Take payment
+                          </Button>
+                        )}
+                      </td>
+                    ) : null}
                   </tr>
                 ))}
               </tbody>

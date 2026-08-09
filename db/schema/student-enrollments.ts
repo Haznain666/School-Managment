@@ -72,11 +72,27 @@ export const studentEnrollments = pgTable(
     index('student_enrollments_location_id_idx').on(table.locationId),
     index('student_enrollments_section_id_idx').on(table.sectionId),
     index('student_enrollments_academic_year_id_idx').on(table.academicYearId),
-    uniqueIndex('student_enrollments_location_id_profile_year_idx').on(
-      table.locationId,
-      table.studentProfileId,
-      table.academicYearId,
-    ),
+    /*
+     * One **active** enrolment per student per year — not one enrolment.
+     *
+     * The unqualified form was right until students could move between
+     * campuses mid-year. A transfer closes the enrolment at the old campus and
+     * opens one at the new, both inside the same academic year, and the
+     * unqualified index forbade the second row outright.
+     *
+     * Editing the first row in place was the obvious alternative and is wrong:
+     * `attendance_records.enrollment_id` points at it, so a register taken at
+     * the old campus in July would afterwards claim to have been taken at the
+     * new one. The child really did have two placements that year, and both
+     * have to exist for the terms they cover to stay attributable.
+     *
+     * The invariant that actually matters is untouched: a student is in
+     * exactly one class at a time. Partial, so closed rows — `transferred`,
+     * `withdrawn`, `graduated` — accumulate freely.
+     */
+    uniqueIndex('student_enrollments_location_id_profile_year_idx')
+      .on(table.locationId, table.studentProfileId, table.academicYearId)
+      .where(sql`${table.status} = 'active'`),
     check(
       'student_enrollments_status_check',
       sql`${table.status} IN ('active', 'transferred', 'withdrawn', 'graduated')`,

@@ -13,9 +13,9 @@ branches to prune: `stage-4-state-md-100f15`,
 from the sixth session (`worktree-agent-*`), whose commits are already on the
 sprint branch.
 **Main branch:** `main` — last commit `d0e7dc0`, in sync with `origin/main`.
-**Migrations `0000`–`0018` are all applied and verified** against the live
-database; `0016` and `0017` were applied 2026-08-09 (§5n, §5o) and `0018` the
-same day (§5q). Next free number: **`0019`**.
+**Migrations `0000`–`0019` are all applied and verified** against the live
+database; `0016` and `0017` were applied 2026-08-09 (§5n, §5o), `0018` the same
+day and `0019` on 2026-08-10 (§5q). Next free number: **`0020`**.
 
 **The delivery plan now lives in `SPRINTS.md`** — 17 sprints across three
 releases, reconciling `remaining work.docx` with this file and `ROADMAP.md`.
@@ -1922,10 +1922,11 @@ not, because the slug cookie is set per resolution: append
 
 ## 5q. Sprint 10 — in progress (started 2026-08-09)
 
-On `claude/pending-items-next-sprint-bfa612`, three commits past `main`.
+On `claude/pending-items-next-sprint-bfa612`.
 **Migration `0018` is applied and verified** against the live database — six
 tables, `fee_challans.family_challan_id`, and the `role_permissions` CHECK
-widened. 19 migrations recorded. Next free number: **`0019`**.
+widened. `0019` followed on 2026-08-10 — see below. **20 migrations recorded;
+next free number `0020`.**
 
 > `SPRINTS.md` names this sprint's migration `0017`. That number was taken by
 > `0017_branding_presets.sql`. Every migration number in `SPRINTS.md` from
@@ -1940,13 +1941,51 @@ widened. 19 migrations recorded. Next free number: **`0019`**.
 | CSV parsing + row validation | ✅ browser-verified |
 | Import: upload → map → dry run → commit | ✅ browser-verified end to end |
 | Promotion | ✅ browser-verified against 128 real students |
-| Transfer with proration | ⚠️ built, **not browser-verified** |
-| Family voucher | ⚠️ built, **not browser-verified** |
+| Transfer with proration | ✅ browser-verified; needed migration `0019` |
+| Family voucher | ✅ browser-verified, issue → pay → settle |
 | Aged-debt report | ✅ browser-verified against 409 students |
 | Adversarial seed script | ✅ run; 409 students live |
 
-**Sprint 10 is feature-complete.** Two of the nine pieces have not been
-clicked — see "What is NOT verified" below.
+**Sprint 10 is complete and every piece has been clicked.**
+
+### ⚠️ Migration `0019` — one active enrolment, not one enrolment
+
+Applied 2026-08-10. **A design defect the browser found and nothing else could
+have**: `student_enrollments` was uniquely indexed on
+(location, student, year), but a transfer's whole design is to close the
+enrolment at one campus and open another *in the same year*. Every transfer
+failed at the database with "Something went wrong".
+
+Editing the existing row in place was the obvious alternative and is wrong:
+`attendance_records.enrollment_id` points at it, so a register taken at the old
+campus in July would afterwards claim to have been taken at the new one. The
+child really did have two placements that year and both have to exist.
+
+The index is now **partial — `WHERE status = 'active'`**. The invariant that
+matters is unchanged (a student is in one class at a time); closed rows
+accumulate, which is what history is.
+
+Two consequences worth carrying:
+
+- **`transferStudent` closes the old row before inserting the new one.** Both
+  are active for the instant between the statements otherwise, and Postgres
+  checks a unique index on the insert, not at commit. Reversed, every transfer
+  fails. The order is not cosmetic.
+- **Promotion's "already enrolled" checks now filter on `active`.** A student
+  transferred between campuses within the receiving year leaves a closed row
+  there, and counting it would refuse to roll them over at all.
+
+### Also found by clicking these two
+
+- **The transfer picker had the same year-duplication defect as promotion** —
+  "Grade 5 — A" three times, one per academic year, two of them refused by the
+  route. Written twice before it was seen once. The campus is now named on
+  every option, because this screen exists to move a child between campuses.
+- **Family vouchers could be issued but not paid.** The route distributed a
+  payment across the children's challans; the screen offered no way to record
+  one, so a voucher could be raised and then only settled a child at a time —
+  the queueing the feature exists to remove. A payment control is now on each
+  row, pre-filled with the balance.
 
 ### The seeded school
 
@@ -1999,20 +2038,36 @@ The others, briefly:
   handed back rather than refused.
 - **The importer discarded the admission numbers it was given** (§ above).
 
-### What is NOT verified
+### What was proved by clicking, against the seeded school
 
-1. **Transfer has not been clicked.** The seeded school has a second campus and
-   `Grade 5` at both, so it is exercisable — this ran out of session, not out of
-   data. The proration arithmetic in particular is unproven against real
-   challans.
-2. **Family vouchers have not been clicked.** 36 sibling families exist in the
-   seed, one with eight children. The payment distribution — oldest challan
-   first, writing a `fee_payments` row per child — is the part that matters and
-   the part not yet run.
-3. **No import of anything near 2000 rows.** The seed is the first thing that
+- **Transfer.** Areeba Raza, Main Campus → Johar Town on 2026-08-09. Old
+  enrolment closed as `transferred` and still naming Main Campus A; new one
+  active at Johar Town from the effective date; PKR 5500 outstanding split
+  8 days / 23 days as **4080.65 each way**; the August challan cancelled with
+  the reason on it, and **June (paid) and July (partial) untouched** — the
+  "a challan already paid is not clawed back" rule, in practice.
+- **Family vouchers.** `RHA-F-2026-08-0001` over three siblings sharing one
+  number, PKR 16,000. A part payment of 8,000 cleared the oldest challan in
+  full (5,500) and part-paid the next (2,500), leaving the third untouched, with
+  a `fee_payments` row against each. Settling the balance through the new
+  payment control marked the voucher and all three children paid. Over-payment
+  and cancelling-after-payment are both refused in words.
+- **Promotion.** 122 promoted, 4 retained, 2 graduated of 128; last year's rows
+  present and closed by status; every retained student still in the section
+  they were in.
+- **Aged debt.** 319 students, PKR 2,105,531, bucketed; 8 households with no
+  contact reported as unchaseable.
+
+### What is still NOT verified
+
+1. **No import of anything near 2000 rows.** The seed is the first thing that
    could produce a file that size; export one from it and try.
-4. **Nothing printed.** Unchanged from §5n — still the standing gap.
-5. **The Super Admin bulk delete UI** (§5p) is still unclicked.
+2. **Nothing printed.** Unchanged from §5n — still the standing gap, and now
+   the largest one.
+3. **The Super Admin bulk delete UI** (§5p) is still unclicked.
+4. **No second transfer of the same student**, so a student with three
+   placements in one year is untested. The partial index allows it; nothing has
+   produced one.
 
 ### The permission CHECK problem is now structural, not remembered
 
@@ -2112,6 +2167,7 @@ thing that will produce a file that size.
 
 | Date | Session did | Next |
 | --- | --- | --- |
+| 2026-08-10 | **Sprint 10 complete, every piece clicked** (§5q). Transfer and family vouchers verified against the seeded school, and doing it found the sprint's most consequential defect: `student_enrollments` was uniquely indexed on (student, year), so a transfer — which by design opens a second enrolment in the same year — failed at the database every time. Editing the row in place would have been worse, because `attendance_records.enrollment_id` points at it and a register taken at the old campus would afterwards claim the new one. Migration `0019` makes the index partial on `status = 'active'`: one *placement* at a time, closed rows accumulating as history. Also: the transfer picker had promotion's year-duplication defect (written twice, seen once), and family vouchers could be issued but not paid — the route distributed a payment across the children's challans and no screen offered to record one. | **Print one of each document on real A4.** It is now the largest unverified thing in the project, and has been since §5n. Then the dress rehearsal. |
 | 2026-08-10 | **Sprint 10 feature-complete** (§5q). Promotion, transfer with proration, family vouchers, the aged-debt report and the adversarial seed — 409 students, 10 classes, 2 campuses, 3 years, 3 months of challans, with siblings, missing emails, mid-term joiners, partial payments, concessions and names carrying commas and non-ASCII. Promotion and the aged-debt report were run against that data and seven more defects came out of it, **three of them the same performance defect in three different features**: a loop of single-row writes, which against Supabase is one round trip each. Saving and applying a 128-student promotion was nearly 400 of them inside a held-open transaction; set-based it is four statements and 20 seconds. Also: promotion offered *earlier* years as destinations, destination classes appeared once per academic year, "Grade 5" was ambiguous across campuses, and re-opening an existing run said "Something went wrong". | **Click transfer and family vouchers** — both are built and neither has been run, and the seeded school has the second campus and the 36 sibling families they need. Then the dress rehearsal. |
 | 2026-08-09 | **Sprint 10 started** (§5q) — migration `0018` applied and verified, three permission keys, and the CSV student import built and browser-verified end to end against a deliberately hostile file. Three defects the build could not see: the dry run was one round trip per row (25 seconds for seven rows, unusable at the 2000 it accepts — now one statement whatever the size); a duplicate admission number went unreported whenever the row also had a second fault, so it surfaced only after the operator fixed the *other* problem and re-uploaded; and the supplied admission number was used to detect duplicates and then discarded, which would renumber a migrated roll and break its link to every fee receipt and certificate the school holds. Also measured: ~2.4s per round trip to Supabase from this machine, which is why the commit loop must be re-timed once deployed rather than judged from here. | **Promotion, transfer, family vouchers, the defaulter list, and the adversarial seed** — the rest of Sprint 10. The seed is what first produces a file big enough to test the importer at real size. |
 | 2026-08-09 | **Three QA fixes from the user** (§5p), merged to `main`. School administrators can now delete members — the route had answered 405 while the Super Admin panel had done it since §5h — singly and in bulk, per-row rather than all-or-nothing because a `NO ACTION` foreign key would otherwise let one referenced member refuse ninety-nine. **The selected branding template reached one colour out of five**: `PalettePreview` had always drawn a five-colour portal and the shells consumed only `primary`, painting `bg-slate-50` over a set-and-unread `--brand-background`. All four shells now match the preview, with three computed `--brand-on-*` foregrounds so a school with a pale primary does not get white lettering on it. And the status filter, which offered two values against a table that drew three, so "Active only" also returned everyone who had never signed in; status is now three-valued from `auth_user_id`, and role/branch/status are faceted — each offers only what the others leave, with counts. Browser-verified against the live database; nothing left behind. | **Sprint 10** — onboarding: CSV import, promotion, transfer, family fees, and the seeded adversarial school. Note `SPRINTS.md` says migration `0017` for it and that number is taken: **next free is `0018`**. Trigger the referential delete refusal against that seeded school (§5p), since losing a row there costs nothing. |
