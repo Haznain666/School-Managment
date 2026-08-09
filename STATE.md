@@ -1939,11 +1939,80 @@ widened. 19 migrations recorded. Next free number: **`0019`**.
 | Permission keys ×3 | ✅ both catalogues **and** the CHECK |
 | CSV parsing + row validation | ✅ browser-verified |
 | Import: upload → map → dry run → commit | ✅ browser-verified end to end |
-| Promotion | ⬜ tables exist, nothing built on them |
-| Transfer | ⬜ tables exist |
-| Family voucher | ⬜ tables exist |
-| Defaulter list with aging | ⬜ |
-| Adversarial seed script | ⬜ |
+| Promotion | ✅ browser-verified against 128 real students |
+| Transfer with proration | ⚠️ built, **not browser-verified** |
+| Family voucher | ⚠️ built, **not browser-verified** |
+| Aged-debt report | ✅ browser-verified against 409 students |
+| Adversarial seed script | ✅ run; 409 students live |
+
+**Sprint 10 is feature-complete.** Two of the nine pieces have not been
+clicked — see "What is NOT verified" below.
+
+### The seeded school
+
+**`Rehearsal Academy`, slug `rehearsal-academy`**, created by
+`db/seed/adversarial-school.ts` and living in the same Supabase database as
+`Sample Test School`. 409 students, 10 classes, 2 campuses, 3 academic years,
+3 months of challans.
+
+Re-running the script **replaces it** — it deletes the school on that slug and
+reseeds, and `location_id` cascades to all 43 tenant tables. It refuses to
+delete a school on that slug that does not carry its marker, so it cannot eat
+somebody else's data.
+
+**Two things the seed sets up that are not in the script**, because they belong
+to the platform rather than the school, and both are needed again after every
+reseed:
+
+1. The **Admissions, Fee Management and Academics modules** must be switched
+   on. Nothing in Sprint 10 is reachable otherwise.
+2. Somebody needs a `school_users` row there. During this session the operator's
+   existing Supabase identity was given a second membership — which is exactly
+   the design in §5d, one person holding accounts at two schools — rather than
+   creating a new sign-in.
+
+### What the browser caught, and the lesson that repeated
+
+Seven defects, none visible to typecheck, lint or build. **The same performance
+defect appeared three times in three different features**, and it is worth
+naming as a pattern rather than three bugs:
+
+> **A loop of single-row writes is unusable against Supabase from anywhere.**
+> Every statement is a round trip. The importer's dry run took 25 seconds for
+> *seven* rows; saving 128 promotion decisions and applying them was nearly 400
+> round trips inside one held-open transaction. All three are now one
+> `UPDATE … FROM (VALUES …)` or a set-based `INSERT … SELECT`: a fixed number
+> of statements whatever the row count. **Write bulk operations set-based from
+> the start** — this is not an optimisation to come back to.
+
+The others, briefly:
+
+- **Promotion offered *earlier* years as destinations.** "A different year" is
+  not "a later year", and since applying closes the old enrolment it would have
+  rewritten history rather than extended it. Fixed in the picker and in the
+  route, which is the actual gate.
+- **Destination classes appeared once per academic year** — 21 entries for 7
+  classes, two-thirds of which the route would refuse.
+- **"Grade 5" appeared twice** with nothing to distinguish the campuses.
+- **Re-opening an existing promotion returned "Something went wrong."** The
+  unique index is deliberate; nothing translated it. An unapplied draft is now
+  handed back rather than refused.
+- **The importer discarded the admission numbers it was given** (§ above).
+
+### What is NOT verified
+
+1. **Transfer has not been clicked.** The seeded school has a second campus and
+   `Grade 5` at both, so it is exercisable — this ran out of session, not out of
+   data. The proration arithmetic in particular is unproven against real
+   challans.
+2. **Family vouchers have not been clicked.** 36 sibling families exist in the
+   seed, one with eight children. The payment distribution — oldest challan
+   first, writing a `fee_payments` row per child — is the part that matters and
+   the part not yet run.
+3. **No import of anything near 2000 rows.** The seed is the first thing that
+   could produce a file that size; export one from it and try.
+4. **Nothing printed.** Unchanged from §5n — still the standing gap.
+5. **The Super Admin bulk delete UI** (§5p) is still unclicked.
 
 ### The permission CHECK problem is now structural, not remembered
 
@@ -2043,6 +2112,7 @@ thing that will produce a file that size.
 
 | Date | Session did | Next |
 | --- | --- | --- |
+| 2026-08-10 | **Sprint 10 feature-complete** (§5q). Promotion, transfer with proration, family vouchers, the aged-debt report and the adversarial seed — 409 students, 10 classes, 2 campuses, 3 years, 3 months of challans, with siblings, missing emails, mid-term joiners, partial payments, concessions and names carrying commas and non-ASCII. Promotion and the aged-debt report were run against that data and seven more defects came out of it, **three of them the same performance defect in three different features**: a loop of single-row writes, which against Supabase is one round trip each. Saving and applying a 128-student promotion was nearly 400 of them inside a held-open transaction; set-based it is four statements and 20 seconds. Also: promotion offered *earlier* years as destinations, destination classes appeared once per academic year, "Grade 5" was ambiguous across campuses, and re-opening an existing run said "Something went wrong". | **Click transfer and family vouchers** — both are built and neither has been run, and the seeded school has the second campus and the 36 sibling families they need. Then the dress rehearsal. |
 | 2026-08-09 | **Sprint 10 started** (§5q) — migration `0018` applied and verified, three permission keys, and the CSV student import built and browser-verified end to end against a deliberately hostile file. Three defects the build could not see: the dry run was one round trip per row (25 seconds for seven rows, unusable at the 2000 it accepts — now one statement whatever the size); a duplicate admission number went unreported whenever the row also had a second fault, so it surfaced only after the operator fixed the *other* problem and re-uploaded; and the supplied admission number was used to detect duplicates and then discarded, which would renumber a migrated roll and break its link to every fee receipt and certificate the school holds. Also measured: ~2.4s per round trip to Supabase from this machine, which is why the commit loop must be re-timed once deployed rather than judged from here. | **Promotion, transfer, family vouchers, the defaulter list, and the adversarial seed** — the rest of Sprint 10. The seed is what first produces a file big enough to test the importer at real size. |
 | 2026-08-09 | **Three QA fixes from the user** (§5p), merged to `main`. School administrators can now delete members — the route had answered 405 while the Super Admin panel had done it since §5h — singly and in bulk, per-row rather than all-or-nothing because a `NO ACTION` foreign key would otherwise let one referenced member refuse ninety-nine. **The selected branding template reached one colour out of five**: `PalettePreview` had always drawn a five-colour portal and the shells consumed only `primary`, painting `bg-slate-50` over a set-and-unread `--brand-background`. All four shells now match the preview, with three computed `--brand-on-*` foregrounds so a school with a pale primary does not get white lettering on it. And the status filter, which offered two values against a table that drew three, so "Active only" also returned everyone who had never signed in; status is now three-valued from `auth_user_id`, and role/branch/status are faceted — each offers only what the others leave, with counts. Browser-verified against the live database; nothing left behind. | **Sprint 10** — onboarding: CSV import, promotion, transfer, family fees, and the seeded adversarial school. Note `SPRINTS.md` says migration `0017` for it and that number is taken: **next free is `0018`**. Trigger the referential delete refusal against that seeded school (§5p), since losing a row there costs nothing. |
 | 2026-08-09 | **Sprint 9 QA fixes** (§5n). Four defects back from QA, all fixed. The big one was not Sprint 9's: `PrintSheet` hid the print root with an unqualified `display: none`, so **every printed document in the application — fee challans included — had been coming out blank since the framework was written two days earlier**, and nobody had run a print to find out. Cured at the framework level in `globals.css`. Also: a paper's total can no longer be lowered below a mark already awarded (QA printed 178% on a report card), a school's first grading scheme now becomes its default instead of silently grading nothing, and the tabulation sheet's printed legend no longer states the absence policy backwards. typecheck + lint + build green again. | **Print one of each document on real A4** — the cascade is right but no paper has been produced, and no test school has a logo, so only the name-only letterhead has ever rendered. Then remove QA's three leftover rows (SQL in §5n) — a DevOps step, not a developer one. |
