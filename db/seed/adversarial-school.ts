@@ -20,7 +20,7 @@
  * | Partial payments | `paid_amount` between zero and the total — the state most fee code forgets. |
  * | Concessions | A challan whose total is not the sum of the price list. |
  * | Two branches | Every tenancy and branch-scope check. One campus proves nothing. |
- * | Two academic years | Promotion cannot be exercised at all with one. |
+ * | Three academic years | Promotion needs a year to move *out of* and one to move *into*, plus a past one so history is not empty. Two is not enough — see `seedYears`. |
  * | Names with commas, apostrophes and non-ASCII | CSV export, print letterheads, and `PrintSheet`. |
  * | A student with no guardian at all | The join that silently drops rows. |
  *
@@ -150,9 +150,9 @@ async function main(): Promise<void> {
     const ctx: Ctx = { db, locationId };
 
     const { mainBranch, cityBranch } = await seedBranches(ctx);
-    const { lastYear, thisYear } = await seedYears(ctx);
+    const { lastYear, thisYear, nextYear } = await seedYears(ctx);
     const gradeRows = await seedGrades(ctx, mainBranch, cityBranch);
-    const sectionRows = await seedSections(ctx, gradeRows, lastYear, thisYear);
+    const sectionRows = await seedSections(ctx, gradeRows, [lastYear, thisYear, nextYear]);
     const fees = await seedFeeHeads(ctx, gradeRows, thisYear);
     const students = await seedStudents(ctx, sectionRows, thisYear);
     await seedFees(ctx, students, fees, thisYear);
@@ -243,11 +243,15 @@ async function seedBranches({ db, locationId }: Ctx) {
 }
 
 /**
- * Two academic years, because promotion cannot be exercised with one.
+ * Three academic years, because promotion needs somewhere to go.
  *
- * Last year is inactive and this year is active — the shape a school is in
- * partway through, and the one that makes "roll last year into this one"
- * meaningful.
+ * Two is not enough, and finding that out took running it: the students are
+ * enrolled in the *active* year, and a school promotes out of the year it is
+ * in — so with only a past year and the current one there is no destination and
+ * the screen correctly offers nothing. The third year is the one being
+ * prepared, which is the state a school is actually in when it rolls over.
+ *
+ * The past year exists so enrolment history is not empty on day one.
  */
 async function seedYears({ db, locationId }: Ctx) {
   const rows = await db
@@ -271,12 +275,22 @@ async function seedYears({ db, locationId }: Ctx) {
         endYear: 2027,
         isActive: true,
       },
+      {
+        locationId,
+        name: '2027-2028',
+        startMonth: 4,
+        startYear: 2027,
+        endMonth: 3,
+        endYear: 2028,
+        isActive: false,
+      },
     ])
     .returning({ id: academicYears.id, name: academicYears.name });
 
   return {
     lastYear: rows.find((row) => row.name === '2025-2026')!.id,
     thisYear: rows.find((row) => row.name === '2026-2027')!.id,
+    nextYear: rows.find((row) => row.name === '2027-2028')!.id,
   };
 }
 
@@ -325,15 +339,14 @@ type GradeRow = Awaited<ReturnType<typeof seedGrades>>[number];
 async function seedSections(
   { db, locationId }: Ctx,
   gradeRows: GradeRow[],
-  lastYear: string,
-  thisYear: string,
+  years: readonly string[],
 ) {
   const values = gradeRows.flatMap((grade) =>
     // Three sections in each grade of the main campus, one at Johar Town. A
     // single-section grade is the case promotion pre-selects a destination
     // for; a multi-section grade is the case it must not.
     (grade.branchId === gradeRows[0]!.branchId ? ['A', 'B', 'C'] : ['A']).flatMap((name) =>
-      [lastYear, thisYear].map((academicYearId) => ({
+      years.map((academicYearId) => ({
         locationId,
         gradeId: grade.id,
         academicYearId,
@@ -694,9 +707,13 @@ function report(students: SeededStudent[], sectionRows: SectionRow[]): void {
   ).length;
   const withConcession = students.filter((student) => student.concession > 0).length;
 
+  // Sections exist once per academic year, so the distinct count is what a
+  // person means by "how many classes" — not the row count.
+  const classes = new Set(sectionRows.map((row) => `${row.gradeId}:${row.name}`)).size;
+
   console.log(`
 Seeded "Rehearsal Academy" (${SLUG}):
-  ${students.length} students across ${sectionRows.length / 2} sections and 2 campuses
+  ${students.length} students across ${classes} classes and 2 campuses
   ${withoutGuardian} with no guardian recorded
   ${unreachable} whose guardian has no email address
   ${withConcession} holding a concession

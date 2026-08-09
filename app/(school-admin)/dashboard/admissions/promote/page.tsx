@@ -6,6 +6,7 @@ import { Card } from '@/components/ui/Card';
 import {
   getActiveAcademicYear,
   listAcademicYears,
+  listAdmissionsBranches,
   listGrades,
   listSections,
 } from '@/lib/admissions-queries';
@@ -29,10 +30,11 @@ export const runtime = 'nodejs';
 export default async function PromoteStudentsPage() {
   const { claims, locationId } = await requireSchoolPermission('students.promote');
 
-  const [years, activeYear, grades] = await Promise.all([
+  const [years, activeYear, grades, branches] = await Promise.all([
     listAcademicYears(locationId),
     getActiveAcademicYear(locationId),
     listGrades(locationId, claims.branchId ?? undefined),
+    listAdmissionsBranches(locationId),
   ]);
 
   if (years.length < 2) {
@@ -69,13 +71,31 @@ export default async function PromoteStudentsPage() {
     })),
   );
 
+  /**
+   * Disambiguates a grade name that exists at more than one campus.
+   *
+   * A school running "Grade 5" at two branches otherwise gets a picker reading
+   * "Grade 4, Grade 5, Grade 6, Grade 5", and promoting into the wrong campus
+   * is not a mistake anyone would notice until the register came out. The
+   * campus is added only when it is needed, so a single-campus school is not
+   * made to read its own name against every class.
+   */
+  function gradeLabel(grade: (typeof grades)[number]): string {
+    const duplicated = grades.filter((other) => other.label === grade.label).length > 1;
+    if (!duplicated) return grade.label;
+
+    const campus = branches.find((branch) => branch.id === grade.branchId);
+    return campus === undefined ? grade.label : `${grade.label} (${campus.name})`;
+  }
+
   const sections = sectionLists.flatMap(({ grade, sections: rows }) =>
     rows
       .filter((section) => section.isActive)
       .map((section) => ({
         id: section.id,
         gradeId: grade.id,
-        label: `${grade.label} — ${section.name} (${section.studentCount})`,
+        academicYearId: section.academicYearId,
+        label: `${gradeLabel(grade)} — ${section.name} (${section.studentCount})`,
       })),
   );
 
@@ -90,8 +110,14 @@ export default async function PromoteStudentsPage() {
       </div>
 
       <PromotionRunner
-        grades={grades.map((grade) => ({ id: grade.id, label: grade.label }))}
-        years={years.map((year) => ({ id: year.id, name: year.name }))}
+        grades={grades.map((grade) => ({ id: grade.id, label: gradeLabel(grade) }))}
+        years={years.map((year) => ({
+          id: year.id,
+          name: year.name,
+          // Ordered on the pair, not the year: a June start would otherwise
+          // sort ahead of the previous September's.
+          startsAt: year.startYear * 12 + year.startMonth,
+        }))}
         activeYearId={activeYear?.id ?? null}
         sections={sections}
       />

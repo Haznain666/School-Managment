@@ -1,4 +1,4 @@
-import { and, eq, inArray } from 'drizzle-orm';
+import { and, eq, inArray, sql } from 'drizzle-orm';
 
 import { promotionDecisions, promotionRuns, sections } from '@/db/schema';
 import { apiFailure, apiSuccess, handleApiError, readJsonBody } from '@/lib/api-response';
@@ -174,19 +174,34 @@ export const PATCH = withSchoolAuth<RouteContext>(
         }
       }
 
-      await db.transaction(async (tx) => {
-        for (const update of applicable) {
-          await tx
-            .update(promotionDecisions)
-            .set({
-              decision: update.decision,
-              toSectionId: update.toSectionId,
-              note: update.note,
-              updatedAt: new Date(),
-            })
-            .where(eq(promotionDecisions.id, update.id));
-        }
-      });
+      /*
+       * One statement, not one per decision.
+       *
+       * The first version looped inside a transaction. A class of 128 is 128
+       * round trips to Supabase, which measured at minutes rather than
+       * seconds and held a transaction open across all of it — the same defect
+       * the importer's dry run had, found the same way, in the browser. The
+       * review screen saves every decision at once when Apply is pressed, so
+       * this is the common path and not an edge case.
+       *
+       * `UPDATE ... FROM (VALUES ...)` is one round trip whatever the class
+       * size, and is atomic on its own.
+       */
+      const values = applicable.map(
+        (update) =>
+          sql`(${update.id}::uuid, ${update.decision}, ${update.toSectionId}::uuid, ${update.note}::text)`,
+      );
+
+      await db.execute(sql`
+        UPDATE ${promotionDecisions} AS d
+        SET decision = v.decision,
+            to_section_id = v.to_section_id,
+            note = v.note,
+            updated_at = now()
+        FROM (VALUES ${sql.join(values, sql`, `)})
+          AS v(id, decision, to_section_id, note)
+        WHERE d.id = v.id
+      `);
 
       return apiSuccess({ updated: applicable.length });
     } catch (error) {

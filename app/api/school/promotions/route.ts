@@ -6,6 +6,7 @@ import { withSchoolAuth } from '@/lib/api-auth';
 import { db } from '@/lib/drizzle';
 import {
   listPromotionCandidates,
+  listReceivingYears,
   suggestNextGrade,
 } from '@/lib/promotion-queries';
 import { listSections } from '@/lib/admissions-queries';
@@ -90,6 +91,25 @@ export const POST = withSchoolAuth(
         );
       }
 
+      /*
+       * The receiving year must start after the one being left.
+       *
+       * Without this, "promotion" would happily move a class *backwards* into
+       * a year that has already happened — and since applying writes a new
+       * enrolment and closes the old one, it would rewrite a school's history
+       * rather than extend it. Found in the browser: the picker was offering
+       * the previous year, because a check for "a different year" is not a
+       * check for "a later year".
+       */
+      const receiving = await listReceivingYears(auth.locationId, fromYear);
+      if (!receiving.some((year) => year.id === toYear)) {
+        return apiFailure(
+          'invalid_body',
+          'Students can only be promoted into a year that starts after the one they are in.',
+          400,
+        );
+      }
+
       // Every id is re-read through a tenant-filtered query: none of these
       // foreign keys is scoped by tenant, so Postgres would accept another
       // school's grade perfectly happily.
@@ -108,12 +128,59 @@ export const POST = withSchoolAuth(
         return apiFailure('invalid_body', 'That class does not exist.', 400);
       }
 
+      /*
+       * A run for this exact rollover may already exist.
+       *
+       * `promotion_runs_grade_years_idx` is unique on (grade, from-year,
+       * to-year) on purpose — rolling the same grade between the same two
+       * years twice is a mistake, not a workflow. Until this check existed the
+       * constraint surfaced as an unhandled 500 and the operator read
+       * "Something went wrong", which tells them nothing and invites them to
+       * try again. Found in the browser.
+       *
+       * An unapplied draft is handed back rather than refused: it is the one
+       * the operator started earlier and came back to, and refusing would
+       * leave them with a draft they have no way to reach.
+       */
+      const existing = await db
+        .select({ id: promotionRuns.id, status: promotionRuns.status })
+        .from(promotionRuns)
+        .where(
+          and(
+            eq(promotionRuns.locationId, auth.locationId),
+            eq(promotionRuns.gradeId, gradeId),
+            eq(promotionRuns.fromAcademicYearId, fromYear),
+            eq(promotionRuns.toAcademicYearId, toYear),
+          ),
+        )
+        .limit(1);
+
+      const priorRun = existing[0];
+
+      if (priorRun !== undefined && priorRun.status === 'applied') {
+        return apiFailure(
+          'already_exists',
+          `${grade.name} has already been promoted into that year. Nobody was moved twice.`,
+          409,
+        );
+      }
+
       const candidates = await listPromotionCandidates(
         auth.locationId,
         gradeId,
         fromYear,
         toYear,
       );
+
+      if (priorRun !== undefined) {
+        return apiSuccess({
+          runId: priorRun.id,
+          gradeName: grade.name,
+          nextGrade: await suggestNextGrade(auth.locationId, gradeId),
+          students: candidates.length,
+          resumed: true,
+        });
+      }
 
       if (candidates.length === 0) {
         return apiFailure(
@@ -141,6 +208,7 @@ export const POST = withSchoolAuth(
       // so it is pre-selected. Several means the operator is splitting a class
       // and must say who goes where.
       const onlySection = nextSections.length === 1 ? nextSections[0]!.id : null;
+
 
       const runId = crypto.randomUUID();
 

@@ -13,7 +13,7 @@ import {
 import { requireSchoolPermission } from '@/lib/school-guard';
 
 export const metadata: Metadata = {
-  title: 'Fee defaulters',
+  title: 'Aged debt',
 };
 
 export const dynamic = 'force-dynamic';
@@ -153,15 +153,27 @@ export default async function DefaultersPage({
           >
             All classes
           </Link>
-          {grades.map((grade) => (
-            <Link
-              key={grade.id}
-              href={linkFor({ grade: grade.id })}
-              className={filters.grade === grade.id ? 'font-semibold text-brand-primary' : 'text-slate-600 hover:underline'}
-            >
-              {grade.label}
-            </Link>
-          ))}
+          {grades.map((grade) => {
+            // A school with the same grade at two campuses has two rows here,
+            // and "Grade 5, Grade 5" is unreadable. The campus disambiguates
+            // them — but only when it has to, so a single-campus school is not
+            // made to read its own name against every class.
+            const duplicated =
+              grades.filter((other) => other.label === grade.label).length > 1;
+            const campus = branches.find((branch) => branch.id === grade.branchId);
+
+            return (
+              <Link
+                key={grade.id}
+                href={linkFor({ grade: grade.id })}
+                className={filters.grade === grade.id ? 'font-semibold text-brand-primary' : 'text-slate-600 hover:underline'}
+              >
+                {duplicated && campus !== undefined
+                  ? `${grade.label} (${campus.name})`
+                  : grade.label}
+              </Link>
+            );
+          })}
         </div>
       ) : null}
 

@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
@@ -15,11 +15,21 @@ export interface GradeOption {
 export interface YearOption {
   id: string;
   name: string;
+  /**
+   * `startYear * 12 + startMonth`, so years can be ordered without shipping
+   * two fields to compare. An academic year is stored as a start month and
+   * year rather than a date, and ordering on the year alone would put a June
+   * start ahead of the previous September's — which is the shape a Pakistani
+   * school year actually has.
+   */
+  startsAt: number;
 }
 
 export interface SectionOption {
   id: string;
   gradeId: string;
+  /** Sections exist once per academic year — see `destinations`. */
+  academicYearId: string;
   label: string;
 }
 
@@ -89,11 +99,47 @@ export function PromotionRunner({
   const [notice, setNotice] = useState<string | null>(null);
   const [confirming, setConfirming] = useState(false);
 
-  /** Sections in the receiving year that a promoted child could land in. */
+  /**
+   * Sections in the receiving year that a promoted child could land in.
+   *
+   * **Filtered by year, and that is not optional.** A section exists once per
+   * academic year, so an unfiltered list offers "Grade 5 — A" three times with
+   * nothing to tell them apart, and two of the three are sections of years the
+   * PATCH route will refuse. Found in the browser against a school with three
+   * years: the picker had 21 entries for 7 classes.
+   *
+   * The grade being promoted *out of* is also excluded — promoting a class
+   * into itself is a retain, which is its own decision.
+   */
   const destinations = useMemo(
-    () => sections.filter((section) => section.gradeId !== gradeId),
-    [sections, gradeId],
+    () =>
+      sections.filter(
+        (section) => section.gradeId !== gradeId && section.academicYearId === toYear,
+      ),
+    [sections, gradeId, toYear],
   );
+
+  const fromYearStartsAt = useMemo(
+    () => years.find((year) => year.id === fromYear)?.startsAt ?? null,
+    [years, fromYear],
+  );
+
+  const receivingYears = useMemo(
+    () =>
+      fromYearStartsAt === null
+        ? []
+        : years.filter((year) => year.startsAt > fromYearStartsAt),
+    [years, fromYearStartsAt],
+  );
+
+  // Changing the year being left can strip the destination out from under the
+  // picker. Clearing it is better than leaving a stale id that the route would
+  // then refuse for a reason nobody can see on screen.
+  useEffect(() => {
+    if (toYear !== '' && !receivingYears.some((year) => year.id === toYear)) {
+      setToYear('');
+    }
+  }, [receivingYears, toYear]);
 
   const load = useCallback(async (id: string) => {
     const response = await fetch(`/api/school/promotions/${id}`);
@@ -312,15 +358,28 @@ export function PromotionRunner({
                 setFromYear(event.target.value);
               }}
             />
+            {/*
+              Only years that start *after* the one being left.
+              Filtering on `id !== fromYear` — which this did until it was
+              tried against a school with two years — offered the previous
+              year as a destination, so "promotion" could move a class
+              backwards into a year that has already happened. The route
+              refuses it too; this is what stops it being offered.
+            */}
             <Select
               label="Moving into"
               options={[
                 { value: '', label: 'Choose a year…' },
                 ...years
-                  .filter((year) => year.id !== fromYear)
+                  .filter((year) => year.startsAt > (fromYearStartsAt ?? Infinity))
                   .map((year) => ({ value: year.id, label: year.name })),
               ]}
               value={toYear}
+              hint={
+                fromYearStartsAt !== null && receivingYears.length === 0
+                  ? 'There is no later academic year to move into yet.'
+                  : undefined
+              }
               onChange={(event) => {
                 setToYear(event.target.value);
               }}

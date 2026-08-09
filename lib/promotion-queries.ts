@@ -285,51 +285,76 @@ export async function applyPromotionRun(
     return { promoted: 0, retained: 0, graduated: 0, refused };
   }
 
-  const result: ApplyResult = { promoted: 0, retained: 0, graduated: 0, refused: [] };
+  const result: ApplyResult = {
+    promoted: actionable.filter((entry) => entry.decision === 'promote').length,
+    retained: actionable.filter((entry) => entry.decision === 'retain').length,
+    graduated: actionable.filter((entry) => entry.decision === 'graduate').length,
+    refused: [],
+  };
+
   const enrollmentDate = new Date().toISOString().slice(0, 10);
 
+  /*
+   * Four statements, whatever the size of the class.
+   *
+   * The first version of this looped: three statements per student, inside one
+   * transaction. A class of 128 is nearly 400 round trips to Supabase — minutes
+   * rather than seconds, with a transaction held open throughout — and it was
+   * the same defect the importer's dry run had. Measured in the browser, both
+   * times.
+   *
+   * The set-based form also removes the read that used to fetch a retained
+   * student's section one row at a time: `COALESCE(to_section_id, e.section_id)`
+   * says the same thing in the insert. A retain still carries no
+   * `to_section_id` — there is no choice being made, and storing one would
+   * create a second place the answer could be wrong.
+   */
   await db.transaction(async (tx) => {
-    for (const decision of actionable) {
-      if (decision.decision === 'graduate') {
-        await tx
-          .update(studentEnrollments)
-          .set({ status: 'graduated' })
-          .where(eq(studentEnrollments.id, decision.fromEnrollmentId));
+    // Promotes and retains gain a row in the receiving year. Graduates do not:
+    // there is nowhere to go, and inventing a row would put a leaver on a
+    // register.
+    await tx.execute(sql`
+      INSERT INTO student_enrollments
+        (location_id, student_profile_id, section_id, academic_year_id, status, enrollment_date)
+      SELECT ${run.locationId}, d.student_profile_id,
+             COALESCE(d.to_section_id, e.section_id),
+             ${run.toAcademicYearId}, 'active', ${enrollmentDate}
+      FROM promotion_decisions d
+      JOIN student_enrollments e ON e.id = d.from_enrollment_id
+      WHERE d.run_id = ${run.id} AND d.decision <> 'graduate'
+    `);
 
-        result.graduated += 1;
-        continue;
-      }
+    // Link each decision to the enrolment it produced, so the run can be read
+    // back afterwards and believed rather than merely counted.
+    await tx.execute(sql`
+      UPDATE promotion_decisions AS d
+      SET created_enrollment_id = e.id, updated_at = now()
+      FROM student_enrollments e
+      WHERE e.student_profile_id = d.student_profile_id
+        AND e.academic_year_id = ${run.toAcademicYearId}
+        AND d.run_id = ${run.id}
+        AND d.decision <> 'graduate'
+    `);
 
-      const sectionId =
-        decision.decision === 'retain'
-          ? await currentSectionOf(tx, decision.fromEnrollmentId)
-          : decision.toSectionId!;
+    // Close last year's rows. Never deleted, never edited beyond their status:
+    // "which section was she in two years ago" has to stay answerable.
+    await tx.execute(sql`
+      UPDATE student_enrollments
+      SET status = 'transferred'
+      WHERE id IN (
+        SELECT from_enrollment_id FROM promotion_decisions
+        WHERE run_id = ${run.id} AND decision <> 'graduate'
+      )
+    `);
 
-      const inserted = await tx
-        .insert(studentEnrollments)
-        .values({
-          locationId: run.locationId,
-          studentProfileId: decision.studentProfileId,
-          sectionId,
-          academicYearId: run.toAcademicYearId,
-          status: 'active',
-          enrollmentDate,
-        })
-        .returning({ id: studentEnrollments.id });
-
-      await tx
-        .update(studentEnrollments)
-        .set({ status: 'transferred' })
-        .where(eq(studentEnrollments.id, decision.fromEnrollmentId));
-
-      await tx
-        .update(promotionDecisions)
-        .set({ createdEnrollmentId: inserted[0]?.id ?? null, updatedAt: new Date() })
-        .where(eq(promotionDecisions.id, decision.id));
-
-      if (decision.decision === 'retain') result.retained += 1;
-      else result.promoted += 1;
-    }
+    await tx.execute(sql`
+      UPDATE student_enrollments
+      SET status = 'graduated'
+      WHERE id IN (
+        SELECT from_enrollment_id FROM promotion_decisions
+        WHERE run_id = ${run.id} AND decision = 'graduate'
+      )
+    `);
 
     await tx
       .update(promotionRuns)
@@ -346,30 +371,6 @@ export async function applyPromotionRun(
   });
 
   return result;
-}
-
-/**
- * The section a retained student stays in.
- *
- * Read from the enrolment rather than carried on the decision, because a
- * retain has no `to_section_id` by design — there is no choice being made, and
- * storing one would create a second place the answer could be wrong.
- */
-async function currentSectionOf(
-  tx: Parameters<Parameters<typeof db.transaction>[0]>[0],
-  enrollmentId: string,
-): Promise<string> {
-  const rows = await tx
-    .select({ sectionId: studentEnrollments.sectionId })
-    .from(studentEnrollments)
-    .where(eq(studentEnrollments.id, enrollmentId))
-    .limit(1);
-
-  const sectionId = rows[0]?.sectionId;
-  if (sectionId === undefined) {
-    throw new Error(`Enrolment ${enrollmentId} vanished mid-promotion.`);
-  }
-  return sectionId;
 }
 
 /**
