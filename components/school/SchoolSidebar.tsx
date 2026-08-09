@@ -85,6 +85,9 @@ export function SchoolSidebar({ role, permissions, moduleFlags }: SchoolSidebarP
         ...(can('students.import')
           ? [{ label: 'Import Students', href: '/dashboard/admissions/import' }]
           : []),
+        ...(can('students.promote')
+          ? [{ label: 'Promote Students', href: '/dashboard/admissions/promote' }]
+          : []),
         { label: 'All Students', href: '/dashboard/admissions/students' },
         { label: 'Applications', href: '/dashboard/admissions/applications' },
       ],
