@@ -34,7 +34,8 @@ export default async function StudentProfilePage({
 }: {
   params: Promise<{ studentId: string }>;
 }) {
-  const { claims, locationId } = await requireSchoolPermission('admissions.read');
+  const { claims, locationId, permissions } =
+    await requireSchoolPermission('admissions.read');
 
   const { studentId } = await params;
   if (!isUuid(studentId)) notFound();
@@ -64,9 +65,26 @@ export default async function StudentProfilePage({
           ← All students
         </Link>
 
-        {student.isActive ? null : (
-          <Badge variant="danger">Portal account deactivated</Badge>
-        )}
+        <div className="flex flex-nowrap items-center gap-3 whitespace-nowrap">
+          {student.isActive ? null : (
+            <Badge variant="danger">Portal account deactivated</Badge>
+          )}
+
+          {/*
+            A transfer always starts from looking at one named child, which is
+            why it is reached from here and not from a list. Gated on its own
+            permission rather than on `canEdit`: moving a student reassigns
+            their fees between two campuses.
+          */}
+          {permissions.includes('students.transfer') ? (
+            <Link
+              href={`/dashboard/admissions/students/${studentId}/transfer`}
+              className="text-sm font-medium text-brand-primary hover:underline"
+            >
+              Transfer campus
+            </Link>
+          ) : null}
+        </div>
       </div>
 
       <StudentProfileCard student={student} canEdit={canEdit} />
