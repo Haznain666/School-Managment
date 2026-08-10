@@ -76,18 +76,27 @@ Sign-in returns a bare 401 with nothing in the log to explain it — which reads
 as a wrong password, a session problem, or a cookie problem, and is none of
 them. This cost a day on 2026-08-10.
 
-To settle it in one command, run this **on the host, from the directory holding
-`server.js`**:
+To settle it, run one of these **on the host, from the directory holding
+`server.js`**. `scripts/` is not part of the standalone artifact, so upload the
+one file you need alongside it. Neither prints a secret.
+
+```bash
+bash scripts/check-super-admin-live.sh
+```
+
+**Prefer this one.** It reads `/proc/<pid>/environ` of the *already running*
+server, so it reports the environment the panel actually injected — and it
+needs no redeploy. Then it offers to test the password against that hash, with
+the terminal echo off.
 
 ```bash
 node scripts/check-super-admin-env.mjs
 ```
 
-It prints what the running process actually sees — hash length and prefix, the
-email as it will be compared, and any `.env` file sitting there overriding the
-panel. Pass the password as a quoted argument to confirm the hash truly matches
-it. It prints no secrets. `scripts/` is not part of the standalone artifact, so
-upload that one file alongside it.
+The portable fallback, for a host without `/proc`. Careful: it reads *its own*
+environment, which on a panel-managed host is your SSH session's, not the
+server's. It can report "missing" for a variable the server holds. Trust the
+`/proc` one when they disagree.
 
 The route now also logs the reason for every refusal
 (`[super-admin] sign-in refused. email matched: …; password matched: …`), so a
