@@ -353,9 +353,40 @@ Remaining, and all of it is the user's to do rather than code:
   platform-injected variables, blanking every secret.
 - Run migrations from a workstation against the **direct** connection (5432),
   not the pooler.
-- Build on Linux/Node 20+, not Windows: `sharp` ships platform-specific
-  binaries. Build in WSL/Docker or let Hostinger build from git.
+- ~~Build on Linux/Node 20+, not Windows~~ — **done 2026-08-10, see below.**
 - Create each school's subdomain in hPanel (see the caveat in §3).
+
+### The artifact exists as of 2026-08-10 — `dist/` (gitignored)
+
+Built from merged `main` at `6685407`: `git archive main` into a clean tree,
+then `npm ci && npm run build` inside `node:20-bookworm`, then `.next/static`
+copied into `.next/standalone`. Packed as `dist/schoolhub-standalone.zip` and
+`.tar.gz` (~42 MB) with `dist/DEPLOY-NOTES.md` beside them. The Docker step is
+not ceremony: the artifact carries `@img/sharp-linux-x64`, and a Windows build
+ships `sharp-win32-x64`, which fails at the first image request rather than at
+boot — so it would look healthy for a while.
+
+Smoke-tested in the container before packing: `node server.js` boots, `/`
+answers 200, `NEXT_PUBLIC_APP_DOMAIN` renders as `schoolhub.codexmill.com`.
+
+Three things this established that were not written down before:
+
+1. **There is no `public/` directory in this repo.** `DEPLOYMENT.md` §1 says to
+   `cp -r public .next/standalone/public`; that is a no-op against a directory
+   that has never existed. Nothing is missing from the artifact.
+2. **`NEXT_PUBLIC_*` is build-time.** The artifact is tied to the domain and
+   Supabase project it was built with. Setting those in the Hostinger panel
+   afterwards does not change what is already inlined — a wrong value means a
+   rebuild, not a config edit.
+3. **`INVITE_LINK_BASE_URL` is still `http://localhost:3000` in `.env.local`**,
+   with the production value commented out directly beneath it. It is a
+   runtime variable, so the panel can carry the right one — but it is the
+   likeliest thing to ship wrong, and wrong breaks every invitation link.
+
+**Still not deployed.** Uploading needs hPanel/SSH credentials, which this
+machine does not hold and which the assistant may not enter in any case. There
+is no deploy automation in the repo either: `.github/workflows/ci.yml` is
+typecheck/lint/build only.
 
 ---
 
