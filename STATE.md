@@ -2660,6 +2660,31 @@ repo all along:
 3. **The password typed differs from the one hashed** — `comparison.passwordMatches`
    answers this inside the live process.
 
+### QA against the production artifact — 2026-08-11
+
+The fix was verified on the **standalone build running as `node server.js` with
+`NODE_ENV=production`** and the environment injected the way a panel does, not
+on a dev server. A controlled A/B on the same artifact:
+
+| `SUPER_ADMIN_PASSWORD_HASH` | Result |
+| --- | --- |
+| raw, 60 chars | login **200** + `Secure; HttpOnly; SameSite=lax` cookie |
+| escaped, 63 chars | login **401 `invalid_credentials`** — the live symptom exactly |
+
+Full flow on the raw-hash instance: wrong password → 401; correct → 200 with
+the cookie; `/super-admin` without a cookie → 307 to the login page; with the
+cookie → layout renders the operator's email (session verified server-side);
+`/api/super-admin/schools` without a cookie → 401 from middleware, with one →
+past the gate; logout → 200 and `Max-Age=0`.
+
+Two limits of this QA, stated plainly: it ran on the build machine, not on
+Hostinger, and `DATABASE_URL` was deliberately unset, so pages that query the
+database answered 500. Neither touches the authentication path.
+
+`bcryptjs` is **not** in `.next/standalone/node_modules` — webpack inlines it
+into the server chunks. The artifact is self-contained; its absence there is
+not a missing dependency.
+
 ### Two other things this log showed
 
 1. **The app appears to start twice.** Every boot prints two `▲ Next.js`
