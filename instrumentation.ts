@@ -22,9 +22,38 @@
  * `if (… !== 'nodejs') return;` reads identically to a human and does not work:
  * the parser still walks the code after it and records the import.
  */
+import { describeHashShape } from './lib/super-admin-hash-shape';
+
 export async function register(): Promise<void> {
   if (process.env.NEXT_RUNTIME === 'nodejs') {
+    checkSuperAdminHash();
+
     const { startOutboxDrainer } = await import('./lib/email-outbox');
     startOutboxDrainer();
   }
+}
+
+/**
+ * Says at boot whether the Super Admin hash survived the trip into this
+ * process.
+ *
+ * ── Why at boot, and not left to the login route ─────────────────────────
+ * A damaged hash does not throw — `compare()` in bcryptjs returns false for
+ * anything that is not 60 characters — so it presents as "wrong password"
+ * forever, with nothing in the log. On 2026-08-11 that cost three sessions on
+ * a deployment that was correct in every other respect. The information that
+ * ends it is available here, before anyone attempts a sign-in, for the price
+ * of one string inspection per process start.
+ *
+ * Never throws and never blocks startup: a malformed hash breaks Super Admin
+ * sign-in, not the school portals, and taking the platform down over it would
+ * be the wrong trade.
+ */
+function checkSuperAdminHash(): void {
+  const shape = describeHashShape(process.env.SUPER_ADMIN_PASSWORD_HASH);
+  if (shape.ok) return;
+
+  // Deliberately loud, and deliberately without the hash itself — it is
+  // offline-crackable and belongs in a log no more than the password does.
+  console.error(`[super-admin] ${shape.message}`);
 }

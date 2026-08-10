@@ -4,7 +4,7 @@
 resume without re-deriving context. Updated at the end of every development
 step, before the session ends.
 
-**Last updated:** 2026-08-11 (live Super Admin 401 traced — §5u)
+**Last updated:** 2026-08-11 (live Super Admin 401 — root cause confirmed, §5u)
 
 > **⚠ Rotate the Super Admin password.** It was pasted in plaintext into a chat
 > on 2026-08-11, and it was already the leaked one. Regenerate with
@@ -2557,9 +2557,47 @@ directions depending on the mechanism.
   "Session expired." That interception is what hid the real error for two
   sessions.
 
-**Not yet run against the live host** — that needs SSH, which this machine does
-not hold. The diagnosis narrows it to two possibilities and the script
-distinguishes them in one command.
+### CONFIRMED against the live host, 2026-08-11
+
+The user redeployed and the new log line answered it outright:
+
+```
+[super-admin] sign-in refused. email matched: true; password matched: false;
+SUPER_ADMIN_PASSWORD_HASH is MALFORMED: 63 chars, expected 60,
+contains a backslash, starts "\$2b".
+```
+
+**The email was never wrong.** The hash reaching the process is the escaped
+`\$2b\$12\$…` form — 63 characters, three backslashes. Exactly the failure
+predicted above, and the reason two earlier sessions chased cookies instead.
+
+The user had already corrected the *panel* to the raw form before this log was
+produced, which first suggested a `.env` file beside `server.js` was overriding
+it. **Measured, and it cannot be**: `@next/env` 15.5.22 does not replace a
+variable that already exists in the environment.
+
+| Panel sets | File sets | Process gets |
+| --- | --- | --- |
+| `from-the-panel` | `from-the-file` | **`from-the-panel`** |
+| `from-the-panel` | *(empty key)* | **`from-the-panel`** |
+| *(nothing)* | `from-the-file` | `from-the-file` |
+
+So a wrong value in the running process **came from the panel**, full stop.
+`DEPLOYMENT.md` §3 asserted the opposite — that a file overwrites panel values
+and that empty keys blank every secret — and has been corrected. That claim
+sent this session's first answer to the wrong place, and would have sent the
+next one there too.
+
+### Two other things this log showed
+
+1. **The app appears to start twice.** Every boot prints two `▲ Next.js`
+   banners and two `Ready in …` lines, and shutdown reports `Error: Server is
+   not running.` twice. Two processes on one port means the email-outbox
+   drainer runs twice — a duplicate-send risk — and makes "which process holds
+   which env" ambiguous. Not diagnosed yet; worth settling before the pilot.
+2. **The host runs Node 20**, which `@supabase/supabase-js` now warns is
+   deprecated. Not related to this bug. `DEPLOYMENT.md` says Node 20+; that
+   floor should move to 22 before the warning becomes a break.
 
 ---
 
@@ -2588,6 +2626,7 @@ distinguishes them in one command.
 
 | Date | Session did | Next |
 | --- | --- | --- |
+| 2026-08-11 | **Root cause confirmed from the live host** (§5u). The redeployed build's new log line settled it in one attempt: `email matched: true; password matched: false; SUPER_ADMIN_PASSWORD_HASH is MALFORMED: 63 chars, expected 60, contains a backslash, starts "\$2b"`. The email was never wrong; the hash reaching the process is the escaped `\$2b\$12\$` form, which bcryptjs rejects on length without raising anything. The user had already set the panel to the raw form, so a `.env*` file was the obvious suspect — until it was measured: `@next/env` never replaces a variable the environment already holds, so the panel always wins and the wrong value can only have come from the panel. `DEPLOYMENT.md` §3 claimed the reverse and is corrected. Added a boot-time check in `instrumentation.ts` so a malformed hash announces itself when the server starts rather than waiting for someone to fail a login, with the shape logic moved into `lib/super-admin-hash-shape.ts` as one source for all three callers. Also surfaced two unrelated findings: the app prints two Next.js banners and two `Ready` lines per boot, so **it appears to be starting twice** — which would run the email-outbox drainer twice — and the host is on **Node 20**, which `@supabase/supabase-js` now warns is deprecated. | **Paste the raw 60-char hash and delete any `.env*` beside `server.js`.** Then rotate the password (it was pasted in plaintext on 2026-08-11). Then settle the double-start. |
 | 2026-08-11 | **Super Admin sign-in returns 401 on the live Hostinger deployment** (§5u). Traced it: middleware exempts `/api/super-admin/auth/*` before its session check, so the only line in the codebase that can produce that 401 is `invalid_credentials` in the login route — the env vars are therefore *present* (missing ones give 500), and either the email or the bcrypt comparison failed. Found the mechanism that made it unloggable: `compare()` in bcryptjs 3.0.3 opens `if (hash.length !== 60) return false`, verified by probe — the escaped form (63), a shell-expanded one (53), quoted (62) and newline-terminated (61) all return **false without throwing**. Fixed the reporting rather than guessing the value: the login route now logs which half failed and the hash's *shape* (never the hash), and `scripts/check-super-admin-env.mjs` answers the same question on the host in one command. Also fixed `lib/super-admin-client.ts`, which converted every 401 — including the login route's own — into "Session expired.", which is what sent the previous two sessions after cookies and HTTPS. Verified locally end to end: wrong password → 401 `invalid_credentials` with the real message; correct → 200 with the cookie set; log line names the cause. | **Run `npm run check-super-admin` on the host** and read §5u. It prints which of the two halves is wrong. Then rotate the Super Admin password — it was pasted in plaintext into a chat on 2026-08-11 and was already the leaked one. |
 | 2026-08-10 | **Enrolment form and the branding page that named the wrong theme** (§5t). The school's own settings page reported "Vibrant — in use" for a school themed from the Crimson & Gold preset: `GET /api/school/branding` never returned `presetKey`, so the page read `selected_palette` — `0` by default — while the portal around it was painted in the preset. The route now returns and accepts a preset, the page shows presets alongside the logo palettes, and the three derived names live in one shared constant instead of disagreeing between the two screens. On the enrolment form, "B-Form / CNIC" became a document *and* a number: CNIC is digits-only and reformatted 5-7-1 as typed and refused otherwise, B-Form is free text, both hidden by default behind an eye toggle, and the document type is stored in a new column rather than inferred from digits it cannot be inferred from. Religion and nationality became dropdowns that still hold any value predating the list. `typecheck`, `lint` and `build` clean. Migration `0020` applied and verified — 417 rows intact, 0 typed. **The enrolment error is found and fixed:** a school that imported its roll in our own numbering (`RHA-2026-0001`…`0409`) left the ID counter at zero, so every direct enrolment minted a number the roll already held and died on the unique index — 409 times over, one number burned per attempt. `generateStudentId` now reconciles the counter past the roll once, and the request that failed returns `RHA-2026-0410`. All four fixes clicked through against the live database; two probe students enrolled and deleted, fixtures back where they were. | **Print one of each document on real A4** — unchanged. Then Sprint 11. |
 | 2026-08-10 | **Bulk switches made honest, dead Settings link removed** (§5s). Two things the user found on `/super-admin/modules`. Every Phase 1 module reported "on everywhere" beside a switch reading *Leave* — both statements true, the pair indefensible. The third position is gone: a switch is On or Off, opens on what the selected schools actually hold, and the safety "Leave" bought is now bought by the **baseline** — only switches moved away from the loaded state are sent, so an untouched flag still never reaches the database. Mixed selections light neither side (the badge already said "on at 1 of 3"), moved switches are ringed, and moving one back leaves zero changes rather than two. Also removed the `Settings` sidebar entry, which pointed at a route that was never built and is on no roadmap. Verified in a browser against the live database: the payload for one moved switch carried exactly that one flag, and re-reading the school afterwards showed the new baseline with nothing left to apply. Reverted; fixture unchanged. | **Print one of each document on real A4** — unchanged, still the only thing between here and a printed-document sign-off. Then Sprint 11. |
