@@ -1,0 +1,9 @@
+# Shell scripts must keep LF endings whatever the checkout platform does.
+#
+# This repo is developed on Windows with `core.autocrlf=true`, which rewrites
+# LF to CRLF on checkout. A shell script that reaches a Linux host with CRLF
+# endings fails at the shebang — the kernel reads the interpreter as
+# "/usr/bin/env bash\r", which does not exist, and reports
+# "bad interpreter: No such file or directory". The scripts here are meant to
+# be uploaded to Hostinger and run over SSH, so that is not hypothetical.
+*.sh text eol=lf
