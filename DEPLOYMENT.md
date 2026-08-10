@@ -42,10 +42,27 @@ localhost only, which is invisible to the reverse proxy.
 Set every variable from `.env.example` in Hostinger's Node.js app environment
 settings.
 
-**Never upload `.env.local`.** Next.js loads it at server start and it
-*overwrites* platform-injected variables — a committed or uploaded file, even
-one holding only empty keys, blanks every secret the panel provides. This has
-bitten this project before; it is why `.gitignore` covers it.
+**Don't upload `.env.local`** — but not for the reason this section used to
+give. It claimed a `.env` file *overwrites* platform-injected variables and
+that empty keys in one "blank every secret the panel provides". **That is
+wrong**, and it was measured wrong on 2026-08-11 against `@next/env` 15.5.22:
+
+| Panel sets | File sets | Process gets |
+| --- | --- | --- |
+| `from-the-panel` | `from-the-file` | **`from-the-panel`** |
+| `from-the-panel` | *(empty key)* | **`from-the-panel`** |
+| *(nothing)* | `from-the-file` | `from-the-file` |
+
+dotenv does not replace a variable that already exists in the environment, so
+the panel always wins and a file only fills gaps. The reason to keep the file
+off the host is narrower: it silently supplies values for anything the panel
+*forgot*, so a variable you believe you removed from the deployment is quietly
+still set, and a stale secret keeps working long after it should have broken.
+
+The practical consequence when debugging: **if the running process holds a
+wrong value, the panel is where it came from.** Deleting `.env` files will not
+change it. Confirm with `scripts/check-super-admin-live.sh`, which reads the
+running process rather than guessing.
 
 The ones that must carry the real domain:
 

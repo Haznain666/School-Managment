@@ -3,6 +3,7 @@ import 'server-only';
 import { compare } from 'bcryptjs';
 
 import { requireServerEnv } from './env';
+import { describeHashShape } from './super-admin-hash-shape';
 
 /**
  * The one place operator credentials are checked.
@@ -89,17 +90,10 @@ function logRejection(
   passwordMatches: boolean,
   passwordHash: string,
 ): void {
-  const shape =
-    passwordHash.length === 60
-      ? 'well-formed (60 chars)'
-      : `MALFORMED: ${String(passwordHash.length)} chars, expected 60` +
-        (passwordHash.includes('\\') ? ', contains a backslash' : '') +
-        (passwordHash.startsWith('$2') ? '' : `, starts "${passwordHash.slice(0, 4)}"`);
-
   console.warn(
     '[super-admin] sign-in refused. ' +
       `email matched: ${String(emailMatches)}; ` +
-      `password matched: ${String(passwordMatches)}; ` +
-      `SUPER_ADMIN_PASSWORD_HASH is ${shape}.`,
+      `password matched: ${String(passwordMatches)}. ` +
+      describeHashShape(passwordHash).message,
   );
 }
