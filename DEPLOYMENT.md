@@ -220,6 +220,62 @@ from `?school=<slug>`, remembered afterwards in a `school_slug` cookie. That
 path is implemented and tested, so a missing subdomain degrades rather than
 breaks.
 
+## 5b. Automated deploy (GitHub Actions)
+
+`.github/workflows/deploy.yml` does everything in §1–§2 and then verifies the
+result. Run it from the **Actions** tab → *Deploy to Hostinger* → *Run
+workflow*. It is `workflow_dispatch` only: deploying to production should be a
+decision, not a consequence of merging.
+
+It builds on Ubuntu — which is the point, since `sharp` ships platform-specific
+binaries and a Windows build cannot run on the host — copies `.next/static`
+(and `public/` if it ever exists) into `standalone`, rsyncs the tree over SSH,
+restarts the app, waits, and then runs the smoke test below. A failing smoke
+test fails the workflow, so a deploy cannot report success over a broken site.
+
+### Secrets to set
+
+**Settings → Secrets and variables → Actions.** They are encrypted, and they go
+in that page — never into a chat, an issue, or a commit.
+
+| Secret | What it is |
+| --- | --- |
+| `HOSTINGER_HOST` | SSH hostname or IP |
+| `HOSTINGER_USER` | SSH username |
+| `HOSTINGER_PORT` | SSH port (blank ⇒ 22) |
+| `HOSTINGER_SSH_KEY` | **private** key of a deploy keypair — generate a fresh one, do not reuse a personal key |
+| `HOSTINGER_PATH` | absolute path of the directory holding `server.js` |
+| `HOSTINGER_RESTART_COMMAND` | command that restarts the app; if blank the upload still happens and the workflow warns that the old process is still serving |
+| `PRODUCTION_URL` | e.g. `https://schoolhub.codexmill.com` |
+| `NEXT_PUBLIC_APP_DOMAIN`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_URL` | build-time; inlined into the bundle, so they must be here and not only in the panel |
+| `SMOKE_SUPER_ADMIN_EMAIL`, `SMOKE_SUPER_ADMIN_PASSWORD` | optional; enables a real sign-in assertion after each deploy |
+
+Generate the deploy key with `ssh-keygen -t ed25519 -f deploy_key -N ""`, put
+the **public** half in the host's `~/.ssh/authorized_keys` and the private half
+in `HOSTINGER_SSH_KEY`.
+
+## 5c. Smoke test
+
+```bash
+npm run smoke-test https://schoolhub.codexmill.com
+```
+
+Exits non-zero when the deployment is not healthy. It checks reachability, that
+`/super-admin` actually redirects when unauthenticated, that the redirect does
+not point at the bind address (§2), and — without needing any credentials — it
+sends a deliberately wrong password and reads the status:
+
+| Response | Meaning |
+| --- | --- |
+| `401 invalid_credentials` | route healthy, env present, bcrypt ran |
+| `500 server_misconfigured` | a `SUPER_ADMIN_*` variable is missing from the process |
+| `429` | throttled; retry in 15 minutes |
+
+That single distinction is the diagnosis this project spent four sessions
+failing to make by hand. Given `SMOKE_SUPER_ADMIN_EMAIL` and
+`SMOKE_SUPER_ADMIN_PASSWORD` it also performs a real sign-in and asserts the
+cookie comes back `HttpOnly`, `Secure` and `SameSite`. Neither value is printed.
+
 ## 6. Post-deploy checks
 
 Sign in as Super Admin and open:

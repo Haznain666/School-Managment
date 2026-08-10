@@ -1,0 +1,137 @@
+name: Deploy to Hostinger
+
+# Manual only, and deliberately so. This pushes to production; it should be an
+# act, not a side effect of merging. Trigger it from the Actions tab
+# ("Run workflow"), which also records who ran it and when.
+on:
+  workflow_dispatch:
+    inputs:
+      skip_smoke_test:
+        description: 'Deploy without verifying the live site afterwards (not recommended)'
+        type: boolean
+        default: false
+
+concurrency:
+  # Never two deploys at once: the second would rsync over a half-written tree.
+  group: deploy-production
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    name: Build, upload, restart, verify
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+
+      # Ubuntu, matching the host. `sharp` ships platform-specific binaries, so
+      # a Windows build produces an artifact that cannot run on Hostinger —
+      # which is exactly why this job exists rather than a local `npm run build`
+      # and a drag into an SFTP window.
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      # NEXT_PUBLIC_* is inlined into the browser bundle at build time, so these
+      # must be present HERE, not only in the hosting panel. Setting them in the
+      # panel afterwards changes nothing about an artifact already built.
+      - name: Build the standalone artifact
+        env:
+          NEXT_PUBLIC_APP_DOMAIN: ${{ secrets.NEXT_PUBLIC_APP_DOMAIN }}
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+        run: npm run build
+
+      # Next leaves these two out of `standalone`. Without them the server runs
+      # and every stylesheet 404s, which reads as "the site is broken" rather
+      # than "two directories are missing".
+      - name: Assemble the deployable tree
+        run: |
+          cp -r .next/static .next/standalone/.next/static
+          if [ -d public ]; then cp -r public .next/standalone/public; fi
+          echo "Artifact size: $(du -sh .next/standalone | cut -f1)"
+
+      - name: Authorise the deploy key
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.HOSTINGER_SSH_KEY }}
+          SSH_HOST: ${{ secrets.HOSTINGER_HOST }}
+          SSH_PORT: ${{ secrets.HOSTINGER_PORT }}
+        run: |
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_PRIVATE_KEY" > ~/.ssh/id_deploy
+          chmod 600 ~/.ssh/id_deploy
+          # Pin the host key rather than disabling checking, so this cannot be
+          # pointed at an impostor by anyone who can influence DNS.
+          ssh-keyscan -p "${SSH_PORT:-22}" -H "$SSH_HOST" >> ~/.ssh/known_hosts 2>/dev/null
+
+      # --delete so a file removed from the repo also leaves the server, with
+      # node_modules excluded: `standalone` carries only what it traced, and the
+      # host must not accumulate a second, stale dependency tree.
+      - name: Upload the artifact
+        env:
+          SSH_HOST: ${{ secrets.HOSTINGER_HOST }}
+          SSH_USER: ${{ secrets.HOSTINGER_USER }}
+          SSH_PORT: ${{ secrets.HOSTINGER_PORT }}
+          DEPLOY_PATH: ${{ secrets.HOSTINGER_PATH }}
+        run: |
+          rsync -az --delete \
+            -e "ssh -i ~/.ssh/id_deploy -p ${SSH_PORT:-22}" \
+            .next/standalone/ \
+            "$SSH_USER@$SSH_HOST:$DEPLOY_PATH/"
+
+      # Also ships the diagnostics scripts, which are not part of `standalone`
+      # and are wanted on the host precisely when something is wrong.
+      - name: Upload the diagnostic scripts
+        env:
+          SSH_HOST: ${{ secrets.HOSTINGER_HOST }}
+          SSH_USER: ${{ secrets.HOSTINGER_USER }}
+          SSH_PORT: ${{ secrets.HOSTINGER_PORT }}
+          DEPLOY_PATH: ${{ secrets.HOSTINGER_PATH }}
+        run: |
+          rsync -az \
+            -e "ssh -i ~/.ssh/id_deploy -p ${SSH_PORT:-22}" \
+            scripts/ \
+            "$SSH_USER@$SSH_HOST:$DEPLOY_PATH/scripts/"
+
+      - name: Restart the application
+        env:
+          SSH_HOST: ${{ secrets.HOSTINGER_HOST }}
+          SSH_USER: ${{ secrets.HOSTINGER_USER }}
+          SSH_PORT: ${{ secrets.HOSTINGER_PORT }}
+          RESTART_COMMAND: ${{ secrets.HOSTINGER_RESTART_COMMAND }}
+        run: |
+          if [ -z "$RESTART_COMMAND" ]; then
+            echo "::warning::HOSTINGER_RESTART_COMMAND is not set — the new code is"
+            echo "::warning::uploaded but the OLD process is still running. Restart in hPanel."
+            exit 0
+          fi
+          ssh -i ~/.ssh/id_deploy -p "${SSH_PORT:-22}" \
+            "$SSH_USER@$SSH_HOST" "$RESTART_COMMAND"
+
+      # A restart is not instant and a smoke test against a half-started server
+      # reports a failure that is not real.
+      - name: Wait for the process to come back
+        if: ${{ !inputs.skip_smoke_test }}
+        run: sleep 20
+
+      # The point of the whole workflow: a deploy that is not verified is a
+      # deploy that reports success while the site is down.
+      - name: Verify the live site
+        if: ${{ !inputs.skip_smoke_test }}
+        env:
+          SMOKE_SUPER_ADMIN_EMAIL: ${{ secrets.SMOKE_SUPER_ADMIN_EMAIL }}
+          SMOKE_SUPER_ADMIN_PASSWORD: ${{ secrets.SMOKE_SUPER_ADMIN_PASSWORD }}
+        run: node scripts/smoke-test-live.mjs "${{ secrets.PRODUCTION_URL }}"
+
+      - name: Remove the deploy key
+        if: always()
+        run: rm -f ~/.ssh/id_deploy

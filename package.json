@@ -11,6 +11,7 @@
     "hash-password": "node scripts/hash-password.mjs",
     "check-super-admin": "node scripts/check-super-admin-env.mjs",
     "fingerprint": "node scripts/fingerprint.mjs",
+    "smoke-test": "node scripts/smoke-test-live.mjs",
     "typecheck": "tsc --noEmit",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
