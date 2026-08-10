@@ -1,33 +1,37 @@
 'use client';
 
-import { useId, useState, type InputHTMLAttributes } from 'react';
+import { useId, useState, type CSSProperties, type InputHTMLAttributes } from 'react';
 
 import { cn } from '@/lib/utils';
 
 /**
- * A text field whose value is hidden until the user asks to see it.
+ * A text field whose value is obscured until the user asks to see it.
  *
  * ── Why not `type="password"` ────────────────────────────────────────────
- * A password field hides *everything* and lets nothing be formatted as it is
- * typed. This is used for identity numbers, which need both: the last four
- * characters stay readable so a clerk can confirm they are on the right record,
- * and the field still reformats to `42101-1234567-1` while it is being typed.
- * So the masking is done on the displayed string, and the real value is what is
- * held in state and submitted.
+ * Switching `type` mid-life makes browsers offer to save the value as a
+ * password and, on some, resets the caret. This is an identity number on an
+ * admissions form, not a credential: it wants the dots, not the password
+ * manager.
  *
- * The consequence worth knowing: while hidden, the input shows a *derived*
- * string. Typing into it would be editing the mask, so it is read-only until
- * revealed — the eye is not decoration, it is how you get to edit the field.
- * Browsers also cannot autofill or password-manage it, which for a child's
- * B-Form number is the outcome we want.
+ * ── Why CSS, and not a masked string ─────────────────────────────────────
+ * The first attempt rendered a *derived* string — `•••••-•••••67-1` — while
+ * hidden, which meant the field had to be read-only or typing would have been
+ * editing the mask. That is unusable: the field is empty and editable, the
+ * first digit lands, and the second is refused because the value is no longer
+ * empty. It survived automated testing only because scripted typing outran
+ * React's re-render, which is exactly the kind of pass that hides a defect
+ * rather than finding one.
+ *
+ * `text-security` obscures what is painted and leaves the input alone, so the
+ * real value is always what is being edited: it can be typed into, reformatted
+ * as `42101-1234567-1` on the way in, and corrected — all without ever being
+ * legible over the clerk's shoulder.
  */
 
 export interface SecretInputProps
   extends Omit<InputHTMLAttributes<HTMLInputElement>, 'value' | 'type'> {
   label: string;
   value: string;
-  /** How the value reads while hidden. Given the current value. */
-  mask: (value: string) => string;
   error?: string;
   hint?: string;
   /** Accessible name for the toggle, e.g. "CNIC". Defaults to the label. */
@@ -37,7 +41,6 @@ export interface SecretInputProps
 export function SecretInput({
   label,
   value,
-  mask,
   error,
   hint,
   revealLabel,
@@ -69,11 +72,22 @@ export function SecretInput({
           type="text"
           inputMode="numeric"
           autoComplete="off"
-          value={revealed || value === '' ? value : mask(value)}
-          readOnly={!revealed && value !== ''}
+          value={value}
           disabled={disabled}
           aria-invalid={hasError}
           aria-describedby={hasError || hint !== undefined ? messageId : undefined}
+          // Both spellings: the unprefixed property is the one the CSS Working
+          // Group settled on, the prefixed one is what shipping browsers
+          // actually implement. `hidden` is never the only protection — the
+          // value is masked again wherever it is merely displayed.
+          style={
+            revealed
+              ? undefined
+              : ({
+                  WebkitTextSecurity: 'disc',
+                  textSecurity: 'disc',
+                } as CSSProperties)
+          }
           className={cn(
             'block w-full rounded-lg border bg-white py-2 pl-3 pr-11 text-sm text-slate-900',
             'placeholder:text-slate-400',

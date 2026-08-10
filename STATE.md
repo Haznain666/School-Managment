@@ -15,8 +15,8 @@ sprint branch.
 **Main branch:** `main` — last commit `d0e7dc0`, in sync with `origin/main`.
 **Migrations `0000`–`0019` are all applied and verified** against the live
 database; `0016` and `0017` were applied 2026-08-09 (§5n, §5o), `0018` the same
-day and `0019` on 2026-08-10 (§5q). **`0020` is written and NOT applied** — see
-§5t; the enrolment branch does not run without it. Next free number: **`0021`**.
+day and `0019` on 2026-08-10 (§5q), and `0020` the same day (§5t). Next free
+number: **`0021`**.
 
 **The delivery plan now lives in `SPRINTS.md`** — 17 sprints across three
 releases, reconciling `remaining work.docx` with this file and `ROADMAP.md`.
@@ -2344,25 +2344,39 @@ afterwards, so the fixture is where it started. No console errors.
 
 ## 5t. The enrolment form, and a branding page that named the wrong theme — 2026-08-10
 
-Four things the user reported from the school-admin CRM. Three are done and
-built; the fourth is **not diagnosed** and is the reason this section is not a
-sign-off.
+Four things the user reported from the school-admin CRM. All four are fixed, and
+all four were checked by clicking against the live database rather than only
+built.
 
-### ⚠️ Migration `0020` is written but **NOT applied**
+**Two probe students** (`STS-2026-0004`, `RHA-2026-0410`) were enrolled to prove
+the paths end to end and deleted afterwards; the fixtures are back at 6 / 409 / 2
+students. Their sequence numbers stayed spent, which is by design — gaps are
+harmless, duplicates are not.
+
+**One field was rebuilt after the browser caught it.** The masked input first
+rendered a derived string (`•••••-•••••67-1`) and had to be read-only so typing
+would not edit the mask — which meant the first digit landed and the second was
+refused. It passed a scripted test only because automated typing outran React's
+re-render. It now obscures with `text-security` and leaves the input alone, so
+the real value is always what is being edited. Worth remembering: a scripted
+"type the whole string" is not a test of a controlled, reformatting field.
+
+### Migration `0020` — applied and verified 2026-08-10
 
 `db/migrations/0020_student_id_document_type.sql` adds
 `student_profiles.id_document_type` (`text`, nullable, CHECK `'cnic' | 'b_form'`).
-Additive and safe against existing data, deliberately **not** back-filled — see
-below for why guessing would be worse than a null. Next free number after it:
-**`0021`**.
+Additive, and deliberately **not** back-filled — see below for why guessing would
+be worse than a null.
 
-**The branch does not run until it is applied**: `lib/admissions-queries.ts`
-selects the column, so the student directory and profile pages will fail against
-a database that does not have it. Apply before merging:
+Verified against the live schema after applying: the column is `text NOT NULL =
+NO`, the CHECK reads
+`id_document_type IS NULL OR id_document_type = ANY (ARRAY['cnic','b_form'])`,
+and all **417** student rows survived with **0** typed, which is the intended
+starting state. Next free number: **`0021`**.
 
-```
-DATABASE_URL="…:5432/postgres" npx drizzle-kit migrate
-```
+`lib/admissions-queries.ts` selects the column, so the student directory and
+profile pages would fail against a database without it — worth knowing if this
+branch is ever deployed somewhere the migration has not run.
 
 ### 1. The branding page named a theme the school was not using
 
@@ -2428,29 +2442,46 @@ predates the list as its own option; without it, opening an older record would
 silently re-point their religion at the first option the moment anything else on
 the form was saved.
 
-### ⚠️ 4. The enrolment error is NOT diagnosed
+### 4. The enrolment error — a school that imported its roll could never enrol again
 
-The user hit an error enrolling and did not quote it. Ruled out, so the next
-session need not repeat this:
+Reproduced in the browser against Rehearsal Academy. The message the user saw is
+`enrollment_failed` — *"Could not complete the enrolment. Please check the
+details and try again."* — and the details had nothing to do with it. The
+database was rejecting:
 
-- **The four inserts are fine.** Replayed byte-for-byte against the live
-  database inside a rolled-back transaction — school user, profile, enrolment,
-  guardian all committed. No constraint rejects an ordinary enrolment.
-- **The fixtures are fine.** Sample Test School and Rehearsal Academy both have
-  an active year, a school code, active branches, and sections filed under the
-  active year. `resolvePlacement` has nothing to reject.
-- `typecheck`, `lint` and `next build` are all clean.
+```
+duplicate key value violates unique constraint
+  "student_profiles_location_id_student_id_idx"
+Key (location_id, student_id) = (66a9f0c6…, RHA-2026-0001) already exists.
+```
 
-**One real clue, unexplained.** `school_id_sequences` for Sample Test School
-holds `last_sequence = 3`, and **no student carries an `STS-2026-000x` number** —
-the six on the roll are all seeded `STS-S00x`. Three IDs were issued and three
-enrolments did not land. An ID is spent *after* `resolvePlacement` and *before*
-the inserts, so whatever failed, failed inside that window or in the response
-path after it. That window is four inserts that demonstrably work.
+**Two correct decisions collided.** A bulk import keeps the school's own
+admission numbers and deliberately does *not* advance `school_id_sequences` —
+renumbering a migrated roll breaks every receipt and certificate already filed
+under the old numbers, so that is right. It is only safe while the two
+sequences never meet. They meet the moment a school's own numbering *is* our
+numbering: Rehearsal Academy imported 409 children as
+`RHA-2026-0001`…`RHA-2026-0409` and left the counter at zero, so the next direct
+enrolment minted `RHA-2026-0001` and hit the unique index.
 
-**What is needed: the error text.** Everything cheaper than that has been tried.
-Note that the browser could not be used — the session had no way to reach an
-authenticated school portal, and minting a hand-off token was correctly refused.
+And it did not fail once. Each attempt spends a number, so the school would have
+had to fail **409 times** before an enrolment could land. Sample Test School was
+never affected — its seeded roll is `STS-S00x`, which shares no space with ours
+— which is why enrolling there worked throughout and why this looked
+intermittent.
+
+`generateStudentId` now checks its candidate against the roll and, on a
+collision, reconciles once: it reads the highest sequence actually in use for
+that school and year (`LIKE 'RHA-2026-%'`, ignoring anything not in the exact
+printed form) and pushes the counter past it with `GREATEST`, so a concurrent
+enrolment that has already gone further is never wound back. After that one
+reconciliation the ordinary path resumes. A number still taken at that point is
+a genuine race, and is reported as one rather than retried in a loop that would
+burn a number per turn. `previewNextStudentId` asks the same question, so the
+review step no longer shows a number that is on another child's file.
+
+**Verified against the live database**: the same request that returned
+`enrollment_failed` returned `RHA-2026-0410` after the fix.
 
 ---
 
@@ -2479,7 +2510,7 @@ authenticated school portal, and minting a hand-off token was correctly refused.
 
 | Date | Session did | Next |
 | --- | --- | --- |
-| 2026-08-10 | **Enrolment form and the branding page that named the wrong theme** (§5t). The school's own settings page reported "Vibrant — in use" for a school themed from the Crimson & Gold preset: `GET /api/school/branding` never returned `presetKey`, so the page read `selected_palette` — `0` by default — while the portal around it was painted in the preset. The route now returns and accepts a preset, the page shows presets alongside the logo palettes, and the three derived names live in one shared constant instead of disagreeing between the two screens. On the enrolment form, "B-Form / CNIC" became a document *and* a number: CNIC is digits-only and reformatted 5-7-1 as typed and refused otherwise, B-Form is free text, both hidden by default behind an eye toggle, and the document type is stored in a new column rather than inferred from digits it cannot be inferred from. Religion and nationality became dropdowns that still hold any value predating the list. `typecheck`, `lint` and `build` clean. **Two things are outstanding:** migration `0020` is written but not applied, and the branch does not run until it is; and the enrolment error the user reported is **not** diagnosed — the inserts were replayed against the live database inside a rolled-back transaction and all four succeed. | **Apply `0020`, then get the enrolment error text.** Three student IDs were issued at Sample Test School against zero students, so something fails between the ID and the response — but not in the writes. |
+| 2026-08-10 | **Enrolment form and the branding page that named the wrong theme** (§5t). The school's own settings page reported "Vibrant — in use" for a school themed from the Crimson & Gold preset: `GET /api/school/branding` never returned `presetKey`, so the page read `selected_palette` — `0` by default — while the portal around it was painted in the preset. The route now returns and accepts a preset, the page shows presets alongside the logo palettes, and the three derived names live in one shared constant instead of disagreeing between the two screens. On the enrolment form, "B-Form / CNIC" became a document *and* a number: CNIC is digits-only and reformatted 5-7-1 as typed and refused otherwise, B-Form is free text, both hidden by default behind an eye toggle, and the document type is stored in a new column rather than inferred from digits it cannot be inferred from. Religion and nationality became dropdowns that still hold any value predating the list. `typecheck`, `lint` and `build` clean. Migration `0020` applied and verified — 417 rows intact, 0 typed. **The enrolment error is found and fixed:** a school that imported its roll in our own numbering (`RHA-2026-0001`…`0409`) left the ID counter at zero, so every direct enrolment minted a number the roll already held and died on the unique index — 409 times over, one number burned per attempt. `generateStudentId` now reconciles the counter past the roll once, and the request that failed returns `RHA-2026-0410`. All four fixes clicked through against the live database; two probe students enrolled and deleted, fixtures back where they were. | **Print one of each document on real A4** — unchanged. Then Sprint 11. |
 | 2026-08-10 | **Bulk switches made honest, dead Settings link removed** (§5s). Two things the user found on `/super-admin/modules`. Every Phase 1 module reported "on everywhere" beside a switch reading *Leave* — both statements true, the pair indefensible. The third position is gone: a switch is On or Off, opens on what the selected schools actually hold, and the safety "Leave" bought is now bought by the **baseline** — only switches moved away from the loaded state are sent, so an untouched flag still never reaches the database. Mixed selections light neither side (the badge already said "on at 1 of 3"), moved switches are ringed, and moving one back leaves zero changes rather than two. Also removed the `Settings` sidebar entry, which pointed at a route that was never built and is on no roadmap. Verified in a browser against the live database: the payload for one moved switch carried exactly that one flag, and re-reading the school afterwards showed the new baseline with nothing left to apply. Reverted; fixture unchanged. | **Print one of each document on real A4** — unchanged, still the only thing between here and a printed-document sign-off. Then Sprint 11. |
 | 2026-08-10 | **Dress rehearsal started** (§5r) — of Sprints 0–10, not of R1, which cannot be rehearsed because Sprints 11–13 do not exist. Extended the seed with a full published examined term (50 papers, 2,121 marks, 63 absences, 76 re-sits) and a fortnight of registers, because none of the four printed documents could be produced without one. **All four render and are correct**: the report card excludes the unpublished paper from its list *and* its denominator, prints `ABS` and refuses a position to anyone absent; the tabulation sheet daggers the unpublished paper and includes it, being a review document; the admit card carries all five, being a datesheet. Three defects: the suggested grading ladder had no band below 33%, so a genuine fail printed a blank grade beside a passing A; the seed's own marker was printing on every fee challan, having been put in the postal address; and class names were ambiguous across campuses for the fourth and fifth time, which is what finally moved the rule into `lib/class-labels.ts`. | **Print one of each on real A4.** It is now the only thing left before the printed documents can be signed off, and it needs a person with a printer. Then Sprint 11. |
 | 2026-08-10 | **Sprint 10 complete, every piece clicked** (§5q). Transfer and family vouchers verified against the seeded school, and doing it found the sprint's most consequential defect: `student_enrollments` was uniquely indexed on (student, year), so a transfer — which by design opens a second enrolment in the same year — failed at the database every time. Editing the row in place would have been worse, because `attendance_records.enrollment_id` points at it and a register taken at the old campus would afterwards claim the new one. Migration `0019` makes the index partial on `status = 'active'`: one *placement* at a time, closed rows accumulating as history. Also: the transfer picker had promotion's year-duplication defect (written twice, seen once), and family vouchers could be issued but not paid — the route distributed a payment across the children's challans and no screen offered to record one. | **Print one of each document on real A4.** It is now the largest unverified thing in the project, and has been since §5n. Then the dress rehearsal. |

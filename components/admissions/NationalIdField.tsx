@@ -7,7 +7,7 @@ import {
   ID_DOCUMENT_TYPE_LABELS,
   type IdDocumentType,
 } from '@/db/schema/student-profiles';
-import { formatCnic, isValidCnic, maskNationalId } from '@/lib/national-id';
+import { formatCnic, isValidCnic } from '@/lib/national-id';
 
 /**
  * The identity-document pair: which document, then its number.
@@ -109,7 +109,6 @@ export function NationalIdField({
             ? 'document number'
             : ID_DOCUMENT_TYPE_LABELS[value.documentType]
         }
-        mask={maskNationalId}
         value={value.number}
         error={error}
         hint={
@@ -117,7 +116,13 @@ export function NationalIdField({
             ? 'Digits only — 5, then 7, then 1.'
             : undefined
         }
-        placeholder={isCnic ? '42101-1234567-1' : 'As printed on the B-Form'}
+        placeholder={
+          value.documentType === ''
+            ? 'Choose a document first'
+            : isCnic
+              ? '42101-1234567-1'
+              : 'As printed on the B-Form'
+        }
         inputMode={isCnic ? 'numeric' : 'text'}
         // A document has to be chosen first: the field cannot know how to
         // validate — or even what to call itself — until it is.
