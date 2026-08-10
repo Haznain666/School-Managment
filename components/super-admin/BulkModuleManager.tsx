@@ -16,6 +16,7 @@ import {
   PLATFORM_CHANNELS,
   PLATFORM_INTEGRATIONS,
   PLATFORM_MODULE_PHASES,
+  type BulkFlagBaseline,
   type BulkFlagChoice,
   type SchoolFlagKey,
 } from '@/lib/platform-modules';
@@ -24,18 +25,24 @@ import { superAdminFetch, SuperAdminApiError } from '@/lib/super-admin-client';
 /**
  * Bulk module, channel and integration management across schools.
  *
- * ── The three-state control ──────────────────────────────────────────────
- * Every flag is On / Off / Leave unchanged, defaulting to unchanged, and only
- * the ones moved off that default are sent. A two-state control cannot say
- * "I did not touch this", so a bulk apply built on checkboxes switches off
- * every module the selected schools had on and the operator never looked at.
- * That is the single most important thing about this screen.
+ * ── The switch shows the truth, and the baseline keeps it safe ───────────
+ * Every flag is a plain On/Off switch, and it opens showing what the selected
+ * schools actually hold: on everywhere reads On, otherwise Off. That is the
+ * whole point — a row saying "on everywhere" beside a switch that is not On
+ * is a screen contradicting itself.
  *
- * ── Current state is shown, not assumed ──────────────────────────────────
- * Once schools are selected, each flag reports what the selection currently
- * holds — all on, all off, or mixed with a count. Applying "On" to a flag
- * already on everywhere is harmless but pointless; knowing which are mixed is
- * usually why someone opened this page.
+ * The danger a two-state control classically has here is that it cannot say
+ * "I did not touch this", so an apply built on checkboxes switches off every
+ * module the operator never looked at. That is solved by the baseline rather
+ * than by a third position: only flags whose switch differs from the loaded
+ * baseline are sent, so an untouched flag is still never written. Nothing can
+ * be decided before the baseline is known, which is why the switches are
+ * inert until schools are selected and their state has loaded.
+ *
+ * ── Mixed selections ─────────────────────────────────────────────────────
+ * Three schools, two with the module on, is not On and is not Off. The switch
+ * is drawn with neither side lit, the badge says "on at 2 of 3", and either
+ * side is then a real change because either one normalises the selection.
  */
 
 interface SchoolFlagState {
@@ -96,34 +103,61 @@ function CurrentState({ on, total }: { on: number; total: number }) {
   );
 }
 
-interface ChoiceProps {
-  value: BulkFlagChoice;
+interface SwitchProps {
+  /**
+   * Where the switch sits: the operator's choice if they made one, otherwise
+   * the baseline. `mixed` lights neither side; `undefined` is "no schools
+   * selected yet", which is the only time the control is inert.
+   */
+  value: BulkFlagBaseline | undefined;
+  /** True once the position differs from what the schools currently hold. */
+  changed: boolean;
   disabled?: boolean;
   /** When set, "On" is unavailable and this says why. */
   onUnavailable?: string;
   onChange: (choice: BulkFlagChoice) => void;
 }
 
-function ChoiceGroup({ value, disabled = false, onUnavailable, onChange }: ChoiceProps) {
+function FlagSwitch({
+  value,
+  changed,
+  disabled = false,
+  onUnavailable,
+  onChange,
+}: SwitchProps) {
   const options: { choice: BulkFlagChoice; label: string }[] = [
-    { choice: 'unchanged', label: 'Leave' },
     { choice: 'on', label: 'On' },
     { choice: 'off', label: 'Off' },
   ];
 
   return (
-    <div className="inline-flex shrink-0 rounded-lg border border-slate-300 p-0.5">
+    <div
+      className={cn(
+        'inline-flex shrink-0 rounded-lg border p-0.5',
+        // A moved switch is what the apply will write, so it is marked. Without
+        // this, one changed row in a list of eleven is invisible.
+        changed
+          ? 'border-brand-primary ring-1 ring-brand-primary/30'
+          : 'border-slate-300',
+      )}
+    >
       {options.map((option) => {
-        const blocked =
-          option.choice === 'on' && onUnavailable !== undefined;
+        const blocked = option.choice === 'on' && onUnavailable !== undefined;
         const active = value === option.choice;
+        const unavailable = disabled || blocked || value === undefined;
 
         return (
           <button
             key={option.choice}
             type="button"
-            disabled={disabled || blocked}
-            title={blocked ? onUnavailable : undefined}
+            disabled={unavailable}
+            title={
+              blocked
+                ? onUnavailable
+                : value === undefined
+                  ? 'Select schools first.'
+                  : undefined
+            }
             aria-pressed={active}
             onClick={() => {
               onChange(option.choice);
@@ -133,11 +167,9 @@ function ChoiceGroup({ value, disabled = false, onUnavailable, onChange }: Choic
               active
                 ? option.choice === 'on'
                   ? 'bg-emerald-600 text-white'
-                  : option.choice === 'off'
-                    ? 'bg-red-600 text-white'
-                    : 'bg-slate-200 text-slate-700'
+                  : 'bg-red-600 text-white'
                 : 'text-slate-600 hover:bg-slate-100',
-              (disabled || blocked) && 'cursor-not-allowed opacity-50 hover:bg-transparent',
+              unavailable && 'cursor-not-allowed opacity-50 hover:bg-transparent',
             )}
           >
             {option.label}
@@ -197,22 +229,66 @@ export function BulkModuleManager({ schools }: BulkModuleManagerProps) {
     setChoices((current) => ({ ...current, [key]: choice }));
   }, []);
 
+  const ghlConnectedCount = states.filter((state) => state.ghlConnected).length;
+
+  /**
+   * The baseline is unknown until a selection has been read, and stale while a
+   * new one is being read. Both cases must read as unknown rather than as the
+   * previous selection's answer, or the switches would briefly show one set of
+   * schools' state while another set is selected.
+   */
+  const baselineReady = states.length > 0 && !isLoadingStates;
+
+  const baselineOf = useCallback(
+    (key: string): BulkFlagBaseline | undefined => {
+      if (!baselineReady) return undefined;
+      const { on, total } = summarise(states, key);
+      return on === total ? 'on' : on === 0 ? 'off' : 'mixed';
+    },
+    [baselineReady, states],
+  );
+
+  const ghlBaseline: BulkFlagBaseline | undefined = !baselineReady
+    ? undefined
+    : ghlConnectedCount === states.length
+      ? 'on'
+      : ghlConnectedCount === 0
+        ? 'off'
+        : 'mixed';
+
+  /** Where a switch is drawn, and whether that is a change worth sending. */
+  const positionOf = useCallback(
+    (key: string, baseline: BulkFlagBaseline | undefined) => {
+      if (baseline === undefined) return { value: undefined, changed: false };
+      const choice = choices[key];
+      if (choice === undefined) return { value: baseline, changed: false };
+      return { value: choice, changed: choice !== baseline };
+    },
+    [choices],
+  );
+
+  // Only flags moved away from what the schools already hold. A switch left
+  // where it was found is not sent, which is what keeps a bulk apply from
+  // rewriting every module the operator never looked at.
   const flagUpdates = useMemo(
     () =>
       Object.entries(choices)
-        .filter(([key, choice]) => choice !== 'unchanged' && key !== GHL.key)
+        .filter(
+          ([key, choice]) =>
+            key !== GHL.key &&
+            baselineOf(key) !== undefined &&
+            choice !== baselineOf(key),
+        )
         .map(([key, choice]) => ({
           module_key: key as SchoolFlagKey,
           is_enabled: choice === 'on',
         })),
-    [choices],
+    [choices, baselineOf],
   );
 
-  const disconnectGhl = choices[GHL.key] === 'off';
+  const disconnectGhl = choices[GHL.key] === 'off' && ghlBaseline !== undefined && ghlBaseline !== 'off';
   const changeCount = flagUpdates.length + (disconnectGhl ? 1 : 0);
   const canApply = selectedIds.length > 0 && changeCount > 0 && !isApplying;
-
-  const ghlConnectedCount = states.filter((state) => state.ghlConnected).length;
 
   const handleApply = useCallback(async () => {
     if (!canApply) return;
@@ -255,6 +331,7 @@ export function BulkModuleManager({ schools }: BulkModuleManagerProps) {
   ) =>
     entries.map((entry) => {
       const summary = summarise(states, entry.key);
+      const position = positionOf(entry.key, baselineOf(entry.key));
 
       return (
         <div
@@ -271,8 +348,9 @@ export function BulkModuleManager({ schools }: BulkModuleManagerProps) {
             )}
           </div>
 
-          <ChoiceGroup
-            value={choices[entry.key] ?? 'unchanged'}
+          <FlagSwitch
+            value={position.value}
+            changed={position.changed}
             disabled={isApplying}
             onChange={(choice) => {
               setChoice(entry.key, choice);
@@ -344,7 +422,8 @@ export function BulkModuleManager({ schools }: BulkModuleManagerProps) {
       >
         {rowsFor(PLATFORM_CHANNELS)}
 
-        {choices.whatsapp === 'on' && states.length > 0 ? (
+        {positionOf('whatsapp', baselineOf('whatsapp')).value === 'on' &&
+        states.length > 0 ? (
           <p className="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-800">
             WhatsApp is delivered through each school’s own GoHighLevel
             sub-account.{' '}
@@ -381,8 +460,8 @@ export function BulkModuleManager({ schools }: BulkModuleManagerProps) {
             </p>
           </div>
 
-          <ChoiceGroup
-            value={choices[GHL.key] ?? 'unchanged'}
+          <FlagSwitch
+            {...positionOf(GHL.key, ghlBaseline)}
             disabled={isApplying}
             onUnavailable={`Each school needs its own ${GHL.credentialLabel}. Connect it on the school's Integrations tab.`}
             onChange={(choice) => {
@@ -448,9 +527,11 @@ export function BulkModuleManager({ schools }: BulkModuleManagerProps) {
         <Button isLoading={isApplying} disabled={!canApply} onClick={() => void handleApply()}>
           {selectedIds.length === 0
             ? 'Select schools first'
-            : changeCount === 0
-              ? 'No changes set'
-              : `Apply ${changeCount} change${changeCount === 1 ? '' : 's'} to ${selectedIds.length} school${selectedIds.length === 1 ? '' : 's'}`}
+            : isLoadingStates
+              ? 'Reading current settings…'
+              : changeCount === 0
+                ? 'Nothing switched yet'
+                : `Apply ${changeCount} change${changeCount === 1 ? '' : 's'} to ${selectedIds.length} school${selectedIds.length === 1 ? '' : 's'}`}
         </Button>
 
         <Button
@@ -462,7 +543,7 @@ export function BulkModuleManager({ schools }: BulkModuleManagerProps) {
             setError(null);
           }}
         >
-          Reset choices
+          Undo my changes
         </Button>
 
         <Link

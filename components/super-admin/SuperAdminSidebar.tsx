@@ -10,10 +10,16 @@ interface NavEntry {
   href: string;
   /** Nested links shown underneath, e.g. All Schools / Add School. */
   children?: readonly NavEntry[];
-  /** Not yet built — rendered dimmed and non-interactive. */
-  placeholder?: boolean;
 }
 
+/**
+ * There was a dimmed "Settings" entry here. It pointed at
+ * `/super-admin/settings`, which was never built and is not on the roadmap:
+ * everything a Super Admin configures is per-school and lives on that school's
+ * own tabs, and the one cross-school screen is Modules. A permanently disabled
+ * link is not a promise, it is a dead end the operator keeps re-testing, so it
+ * is gone rather than pointed somewhere.
+ */
 const NAV: readonly NavEntry[] = [
   { label: 'Dashboard', href: '/super-admin' },
   {
@@ -27,7 +33,6 @@ const NAV: readonly NavEntry[] = [
   // Cross-school rather than per-school, so it sits beside Schools rather than
   // under it — it is not a view of one tenant.
   { label: 'Modules', href: '/super-admin/modules' },
-  { label: 'Settings', href: '/super-admin/settings', placeholder: true },
 ];
 
 function isActive(pathname: string, href: string): boolean {
@@ -51,28 +56,18 @@ export function SuperAdminSidebar() {
       <ul className="flex-1 space-y-1 overflow-y-auto p-3">
         {NAV.map((entry) => (
           <li key={entry.href}>
-            {entry.placeholder === true ? (
-              <span
-                aria-disabled="true"
-                title="Coming in a later sprint"
-                className="block cursor-not-allowed rounded-lg px-3 py-2 text-sm font-medium text-slate-400"
-              >
-                {entry.label}
-              </span>
-            ) : (
-              <Link
-                href={entry.href}
-                aria-current={isActive(pathname, entry.href) ? 'page' : undefined}
-                className={cn(
-                  'block rounded-lg px-3 py-2 text-sm font-medium transition',
-                  isActive(pathname, entry.href)
-                    ? 'bg-brand-primary/10 text-brand-primary'
-                    : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900',
-                )}
-              >
-                {entry.label}
-              </Link>
-            )}
+            <Link
+              href={entry.href}
+              aria-current={isActive(pathname, entry.href) ? 'page' : undefined}
+              className={cn(
+                'block rounded-lg px-3 py-2 text-sm font-medium transition',
+                isActive(pathname, entry.href)
+                  ? 'bg-brand-primary/10 text-brand-primary'
+                  : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900',
+              )}
+            >
+              {entry.label}
+            </Link>
 
             {entry.children !== undefined ? (
               <ul className="mt-1 space-y-0.5 border-l border-slate-200 pl-3">
