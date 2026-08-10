@@ -108,14 +108,28 @@ export type PlatformIntegrationKey = PlatformIntegration['key'];
 export const MAX_SCHOOLS_PER_APPLY = 100;
 
 /**
- * What a bulk apply should do to one flag.
+ * Where one flag's switch stands on the bulk page.
  *
- * `unchanged` is the default and is the reason this is three states rather
- * than a checkbox: a two-state control cannot distinguish "switch this off"
- * from "I did not touch this", and a bulk tool that reads the second as the
- * first switches off every module the selected schools had on.
+ * A switch is On or Off — nothing else, because that is what a switch is. The
+ * safety a third "leave unchanged" state used to provide is now provided by
+ * the baseline instead: the switch is *initialised from what the selected
+ * schools actually hold*, and only the flags whose switch has been moved away
+ * from that baseline are sent. A flag nobody touched still matches its
+ * baseline, so it is still never written. See `BulkFlagBaseline` for the one
+ * case a boolean cannot express.
  */
-export type BulkFlagChoice = 'unchanged' | 'on' | 'off';
+export type BulkFlagChoice = 'on' | 'off';
+
+/**
+ * What the selected schools currently hold for one flag.
+ *
+ * `mixed` is not a switch position — it is the honest answer when three
+ * schools are selected and two have the module on. The switch is drawn with
+ * neither side lit and the row's badge says "on at 2 of 3"; whichever side is
+ * then pressed is a real change, because it normalises the selection either
+ * way.
+ */
+export type BulkFlagBaseline = BulkFlagChoice | 'mixed';
 
 export type PlatformChannel = (typeof PLATFORM_CHANNELS)[number];
 export type PlatformChannelKey = PlatformChannel['key'];

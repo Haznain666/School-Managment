@@ -23,7 +23,8 @@ import { isUuid } from '@/lib/validation';
  * catalogue. A request that sent all eleven flags would silently switch off
  * every module the selected schools had turned on and the operator had not
  * touched, which is the obvious way for a bulk tool to destroy a morning's
- * work. The UI's third state, "leave unchanged", is expressed by the key
+ * work. The UI decides that by diffing each switch against the state it read
+ * for the selection; a flag left where it was found is expressed by the key
  * simply not being here.
  *
  * ── One statement, not one per school ────────────────────────────────────

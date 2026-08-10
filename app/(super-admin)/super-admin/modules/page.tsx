@@ -44,8 +44,9 @@ export default async function BulkModulesPage() {
         </h2>
         <p className="mt-1 text-sm text-slate-500">
           Switch modules, channels and integrations for several schools at once.
-          Every setting defaults to <strong>Leave</strong> — only what you
-          change is written, so nothing you did not touch is affected.
+          Each switch opens showing what the selected schools already hold —
+          only the ones you move are written, so nothing you did not touch is
+          affected.
         </p>
       </div>
 

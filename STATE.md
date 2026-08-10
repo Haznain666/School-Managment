@@ -737,11 +737,19 @@ selection shown as named removable chips; one apply.
 
 ### Four decisions, in descending order of how much they matter
 
-**1. Every flag is three-state — On / Off / Leave — defaulting to Leave, and
-only what moved off Leave is sent.** This is the whole design. A checkbox
-cannot distinguish "switch this off" from "I did not touch this", so a bulk
-apply built on checkboxes silently switches off every module the selected
-schools had on. The route enforces it too: absent key means untouched.
+**1. Every flag is an On/Off switch initialised from what the selection
+actually holds, and only the switches moved away from that baseline are
+sent.** This is the whole design. The hazard it defends against is that a
+plain checkbox cannot distinguish "switch this off" from "I did not touch
+this", so a bulk apply built on checkboxes silently switches off every module
+the selected schools had on. *Revised 2026-08-10 (§5s):* this was originally a
+third switch position, "Leave", which was the default — and which meant a
+module reading "on everywhere" sat beside a switch showing Leave, a screen
+contradicting itself. The baseline does the same job without lying: an
+untouched switch equals its baseline and so is still never written. A mixed
+selection is the one state a boolean cannot hold, and is drawn as neither side
+lit beside the row's "on at 2 of 3" badge. The route enforces the rule
+independently too: absent key means untouched.
 
 **2. GoHighLevel can be switched off in bulk but never on.** Connecting needs a
 different sub-account id per school — the column is `unique`, so it could not
@@ -2227,6 +2235,55 @@ single-campus school is never made to read its own name against every class.
 
 ---
 
+## 5s. The bulk switches, and the dead Settings link — 2026-08-10
+
+Two things the user found by looking at `/super-admin/modules`.
+
+**The switch was contradicting its own badge.** Every Phase 1 module reported
+"on everywhere" for the selected school and every switch beside it read
+*Leave*. Both were true — the modules were on, and the operator had not chosen
+anything yet — but a screen that says "on" and shows "not on" in the same row
+is not defensible, whatever the second control technically means.
+
+"Leave" is gone. A switch is On or Off, it opens on what the selected schools
+actually hold, and the safety it used to buy is now bought by the **baseline**:
+`BulkModuleManager` reads the selection's current state (it always did — that
+is where the badges come from) and sends only the flags whose switch differs
+from it. An untouched flag still never reaches the database, which was the
+entire point of the third state. Consequences worth knowing:
+
+- **Nothing can be decided before the baseline is known.** The switches are
+  inert until schools are selected *and* their state has loaded, and the apply
+  button says "Reading current settings…" meanwhile. This is stricter than
+  before, when a choice could be made against an empty page.
+- **A mixed selection lights neither side** — three schools with two on is
+  genuinely not On and not Off. The badge already said "on at 2 of 3"; pressing
+  either side is then a real change, because either one normalises the group.
+- **A moved switch is ringed** in the brand colour. One changed row out of
+  twelve was otherwise invisible.
+- Moving a switch and moving it back leaves zero changes, not two.
+- "Reset choices" is now "Undo my changes", because there is a baseline to
+  return to and that is what it returns to.
+
+**The Settings sidebar entry is removed.** It pointed at
+`/super-admin/settings`, which was never built, appears nowhere in
+`SPRINTS.md` or `ROADMAP.md`, and had been dimmed with "Coming in a later
+sprint" since §5f. Everything a Super Admin configures is per-school and lives
+on that school's own tabs; the one cross-school screen is Modules. The
+`placeholder` support in `SuperAdminSidebar` went with it — the other four
+portals' sidebars have their own copies and are untouched.
+
+**Verified in the browser against the live database**, not just built: Phase 1
+now shows On beside "on everywhere"; a three-school selection shows HR &
+Payroll as "on at 1 of 3" with neither side lit; switching Event Management on
+for Rehearsal Academy sent exactly `{"updates":[{"module_key":"event_mgmt",
+"is_enabled":true}]}` and nothing else; re-selecting the school afterwards read
+the new baseline back as "on everywhere" with the switch on and nothing left to
+apply — which is the whole mechanism demonstrated end to end. Reverted
+afterwards, so the fixture is where it started. No console errors.
+
+---
+
 ## 6. Open items for the user
 
 1. ~~Install GitHub CLI~~ — **partly regressed.** Git has a stored credential
@@ -2252,6 +2309,7 @@ single-campus school is never made to read its own name against every class.
 
 | Date | Session did | Next |
 | --- | --- | --- |
+| 2026-08-10 | **Bulk switches made honest, dead Settings link removed** (§5s). Two things the user found on `/super-admin/modules`. Every Phase 1 module reported "on everywhere" beside a switch reading *Leave* — both statements true, the pair indefensible. The third position is gone: a switch is On or Off, opens on what the selected schools actually hold, and the safety "Leave" bought is now bought by the **baseline** — only switches moved away from the loaded state are sent, so an untouched flag still never reaches the database. Mixed selections light neither side (the badge already said "on at 1 of 3"), moved switches are ringed, and moving one back leaves zero changes rather than two. Also removed the `Settings` sidebar entry, which pointed at a route that was never built and is on no roadmap. Verified in a browser against the live database: the payload for one moved switch carried exactly that one flag, and re-reading the school afterwards showed the new baseline with nothing left to apply. Reverted; fixture unchanged. | **Print one of each document on real A4** — unchanged, still the only thing between here and a printed-document sign-off. Then Sprint 11. |
 | 2026-08-10 | **Dress rehearsal started** (§5r) — of Sprints 0–10, not of R1, which cannot be rehearsed because Sprints 11–13 do not exist. Extended the seed with a full published examined term (50 papers, 2,121 marks, 63 absences, 76 re-sits) and a fortnight of registers, because none of the four printed documents could be produced without one. **All four render and are correct**: the report card excludes the unpublished paper from its list *and* its denominator, prints `ABS` and refuses a position to anyone absent; the tabulation sheet daggers the unpublished paper and includes it, being a review document; the admit card carries all five, being a datesheet. Three defects: the suggested grading ladder had no band below 33%, so a genuine fail printed a blank grade beside a passing A; the seed's own marker was printing on every fee challan, having been put in the postal address; and class names were ambiguous across campuses for the fourth and fifth time, which is what finally moved the rule into `lib/class-labels.ts`. | **Print one of each on real A4.** It is now the only thing left before the printed documents can be signed off, and it needs a person with a printer. Then Sprint 11. |
 | 2026-08-10 | **Sprint 10 complete, every piece clicked** (§5q). Transfer and family vouchers verified against the seeded school, and doing it found the sprint's most consequential defect: `student_enrollments` was uniquely indexed on (student, year), so a transfer — which by design opens a second enrolment in the same year — failed at the database every time. Editing the row in place would have been worse, because `attendance_records.enrollment_id` points at it and a register taken at the old campus would afterwards claim the new one. Migration `0019` makes the index partial on `status = 'active'`: one *placement* at a time, closed rows accumulating as history. Also: the transfer picker had promotion's year-duplication defect (written twice, seen once), and family vouchers could be issued but not paid — the route distributed a payment across the children's challans and no screen offered to record one. | **Print one of each document on real A4.** It is now the largest unverified thing in the project, and has been since §5n. Then the dress rehearsal. |
 | 2026-08-10 | **Sprint 10 feature-complete** (§5q). Promotion, transfer with proration, family vouchers, the aged-debt report and the adversarial seed — 409 students, 10 classes, 2 campuses, 3 years, 3 months of challans, with siblings, missing emails, mid-term joiners, partial payments, concessions and names carrying commas and non-ASCII. Promotion and the aged-debt report were run against that data and seven more defects came out of it, **three of them the same performance defect in three different features**: a loop of single-row writes, which against Supabase is one round trip each. Saving and applying a 128-student promotion was nearly 400 of them inside a held-open transaction; set-based it is four statements and 20 seconds. Also: promotion offered *earlier* years as destinations, destination classes appeared once per academic year, "Grade 5" was ambiguous across campuses, and re-opening an existing run said "Something went wrong". | **Click transfer and family vouchers** — both are built and neither has been run, and the seeded school has the second campus and the 36 sibling families they need. Then the dress rehearsal. |
