@@ -29,6 +29,26 @@ export const BLOOD_GROUPS = [
 export type BloodGroup = (typeof BLOOD_GROUPS)[number];
 
 /**
+ * Which identity document `b_form_cnic` holds.
+ *
+ * A child is admitted on a B-Form and holds a CNIC once they are eighteen, and
+ * the two are indistinguishable from the number alone — a B-Form is thirteen
+ * digits in the same shape. Recording only the number left the school unable to
+ * say which document had been sighted, so the type is stored beside it.
+ *
+ * Null on every row admitted before this existed, and on any row whose number
+ * is blank. It is not back-filled: guessing a document from its digits is the
+ * ambiguity that made this column necessary.
+ */
+export const ID_DOCUMENT_TYPES = ['cnic', 'b_form'] as const;
+export type IdDocumentType = (typeof ID_DOCUMENT_TYPES)[number];
+
+export const ID_DOCUMENT_TYPE_LABELS: Record<IdDocumentType, string> = {
+  cnic: 'CNIC / Smart Card',
+  b_form: 'B-Form',
+};
+
+/**
  * student_profiles — the personal half of a student record.
  *
  * Exactly one row per `school_users` row of role `student`: identity, login and
@@ -58,6 +78,8 @@ export const studentProfiles = pgTable(
     gender: text('gender').$type<Gender>(),
     /** B-Form number for under-18s, CNIC once they are adults. */
     bFormCnic: text('b_form_cnic'),
+    /** Which of the two `b_form_cnic` is. Null when unknown or unrecorded. */
+    idDocumentType: text('id_document_type').$type<IdDocumentType>(),
     bloodGroup: text('blood_group').$type<BloodGroup>(),
     nationality: text('nationality').notNull().default('Pakistani'),
     religion: text('religion'),
@@ -86,6 +108,10 @@ export const studentProfiles = pgTable(
       sql`${table.gender} IS NULL OR ${table.gender} IN ('male', 'female', 'other')`,
     ),
     check(
+      'student_profiles_id_document_type_check',
+      sql`${table.idDocumentType} IS NULL OR ${table.idDocumentType} IN ('cnic', 'b_form')`,
+    ),
+    check(
       'student_profiles_blood_group_check',
       sql`${table.bloodGroup} IS NULL OR ${table.bloodGroup} IN ('A+', 'A-', 'B+', 'B-', 'AB+', 'AB-', 'O+', 'O-')`,
     ),
@@ -97,6 +123,13 @@ export type NewStudentProfile = typeof studentProfiles.$inferInsert;
 
 export function isGender(value: unknown): value is Gender {
   return typeof value === 'string' && (GENDERS as readonly string[]).includes(value);
+}
+
+export function isIdDocumentType(value: unknown): value is IdDocumentType {
+  return (
+    typeof value === 'string' &&
+    (ID_DOCUMENT_TYPES as readonly string[]).includes(value)
+  );
 }
 
 export function isBloodGroup(value: unknown): value is BloodGroup {

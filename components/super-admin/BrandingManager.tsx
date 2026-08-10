@@ -18,7 +18,7 @@ import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
 import type { Palette } from '@/db/schema';
-import { PALETTE_PRESETS } from '@/lib/palette-presets';
+import { DERIVED_PALETTE_NAMES, PALETTE_PRESETS } from '@/lib/palette-presets';
 import { superAdminFetch, superAdminUpload, SuperAdminApiError } from '@/lib/super-admin-client';
 import { cn } from '@/lib/utils';
 
@@ -33,7 +33,7 @@ interface BrandingResponse {
   logoUrl: string | null;
 }
 
-const PALETTE_NAMES = ['Vibrant', 'Muted', 'Auto-complementary'];
+const PALETTE_NAMES = DERIVED_PALETTE_NAMES;
 const MAX_BYTES = 2 * 1024 * 1024;
 const ACCEPTED = ['image/png', 'image/jpeg', 'image/jpg', 'image/svg+xml', 'image/webp'];
 

@@ -567,6 +567,7 @@ export interface StudentDetail {
   dateOfBirth: string | null;
   gender: string | null;
   bFormCnic: string | null;
+  idDocumentType: string | null;
   bloodGroup: string | null;
   nationality: string;
   religion: string | null;
@@ -594,6 +595,7 @@ export async function getStudentDetail(
       dateOfBirth: studentProfiles.dateOfBirth,
       gender: studentProfiles.gender,
       bFormCnic: studentProfiles.bFormCnic,
+      idDocumentType: studentProfiles.idDocumentType,
       bloodGroup: studentProfiles.bloodGroup,
       nationality: studentProfiles.nationality,
       religion: studentProfiles.religion,

@@ -46,6 +46,17 @@ import type { Palette } from '@/db/schema/school-branding';
  * those schools back to their derived palette, so do not rename one.
  */
 
+/**
+ * What the three logo-derived palettes are called, in `palette_0`..`palette_2`
+ * order — matching how `lib/color-extraction.ts` builds them.
+ *
+ * Shared rather than declared per screen: the Super Admin panel called the
+ * third one "Auto-complementary" and the school's own settings page called it
+ * "Balanced", so an operator switching between the two screens was comparing
+ * names that did not line up while looking at the same palette.
+ */
+export const DERIVED_PALETTE_NAMES = ['Vibrant', 'Muted', 'Auto-complementary'] as const;
+
 export interface PalettePreset {
   key: string;
   name: string;

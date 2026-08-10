@@ -14,6 +14,7 @@ import {
 
 import { db } from './drizzle';
 import { enrollStudent, EnrollmentError } from './enrollment';
+import { DEFAULT_NATIONALITY } from './student-reference-data';
 import { findDuplicateAdmissionNumbers, mappedValue, validateRow } from './student-import';
 
 /**
@@ -311,8 +312,13 @@ export async function commitBatch(
           dateOfBirth: candidate.dateOfBirth,
           gender: candidate.gender as never,
           bFormCnic: candidate.bFormCnic,
+          // A spreadsheet column headed "B-Form / CNIC" does not say which was
+          // written in it, and the import will not guess on the school's behalf.
+          // The number is kept; the document is left to be recorded when the
+          // profile is next opened.
+          idDocumentType: null,
           bloodGroup: null,
-          nationality: 'Pakistani',
+          nationality: DEFAULT_NATIONALITY,
           religion: null,
           previousSchool: null,
           medicalNotes: null,

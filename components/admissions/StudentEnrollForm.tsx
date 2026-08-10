@@ -14,15 +14,34 @@ import {
   GuardianForm,
   type GuardianDraft,
 } from '@/components/admissions/GuardianForm';
+import {
+  emptyNationalId,
+  NationalIdField,
+  nationalIdProblem,
+  type NationalIdValue,
+} from '@/components/admissions/NationalIdField';
 import { Button } from '@/components/ui/Button';
 import { Card, CardTitle } from '@/components/ui/Card';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
 import { Textarea } from '@/components/ui/Textarea';
-import { BLOOD_GROUPS, GENDERS, type BloodGroup, type Gender } from '@/db/schema/student-profiles';
+import {
+  BLOOD_GROUPS,
+  GENDERS,
+  ID_DOCUMENT_TYPE_LABELS,
+  type BloodGroup,
+  type Gender,
+} from '@/db/schema/student-profiles';
 import { GUARDIAN_RELATIONSHIP_LABELS } from '@/db/schema/student-guardians';
+import { maskNationalId } from '@/lib/national-id';
 import { isValidPhone } from '@/lib/phone';
 import { schoolErrorMessage, schoolFetch, withSchoolParam } from '@/lib/school-client';
+import {
+  DEFAULT_NATIONALITY,
+  NATIONALITIES,
+  RELIGIONS,
+  optionsWithCurrent,
+} from '@/lib/student-reference-data';
 
 /**
  * Direct enrolment, in four steps: student, guardians, placement, review.
@@ -51,11 +70,14 @@ const BLOOD_GROUP_OPTIONS = [
   ...BLOOD_GROUPS.map((value) => ({ value, label: value })),
 ];
 
+const NATIONALITY_OPTIONS = optionsWithCurrent(NATIONALITIES, '');
+const RELIGION_OPTIONS = optionsWithCurrent(RELIGIONS, '');
+
 interface StudentDraft {
   name: string;
   dateOfBirth: string;
   gender: string;
-  bFormCnic: string;
+  nationalId: NationalIdValue;
   bloodGroup: string;
   nationality: string;
   religion: string;
@@ -93,9 +115,9 @@ function emptyStudent(): StudentDraft {
     name: '',
     dateOfBirth: '',
     gender: '',
-    bFormCnic: '',
+    nationalId: emptyNationalId(),
     bloodGroup: '',
-    nationality: 'Pakistani',
+    nationality: DEFAULT_NATIONALITY,
     religion: '',
     previousSchool: '',
     medicalNotes: '',
@@ -173,7 +195,8 @@ export function StudentEnrollForm({
 
   const stepProblem = (index: number): string | null => {
     if (index === 0) {
-      return student.name.trim() === '' ? 'Enter the student’s full name.' : null;
+      if (student.name.trim() === '') return 'Enter the student’s full name.';
+      return nationalIdProblem(student.nationalId);
     }
 
     if (index === 1) {
@@ -229,7 +252,11 @@ export function StudentEnrollForm({
           name: student.name,
           dateOfBirth: student.dateOfBirth === '' ? null : student.dateOfBirth,
           gender: student.gender === '' ? null : (student.gender as Gender),
-          bFormCnic: student.bFormCnic,
+          bFormCnic: student.nationalId.number,
+          idDocumentType:
+            student.nationalId.number.trim() === ''
+              ? null
+              : student.nationalId.documentType,
           bloodGroup:
             student.bloodGroup === '' ? null : (student.bloodGroup as BloodGroup),
           nationality: student.nationality,
@@ -347,13 +374,11 @@ export function StudentEnrollForm({
               }}
             />
 
-            <Input
-              label="B-Form / CNIC"
-              placeholder="42101-1234567-1"
-              value={student.bFormCnic}
+            <NationalIdField
+              value={student.nationalId}
               disabled={isSubmitting}
-              onChange={(event) => {
-                setStudentField('bFormCnic', event.target.value);
+              onChange={(value) => {
+                setStudentField('nationalId', value);
               }}
             />
 
@@ -367,8 +392,9 @@ export function StudentEnrollForm({
               }}
             />
 
-            <Input
+            <Select
               label="Nationality"
+              options={NATIONALITY_OPTIONS}
               value={student.nationality}
               disabled={isSubmitting}
               onChange={(event) => {
@@ -376,8 +402,10 @@ export function StudentEnrollForm({
               }}
             />
 
-            <Input
+            <Select
               label="Religion"
+              placeholder="Select"
+              options={RELIGION_OPTIONS}
               value={student.religion}
               disabled={isSubmitting}
               onChange={(event) => {
@@ -459,7 +487,19 @@ export function StudentEnrollForm({
             <ReviewItem label="Student ID" value={studentIdPreview ?? 'Assigned on enrolment'} />
             <ReviewItem label="Date of birth" value={student.dateOfBirth} />
             <ReviewItem label="Gender" value={student.gender} />
-            <ReviewItem label="B-Form / CNIC" value={student.bFormCnic} />
+            {/*
+              Still masked here. The review step is read at the desk with the
+              parent alongside, so revealing the number just because the form
+              moved on would undo the point of hiding it on the step before.
+            */}
+            <ReviewItem
+              label={
+                student.nationalId.documentType === ''
+                  ? 'Identity document'
+                  : ID_DOCUMENT_TYPE_LABELS[student.nationalId.documentType]
+              }
+              value={maskNationalId(student.nationalId.number)}
+            />
             <ReviewItem label="Blood group" value={student.bloodGroup} />
             <ReviewItem label="Nationality" value={student.nationality} />
             <ReviewItem label="Religion" value={student.religion} />

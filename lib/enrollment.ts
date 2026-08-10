@@ -17,10 +17,14 @@ import {
   isBloodGroup,
   isGender,
   isGuardianRelationship,
+  isIdDocumentType,
   type BloodGroup,
   type Gender,
   type GuardianRelationship,
+  type IdDocumentType,
 } from '@/db/schema';
+
+import { isValidCnic } from './national-id';
 
 import { batch, type Database } from './drizzle';
 import { syncAdmissionContacts, triggerAdmissionWelcomeWorkflow } from './ghl-admissions';
@@ -83,6 +87,8 @@ export interface StudentInput {
   dateOfBirth: string | null;
   gender: Gender | null;
   bFormCnic: string | null;
+  /** Which document `bFormCnic` is. Null whenever there is no number. */
+  idDocumentType: IdDocumentType | null;
   bloodGroup: BloodGroup | null;
   nationality: string;
   religion: string | null;
@@ -176,11 +182,45 @@ export function parseStudentInput(body: Record<string, unknown>): StudentInput {
 
   const nationality = readString(body['nationality']);
 
+  /*
+   * The document and its number are validated as one thing, because neither is
+   * meaningful alone. A number with no document is what the old single field
+   * recorded and is the ambiguity this replaces; a CNIC is refused unless it is
+   * in the one national format, while a B-Form is taken as typed — see
+   * `lib/national-id.ts`.
+   *
+   * Enforced here and not only in the form: the form is one caller of this
+   * route, and a malformed CNIC written by any other would be indistinguishable
+   * in the roll from a real one.
+   */
+  const bFormCnic = readOptionalString(body['bFormCnic']);
+  const idDocumentTypeRaw = readOptionalString(body['idDocumentType']);
+  let idDocumentType: IdDocumentType | null = null;
+
+  if (bFormCnic !== null) {
+    if (!isIdDocumentType(idDocumentTypeRaw)) {
+      throw new EnrollmentError(
+        'invalid_body',
+        'Choose whether that number is a CNIC / Smart Card or a B-Form.',
+      );
+    }
+
+    if (idDocumentTypeRaw === 'cnic' && !isValidCnic(bFormCnic)) {
+      throw new EnrollmentError(
+        'invalid_body',
+        'A CNIC / Smart Card number is 13 digits, as 42101-1234567-1.',
+      );
+    }
+
+    idDocumentType = idDocumentTypeRaw;
+  }
+
   return {
     name,
     dateOfBirth: readDate(body['dateOfBirth'], 'Date of birth'),
     gender,
-    bFormCnic: readOptionalString(body['bFormCnic']),
+    bFormCnic,
+    idDocumentType,
     bloodGroup,
     nationality: nationality === '' ? 'Pakistani' : nationality,
     religion: readOptionalString(body['religion']),
@@ -564,6 +604,7 @@ export async function enrollStudent(
         dateOfBirth: student.dateOfBirth,
         gender: student.gender,
         bFormCnic: student.bFormCnic,
+        idDocumentType: student.idDocumentType,
         bloodGroup: student.bloodGroup,
         nationality: student.nationality,
         religion: student.religion,

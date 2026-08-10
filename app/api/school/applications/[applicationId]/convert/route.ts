@@ -181,6 +181,7 @@ export const POST = withSchoolAuth<RouteContext>(
           dateOfBirth: application.studentDob,
           gender: isGender(application.studentGender) ? application.studentGender : null,
           bFormCnic: null,
+          idDocumentType: null,
           bloodGroup: null,
           nationality: 'Pakistani',
           religion: null,

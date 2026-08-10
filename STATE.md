@@ -4,7 +4,7 @@
 resume without re-deriving context. Updated at the end of every development
 step, before the session ends.
 
-**Last updated:** 2026-08-09 (seventh session — QA fixes before Sprint 10)
+**Last updated:** 2026-08-10 (enrolment form and branding fixes — §5t)
 **Branch:** Sprint 0 (§5m) **is merged to `main`** — an earlier version of this
 header said it was not, and was stale. Sprint 9 (§5n) is on
 `claude/sprint-9-execution-f8776f`, built and QA'd and awaiting merge. Stale
@@ -15,7 +15,8 @@ sprint branch.
 **Main branch:** `main` — last commit `d0e7dc0`, in sync with `origin/main`.
 **Migrations `0000`–`0019` are all applied and verified** against the live
 database; `0016` and `0017` were applied 2026-08-09 (§5n, §5o), `0018` the same
-day and `0019` on 2026-08-10 (§5q). Next free number: **`0020`**.
+day and `0019` on 2026-08-10 (§5q). **`0020` is written and NOT applied** — see
+§5t; the enrolment branch does not run without it. Next free number: **`0021`**.
 
 **The delivery plan now lives in `SPRINTS.md`** — 17 sprints across three
 releases, reconciling `remaining work.docx` with this file and `ROADMAP.md`.
@@ -2341,6 +2342,118 @@ afterwards, so the fixture is where it started. No console errors.
 
 ---
 
+## 5t. The enrolment form, and a branding page that named the wrong theme — 2026-08-10
+
+Four things the user reported from the school-admin CRM. Three are done and
+built; the fourth is **not diagnosed** and is the reason this section is not a
+sign-off.
+
+### ⚠️ Migration `0020` is written but **NOT applied**
+
+`db/migrations/0020_student_id_document_type.sql` adds
+`student_profiles.id_document_type` (`text`, nullable, CHECK `'cnic' | 'b_form'`).
+Additive and safe against existing data, deliberately **not** back-filled — see
+below for why guessing would be worse than a null. Next free number after it:
+**`0021`**.
+
+**The branch does not run until it is applied**: `lib/admissions-queries.ts`
+selects the column, so the student directory and profile pages will fail against
+a database that does not have it. Apply before merging:
+
+```
+DATABASE_URL="…:5432/postgres" npx drizzle-kit migrate
+```
+
+### 1. The branding page named a theme the school was not using
+
+`/dashboard/settings` reported **"Vibrant — in use"** for Sample Test School,
+whose branding row holds `preset_key = 'crimson-gold'`. Neither half of that was
+a rendering slip:
+
+- `GET /api/school/branding` **never returned `presetKey`**. It returned
+  `selectedPalette`, which for a school on a preset is simply whatever integer
+  the column happened to hold — `0` by default, i.e. Vibrant — while
+  `selectedPaletteOf()` was painting the portal around it in the preset.
+- The two screens also disagreed on names. Super Admin called the third derived
+  palette *Auto-complementary*; this page called it *Balanced*. An operator
+  comparing the two screens was comparing labels that did not line up.
+
+Fixed at all three levels, because a caption alone would still have been a page
+that cannot express the setting it is editing:
+
+- The route returns `presetKey`, and its `PATCH` now accepts one.
+- The school page shows the presets as well as the logo palettes, and a derived
+  palette is "in use" only when `presetKey === null`.
+- `DERIVED_PALETTE_NAMES` in `lib/palette-presets.ts` is now the single source
+  of those three names; both screens import it.
+
+Presets became school-selectable rather than Super-Admin-only on purpose. Listing
+a preset a school cannot choose would be a one-way door: the first switch to a
+logo palette clears it, and nothing on the page could put it back.
+
+### 2. "B-Form / CNIC" is now a document *and* a number
+
+One free-text box was recording a thirteen-digit number that nobody could
+attribute to a document — a child's B-Form is the same `42101-1234567-1` shape as
+the CNIC they will hold at eighteen. So the form asks which document first
+(`components/admissions/NationalIdField.tsx`), and:
+
+- **CNIC / Smart Card** is masked to digits only and reformatted as typed —
+  5, then 7, then 1. Anything else is refused, at the field *and* in
+  `parseStudentInput`, because the form is one caller of that route.
+- **B-Form** is free text. Numbering has varied across issuing offices and older
+  certificates do not all fit one pattern; a school must be able to record the
+  number on the paper in front of them.
+- **Both are hidden by default** behind an eye toggle
+  (`components/ui/SecretInput.tsx`), on the enrolment form, on the review step,
+  and on the student profile. Deliberately not `type="password"`: the last four
+  characters stay readable so a clerk can confirm the record, and the field still
+  reformats as it is typed. The consequence is that while hidden the input shows
+  a derived string, so it is read-only until revealed.
+
+The document type is stored, not inferred. Inferring it from the digits is
+exactly the ambiguity the column exists to end — and the bulk import therefore
+writes `null` rather than guessing, because a spreadsheet column headed
+"B-Form / CNIC" does not say which was written in it.
+
+### 3. Religion and nationality are dropdowns
+
+`lib/student-reference-data.ts`. Both were free text, and free text made the
+board's own headcount a reconciliation rather than a query. `Other` is last on
+both lists — a closed list that cannot express a real child is worse than free
+text, because the clerk picks the nearest wrong answer and the record lies.
+
+The columns stay `text`. `optionsWithCurrent()` keeps any stored value that
+predates the list as its own option; without it, opening an older record would
+silently re-point their religion at the first option the moment anything else on
+the form was saved.
+
+### ⚠️ 4. The enrolment error is NOT diagnosed
+
+The user hit an error enrolling and did not quote it. Ruled out, so the next
+session need not repeat this:
+
+- **The four inserts are fine.** Replayed byte-for-byte against the live
+  database inside a rolled-back transaction — school user, profile, enrolment,
+  guardian all committed. No constraint rejects an ordinary enrolment.
+- **The fixtures are fine.** Sample Test School and Rehearsal Academy both have
+  an active year, a school code, active branches, and sections filed under the
+  active year. `resolvePlacement` has nothing to reject.
+- `typecheck`, `lint` and `next build` are all clean.
+
+**One real clue, unexplained.** `school_id_sequences` for Sample Test School
+holds `last_sequence = 3`, and **no student carries an `STS-2026-000x` number** —
+the six on the roll are all seeded `STS-S00x`. Three IDs were issued and three
+enrolments did not land. An ID is spent *after* `resolvePlacement` and *before*
+the inserts, so whatever failed, failed inside that window or in the response
+path after it. That window is four inserts that demonstrably work.
+
+**What is needed: the error text.** Everything cheaper than that has been tried.
+Note that the browser could not be used — the session had no way to reach an
+authenticated school portal, and minting a hand-off token was correctly refused.
+
+---
+
 ## 6. Open items for the user
 
 1. ~~Install GitHub CLI~~ — **partly regressed.** Git has a stored credential
@@ -2366,6 +2479,7 @@ afterwards, so the fixture is where it started. No console errors.
 
 | Date | Session did | Next |
 | --- | --- | --- |
+| 2026-08-10 | **Enrolment form and the branding page that named the wrong theme** (§5t). The school's own settings page reported "Vibrant — in use" for a school themed from the Crimson & Gold preset: `GET /api/school/branding` never returned `presetKey`, so the page read `selected_palette` — `0` by default — while the portal around it was painted in the preset. The route now returns and accepts a preset, the page shows presets alongside the logo palettes, and the three derived names live in one shared constant instead of disagreeing between the two screens. On the enrolment form, "B-Form / CNIC" became a document *and* a number: CNIC is digits-only and reformatted 5-7-1 as typed and refused otherwise, B-Form is free text, both hidden by default behind an eye toggle, and the document type is stored in a new column rather than inferred from digits it cannot be inferred from. Religion and nationality became dropdowns that still hold any value predating the list. `typecheck`, `lint` and `build` clean. **Two things are outstanding:** migration `0020` is written but not applied, and the branch does not run until it is; and the enrolment error the user reported is **not** diagnosed — the inserts were replayed against the live database inside a rolled-back transaction and all four succeed. | **Apply `0020`, then get the enrolment error text.** Three student IDs were issued at Sample Test School against zero students, so something fails between the ID and the response — but not in the writes. |
 | 2026-08-10 | **Bulk switches made honest, dead Settings link removed** (§5s). Two things the user found on `/super-admin/modules`. Every Phase 1 module reported "on everywhere" beside a switch reading *Leave* — both statements true, the pair indefensible. The third position is gone: a switch is On or Off, opens on what the selected schools actually hold, and the safety "Leave" bought is now bought by the **baseline** — only switches moved away from the loaded state are sent, so an untouched flag still never reaches the database. Mixed selections light neither side (the badge already said "on at 1 of 3"), moved switches are ringed, and moving one back leaves zero changes rather than two. Also removed the `Settings` sidebar entry, which pointed at a route that was never built and is on no roadmap. Verified in a browser against the live database: the payload for one moved switch carried exactly that one flag, and re-reading the school afterwards showed the new baseline with nothing left to apply. Reverted; fixture unchanged. | **Print one of each document on real A4** — unchanged, still the only thing between here and a printed-document sign-off. Then Sprint 11. |
 | 2026-08-10 | **Dress rehearsal started** (§5r) — of Sprints 0–10, not of R1, which cannot be rehearsed because Sprints 11–13 do not exist. Extended the seed with a full published examined term (50 papers, 2,121 marks, 63 absences, 76 re-sits) and a fortnight of registers, because none of the four printed documents could be produced without one. **All four render and are correct**: the report card excludes the unpublished paper from its list *and* its denominator, prints `ABS` and refuses a position to anyone absent; the tabulation sheet daggers the unpublished paper and includes it, being a review document; the admit card carries all five, being a datesheet. Three defects: the suggested grading ladder had no band below 33%, so a genuine fail printed a blank grade beside a passing A; the seed's own marker was printing on every fee challan, having been put in the postal address; and class names were ambiguous across campuses for the fourth and fifth time, which is what finally moved the rule into `lib/class-labels.ts`. | **Print one of each on real A4.** It is now the only thing left before the printed documents can be signed off, and it needs a person with a printer. Then Sprint 11. |
 | 2026-08-10 | **Sprint 10 complete, every piece clicked** (§5q). Transfer and family vouchers verified against the seeded school, and doing it found the sprint's most consequential defect: `student_enrollments` was uniquely indexed on (student, year), so a transfer — which by design opens a second enrolment in the same year — failed at the database every time. Editing the row in place would have been worse, because `attendance_records.enrollment_id` points at it and a register taken at the old campus would afterwards claim the new one. Migration `0019` makes the index partial on `status = 'active'`: one *placement* at a time, closed rows accumulating as history. Also: the transfer picker had promotion's year-duplication defect (written twice, seen once), and family vouchers could be issued but not paid — the route distributed a payment across the children's challans and no screen offered to record one. | **Print one of each document on real A4.** It is now the largest unverified thing in the project, and has been since §5n. Then the dress rehearsal. |

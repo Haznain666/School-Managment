@@ -1,6 +1,11 @@
 import { and, eq } from 'drizzle-orm';
 
-import { studentProfiles, isBloodGroup, isGender } from '@/db/schema';
+import {
+  studentProfiles,
+  isBloodGroup,
+  isGender,
+  isIdDocumentType,
+} from '@/db/schema';
 import { withSchoolAuth } from '@/lib/api-auth';
 import { apiFailure, apiSuccess, handleApiError, readJsonBody } from '@/lib/api-response';
 import {
@@ -9,6 +14,7 @@ import {
   listGuardians,
 } from '@/lib/admissions-queries';
 import { db } from '@/lib/drizzle';
+import { isValidCnic } from '@/lib/national-id';
 import { isUuid, readOptionalString, readString } from '@/lib/validation';
 
 /**
@@ -65,6 +71,7 @@ interface UpdateStudentBody {
   dateOfBirth?: unknown;
   gender?: unknown;
   bFormCnic?: unknown;
+  idDocumentType?: unknown;
   bloodGroup?: unknown;
   nationality?: unknown;
   religion?: unknown;
@@ -125,7 +132,45 @@ export const PATCH = withSchoolAuth<RouteContext>(
         updates.nationality = value;
       }
 
-      if (body.bFormCnic !== undefined) updates.bFormCnic = readOptionalString(body.bFormCnic);
+      /*
+       * The number and the document it is are edited together or not at all.
+       * Letting one move without the other is how a record ends up claiming a
+       * B-Form number is a CNIC: a clerk corrects the digits, the stale type
+       * stays, and nothing on screen says so. So a request that touches either
+       * has to carry both, and both are re-validated as `parseStudentInput`
+       * does on enrolment.
+       */
+      if (body.bFormCnic !== undefined || body.idDocumentType !== undefined) {
+        const number = readOptionalString(body.bFormCnic);
+        const documentType = readOptionalString(body.idDocumentType);
+
+        if (number === null) {
+          // No number, no document — a type left behind on a cleared field
+          // would describe nothing.
+          updates.bFormCnic = null;
+          updates.idDocumentType = null;
+        } else {
+          if (!isIdDocumentType(documentType)) {
+            return apiFailure(
+              'invalid_body',
+              'Choose whether that number is a CNIC / Smart Card or a B-Form.',
+              400,
+            );
+          }
+
+          if (documentType === 'cnic' && !isValidCnic(number)) {
+            return apiFailure(
+              'invalid_body',
+              'A CNIC / Smart Card number is 13 digits, as 42101-1234567-1.',
+              400,
+            );
+          }
+
+          updates.bFormCnic = number;
+          updates.idDocumentType = documentType;
+        }
+      }
+
       if (body.religion !== undefined) updates.religion = readOptionalString(body.religion);
       if (body.previousSchool !== undefined) {
         updates.previousSchool = readOptionalString(body.previousSchool);
