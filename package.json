@@ -9,6 +9,7 @@
     "start": "next start",
     "lint": "eslint .",
     "hash-password": "node scripts/hash-password.mjs",
+    "check-super-admin": "node scripts/check-super-admin-env.mjs",
     "typecheck": "tsc --noEmit",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",

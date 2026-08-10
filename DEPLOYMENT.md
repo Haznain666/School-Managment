@@ -59,6 +59,40 @@ The ones that must carry the real domain:
 Database: use the **transaction pooler** string (port 6543) for `DATABASE_URL`.
 See `.env.example` for why.
 
+### `SUPER_ADMIN_PASSWORD_HASH` — the escaping flips between the two places
+
+A bcrypt hash is full of `$`, and the right way to write it **depends on who
+reads the file**:
+
+| Where | Write it as |
+| --- | --- |
+| `.env.local` | `"\$2b\$12\$..."` — `@next/env` runs dotenv-expand, so `$` must be escaped |
+| Hostinger's env panel | `$2b$12$...` — raw, no backslashes, no quotes |
+
+Copying the escaped line out of `.env.local` into the panel is the mistake, and
+it is invisible: `compare()` in bcryptjs opens with `if (hash.length !== 60)
+return false`, so a damaged hash does not throw. It answers "wrong password".
+Sign-in returns a bare 401 with nothing in the log to explain it — which reads
+as a wrong password, a session problem, or a cookie problem, and is none of
+them. This cost a day on 2026-08-10.
+
+To settle it in one command, run this **on the host, from the directory holding
+`server.js`**:
+
+```bash
+node scripts/check-super-admin-env.mjs
+```
+
+It prints what the running process actually sees — hash length and prefix, the
+email as it will be compared, and any `.env` file sitting there overriding the
+panel. Pass the password as a quoted argument to confirm the hash truly matches
+it. It prints no secrets. `scripts/` is not part of the standalone artifact, so
+upload that one file alongside it.
+
+The route now also logs the reason for every refusal
+(`[super-admin] sign-in refused. email matched: …; password matched: …`), so a
+future occurrence is answerable from the server log alone.
+
 ## 4. Database migrations
 
 Migrations do **not** run on deploy. Run them yourself, from your machine,

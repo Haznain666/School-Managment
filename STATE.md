@@ -4,7 +4,13 @@
 resume without re-deriving context. Updated at the end of every development
 step, before the session ends.
 
-**Last updated:** 2026-08-10 (enrolment form and branding fixes — §5t)
+**Last updated:** 2026-08-11 (live Super Admin 401 traced — §5u)
+
+> **⚠ Rotate the Super Admin password.** It was pasted in plaintext into a chat
+> on 2026-08-11, and it was already the leaked one. Regenerate with
+> `npm run hash-password` and update the Hostinger panel — raw hash, no
+> backslashes (§5u).
+
 **Branch:** Sprint 0 (§5m) **is merged to `main`** — an earlier version of this
 header said it was not, and was stale. Sprint 9 (§5n) is on
 `claude/sprint-9-execution-f8776f`, built and QA'd and awaiting merge. Stale
@@ -2485,6 +2491,78 @@ review step no longer shows a number that is on another child's file.
 
 ---
 
+## 5u. Super Admin 401 on the live deployment — 2026-08-11
+
+**Symptom.** `POST https://schoolhub.codexmill.com/api/super-admin/auth/login`
+returns **401**, with credentials that work locally. The panel displayed it as
+"Session expired.", which sent two sessions after cookies, `Secure` flags and
+HTTPS. None of those were involved.
+
+### Where the 401 can come from — there is only one place
+
+Middleware computes `isAuthEndpoint` for `/api/super-admin/auth/*` and returns
+`NextResponse.next()` **before** its session check, so it cannot 401 this
+route. `readJsonBody` failure is 400; the throttle is 429; a missing
+`SUPER_ADMIN_EMAIL` / `SUPER_ADMIN_PASSWORD_HASH` / `SUPER_ADMIN_JWT_SECRET` is
+**500** `server_misconfigured`. That leaves `invalid_credentials` in
+`app/api/super-admin/auth/login/route.ts`, reached only when
+`verifySuperAdminCredentials` returns `invalid`.
+
+**So the variables are present on the host.** Either the email did not match,
+or bcrypt returned false.
+
+### Why it left no trace
+
+`compare()` in bcryptjs 3.0.3 begins:
+
+```js
+if (hash.length !== 60) return false;
+```
+
+Probed against the installed version — a hash damaged in transit does **not**
+throw:
+
+| Form | Length | `compare` |
+| --- | --- | --- |
+| raw `$2b$12$…` | 60 | `true` |
+| escaped `\$2b\$12\$…` | 63 | `false` |
+| `$2b$`/`$12$` expanded away | 53 | `false` |
+| wrapped in quotes | 62 | `false` |
+| trailing newline | 61 | `false` |
+
+Every failure mode answers "wrong password" silently. Hence a bare 401 with an
+empty log.
+
+### The trap: the correct escaping is opposite in the two places
+
+`.env.local` needs `"\$2b\$12\$…"` because `@next/env` runs dotenv-expand over
+it. Hostinger's panel needs the **raw** `$2b$12$…`. Copying the working local
+line into the panel breaks it; so does a host that materialises panel variables
+into a file something later expands. Both give the identical silent 401, which
+is why this must be **measured, not guessed** — the fix points in opposite
+directions depending on the mechanism.
+
+### What was changed
+
+- `lib/super-admin-credentials.ts` logs every refusal: which half failed, and
+  the hash's *shape* (length, prefix, backslashes). Never the hash — it is
+  offline-crackable. The client response is unchanged and still
+  indistinguishable, so non-enumeration holds.
+- `scripts/check-super-admin-env.mjs` (`npm run check-super-admin`) prints what
+  the running process sees, names the mangling, lists any `.env` file
+  overriding the panel, and optionally confirms the password against the hash.
+  Only the files Next actually loads are flagged — an earlier version flagged
+  `.env.example` and would have sent someone to delete the documentation.
+- `lib/super-admin-client.ts` no longer converts the login route's own 401 into
+  "Session expired." That interception is what hid the real error for two
+  sessions.
+
+**Not yet run against the live host** — that needs SSH, which this machine does
+not hold. The diagnosis narrows it to two possibilities and the script
+distinguishes them in one command.
+
+---
+
 ## 6. Open items for the user
 
 1. ~~Install GitHub CLI~~ — **partly regressed.** Git has a stored credential
@@ -2510,6 +2588,7 @@ review step no longer shows a number that is on another child's file.
 
 | Date | Session did | Next |
 | --- | --- | --- |
+| 2026-08-11 | **Super Admin sign-in returns 401 on the live Hostinger deployment** (§5u). Traced it: middleware exempts `/api/super-admin/auth/*` before its session check, so the only line in the codebase that can produce that 401 is `invalid_credentials` in the login route — the env vars are therefore *present* (missing ones give 500), and either the email or the bcrypt comparison failed. Found the mechanism that made it unloggable: `compare()` in bcryptjs 3.0.3 opens `if (hash.length !== 60) return false`, verified by probe — the escaped form (63), a shell-expanded one (53), quoted (62) and newline-terminated (61) all return **false without throwing**. Fixed the reporting rather than guessing the value: the login route now logs which half failed and the hash's *shape* (never the hash), and `scripts/check-super-admin-env.mjs` answers the same question on the host in one command. Also fixed `lib/super-admin-client.ts`, which converted every 401 — including the login route's own — into "Session expired.", which is what sent the previous two sessions after cookies and HTTPS. Verified locally end to end: wrong password → 401 `invalid_credentials` with the real message; correct → 200 with the cookie set; log line names the cause. | **Run `npm run check-super-admin` on the host** and read §5u. It prints which of the two halves is wrong. Then rotate the Super Admin password — it was pasted in plaintext into a chat on 2026-08-11 and was already the leaked one. |
 | 2026-08-10 | **Enrolment form and the branding page that named the wrong theme** (§5t). The school's own settings page reported "Vibrant — in use" for a school themed from the Crimson & Gold preset: `GET /api/school/branding` never returned `presetKey`, so the page read `selected_palette` — `0` by default — while the portal around it was painted in the preset. The route now returns and accepts a preset, the page shows presets alongside the logo palettes, and the three derived names live in one shared constant instead of disagreeing between the two screens. On the enrolment form, "B-Form / CNIC" became a document *and* a number: CNIC is digits-only and reformatted 5-7-1 as typed and refused otherwise, B-Form is free text, both hidden by default behind an eye toggle, and the document type is stored in a new column rather than inferred from digits it cannot be inferred from. Religion and nationality became dropdowns that still hold any value predating the list. `typecheck`, `lint` and `build` clean. Migration `0020` applied and verified — 417 rows intact, 0 typed. **The enrolment error is found and fixed:** a school that imported its roll in our own numbering (`RHA-2026-0001`…`0409`) left the ID counter at zero, so every direct enrolment minted a number the roll already held and died on the unique index — 409 times over, one number burned per attempt. `generateStudentId` now reconciles the counter past the roll once, and the request that failed returns `RHA-2026-0410`. All four fixes clicked through against the live database; two probe students enrolled and deleted, fixtures back where they were. | **Print one of each document on real A4** — unchanged. Then Sprint 11. |
 | 2026-08-10 | **Bulk switches made honest, dead Settings link removed** (§5s). Two things the user found on `/super-admin/modules`. Every Phase 1 module reported "on everywhere" beside a switch reading *Leave* — both statements true, the pair indefensible. The third position is gone: a switch is On or Off, opens on what the selected schools actually hold, and the safety "Leave" bought is now bought by the **baseline** — only switches moved away from the loaded state are sent, so an untouched flag still never reaches the database. Mixed selections light neither side (the badge already said "on at 1 of 3"), moved switches are ringed, and moving one back leaves zero changes rather than two. Also removed the `Settings` sidebar entry, which pointed at a route that was never built and is on no roadmap. Verified in a browser against the live database: the payload for one moved switch carried exactly that one flag, and re-reading the school afterwards showed the new baseline with nothing left to apply. Reverted; fixture unchanged. | **Print one of each document on real A4** — unchanged, still the only thing between here and a printed-document sign-off. Then Sprint 11. |
 | 2026-08-10 | **Dress rehearsal started** (§5r) — of Sprints 0–10, not of R1, which cannot be rehearsed because Sprints 11–13 do not exist. Extended the seed with a full published examined term (50 papers, 2,121 marks, 63 absences, 76 re-sits) and a fortnight of registers, because none of the four printed documents could be produced without one. **All four render and are correct**: the report card excludes the unpublished paper from its list *and* its denominator, prints `ABS` and refuses a position to anyone absent; the tabulation sheet daggers the unpublished paper and includes it, being a review document; the admit card carries all five, being a datesheet. Three defects: the suggested grading ladder had no band below 33%, so a genuine fail printed a blank grade beside a passing A; the seed's own marker was printing on every fee challan, having been put in the postal address; and class names were ambiguous across campuses for the fourth and fifth time, which is what finally moved the rule into `lib/class-labels.ts`. | **Print one of each on real A4.** It is now the only thing left before the printed documents can be signed off, and it needs a person with a printer. Then Sprint 11. |

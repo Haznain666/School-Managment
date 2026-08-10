@@ -55,7 +55,51 @@ export async function verifySuperAdminCredentials(
   const passwordMatches = await compare(submittedPassword, passwordHash);
   const emailMatches = submittedEmail === expectedEmail;
 
-  return emailMatches && passwordMatches
-    ? { ok: true, email: expectedEmail }
-    : { ok: false, reason: 'invalid' };
+  if (!emailMatches || !passwordMatches) {
+    logRejection(emailMatches, passwordMatches, passwordHash);
+    return { ok: false, reason: 'invalid' };
+  }
+
+  return { ok: true, email: expectedEmail };
+}
+
+/**
+ * Says, in the server log only, why a sign-in was refused.
+ *
+ * ── Why this exists ──────────────────────────────────────────────────────
+ * `compare()` in bcryptjs opens with `if (hash.length !== 60) return false`.
+ * A hash mangled in transit to the host — dotenv-expand eating the `$2b`/`$12`
+ * segments, or the escaped `\$2b\$12\$` form pasted into a panel that does no
+ * expansion — therefore does not throw. It returns false, becomes a plain 401,
+ * and leaves nothing behind to explain it. That failure cost a deployment a day
+ * on 2026-08-10.
+ *
+ * ── Why it is safe to log ────────────────────────────────────────────────
+ * The hash itself is never printed: it is offline-crackable and belongs in a
+ * log no more than the password does. What is printed is its *shape* — length,
+ * the `$2b$12$` prefix every bcrypt hash in the world shares, and whether a
+ * backslash survived into it — none of which narrows a guess by one bit, and
+ * all of which name the misconfiguration outright. The two booleans say which
+ * half failed; that is visible to the operator reading their own server log,
+ * not to the caller, whose response stays the single indistinguishable
+ * `invalid_credentials` either way.
+ */
+function logRejection(
+  emailMatches: boolean,
+  passwordMatches: boolean,
+  passwordHash: string,
+): void {
+  const shape =
+    passwordHash.length === 60
+      ? 'well-formed (60 chars)'
+      : `MALFORMED: ${String(passwordHash.length)} chars, expected 60` +
+        (passwordHash.includes('\\') ? ', contains a backslash' : '') +
+        (passwordHash.startsWith('$2') ? '' : `, starts "${passwordHash.slice(0, 4)}"`);
+
+  console.warn(
+    '[super-admin] sign-in refused. ' +
+      `email matched: ${String(emailMatches)}; ` +
+      `password matched: ${String(passwordMatches)}; ` +
+      `SUPER_ADMIN_PASSWORD_HASH is ${shape}.`,
+  );
 }
