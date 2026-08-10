@@ -86,6 +86,16 @@ reads the file**:
 | `.env.local` | `"\$2b\$12\$..."` — `@next/env` runs dotenv-expand, so `$` must be escaped |
 | Hostinger's env panel | `$2b$12$...` — raw, no backslashes, no quotes |
 
+**Single-quoting does not save you in a `.env` file.** Measured 2026-08-11:
+`SUPER_ADMIN_PASSWORD_HASH='$2b$12$…'` resolved to a **36-character** value,
+because dotenv strips the quotes and *then* expands `$2b` and `$12` as
+variables. Only the `\$` escaping works there.
+
+The corollary is the thing to check on any host: **the value the panel shows is
+not necessarily the value the process holds.** If anything between the two
+performs expansion, a raw hash arrives shortened and prefix-less. Compare
+fingerprints rather than trusting the panel — see below.
+
 Copying the escaped line out of `.env.local` into the panel is the mistake, and
 it is invisible: `compare()` in bcryptjs opens with `if (hash.length !== 60)
 return false`, so a damaged hash does not throw. It answers "wrong password".
@@ -93,8 +103,39 @@ Sign-in returns a bare 401 with nothing in the log to explain it — which reads
 as a wrong password, a session problem, or a cookie problem, and is none of
 them. This cost a day on 2026-08-10.
 
-To settle it, run one of these **on the host, from the directory holding
-`server.js`**. `scripts/` is not part of the standalone artifact, so upload the
+### Asking the deployed process directly (no SSH needed)
+
+The checks below run *beside* the server. When the question is specifically
+"what does the **deployed process** hold", ask it:
+
+1. Set `SUPER_ADMIN_DIAGNOSTICS_SECRET` in the panel to any long random string
+   and restart. Without it the endpoint is disabled and answers 503.
+2. Call it:
+
+```bash
+curl -s -X POST https://YOUR-DOMAIN/api/internal/super-admin-check -H "Content-Type: application/json" -H "x-diagnostics-secret: THE-SECRET" -d '{"email":"you@example.com","password":"the-password"}'
+```
+
+It answers from inside the running process: the pid and uptime serving that
+request, the configured email, the hash's length, prefix and **fingerprint**,
+which `.env` files exist beside it, and whether bcrypt accepts that password
+*there*. It returns no hash, no secret and no password — only booleans and
+shapes.
+
+Compare `passwordHash.fingerprint` with `npm run fingerprint` over the value in
+your panel. Equal fingerprints prove the process holds exactly what you pasted;
+different ones prove it does not, which length and prefix alone can never show.
+
+Call it two or three times and watch `process.pid`. **A changing pid means more
+than one instance is behind the proxy**, and they need not hold the same
+environment — one restarted after your edit and one did not.
+
+**Unset the secret once the deployment is healthy.** It is a debugging
+instrument, not a feature.
+
+### Checks that run beside the server
+
+Run one of these **on the host, from the directory holding `server.js`**. `scripts/` is not part of the standalone artifact, so upload the
 one file you need alongside it. Neither prints a secret.
 
 ```bash
