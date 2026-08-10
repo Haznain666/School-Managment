@@ -37,6 +37,21 @@ Hostinger assigns the port — do not hard-code 3000. If the app starts but the
 panel reports it unreachable, set `HOSTNAME=0.0.0.0`; the default binds to
 localhost only, which is invisible to the reverse proxy.
 
+**`HOSTNAME` must be `0.0.0.0`, and not a loopback address.** Measured against
+the standalone artifact on 2026-08-11:
+
+| `HOSTNAME` | Redirect `Location` from middleware |
+| --- | --- |
+| `0.0.0.0` | `/super-admin/login` — relative, correct behind any proxy |
+| `127.0.0.1` | `https://localhost:3400/super-admin/login` — **absolute and wrong** |
+
+With a loopback value, Next emits absolute redirects built from the bind
+address, so every middleware bounce — an unauthenticated deep link, an expired
+session — sends the visitor's browser to `localhost`. `Host` and
+`X-Forwarded-Host` are both ignored; the bind address is what decides. The
+login page itself still loads when typed directly, so this presents as
+"sometimes it throws me somewhere strange" rather than an obvious break.
+
 ## 3. Environment variables
 
 Set every variable from `.env.example` in Hostinger's Node.js app environment
