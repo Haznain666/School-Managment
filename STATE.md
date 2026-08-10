@@ -2588,6 +2588,44 @@ and that empty keys blank every secret — and has been corrected. That claim
 sent this session's first answer to the wrong place, and would have sent the
 next one there too.
 
+### Second round: the panel was corrected and it still failed
+
+The user regenerated the hash, verified it as exactly 60 characters in the
+Hostinger panel, and sign-in still returned `invalid_credentials`. They were
+also right to object that local testing proves nothing about their deployment.
+
+**The gap that mattered: nothing had ever inspected the deployed process.** The
+boot log, the `.mjs` script and every local run read some *other* process. So
+`POST /api/internal/super-admin-check` now reports from inside the live one —
+pid and uptime, the configured email, the hash's length/prefix/**fingerprint**,
+the `.env` files beside it, and a bcrypt comparison performed there. Guarded by
+`SUPER_ADMIN_DIAGNOSTICS_SECRET`, disabled (503) whenever that is unset, and
+returning only shapes and booleans.
+
+The fingerprint is the part that earns its place: length and prefix cannot
+distinguish two different well-formed hashes, so "the panel says 60 characters"
+was never evidence that the process holds *that* hash. `npm run fingerprint`
+computes the same digest locally to compare.
+
+**A third mangling mode, found by accident while testing this:** dotenv strips
+single quotes and *then* expands, so `SUPER_ADMIN_PASSWORD_HASH='$2b$12$…'` in
+a `.env` file resolves to **36 characters** with the prefix gone. Only `\$`
+escaping works in those files. The general lesson, and the reason the endpoint
+exists: **the value a panel displays is not necessarily the value the process
+receives.**
+
+Leading hypotheses at handover, in order:
+
+1. **The process is not holding what the panel shows** — something between them
+   expands `$`, or the process was never restarted after the edit. The
+   fingerprint settles it.
+2. **More than one instance is serving.** The runtime log prints two Next.js
+   banners and two `Ready` lines per boot; if the proxy round-robins, one may
+   hold pre-edit environment. Repeated calls showing a changing `process.pid`
+   would confirm it.
+3. **The password typed differs from the one hashed** — `comparison.passwordMatches`
+   answers this inside the live process.
+
 ### Two other things this log showed
 
 1. **The app appears to start twice.** Every boot prints two `▲ Next.js`
@@ -2626,6 +2664,7 @@ next one there too.
 
 | Date | Session did | Next |
 | --- | --- | --- |
+| 2026-08-11 | **Built a way to inspect the deployed process** (§5u). The panel hash was corrected to a verified 60 characters and sign-in still failed, and the user objected — correctly — that local testing proves nothing about their host. Nothing in the repo had ever read the process actually serving the requests: the boot log, the host script and every local run inspect some other process. `POST /api/internal/super-admin-check` now answers from inside the live one — pid, uptime, configured email, the hash's length/prefix/**fingerprint**, the `.env` files beside it, and a bcrypt comparison performed there — guarded by `SUPER_ADMIN_DIAGNOSTICS_SECRET` and returning 503 whenever it is unset. `npm run fingerprint` computes the matching digest locally, which is the only way to tell whether the process holds *the* 60-char hash rather than *a* 60-char hash. Verified: guard rejects a missing and a wrong secret, 503 when unconfigured, fingerprints agree across an independent computation, and both comparison outcomes report correctly. Found a third mangling mode doing it — dotenv strips single quotes then expands, so a raw hash in a `.env` file resolves to 36 chars. | **Call the endpoint on the live host** and compare fingerprints; call it repeatedly to see whether `process.pid` changes. Then unset the diagnostics secret. |
 | 2026-08-11 | **Root cause confirmed from the live host** (§5u). The redeployed build's new log line settled it in one attempt: `email matched: true; password matched: false; SUPER_ADMIN_PASSWORD_HASH is MALFORMED: 63 chars, expected 60, contains a backslash, starts "\$2b"`. The email was never wrong; the hash reaching the process is the escaped `\$2b\$12\$` form, which bcryptjs rejects on length without raising anything. The user had already set the panel to the raw form, so a `.env*` file was the obvious suspect — until it was measured: `@next/env` never replaces a variable the environment already holds, so the panel always wins and the wrong value can only have come from the panel. `DEPLOYMENT.md` §3 claimed the reverse and is corrected. Added a boot-time check in `instrumentation.ts` so a malformed hash announces itself when the server starts rather than waiting for someone to fail a login, with the shape logic moved into `lib/super-admin-hash-shape.ts` as one source for all three callers. Also surfaced two unrelated findings: the app prints two Next.js banners and two `Ready` lines per boot, so **it appears to be starting twice** — which would run the email-outbox drainer twice — and the host is on **Node 20**, which `@supabase/supabase-js` now warns is deprecated. | **Paste the raw 60-char hash and delete any `.env*` beside `server.js`.** Then rotate the password (it was pasted in plaintext on 2026-08-11). Then settle the double-start. |
 | 2026-08-11 | **Super Admin sign-in returns 401 on the live Hostinger deployment** (§5u). Traced it: middleware exempts `/api/super-admin/auth/*` before its session check, so the only line in the codebase that can produce that 401 is `invalid_credentials` in the login route — the env vars are therefore *present* (missing ones give 500), and either the email or the bcrypt comparison failed. Found the mechanism that made it unloggable: `compare()` in bcryptjs 3.0.3 opens `if (hash.length !== 60) return false`, verified by probe — the escaped form (63), a shell-expanded one (53), quoted (62) and newline-terminated (61) all return **false without throwing**. Fixed the reporting rather than guessing the value: the login route now logs which half failed and the hash's *shape* (never the hash), and `scripts/check-super-admin-env.mjs` answers the same question on the host in one command. Also fixed `lib/super-admin-client.ts`, which converted every 401 — including the login route's own — into "Session expired.", which is what sent the previous two sessions after cookies and HTTPS. Verified locally end to end: wrong password → 401 `invalid_credentials` with the real message; correct → 200 with the cookie set; log line names the cause. | **Run `npm run check-super-admin` on the host** and read §5u. It prints which of the two halves is wrong. Then rotate the Super Admin password — it was pasted in plaintext into a chat on 2026-08-11 and was already the leaked one. |
 | 2026-08-10 | **Enrolment form and the branding page that named the wrong theme** (§5t). The school's own settings page reported "Vibrant — in use" for a school themed from the Crimson & Gold preset: `GET /api/school/branding` never returned `presetKey`, so the page read `selected_palette` — `0` by default — while the portal around it was painted in the preset. The route now returns and accepts a preset, the page shows presets alongside the logo palettes, and the three derived names live in one shared constant instead of disagreeing between the two screens. On the enrolment form, "B-Form / CNIC" became a document *and* a number: CNIC is digits-only and reformatted 5-7-1 as typed and refused otherwise, B-Form is free text, both hidden by default behind an eye toggle, and the document type is stored in a new column rather than inferred from digits it cannot be inferred from. Religion and nationality became dropdowns that still hold any value predating the list. `typecheck`, `lint` and `build` clean. Migration `0020` applied and verified — 417 rows intact, 0 typed. **The enrolment error is found and fixed:** a school that imported its roll in our own numbering (`RHA-2026-0001`…`0409`) left the ID counter at zero, so every direct enrolment minted a number the roll already held and died on the unique index — 409 times over, one number burned per attempt. `generateStudentId` now reconciles the counter past the roll once, and the request that failed returns `RHA-2026-0410`. All four fixes clicked through against the live database; two probe students enrolled and deleted, fixtures back where they were. | **Print one of each document on real A4** — unchanged. Then Sprint 11. |
