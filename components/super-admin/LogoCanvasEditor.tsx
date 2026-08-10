@@ -3,7 +3,6 @@
 import {
   useCallback,
   useEffect,
-  useMemo,
   useRef,
   useState,
   type PointerEvent as ReactPointerEvent,
@@ -119,8 +118,6 @@ export function LogoCanvasEditor({
   const [offset, setOffset] = useState<Offset>({ x: 0, y: 0 });
   const [backdrop, setBackdrop] = useState<LogoBackdrop>('transparent');
 
-  const objectUrl = useMemo(() => URL.createObjectURL(file), [file]);
-
   /**
    * The zoom at which the whole image is visible inside the square. Every
    * other zoom is expressed as a multiple of this, so the slider means the
@@ -128,13 +125,34 @@ export function LogoCanvasEditor({
    */
   const [baseScale, setBaseScale] = useState(1);
 
+  /**
+   * Decodes the chosen file.
+   *
+   * ── The object URL is created *here*, not memoised outside ───────────────
+   * It used to come from a `useMemo`, which created it once and let this
+   * effect's cleanup revoke it. That is a bug, and in development it is a
+   * guaranteed one: React StrictMode mounts, cleans up, then mounts again, so
+   * the second run assigned a URL the first run had already revoked. The
+   * browser answered `net::ERR_FILE_NOT_FOUND` on a `blob:` URL, `onerror`
+   * fired, and the editor reported "That image could not be read" for a
+   * perfectly good PNG.
+   *
+   * The rule this encodes: **whatever the cleanup revokes, the same effect run
+   * must have created.** A resource whose lifetime is owned by an effect
+   * cannot be built by a memo that outlives it.
+   *
+   * The URL is same-origin either way, which is what keeps the canvas
+   * untainted so `toBlob()` works — and why the editor operates on the chosen
+   * `File` rather than the stored logo on the Supabase origin.
+   */
   useEffect(() => {
+    const url = URL.createObjectURL(file);
     const image = new Image();
 
-    // The object URL is same-origin, so the canvas is never tainted and
-    // toBlob() works. This is exactly why the editor operates on the chosen
-    // File rather than on the already-uploaded logo, which lives on the
-    // Supabase origin.
+    // A retry after a failed file must start clean, or the error outlives it.
+    setLoadError(null);
+    setIsReady(false);
+
     image.onload = () => {
       imageRef.current = image;
 
@@ -153,12 +171,16 @@ export function LogoCanvasEditor({
       setLoadError('That image could not be read. Try a PNG, JPG or WebP.');
     };
 
-    image.src = objectUrl;
+    image.src = url;
 
     return () => {
-      URL.revokeObjectURL(objectUrl);
+      // Detached before revoking, so a decode still in flight cannot land on
+      // a dead URL and report failure for an image that was fine.
+      image.onload = null;
+      image.onerror = null;
+      URL.revokeObjectURL(url);
     };
-  }, [objectUrl]);
+  }, [file]);
 
   /**
    * Paints one frame at a given edge length.

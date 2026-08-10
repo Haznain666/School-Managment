@@ -1730,6 +1730,32 @@ One consequence worth knowing: because the palettes are extracted from the
 uploaded bytes, they now follow the *framed* logo rather than a cropped-away
 corner.
 
+#### ⚠️ The editor shipped with a bug, and it is worth understanding
+
+First version reported **"That image could not be read"** for every file,
+including perfectly good PNGs. The console said what it was, if you knew to
+read it: `net::ERR_FILE_NOT_FOUND` on a `blob:` URL.
+
+The object URL came from a `useMemo` — created **once** — while the effect's
+cleanup revoked it. React StrictMode in development mounts, cleans up, then
+mounts again, so the second run assigned a URL the first run had already
+revoked. Not a race and not intermittent: in development it failed **every
+time**, which is why it looked like the upload was broken again rather than
+like a lifetime bug.
+
+Measured in the browser, old pattern versus new, on the same file:
+
+| | run 1 | run 2 |
+| --- | --- | --- |
+| URL memoised outside the effect | loaded | **onerror** |
+| URL created inside the effect | loaded | loaded |
+
+**The rule: whatever a cleanup revokes, the same effect run must have created.**
+A resource whose lifetime an effect owns cannot be built by a memo that
+outlives it. The cleanup now also detaches `onload`/`onerror` before revoking,
+so a decode still in flight cannot land on a dead URL and report failure for an
+image that was fine.
+
 ### 4. Three preset palettes, alongside the derived ones
 
 `lib/palette-presets.ts` — **Crimson & Gold**, **Forest Linen**, **Cobalt**.
