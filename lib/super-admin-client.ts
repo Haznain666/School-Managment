@@ -26,10 +26,29 @@ interface ApiEnvelope<T> {
   error?: { code: string; message: string };
 }
 
-async function parse<T>(response: Response): Promise<T> {
+/**
+ * Endpoints where a 401 is an *answer*, not a lapsed session.
+ *
+ * The sign-in route returns 401 for wrong credentials. Routing that through
+ * the session-expiry branch below replaced "Incorrect email or password" with
+ * "Session expired." and reloaded the login page the operator was already on —
+ * so a mistyped password, a wrong `SUPER_ADMIN_EMAIL` and a hash mangled by the
+ * host all presented as the one error that none of them are. Diagnosing a live
+ * deployment through that took two rounds; hence this list.
+ */
+function isAuthEndpoint(path: string): boolean {
+  return path.startsWith('/api/super-admin/auth/');
+}
+
+async function parse<T>(response: Response, path: string): Promise<T> {
   // A 401 means the 8-hour session lapsed. Bounce to login rather than
-  // surfacing a confusing error inside the panel.
-  if (response.status === 401 && typeof window !== 'undefined') {
+  // surfacing a confusing error inside the panel. Not for the auth routes,
+  // where 401 carries a real message the caller must be allowed to read.
+  if (
+    response.status === 401 &&
+    !isAuthEndpoint(path) &&
+    typeof window !== 'undefined'
+  ) {
     window.location.href = '/super-admin/login';
     throw new SuperAdminApiError(401, 'unauthenticated', 'Session expired.');
   }
@@ -66,11 +85,11 @@ export async function superAdminFetch<T>(
     },
   });
 
-  return parse<T>(response);
+  return parse<T>(response, path);
 }
 
 /** Multipart variant — the browser sets its own boundary header. */
 export async function superAdminUpload<T>(path: string, form: FormData): Promise<T> {
   const response = await fetch(path, { method: 'POST', body: form });
-  return parse<T>(response);
+  return parse<T>(response, path);
 }
