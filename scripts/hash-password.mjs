@@ -18,12 +18,17 @@
  *
  * This prompts instead: nothing reaches argv, history, or the terminal.
  *
- * ── It prints the whole line, already escaped ────────────────────────────
- * A bcrypt hash is full of `$`, and `.env.local` is read by `@next/env`,
- * which runs dotenv-expand over it — so an unescaped `$2b` would be treated
- * as a variable reference and silently eaten. The output below is the
- * complete, correctly escaped line, ready to replace the existing one. Do not
- * retype it by hand.
+ * ── It prints two forms, and says which goes where ───────────────────────
+ * A bcrypt hash is full of `$`. `.env.local` is read by `@next/env`, which
+ * runs dotenv-expand, so there every `$` must be written `\$` or `$2b` is
+ * treated as a variable reference and silently eaten. A hosting panel does no
+ * expansion, so there the same backslashes are literal characters that make
+ * the value 63 long instead of 60 — and bcryptjs rejects any length but 60 by
+ * returning false, never by raising.
+ *
+ * The two destinations therefore need exactly opposite strings, and for a long
+ * time this script printed only the `.env.local` one, unlabelled. See the
+ * comment above the output below for what that cost.
  */
 import { createInterface } from 'node:readline';
 
@@ -90,9 +95,43 @@ if (password.length < MIN_LENGTH) {
 
 const hash = bcrypt.hashSync(password, COST);
 
-console.log('\nReplace the SUPER_ADMIN_PASSWORD_HASH line in .env.local with:\n');
-console.log(`SUPER_ADMIN_PASSWORD_HASH="${hash.replaceAll('$', '\\$')}"`);
+/**
+ * Two forms, because there are two destinations and they need opposite things.
+ *
+ * This script used to print only the escaped one, with no indication that it
+ * was escaped or that anywhere wanted it otherwise. Copying its output into a
+ * hosting panel — the obvious thing to do with a line labelled "the
+ * SUPER_ADMIN_PASSWORD_HASH line" — stored 63 characters and three
+ * backslashes. `compare()` in bcryptjs returns false for anything that is not
+ * 60 characters, without raising an error, so the deployment answered "wrong
+ * password" to a correct password with nothing in any log. That cost four
+ * sessions across 2026-08-10 and 2026-08-11, and the backslashes were printed
+ * right here.
+ */
+const escaped = hash.replaceAll('$', '\\$');
+
+console.log('\n' + '='.repeat(68));
+console.log('TWO forms. They are NOT interchangeable — copy the right one.');
+console.log('='.repeat(68));
+
+console.log('\n1. For a HOSTING PANEL (Hostinger, Vercel, Docker, systemd) —');
+console.log('   paste ONLY the value, exactly as shown. No quotes, no backslashes:\n');
+console.log(`   ${hash}`);
+console.log(`\n   (${String(hash.length)} characters — a bcrypt hash is always exactly 60.)`);
+
+console.log('\n2. For `.env.local` on your own machine — replace the whole line.');
+console.log('   The backslashes are required ONLY here, because @next/env runs');
+console.log('   dotenv-expand and would otherwise eat "$2b" and "$12":\n');
+console.log(`   SUPER_ADMIN_PASSWORD_HASH="${escaped}"`);
 console.log(
-  '\nRestart the dev server afterwards — .env.local is read at start, not ' +
-    'per request.',
+  `\n   (${String(escaped.length)} characters as written; it resolves back to ${String(hash.length)}.)`,
+);
+
+console.log('\n' + '-'.repeat(68));
+console.log('If a panel ever holds a value with backslashes, or one that is not');
+console.log('60 characters, every sign-in returns 401 with nothing in the log.');
+console.log('Verify what the deployed process actually received with:');
+console.log('  POST /api/internal/super-admin-check   (see DEPLOYMENT.md §3)');
+console.log(
+  '\nRestart afterwards — the environment is read at start, not per request.',
 );

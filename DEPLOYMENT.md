@@ -96,12 +96,18 @@ not necessarily the value the process holds.** If anything between the two
 performs expansion, a raw hash arrives shortened and prefix-less. Compare
 fingerprints rather than trusting the panel — see below.
 
-Copying the escaped line out of `.env.local` into the panel is the mistake, and
-it is invisible: `compare()` in bcryptjs opens with `if (hash.length !== 60)
-return false`, so a damaged hash does not throw. It answers "wrong password".
-Sign-in returns a bare 401 with nothing in the log to explain it — which reads
-as a wrong password, a session problem, or a cookie problem, and is none of
-them. This cost a day on 2026-08-10.
+**Where the backslashes came from.** Until 2026-08-11, `npm run hash-password`
+printed *only* the escaped form, labelled "the SUPER_ADMIN_PASSWORD_HASH line",
+with nothing to say it was escaped or that a panel wanted it otherwise. Pasting
+that output into Hostinger — the obvious thing to do with it — stored 63
+characters and three backslashes. The script now prints both forms and says
+which goes where; if you generated a hash before that change, regenerate it.
+
+The failure is invisible either way: `compare()` in bcryptjs opens with
+`if (hash.length !== 60) return false`, so a damaged hash does not throw. It
+answers "wrong password". Sign-in returns a bare 401 with nothing in the log —
+which reads as a wrong password, a session problem, or a cookie problem, and is
+none of them. This cost four sessions across 2026-08-10 and 2026-08-11.
 
 ### Asking the deployed process directly (no SSH needed)
 

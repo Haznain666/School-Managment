@@ -2614,7 +2614,41 @@ escaping works in those files. The general lesson, and the reason the endpoint
 exists: **the value a panel displays is not necessarily the value the process
 receives.**
 
-Leading hypotheses at handover, in order:
+### ROOT CAUSE FOUND — `scripts/hash-password.mjs` printed the backslashes
+
+The user reported a **fresh** deployment still receiving 63 characters with
+backslashes after entering a raw 60-character value, and asked for the exact
+place the `\` is introduced. It was in this repository, at
+`scripts/hash-password.mjs:94`:
+
+```js
+console.log(`SUPER_ADMIN_PASSWORD_HASH="${hash.replaceAll('$', '\\$')}"`);
+```
+
+That was the script's **only** output. It never printed the raw hash, and
+nothing in it said the value was escaped or that a hosting panel needs the
+opposite. `DEPLOYMENT.md` and `.env.example` both told the operator to run it.
+Measured: its output is 63 characters with 3 backslashes — byte-for-byte what
+the live process reported.
+
+So the chain was: run `npm run hash-password` → copy the only line it prints →
+paste into Hostinger → process holds 63 chars → `compare()` returns false on
+length → 401. The panel was never "wrong"; it faithfully stored what this
+repository told the operator to paste.
+
+Nothing else transforms it. Confirmed by inspection: `ci.yml` sets no
+environment, `next.config.mjs` only reads `SUPABASE_URL`, there is no
+Dockerfile, no PM2 config, no deploy script, and nothing anywhere writes a
+`.env` file.
+
+**Fixed:** the script now prints both forms, labelled, with character counts
+and a note that they are not interchangeable. Anyone who generated a hash
+before 2026-08-11 must regenerate it.
+
+The three hypotheses below were the ranked guesses before the cause was found.
+Two of them were wrong; keeping them is a reminder that the diagnostics
+endpoint was built to distinguish them and the answer turned out to be in the
+repo all along:
 
 1. **The process is not holding what the panel shows** — something between them
    expands `$`, or the process was never restarted after the edit. The
@@ -2664,6 +2698,7 @@ Leading hypotheses at handover, in order:
 
 | Date | Session did | Next |
 | --- | --- | --- |
+| 2026-08-11 | **ROOT CAUSE: the repo printed the backslashes** (§5u). A fresh deployment still received 63 characters with backslashes after the user entered a raw 60-character value, so the transformation had to be upstream of the panel — and it was in this repository. `scripts/hash-password.mjs:94` did `hash.replaceAll('$', '\\$')` and printed that as its **only** output, labelled "the SUPER_ADMIN_PASSWORD_HASH line", with nothing saying it was escaped or that a hosting panel needs the raw form. Both `DEPLOYMENT.md` and `.env.example` told the operator to run it. Its output measures 63 characters with 3 backslashes — byte-for-byte what the live process reported. The panel was never wrong; it stored exactly what this repo told the user to paste. Ruled out every other transformer by inspection: no Dockerfile, no PM2 config, no deploy script, `ci.yml` sets no environment, `next.config.mjs` reads only `SUPABASE_URL`, nothing writes a `.env`. The script now prints both forms with character counts and says which goes where. **Anyone who generated a hash before today must regenerate it.** | **Regenerate the hash, paste form 1 into Hostinger, restart.** Then rotate the password properly and unset `SUPER_ADMIN_DIAGNOSTICS_SECRET`. Then the double-start (two Next.js banners per boot) and Node 20 → 22. |
 | 2026-08-11 | **Built a way to inspect the deployed process** (§5u). The panel hash was corrected to a verified 60 characters and sign-in still failed, and the user objected — correctly — that local testing proves nothing about their host. Nothing in the repo had ever read the process actually serving the requests: the boot log, the host script and every local run inspect some other process. `POST /api/internal/super-admin-check` now answers from inside the live one — pid, uptime, configured email, the hash's length/prefix/**fingerprint**, the `.env` files beside it, and a bcrypt comparison performed there — guarded by `SUPER_ADMIN_DIAGNOSTICS_SECRET` and returning 503 whenever it is unset. `npm run fingerprint` computes the matching digest locally, which is the only way to tell whether the process holds *the* 60-char hash rather than *a* 60-char hash. Verified: guard rejects a missing and a wrong secret, 503 when unconfigured, fingerprints agree across an independent computation, and both comparison outcomes report correctly. Found a third mangling mode doing it — dotenv strips single quotes then expands, so a raw hash in a `.env` file resolves to 36 chars. | **Call the endpoint on the live host** and compare fingerprints; call it repeatedly to see whether `process.pid` changes. Then unset the diagnostics secret. |
 | 2026-08-11 | **Root cause confirmed from the live host** (§5u). The redeployed build's new log line settled it in one attempt: `email matched: true; password matched: false; SUPER_ADMIN_PASSWORD_HASH is MALFORMED: 63 chars, expected 60, contains a backslash, starts "\$2b"`. The email was never wrong; the hash reaching the process is the escaped `\$2b\$12\$` form, which bcryptjs rejects on length without raising anything. The user had already set the panel to the raw form, so a `.env*` file was the obvious suspect — until it was measured: `@next/env` never replaces a variable the environment already holds, so the panel always wins and the wrong value can only have come from the panel. `DEPLOYMENT.md` §3 claimed the reverse and is corrected. Added a boot-time check in `instrumentation.ts` so a malformed hash announces itself when the server starts rather than waiting for someone to fail a login, with the shape logic moved into `lib/super-admin-hash-shape.ts` as one source for all three callers. Also surfaced two unrelated findings: the app prints two Next.js banners and two `Ready` lines per boot, so **it appears to be starting twice** — which would run the email-outbox drainer twice — and the host is on **Node 20**, which `@supabase/supabase-js` now warns is deprecated. | **Paste the raw 60-char hash and delete any `.env*` beside `server.js`.** Then rotate the password (it was pasted in plaintext on 2026-08-11). Then settle the double-start. |
 | 2026-08-11 | **Super Admin sign-in returns 401 on the live Hostinger deployment** (§5u). Traced it: middleware exempts `/api/super-admin/auth/*` before its session check, so the only line in the codebase that can produce that 401 is `invalid_credentials` in the login route — the env vars are therefore *present* (missing ones give 500), and either the email or the bcrypt comparison failed. Found the mechanism that made it unloggable: `compare()` in bcryptjs 3.0.3 opens `if (hash.length !== 60) return false`, verified by probe — the escaped form (63), a shell-expanded one (53), quoted (62) and newline-terminated (61) all return **false without throwing**. Fixed the reporting rather than guessing the value: the login route now logs which half failed and the hash's *shape* (never the hash), and `scripts/check-super-admin-env.mjs` answers the same question on the host in one command. Also fixed `lib/super-admin-client.ts`, which converted every 401 — including the login route's own — into "Session expired.", which is what sent the previous two sessions after cookies and HTTPS. Verified locally end to end: wrong password → 401 `invalid_credentials` with the real message; correct → 200 with the cookie set; log line names the cause. | **Run `npm run check-super-admin` on the host** and read §5u. It prints which of the two halves is wrong. Then rotate the Super Admin password — it was pasted in plaintext into a chat on 2026-08-11 and was already the leaked one. |
