@@ -85,7 +85,14 @@ function fingerprint(value: string): string {
 
 export async function POST(request: NextRequest) {
   try {
-    const expected = serverEnv('SUPER_ADMIN_DIAGNOSTICS_SECRET', '');
+    // Trimmed, because HTTP strips leading and trailing whitespace from header
+    // values in transit. A panel entry with a stray space or newline could
+    // therefore never be matched by any client, and the endpoint would be
+    // permanently locked out while still answering 401 — indistinguishable
+    // from a wrong secret, and undiagnosable from outside. Whitespace at the
+    // ends of a secret carries no entropy anyone relies on; being reachable
+    // does.
+    const expected = serverEnv('SUPER_ADMIN_DIAGNOSTICS_SECRET', '').trim();
 
     if (expected === '') {
       return apiFailure(

@@ -43,7 +43,11 @@ const MAX_BATCH = 50;
 
 export async function POST(request: NextRequest) {
   try {
-    const expected = serverEnv('EMAIL_DRAIN_SECRET', '');
+    // Trimmed for the same reason as the Super Admin diagnostics route: HTTP
+    // strips whitespace from header values, so a panel entry with a stray
+    // space could never be matched and this endpoint would silently stop
+    // draining the outbox.
+    const expected = serverEnv('EMAIL_DRAIN_SECRET', '').trim();
 
     if (expected === '') {
       return apiFailure(
