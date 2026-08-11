@@ -91,7 +91,50 @@ The ones that must carry the real domain:
 Database: use the **transaction pooler** string (port 6543) for `DATABASE_URL`.
 See `.env.example` for why.
 
-### `SUPER_ADMIN_PASSWORD_HASH` — the escaping flips between the two places
+### ⚠️ On Hostinger, the panel and the `.env` file are ONE store
+
+**Measured 2026-08-11, the hard way.** This section and STATE.md §5u both used
+to describe the panel and `.env` as two stores with the panel winning. On
+Hostinger they are the same thing: **deleting `.env` in File Manager also
+deletes every entry from the Node.js app's Environment variables screen.**
+
+Consequences:
+
+- Add and remove variables **only through the Environment UI**. Editing or
+  deleting the file in File Manager silently edits the panel.
+- The precedence table below still describes `@next/env` correctly, but it
+  cannot be used to reason about this host, because there is no second store
+  for it to arbitrate.
+- The site survives the deletion until the next restart — a running process
+  holds its environment in memory. It is the **restart or redeploy** that takes
+  it down, which makes the damage look unrelated to its cause.
+
+### Pushing to `main` deploys to production automatically
+
+The git-connected deployment builds on every push to `main` — confirmed
+2026-08-11: a push at 20:37:11 started build `019ff28b` within seconds.
+
+There is no manual gate. `.github/workflows/deploy.yml` (§5b) is *additional*,
+not the only path. **`NEXT_PUBLIC_*` are inlined at build time**, so they must
+be present in the panel before any push, or the bundle ships wrong values.
+
+### `SUPER_ADMIN_PASSWORD_HASH` — repaired on read since 2026-08-11
+
+**The escaping question no longer decides whether sign-in works.**
+`normalizeBcryptHash()` in `lib/super-admin-hash-shape.ts` strips wrapping
+quotes and backslashes that escape a `$`, so the escaped `\$2b\$12\$…` form,
+quoted forms, and stray whitespace all verify. Measured against real bcrypt:
+63, 62, 65 and 61-character damaged forms all repair to 60 and pass.
+
+It is a repair, not a guess: a bcrypt hash draws from `$ . / A-Z a-z 0-9`, so a
+backslash there is impossible except as transport damage. A hash whose `$`
+segments were genuinely *expanded away* is **not** repaired — those bytes are
+gone — and still fails loudly.
+
+Still paste the **raw** form. The boot log now says when it repaired something,
+precisely so a working deployment does not hide a misconfigured panel.
+
+### The original escaping guidance, kept because it explains the history
 
 A bcrypt hash is full of `$`, and the right way to write it **depends on who
 reads the file**:

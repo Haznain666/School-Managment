@@ -4,12 +4,21 @@
 resume without re-deriving context. Updated at the end of every development
 step, before the session ends.
 
-**Last updated:** 2026-08-11 (live Super Admin 401 — root cause confirmed, §5u)
+**Last updated:** 2026-08-11 (**Super Admin login WORKS live** — §5v)
+
+> **✅ The deployment is up and Super Admin sign-in works** at
+> `schoolhub.codexmill.com`. Fixed by repairing the hash on read (§5v), not by
+> finding the right escaping. Read §5v before §5u — §5u is the investigation,
+> §5v is the resolution and it corrects two platform assumptions §5u got wrong.
 
 > **⚠ Rotate the Super Admin password.** It was pasted in plaintext into a chat
 > on 2026-08-11, and it was already the leaked one. Regenerate with
 > `npm run hash-password` and update the Hostinger panel — raw hash, no
-> backslashes (§5u).
+> backslashes (§5u). Still outstanding.
+
+> **⚠ On Hostinger, the Environment panel and `.env` are ONE store.** Deleting
+> `.env` in File Manager deletes the panel entries. Use the Environment UI
+> only. And **pushing to `main` auto-deploys to production.** See §5v.
 
 **Branch:** Sprint 0 (§5m) **is merged to `main`** — an earlier version of this
 header said it was not, and was stale. Sprint 9 (§5n) is on
@@ -2698,6 +2707,67 @@ not a missing dependency.
 
 ---
 
+## 5v. Super Admin login WORKS on the live deployment — 2026-08-11
+
+**Resolved.** The user signed in successfully at `schoolhub.codexmill.com`
+after the fix below. This closes the 401 that ran from 2026-08-10 through
+five sessions.
+
+### What actually fixed it: repair on read, instead of guessing the form
+
+`normalizeBcryptHash()` in `lib/super-admin-hash-shape.ts` strips wrapping
+quotes and backslashes escaping a `$`, and `lib/super-admin-credentials.ts`
+compares against the repaired value. Measured against real bcrypt before
+shipping — escaped (63), double-quoted (62), single-quoted (62),
+quoted+escaped (65), trailing newline (61) and leading space (61) **all repair
+to 60 and verify**; the shell-expanded case (53) is deliberately **not**
+repaired and still fails, because those bytes are gone rather than hidden.
+
+Why this was the right move rather than one more attempt to determine the
+stored form: the correct form differs per host, the operator cannot observe
+what the process received, and bcryptjs reports every failure identically as
+"wrong password". The ambiguity was the bug. Removing the ambiguity ends it
+permanently, on this host and any future one.
+
+Shipped as `18b939a` on `main`; Hostinger auto-built it as `019ff28b`.
+
+### ⚠️ TWO PLATFORM FACTS THAT INVALIDATE EARLIER SECTIONS
+
+**1. The hPanel Environment screen and the `.env` file are ONE store.**
+Deleting `.env` in File Manager wiped every panel entry. §5u's precedence
+table (panel beats file) describes `@next/env` correctly but **cannot be
+applied to this host** — there is no second store. Add and remove variables
+only through the Environment UI. Note the delay in symptoms: a running process
+keeps its environment in memory, so the site stays up until the next restart,
+which makes the damage look unrelated to its cause.
+
+**2. Pushing to `main` deploys to production automatically.** A push at
+20:37:11 started a build within seconds. There is no manual gate;
+`deploy.yml` is an additional path, not the only one. `NEXT_PUBLIC_*` are
+inlined at build time, so they must be in the panel *before* any push.
+
+### Still unknown, and worth settling
+
+- **Why the process reported 63 characters** while the panel and file both
+  showed 60. Not diagnosed — the fix made it moot for sign-in, but if the host
+  really does escape `$`, the same damage silently affects
+  `SUPABASE_SERVICE_ROLE_KEY`, `SMTP_PASS` and `DATABASE_URL`, where it
+  presents as an auth error or a bad connection string. The diagnostics
+  endpoint now reports `repairedOnRead`, which answers it in one call.
+- **The double-start** (§5u) is still unconfirmed. Hostinger exposes no runtime
+  logs at all — hPanel showed none, and the deployment log ends at the build
+  output — so the *only* way to see `process.pid` is the diagnostics endpoint.
+- Node 20 → 22, still outstanding.
+
+### Note: this host has no runtime logs
+
+Both log-based diagnostics this project built (`instrumentation.ts`'s boot
+check and the refusal log in `lib/super-admin-credentials.ts`) are
+**unreadable on Hostinger**. Do not plan a diagnosis around them here. The
+diagnostics endpoint is the only instrument that works.
+
+---
+
 ## 6. Open items for the user
 
 1. ~~Install GitHub CLI~~ — **partly regressed.** Git has a stored credential
@@ -2723,6 +2793,7 @@ not a missing dependency.
 
 | Date | Session did | Next |
 | --- | --- | --- |
+| 2026-08-11 | **Super Admin login fixed and working live** (§5v). Inspected the Hostinger deployment over MCP: build completed, env present (a wrong password returned `401 invalid_credentials`, not `500`, which proves the variables reached the process and bcrypt ran), redirects relative so the `HOSTNAME` bug was absent, Supabase Edge tenant lookup working, `NEXT_PUBLIC_APP_DOMAIN` correctly inlined. That left only the hash. **Both log-based diagnostics turned out to be unreadable on this host** — hPanel shows no runtime logs and the deployment log ends at the build output — so the shape could not be observed at all. Rather than guess the escaping for a sixth session, removed the ambiguity: `normalizeBcryptHash()` strips wrapping quotes and `$`-escaping backslashes, which is a repair and not a guess because a bcrypt hash cannot contain either. Verified against real bcrypt across seven damaged forms; the one case that must not be repaired (shell-expanded, 53 chars) still fails. typecheck + lint + build green, pushed to `main`, Hostinger auto-built it, **and the user signed in.** Two platform facts learned expensively: the Environment panel and `.env` are one store (deleting the file wiped the panel — my recommendation caused that), and pushing to `main` deploys automatically. | **Rotate the password**, then set `SUPER_ADMIN_DIAGNOSTICS_SECRET` and call the endpoint: `repairedOnRead` says whether the host escapes `$` (which would also corrupt `SUPABASE_SERVICE_ROLE_KEY`, `SMTP_PASS`, `DATABASE_URL`), and a changing `process.pid` settles the double-start. Then Node 20 → 22. Then browser-verify the school portals. |
 | 2026-08-11 | **Deploy automation, so deploying stops depending on a session** (§5u). The user asked the assistant to perform the Hostinger deployment itself and to list the credentials it needed. It cannot — no network path to the host, and entering hosting credentials is not something it may do; the list was declined rather than inviting SSH keys into a chat transcript that has already leaked one password. Built the pipeline instead: `.github/workflows/deploy.yml` (manual dispatch, builds on Ubuntu because `sharp` is platform-specific, copies `.next/static` into `standalone`, rsyncs over SSH, restarts, verifies) and `scripts/smoke-test-live.mjs`. Every secret lives in GitHub Actions, entered by the user, seen by nobody else. The smoke test's best trick needs no credentials at all: a deliberately wrong password distinguishes `401 invalid_credentials` (healthy) from `500 server_misconfigured` (env missing) from `429` (throttled) — the distinction four sessions failed to make by hand. Verified against the standalone artifact in all three states: healthy → exit 0, escaped hash → exit 1 naming the boot log, missing env → exit 1 naming the variables. Fixed a defect in it found by testing: `process.exit()` with undici's keep-alive sockets still open aborts on Windows and reported **127** instead of 1, which would have made CI's verdict unreliable. | **Set the ten Actions secrets and run the workflow** — see `DEPLOYMENT.md` §5b. Then rotate the password and unset `SUPER_ADMIN_DIAGNOSTICS_SECRET`. Then the double-start and Node 20 → 22. |
 | 2026-08-11 | **ROOT CAUSE: the repo printed the backslashes** (§5u). A fresh deployment still received 63 characters with backslashes after the user entered a raw 60-character value, so the transformation had to be upstream of the panel — and it was in this repository. `scripts/hash-password.mjs:94` did `hash.replaceAll('$', '\\$')` and printed that as its **only** output, labelled "the SUPER_ADMIN_PASSWORD_HASH line", with nothing saying it was escaped or that a hosting panel needs the raw form. Both `DEPLOYMENT.md` and `.env.example` told the operator to run it. Its output measures 63 characters with 3 backslashes — byte-for-byte what the live process reported. The panel was never wrong; it stored exactly what this repo told the user to paste. Ruled out every other transformer by inspection: no Dockerfile, no PM2 config, no deploy script, `ci.yml` sets no environment, `next.config.mjs` reads only `SUPABASE_URL`, nothing writes a `.env`. The script now prints both forms with character counts and says which goes where. **Anyone who generated a hash before today must regenerate it.** | **Regenerate the hash, paste form 1 into Hostinger, restart.** Then rotate the password properly and unset `SUPER_ADMIN_DIAGNOSTICS_SECRET`. Then the double-start (two Next.js banners per boot) and Node 20 → 22. |
 | 2026-08-11 | **Built a way to inspect the deployed process** (§5u). The panel hash was corrected to a verified 60 characters and sign-in still failed, and the user objected — correctly — that local testing proves nothing about their host. Nothing in the repo had ever read the process actually serving the requests: the boot log, the host script and every local run inspect some other process. `POST /api/internal/super-admin-check` now answers from inside the live one — pid, uptime, configured email, the hash's length/prefix/**fingerprint**, the `.env` files beside it, and a bcrypt comparison performed there — guarded by `SUPER_ADMIN_DIAGNOSTICS_SECRET` and returning 503 whenever it is unset. `npm run fingerprint` computes the matching digest locally, which is the only way to tell whether the process holds *the* 60-char hash rather than *a* 60-char hash. Verified: guard rejects a missing and a wrong secret, 503 when unconfigured, fingerprints agree across an independent computation, and both comparison outcomes report correctly. Found a third mangling mode doing it — dotenv strips single quotes then expands, so a raw hash in a `.env` file resolves to 36 chars. | **Call the endpoint on the live host** and compare fingerprints; call it repeatedly to see whether `process.pid` changes. Then unset the diagnostics secret. |
