@@ -35,7 +35,56 @@ export interface HashShape {
 /** A bcrypt hash is always exactly this long. */
 const BCRYPT_HASH_LENGTH = 60;
 
-export function describeHashShape(hash: string | undefined): HashShape {
+/**
+ * Repairs the two kinds of transport damage that are provably damage.
+ *
+ * ── Why repairing is safe, and not a guess ───────────────────────────────
+ * A bcrypt hash draws from a fixed alphabet: `$`, `.`, `/`, `A-Z`, `a-z` and
+ * `0-9`. A backslash and a surrounding quote are therefore not merely unlikely
+ * in that value — they are impossible. When one appears it can only have been
+ * added in transit, so removing it cannot corrupt a legitimate hash. It can
+ * only restore a damaged one.
+ *
+ * ── Why this exists at all ───────────────────────────────────────────────
+ * The escaped `\$2b\$12\$…` form is correct in a `.env` file, because
+ * `@next/env` runs dotenv-expand over it, and fatal in a hosting panel, which
+ * does no expansion. Operators cannot be expected to know which side of that
+ * line their host sits on — and on Hostinger the panel and the `.env` file
+ * turned out to be one store, so the answer is not even stable per host.
+ * Deployments spent days on this, because bcryptjs answers "wrong password"
+ * rather than raising, so the damage is invisible.
+ *
+ * Normalising on read ends the whole class of failure: whichever form is
+ * stored, the process compares against the same 60 characters.
+ *
+ * The unexpanded case — where something ate `$2b` and `$12` as shell
+ * variables — is deliberately NOT repaired. Those characters are gone, not
+ * hidden, and inventing them would be a guess. It stays a loud error.
+ */
+export function normalizeBcryptHash(hash: string | undefined): string | undefined {
+  if (hash === undefined) return undefined;
+
+  let value = hash.trim();
+
+  // One matching pair of wrapping quotes, which a panel or a shell may add.
+  if (value.length >= 2) {
+    const first = value[0];
+    const last = value[value.length - 1];
+    if ((first === '"' || first === "'") && first === last) {
+      value = value.slice(1, -1);
+    }
+  }
+
+  // Backslashes that escape a `$`. Nothing else is touched, so a value damaged
+  // in some way this does not understand still reaches the shape check intact
+  // and is reported rather than silently mangled further.
+  return value.replace(/\\(?=\$)/g, '');
+}
+
+export function describeHashShape(rawHash: string | undefined): HashShape {
+  const hash = normalizeBcryptHash(rawHash);
+  const wasRepaired = rawHash !== undefined && hash !== rawHash;
+
   if (hash === undefined || hash.trim() === '') {
     return {
       ok: false,
@@ -50,7 +99,17 @@ export function describeHashShape(hash: string | undefined): HashShape {
     hash.startsWith('$2') &&
     !hash.includes('\\')
   ) {
-    return { ok: true, message: 'SUPER_ADMIN_PASSWORD_HASH is well-formed (60 chars).' };
+    // A repaired hash works, but the stored value is still wrong and the next
+    // person to read it will be misled. Say so once per boot rather than
+    // letting a silent fix hide the misconfiguration forever.
+    return {
+      ok: true,
+      message: wasRepaired
+        ? 'SUPER_ADMIN_PASSWORD_HASH arrived escaped or quoted and was repaired ' +
+          'on read (60 chars after repair). Sign-in works, but store the RAW ' +
+          '"$2b$12$..." form to remove the ambiguity.'
+        : 'SUPER_ADMIN_PASSWORD_HASH is well-formed (60 chars).',
+    };
   }
 
   // One diagnosis, in the order that identifies the cause rather than the

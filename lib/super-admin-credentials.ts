@@ -3,7 +3,7 @@ import 'server-only';
 import { compare } from 'bcryptjs';
 
 import { requireServerEnv } from './env';
-import { describeHashShape } from './super-admin-hash-shape';
+import { describeHashShape, normalizeBcryptHash } from './super-admin-hash-shape';
 
 /**
  * The one place operator credentials are checked.
@@ -36,7 +36,11 @@ export async function verifySuperAdminCredentials(
 
   try {
     expectedEmail = requireServerEnv('SUPER_ADMIN_EMAIL').trim().toLowerCase();
-    passwordHash = requireServerEnv('SUPER_ADMIN_PASSWORD_HASH');
+    // Repaired on read: the escaped `\$2b\$12\$` form is correct in a `.env`
+    // file and fatal in a hosting panel, and an operator cannot tell which
+    // their host behaves like. A backslash cannot occur in a real bcrypt hash,
+    // so removing it is a repair rather than a guess. See the module docblock.
+    passwordHash = normalizeBcryptHash(requireServerEnv('SUPER_ADMIN_PASSWORD_HASH')) ?? '';
     // Fail fast if the signing secret is missing, rather than at cookie time.
     requireServerEnv('SUPER_ADMIN_JWT_SECRET');
   } catch (error) {

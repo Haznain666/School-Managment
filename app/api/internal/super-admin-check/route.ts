@@ -8,7 +8,7 @@ import type { NextRequest } from 'next/server';
 import { apiFailure, apiSuccess, handleApiError, readJsonBody } from '@/lib/api-response';
 import { safeEqual } from '@/lib/crypto';
 import { serverEnv } from '@/lib/env';
-import { describeHashShape } from '@/lib/super-admin-hash-shape';
+import { describeHashShape, normalizeBcryptHash } from '@/lib/super-admin-hash-shape';
 
 /**
  * POST /api/internal/super-admin-check — what does the *deployed* process hold?
@@ -107,6 +107,8 @@ export async function POST(request: NextRequest) {
     const rawSecret = process.env.SUPER_ADMIN_JWT_SECRET;
 
     const shape = describeHashShape(rawHash);
+    const normalizedHash = normalizeBcryptHash(rawHash);
+    const wasRepaired = rawHash !== undefined && normalizedHash !== rawHash;
 
     // -- Which process is answering ----------------------------------------
     // The double-start seen in the Hostinger log means "which instance served
@@ -142,7 +144,10 @@ export async function POST(request: NextRequest) {
 
     if (submittedPassword !== null && rawHash !== undefined) {
       try {
-        passwordMatches = await compare(submittedPassword, rawHash);
+        // Against the NORMALISED hash, because that is what the login route
+        // compares against. A diagnostic that disagrees with production is
+        // worse than no diagnostic.
+        passwordMatches = await compare(submittedPassword, normalizedHash ?? '');
       } catch (error) {
         // bcryptjs only throws on non-string input; a malformed hash returns
         // false. Surfaced anyway so the answer is never silently "no".
@@ -170,6 +175,16 @@ export async function POST(request: NextRequest) {
         fingerprint: rawHash === undefined ? null : fingerprint(rawHash),
         wellFormed: shape.ok,
         verdict: shape.message,
+
+        // What the login route actually compares against. When these differ
+        // from the raw values above, the stored value was damaged in transit
+        // and repaired on read — which says the panel still needs correcting
+        // even though sign-in now works.
+        repairedOnRead: wasRepaired,
+        effectiveLength: normalizedHash?.length ?? 0,
+        effectivePrefix: normalizedHash?.slice(0, 7) ?? null,
+        effectiveFingerprint:
+          normalizedHash === undefined ? null : fingerprint(normalizedHash),
       },
 
       jwtSecret: {
