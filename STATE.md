@@ -4,7 +4,12 @@
 resume without re-deriving context. Updated at the end of every development
 step, before the session ends.
 
-**Last updated:** 2026-08-11 (**Super Admin login WORKS live** — §5v)
+**Last updated:** 2026-08-11 (**automatic subdomain provisioning built** — §5w)
+
+> **⚠ Two panel actions are outstanding and nothing else blocks them:**
+> set `HOSTINGER_API_TOKEN` + `HOSTINGER_USERNAME` (subdomains report "Manual"
+> until then), and switch the Node version to 22 in hPanel — `engines` says
+> `>=22` but the git deployment pins 20 and ignores package.json. §5w.
 
 > **✅ The deployment is up and Super Admin sign-in works** at
 > `schoolhub.codexmill.com`. Fixed by repairing the hash on read (§5v), not by
@@ -2765,6 +2770,62 @@ Both log-based diagnostics this project built (`instrumentation.ts`'s boot
 check and the refusal log in `lib/super-admin-credentials.ts`) are
 **unreadable on Hostinger**. Do not plan a diagnosis around them here. The
 diagnostics endpoint is the only instrument that works.
+
+---
+
+## 5w. Automatic subdomain provisioning — built 2026-08-11
+
+**The gap:** creating a school never created its subdomain. Not broken —
+never built. `POST /api/super-admin/schools` inserted a row and created an
+admin, and nothing else; there was no Hostinger client anywhere in the repo.
+§3 and `DEPLOYMENT.md` §5 had both recorded this as a manual step.
+
+### The discovery that made it possible
+
+**Hostinger "subdomain" ≠ "parked domain", and the difference is everything.**
+A subdomain creates a separate LiteSpeed/PHP vhost with its own document root —
+it resolves, gets its own certificate, and **never reaches the Node process**.
+A parked domain is an alias of the parent website: same root, same process,
+original `Host` header, which is what `subdomainFromHost` needs.
+
+Proven with an A/B on the live host: `credo.schoolhub.codexmill.com` parked
+against `schoolhub.codexmill.com` answered `/login` with the tenant sign-in page
+(`X-Powered-By: Next.js`), while the platform host answered the same path with
+"School not found". TLS auto-issued ~3 minutes after creation. **No wildcard
+DNS and no Cloudflare needed.**
+
+Also established: the edge routes unknown hostnames to a Hostinger parking page,
+so an unprovisioned tenant host never reaches the app at all — and
+`PLATFORM_BASE_DOMAIN` is confirmed as `schoolhub.codexmill.com`. It **must** be
+the full host: with the apex, `credo.schoolhub…` yields the label
+`credo.schoolhub`, which contains a dot, and every tenant silently 404s.
+
+### What was built
+
+`lib/hostinger.ts` (parked-domain client, never throws), `lib/subdomain-status.ts`
+(one descriptor so badge/label/retryability cannot drift), migration `0021`
+(applied and verified: 3 columns + CHECK, 22 recorded, 4 schools on `pending`),
+provisioning wired into school creation as a **non-fatal** step, a retry route,
+and a Provision / Re-check control on the schools list.
+
+Idempotent in three layers: list-then-create, "already exists" counts as
+success, and the delete endpoint is deliberately never wrapped.
+
+### Settled while here: the double-start is NOT a duplicate-send risk
+
+`drainOutbox` claims with `FOR UPDATE SKIP LOCKED`, which is precisely the
+cross-process guard, on top of the per-process `drainTimer` and `draining`
+flags. Two processes cannot double-send. The double-start itself is still
+unconfirmed (no runtime logs on this host) but is no longer urgent.
+
+### ⚠ Node 22 did not take
+
+`engines` is now `>=22`, but the git deployment pins `node_version: 20` in its
+own configuration and does **not** read package.json. The build now warns that
+the app itself is unsupported. Harmless today (npm warns, does not fail), but
+**the Node version must be changed in hPanel** — there is no MCP tool for it,
+and the only API that accepts `node_version` is archive-based, which would
+break the git deployment.
 
 ---
 

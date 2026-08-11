@@ -240,6 +240,38 @@ it over IPv6 only unless the paid IPv4 add-on is enabled, so on a normal IPv4
 network it fails with `getaddrinfo ENOTFOUND` — which looks like a typo or a
 paused project and is neither. Both pooler endpoints are IPv4-reachable.
 
+## 4b. Automatic subdomain provisioning — parked domains, NOT subdomains
+
+Set `HOSTINGER_API_TOKEN` and `HOSTINGER_USERNAME` and creating a school
+automatically creates `<slug>.<PLATFORM_BASE_DOMAIN>`. Leave them unset and
+every school reports **Manual** — a supported state, not a failure.
+
+**⚠ The single most important fact here.** Hostinger offers two features that
+sound interchangeable and are not. Measured 2026-08-11:
+
+| | Creates | Serves | Reaches Node? |
+| --- | --- | --- | --- |
+| **Subdomain** | separate LiteSpeed vhost, own docroot | PHP | ❌ **never** |
+| **Parked domain** | alias of the parent website | the Node app | ✅ yes |
+
+A subdomain resolves, gets its own certificate, and still cannot serve the
+tenant — everything looks right and nothing works. `lib/hostinger.ts` calls the
+parked-domain endpoint only, and deliberately does not wrap the delete endpoint,
+so no retry can remove a working domain.
+
+Verified end to end: `credo.schoolhub.codexmill.com` parked against
+`schoolhub.codexmill.com` answered `/login` with the tenant's sign-in page
+(`X-Powered-By: Next.js`); the platform host answered the same path with
+"School not found". TLS issued automatically ~3 minutes after creation.
+
+**The token.** hPanel → API → generate, with **write access to hosting /
+websites**. It can create and delete domains — treat it as a credential.
+
+**Statuses** (`schools.subdomain_status`, migration 0021): `pending` ·
+`provisioning` · `ready` · `failed` · `unmanaged`. Provisioning is idempotent —
+the Provision / Re-check button on the schools list is safe to press any number
+of times, and is also how schools created before this feature get reconciled.
+
 ## 5. School subdomains
 
 Each school is reached at `<slug>.yourdomain.com`, and middleware turns that
