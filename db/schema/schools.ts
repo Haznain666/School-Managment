@@ -67,6 +67,35 @@ export const schools = pgTable(
     logoUrl: text('logo_url'),
     /** Soft delete: deactivated schools keep their data but cannot be reached. */
     isActive: boolean('is_active').notNull().default(true),
+
+    /**
+     * State of `<slug>.<PLATFORM_BASE_DOMAIN>` at the hosting provider.
+     *
+     * ── Why this is stored rather than derived ───────────────────────────
+     * A school row and a DNS record live in two different systems, and the
+     * second one can fail while the first succeeds. Creating a school must
+     * not depend on a third-party API being reachable, so provisioning is
+     * attempted after the insert and its outcome recorded here. Without this
+     * column a failed provision is invisible: the school exists, the operator
+     * is handed a URL, and the URL does not resolve.
+     *
+     * `pending`      — created, not yet attempted.
+     * `provisioning` — the parked domain exists; DNS and TLS are still settling
+     *                  (measured at roughly three minutes on Hostinger).
+     * `ready`        — verified reachable over HTTPS.
+     * `failed`       — the last attempt failed; `subdomainError` says why and
+     *                  the operator can retry.
+     * `unmanaged`    — no hosting API token is configured, so provisioning is
+     *                  a manual step. Deliberately distinct from `failed`:
+     *                  nothing is broken and there is nothing to retry.
+     */
+    subdomainStatus: text('subdomain_status').notNull().default('pending'),
+    /** Operator-facing reason for the last failure. Never holds a token. */
+    subdomainError: text('subdomain_error'),
+    /** When the parked domain was last confirmed to exist at the provider. */
+    subdomainProvisionedAt: timestamp('subdomain_provisioned_at', {
+      withTimezone: true,
+    }),
     createdAt: timestamp('created_at', { withTimezone: true })
       .notNull()
       .defaultNow(),

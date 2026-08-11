@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
+import { describeSubdomainStatus } from '@/lib/subdomain-status';
 import { superAdminFetch, SuperAdminApiError } from '@/lib/super-admin-client';
 
 export interface SchoolRow {
@@ -17,6 +18,8 @@ export interface SchoolRow {
   slug: string;
   locationId: string;
   isActive: boolean;
+  subdomainStatus?: string | null;
+  subdomainError?: string | null;
 }
 
 const STATUS_OPTIONS = [
@@ -115,6 +118,36 @@ export function SchoolTable() {
     [load],
   );
 
+  /**
+   * Create the school's subdomain, or ask whether it has come up yet.
+   *
+   * One control for both, because they are one idempotent operation on the
+   * server — see the route's docblock. Separate "provision" and "check"
+   * buttons would only make the operator decide which of two identical
+   * requests to send.
+   */
+  const handleProvision = useCallback(
+    async (school: SchoolRow) => {
+      setPendingId(school.id);
+      try {
+        await superAdminFetch(
+          `/api/super-admin/schools/${school.id}/provision-subdomain`,
+          { method: 'POST' },
+        );
+        await load();
+      } catch (caught) {
+        setError(
+          caught instanceof SuperAdminApiError
+            ? caught.message
+            : 'Could not provision the subdomain.',
+        );
+      } finally {
+        setPendingId(null);
+      }
+    },
+    [load],
+  );
+
   return (
     <div className="space-y-4">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
@@ -174,6 +207,7 @@ export function SchoolTable() {
                     plain uuid as something it is not.
                   */}
                   <th scope="col" className="px-4 py-3 font-medium">Tenant ID</th>
+                  <th scope="col" className="px-4 py-3 font-medium">Subdomain</th>
                   <th scope="col" className="px-4 py-3 font-medium">Active</th>
                   <th scope="col" className="px-4 py-3 text-right font-medium">Actions</th>
                 </tr>
@@ -206,6 +240,28 @@ export function SchoolTable() {
                     >
                       {school.locationId}
                     </td>
+                    {/*
+                      The error, when there is one, is shown on the row rather
+                      than behind a tooltip: a failed provision is the reason
+                      the school is unreachable, and an operator should not have
+                      to hover to discover why.
+                    */}
+                    <td className="px-4 py-3">
+                      {(() => {
+                        const state = describeSubdomainStatus(school.subdomainStatus);
+                        return (
+                          <div className="space-y-1">
+                            <Badge variant={state.variant}>{state.label}</Badge>
+                            {school.subdomainError != null &&
+                              school.subdomainError !== '' && (
+                                <p className="max-w-[16rem] text-xs text-red-700">
+                                  {school.subdomainError}
+                                </p>
+                              )}
+                          </div>
+                        );
+                      })()}
+                    </td>
                     <td className="px-4 py-3">
                       <Badge variant={school.isActive ? 'success' : 'danger'}>
                         {school.isActive ? 'Active' : 'Inactive'}
@@ -236,6 +292,29 @@ export function SchoolTable() {
                             Edit
                           </Button>
                         </Link>
+
+                        {/*
+                          Hidden only for `unmanaged`, where no token is
+                          configured and the request could not change anything.
+                          Every other state is retryable, including `ready` —
+                          re-checking a school that has since broken is exactly
+                          when an operator reaches for this.
+                        */}
+                        {describeSubdomainStatus(school.subdomainStatus).retryable ? (
+                          <Button
+                            variant="secondary"
+                            size="sm"
+                            disabled={pendingId === school.id}
+                            onClick={() => void handleProvision(school)}
+                            title={describeSubdomainStatus(school.subdomainStatus).hint}
+                          >
+                            {pendingId === school.id
+                              ? 'Working…'
+                              : school.subdomainStatus === 'ready'
+                                ? 'Re-check'
+                                : 'Provision'}
+                          </Button>
+                        ) : null}
 
                         {/*
                           Only offered for a live tenant: a deactivated school's

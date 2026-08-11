@@ -7,6 +7,7 @@ import { schools } from '@/db/schema';
 import { apiFailure, apiSuccess, handleApiError, readJsonBody } from '@/lib/api-response';
 import { isPakistaniCity } from '@/lib/cities';
 import { db } from '@/lib/drizzle';
+import { provisionSchoolSubdomain } from '@/lib/hostinger';
 import { createFirstSchoolAdmin } from '@/lib/school-bootstrap';
 import { deriveSchoolCode, schoolCodeRejectionReason } from '@/lib/school-code';
 import { slugRejectionReason } from '@/lib/slug';
@@ -173,7 +174,46 @@ export async function POST(request: NextRequest) {
       email: readOptionalString(body.adminEmail) ?? readOptionalString(body.email),
     });
 
-    return apiSuccess({ school, admin }, 201);
+    /**
+     * Provision `<slug>.<PLATFORM_BASE_DOMAIN>` at the host.
+     *
+     * Same contract as the administrator above, and for a stronger reason: this
+     * one calls a third party. A hosting API outage must not be able to stop a
+     * school being created, so the failure is recorded on the row and offered
+     * for retry rather than raised. `lib/hostinger.ts` never throws for exactly
+     * this reason — see its docblock.
+     *
+     * The status is written in a second statement rather than folded into the
+     * insert, because the provisioning call has to happen *after* the row is
+     * committed: a school that failed to insert has no subdomain to create.
+     */
+    const provision = await provisionSchoolSubdomain(school.slug);
+
+    const [withStatus] = await db
+      .update(schools)
+      .set({
+        subdomainStatus: provision.status,
+        subdomainError: provision.status === 'failed' ? provision.message : null,
+        subdomainProvisionedAt:
+          provision.status === 'failed' || provision.status === 'unmanaged'
+            ? null
+            : new Date(),
+      })
+      .where(eq(schools.id, school.id))
+      .returning();
+
+    return apiSuccess(
+      {
+        school: withStatus ?? school,
+        admin,
+        subdomain: {
+          host: provision.fqdn,
+          status: provision.status,
+          message: provision.message,
+        },
+      },
+      201,
+    );
   } catch (error) {
     return handleApiError(error);
   }
