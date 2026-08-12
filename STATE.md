@@ -2885,12 +2885,15 @@ it; ID cards and certificates must work end to end including print fidelity.
 deleted from `SPRINTS.md` §0.7, §0.8 #1, §1, §1.1 and §7. See the banner at the
 top of this file.
 
-### Still to decide, neither blocking
+### Both of these are now settled
 
-- **Video vendor** — proceeding on self-hosted Jitsi unless the user would
-  rather not operate a VPS, in which case JaaS gets priced properly.
-- **App store accounts** — Apple Developer ($99/yr) and Google Play ($25) are the
-  user's to register. Apple review is the slow step; register well before 19.7.
+- ~~**Video vendor**~~ — **decided by the user 2026-08-12: self-hosted Jitsi**,
+  module-gated on `online_classes` like every other paid feature. The VPS is
+  accepted as platform infrastructure. Do not re-propose a per-minute vendor.
+- **App store accounts** — Apple Developer ($99/yr) and Google Play ($25). The
+  user is registering them and **will confirm when they are ready**; that
+  confirmation is the trigger for Sprint 19.7's store work, not for the build
+  itself, which can proceed without them.
 
 ### Two things to verify before their sprints start
 
@@ -2922,12 +2925,12 @@ top of this file.
 7. **Open product questions** blocking POS, the wallet and chat — `ROADMAP.md`
    §7. Uniform size/colour variants is the one that cannot be retrofitted.
 8. **Register the Apple Developer ($99/yr) and Google Play ($25) accounts** —
-   needed for Sprint 19.7, and Apple review is the slow step. Only the user can
-   create these.
+   in progress; the user will confirm when they are ready. Needed to *ship*
+   Sprint 19.7, not to build it.
 9. **Confirm the first school's biometric device model** and that its firmware
    supports push/ADMS — needed before Sprint 19.6 (§5x).
-10. **Decide the video vendor** if self-hosted Jitsi is unwelcome; otherwise a
-    VPS becomes platform infrastructure to operate (§5x).
+10. ~~Decide the video vendor~~ — **self-hosted Jitsi, confirmed 2026-08-12.**
+    A VPS is now platform infrastructure to provision and operate (§5x).
 
 ---
 
