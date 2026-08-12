@@ -341,7 +341,7 @@ more surface area.
 | Release | Sprints | Theme | Gate |
 | --- | --- | --- | --- |
 | **R0** | Sprint 0 | Reconciliation & auth hardening | Stale branches gone, rate limiting live |
-| **R1 — Pilot Ready** | 9–13 | What one real school cannot operate without | **Full-term dress rehearsal on seeded data** — see §0.8 |
+| **R1 — Pilot Ready** | 9–13, incl. **10.5** | What one real school cannot operate without | **Full-term dress rehearsal on seeded data** — see §0.8 |
 | **R2 — Commercial Parity** | 13.5–19.7 | What makes it sellable against OurSchoolSoftware | Feature parity demo-able |
 | **R3 — Scale & Monetise** | 20–25 | Revenue, commerce, hardening, launch | Public launch |
 
@@ -353,13 +353,14 @@ the last.
 
 | Order | Sprint | Notes |
 | --- | --- | --- |
-| 1 | **0** — Reconciliation & auth hardening | Rate limiting, lockout, email outbox, branch pruning |
-| 2 | **9** — Exams, results & report cards | The keystone and the largest. Everything after depends on it. |
-| 3 | **10** — Import, promotion, transfer, family fees | Includes seeding the adversarial test school (§0.8) |
-| 4 | **11** — Communications | Needs Sprint 0's outbox |
-| 5 | **12** — Reports & analytics | Needs Sprint 9 |
-| 6 | **13** — Portals + PWA shell + BR4 | Needs Sprint 9 |
-| 7 | **Dress rehearsal** | Full term simulated end to end on seeded data, every role, every printed document |
+| 1 | **0** — Reconciliation & auth hardening | ✅ Done |
+| 2 | **9** — Exams, results & report cards | ✅ Done. The keystone; everything after depended on it. |
+| 3 | **10** — Import, promotion, transfer, family fees | ✅ Done, including the adversarial seed (§0.8) |
+| 4 | **10.5** — Design system, UI overhaul & dashboard charts | ⬅ **NEXT** (user, 2026-08-12). Run with `/impeccable`. Before 11–13, because each of those adds screens that would otherwise be designed twice. |
+| 5 | **11** — Communications | Needs Sprint 0's outbox |
+| 6 | **12** — Reports & analytics | Needs Sprint 9; charts come from 10.5 |
+| 7 | **13** — Portals + PWA shell + BR4 | Needs Sprint 9 |
+| 8 | **Dress rehearsal** | Full term simulated end to end on seeded data, every role, every printed document |
 
 **If R1 has to be shortened**, Sprint 12 (reports) is the one to thin — reports
 are additive. **Do not thin Sprint 10**; without import and promotion there is
@@ -491,6 +492,138 @@ why a builder made from `db` escapes the transaction.
 
 ---
 
+### Sprint 10.5 — Design system, UI overhaul & dashboard visualisation
+*Added 2026-08-12 at the user's instruction: the CRM is "flat and boring", has no
+icons or graphics, and no charts on any dashboard. **This is the next sprint** —
+it runs before 11, 12 and 13. Migration: none.*
+
+**Run this with the `/impeccable` skill.** That is the user's explicit
+instruction, and it is also the right tool: this is a design pass over an
+existing product, not a greenfield build.
+
+#### Why it goes here rather than later
+
+Every remaining R1 sprint adds screens. Sprints 11, 12 and 13 together add the
+notice board, nine report types and three portals. Doing the design system after
+them means redesigning those screens twice — and Sprint 12's charts cannot be
+built at all until the charting decision below is made. **This is the cheapest
+week this work will ever cost, and it gets more expensive every sprint.**
+
+#### What we are starting from — measured 2026-08-12
+
+- **8 UI primitives** in `components/ui/`: Badge, Button, Card, Input,
+  SecretInput, Select, Textarea, Toggle. No Table, Modal, Tabs, Tooltip, Toast,
+  EmptyState, Skeleton, Avatar, Breadcrumb or Pagination — 105 components have
+  been improvising them.
+- **Essentially no icons.** Exactly one of 105 component files contains an
+  `<svg>`. There is no icon library in `package.json`.
+- **No charting library**, and no chart anywhere in the product.
+- **The token layer is good and must be kept.** `tailwind.config.ts` already
+  exposes `brand.primary/secondary/accent/background/text` plus three computed
+  `on*` foregrounds as CSS variables, per tenant, from `lib/branding.ts`.
+  `shadow-card` and `rounded-card` exist. This is a real foundation — extend it,
+  do not replace it.
+
+#### ⚠️ Two constraints that make this harder than a normal redesign
+
+**1. There is no single palette to design against.** Each school picks its own,
+at runtime, and it can be anything — a maroon, a bottle green, a pale gold. A
+design that looks considered in slate-and-indigo and illegible in a school's
+actual colours is a regression, not a redesign. This is exactly why the `on*`
+foregrounds are computed rather than stored, and why `text-white` was removed
+once already (§5p — the branding template that reached one colour of five).
+
+*Rule:* every new component consumes brand tokens. **Verify against at least
+three deliberately hostile palettes** — a very dark primary, a very light one,
+and a saturated mid-tone — before anything is called done.
+
+**2. Print output must not move.** `PrintSheet` renders fee challans, report
+cards, admit cards and payslips — the artefacts a school is judged on, and the
+largest unverified surface in the project. A global stylesheet change already
+broke every printed challan once (§5e: `display: none` unqualified by media,
+which shipped blank vouchers from the day the framework landed and was not
+caught for two days).
+
+*Rule:* print styles are touched deliberately or not at all, and **every print
+template is re-checked at the end of this sprint**, not assumed.
+
+#### Deliverables
+
+**A. Design system**
+- Decide and install an **icon library**. `lucide-react` is the obvious fit —
+  tree-shakeable, consistent 24px grid, matches the Tailwind idiom — but it is a
+  decision, not a default. Record it.
+- Extend the token layer: spacing scale, type scale, elevation, border and
+  focus-ring tokens. Keep them CSS variables so per-tenant branding still works.
+- **Fill the primitive gaps**: Table, Modal/Dialog, Tabs, Tooltip, Toast,
+  EmptyState, Skeleton, Avatar, Breadcrumb, Pagination, Stat/KPI tile.
+- **Dark mode is out of scope** for this sprint. Per-tenant palettes plus dark
+  mode is two variable systems multiplying; ship the palette work first.
+
+**B. The application shell**
+- Sidebar and top bar across all five shells (school-admin, teacher, student,
+  parent, super-admin) — icons on every nav item, active state, grouping,
+  collapse.
+- Page headers with breadcrumbs and a consistent primary-action slot.
+- **Empty, loading and error states everywhere.** The single largest cause of a
+  product feeling unfinished, and the cheapest to fix.
+- Accessible focus states and keyboard navigation. Not decoration — the current
+  primitives have no visible focus ring worth the name.
+
+**C. Dashboard visualisation — the part the user asked for by name**
+
+The competitor's demo leans on this heavily and the transcript names the
+specific views: a graphical monthly income-vs-expense view, an attendance
+overview, monthly income against student count, class-wise strength with
+expected/collected/balance, and a report card carrying a graphical breakdown
+with percentage and rank.
+
+Ours to build:
+
+| Surface | Visualisation |
+| --- | --- |
+| School-admin dashboard | KPI tiles (students, staff, today's collection, outstanding), monthly collection trend, attendance rate over time, class-wise strength, admissions funnel |
+| Fees | Collected vs outstanding vs overdue, aging buckets, collection by month |
+| Attendance | Per-class attendance rate, absence trend, monthly heatmap |
+| Exams | Grade distribution per exam, subject-wise averages, pass rate |
+| Report card | Per-subject bar plus percentage and class rank — **it prints**, so it must be static SVG (see below) |
+| Parent portal | Their child's attendance ring and result trend |
+| Super Admin | Schools by module adoption, active users per school |
+
+**D. The charting decision — settle it here, not in Sprint 12**
+
+`SPRINTS.md` Sprint 12 currently defers this and it blocks that sprint. It is a
+design-system decision, so it belongs in this one.
+
+The recommendation is **server-rendered SVG components, not a charting library**,
+for three reasons that are specific to this codebase:
+
+1. **A chart on a report card has to print**, and print goes through
+   `PrintSheet`. A canvas-based or client-hydrating chart is unreliable in a
+   print context; static SVG is exactly what the print path already handles.
+2. **Bundle budget.** `recharts` is roughly 100 kB gzipped against a <200 kB
+   first-load target, and the deps list is currently 14 packages with no
+   client-side rendering library among them.
+3. The chart types actually needed are bar, line, donut and a heatmap grid.
+   That is a few hundred lines of SVG with the brand tokens applied — and it
+   inherits per-tenant colour for free, which a library would need configuring
+   for on every instance.
+
+**If a genuinely interactive chart is needed later** (zoom, brush, live
+tooltips), add a library then, for that chart only. Do not adopt one now for
+charts that are read, not manipulated.
+
+**E. Verification** — `/impeccable` in the browser across all five shells, at
+mobile and desktop widths, against three hostile palettes, plus a print check of
+every template. `npm run typecheck && npm run lint && npm run build` green.
+
+#### What this sprint is not
+
+Not a rewrite. Not new features. Not new routes. If a screen's *behaviour*
+changes, that is a defect in this sprint, not a bonus — the data, permissions
+and tenancy paths are working and QA'd, and this pass must leave every one of
+them untouched.
+
 ### Sprint 11 — Communications: announcements, notice board, campaigns
 *Derives from: document Sprint 11, rebuilt off GoHighLevel.
 Migration: `0018_sprint11_comms.sql`.*
@@ -523,10 +656,18 @@ summary, leave summary, enrollment funnel, monthly revenue.
   this: the browser's print dialog is the renderer, because Hostinger runs a
   plain Node process where headless Chromium is unreliable. Reports print
   through `PrintSheet` with the school letterhead.
-- **`recharts` is not installed.** Adding it is a real decision (bundle size
-  against the <200 kB first-load target in document Sprint 21). Server-rendered
-  SVG for the three or four charts that matter is the cheaper answer — decide
-  it in this sprint rather than assuming.
+- ~~**`recharts` is not installed** … decide it in this sprint.~~
+  **Decided in Sprint 10.5 instead** (2026-08-12), where it belongs — it is a
+  design-system decision and it was blocking this sprint. The answer is
+  **server-rendered SVG chart components** built on the brand tokens, chiefly
+  because a chart on a report card has to survive `PrintSheet`. Sprint 12 *uses*
+  those components; it does not choose them.
+
+**The dashboards themselves are Sprint 10.5's**, not this sprint's. Sprint 12
+owns the nine tabular/printable report types; 10.5 owns the KPI tiles and charts
+on the school-admin, fees, attendance, exams, parent and Super Admin dashboards.
+The split is deliberate: reports are documents, dashboards are visualisation, and
+they were tangled together in §2.9 before this was written down.
 
 CSV export stays as specified: native `Response` with `text/csv`.
 
@@ -876,7 +1017,7 @@ between now and the sprint that owns them.
 | Global header search across students and staff, with print actions on the result | 12 |
 | Excel export alongside CSV on list screens | 12 |
 | Fee discount report, account summary report | 12 (data from 13.5) |
-| Dashboard: unpaid invoices, income/expense/profit today, monthly income-vs-expense, class-wise expected vs collected vs balance | 12 (data from 13.5) |
+| Dashboard: unpaid invoices, income/expense/profit today, monthly income-vs-expense, class-wise expected vs collected vs balance | **10.5** builds the tiles and charts; the income/expense series needs 13.5's ledger, so those two tiles land empty until then and must say so rather than showing a zero |
 | **Subject / lecture-wise attendance** — ours is per-day only; `attendance_records` has no subject or period column | 12 or its own migration; **schema change, do not defer silently** |
 | Admission **inquiry** register — walk-in/phone leads, follow-up, conversion to application | 11 or 10 |
 | Live webcam photo capture at admission | 10 |
