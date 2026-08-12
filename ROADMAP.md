@@ -143,6 +143,34 @@ instruction, and positioned *before* online payments and POS — all three post 
 the same append-only ledger, and retrofitting one under live money is the
 expensive version of this work.
 
+**7b. Visual design and data visualisation — NOW THE NEXT SPRINT (10.5)**
+*Raised by the user 2026-08-12: the CRM is "flat and boring", has no icons or
+graphics, and there are no charts on any dashboard.*
+
+This was missing from every earlier version of this document, which is itself
+the finding — the gap analysis compared *features* and never once compared how
+the two products look. The competitor's demo sells on appearance as much as
+capability, and the transcript is explicit about it: a graphical monthly
+income-and-expense view, an attendance overview, monthly income against student
+numbers, class-wise strength with expected/collected/balance, and a marksheet
+with a graphical breakdown, percentage and rank. Roughly a third of that demo is
+someone pointing at a chart.
+
+**Measured on our side 2026-08-12:** 8 UI primitives for 105 components, exactly
+one `<svg>` in the entire component tree, no icon library, no charting library,
+and no chart anywhere in the product.
+
+**Why it is a commercial gap and not a polish item.** A school's decision-maker
+sees a dashboard for thirty seconds before deciding whether this looks like real
+software. Feature parity does not survive that thirty seconds. It is also the
+cheapest it will ever be: Sprints 11, 12 and 13 add the notice board, nine
+reports and three portals, and doing the design system afterwards means
+designing those screens twice.
+
+The plan, the two constraints that make it harder than a normal redesign
+(per-tenant palettes; the print path), and the charting decision are in
+`SPRINTS.md` Sprint 10.5.
+
 ### Tier 3 — larger or hardware-dependent
 
 **8. Biometric / device attendance — CONFIRMED IN SCOPE 2026-08-12, Sprint 19.6**
@@ -189,6 +217,7 @@ what is being built. This section records only what the transcript showed that
 | **HR** | Staff loans with instalment recovery from payroll, lecture-wise salary, absence-based deduction rules |
 | **Attendance** | Subject/lecture-wise attendance — ours is per-day only |
 | **Platform** | Header search across students and staff with print actions on the result, campus switcher, language switcher, parent complaint management, Excel export beside PDF on every list |
+| **Presentation** | Charts and graphical summaries throughout — dashboard income/expense graphs, attendance overviews, class-strength views, and a marksheet carrying a graphical breakdown with percentage and rank. See §2 item 7b; this is Sprint 10.5. |
 
 **Corrections to §2b's "already covered by us" line:** ID cards, character and
 leaving certificates are listed there as covered. They are **not built at all** —
