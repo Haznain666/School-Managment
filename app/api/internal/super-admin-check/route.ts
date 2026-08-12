@@ -8,7 +8,7 @@ import type { NextRequest } from 'next/server';
 import { apiFailure, apiSuccess, handleApiError, readJsonBody } from '@/lib/api-response';
 import { safeEqual } from '@/lib/crypto';
 import { serverEnv } from '@/lib/env';
-import { describeHashShape, normalizeBcryptHash } from '@/lib/super-admin-hash-shape';
+import { describeHashShape, readConfiguredHash } from '@/lib/super-admin-hash-shape';
 
 /**
  * POST /api/internal/super-admin-check — what does the *deployed* process hold?
@@ -113,9 +113,14 @@ export async function POST(request: NextRequest) {
     const rawHash = process.env.SUPER_ADMIN_PASSWORD_HASH;
     const rawSecret = process.env.SUPER_ADMIN_JWT_SECRET;
 
-    const shape = describeHashShape(rawHash);
-    const normalizedHash = normalizeBcryptHash(rawHash);
-    const wasRepaired = rawHash !== undefined && normalizedHash !== rawHash;
+    // Resolved exactly as the login route resolves it, including the base64
+    // variable — a diagnostic that reads a different variable than production
+    // would confirm a hash nobody signs in with.
+    const rawB64 = process.env.SUPER_ADMIN_PASSWORD_HASH_B64;
+    const normalizedHash = readConfiguredHash(rawHash, rawB64);
+    const shape = describeHashShape(normalizedHash);
+    const wasRepaired = normalizedHash !== undefined && normalizedHash !== rawHash;
+    const usingBase64 = rawB64 !== undefined && rawB64.trim() !== '';
 
     // -- Which process is answering ----------------------------------------
     // The double-start seen in the Hostinger log means "which instance served
@@ -187,6 +192,7 @@ export async function POST(request: NextRequest) {
         // from the raw values above, the stored value was damaged in transit
         // and repaired on read — which says the panel still needs correcting
         // even though sign-in now works.
+        usingBase64,
         repairedOnRead: wasRepaired,
         effectiveLength: normalizedHash?.length ?? 0,
         effectivePrefix: normalizedHash?.slice(0, 7) ?? null,

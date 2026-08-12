@@ -110,12 +110,22 @@ const hash = bcrypt.hashSync(password, COST);
  */
 const escaped = hash.replaceAll('$', '\\$');
 
+const base64 = Buffer.from(hash, 'utf8').toString('base64');
+
 console.log('\n' + '='.repeat(68));
-console.log('TWO forms. They are NOT interchangeable — copy the right one.');
+console.log('THREE forms. They are NOT interchangeable — copy the right one.');
 console.log('='.repeat(68));
 
-console.log('\n1. For a HOSTING PANEL (Hostinger, Vercel, Docker, systemd) —');
-console.log('   paste ONLY the value, exactly as shown. No quotes, no backslashes:\n');
+console.log('\n0. RECOMMENDED for any hosting panel — the form nothing can mangle.');
+console.log('   Set this variable INSTEAD OF SUPER_ADMIN_PASSWORD_HASH:\n');
+console.log(`   SUPER_ADMIN_PASSWORD_HASH_B64=${base64}`);
+console.log('\n   Base64 contains no "$", no backslash and no quote, so there is');
+console.log('   nothing for dotenv-expand, a shell, or a panel to act on. Every');
+console.log('   sign-in failure this project has had came from a "$" being eaten');
+console.log('   or a backslash surviving. This form cannot suffer either.');
+
+console.log('\n1. For a HOSTING PANEL, plain — works only if nothing expands "$".');
+console.log('   Paste ONLY the value. No quotes, no backslashes:\n');
 console.log(`   ${hash}`);
 console.log(`\n   (${String(hash.length)} characters — a bcrypt hash is always exactly 60.)`);
 

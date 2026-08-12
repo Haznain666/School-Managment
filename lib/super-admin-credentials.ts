@@ -3,7 +3,7 @@ import 'server-only';
 import { compare } from 'bcryptjs';
 
 import { requireServerEnv } from './env';
-import { describeHashShape, normalizeBcryptHash } from './super-admin-hash-shape';
+import { describeHashShape, readConfiguredHash } from './super-admin-hash-shape';
 
 /**
  * The one place operator credentials are checked.
@@ -36,11 +36,32 @@ export async function verifySuperAdminCredentials(
 
   try {
     expectedEmail = requireServerEnv('SUPER_ADMIN_EMAIL').trim().toLowerCase();
-    // Repaired on read: the escaped `\$2b\$12\$` form is correct in a `.env`
-    // file and fatal in a hosting panel, and an operator cannot tell which
-    // their host behaves like. A backslash cannot occur in a real bcrypt hash,
-    // so removing it is a repair rather than a guess. See the module docblock.
-    passwordHash = normalizeBcryptHash(requireServerEnv('SUPER_ADMIN_PASSWORD_HASH')) ?? '';
+
+    /**
+     * Either variable will do, and both are repaired on read.
+     *
+     * `SUPER_ADMIN_PASSWORD_HASH_B64` is the one that cannot be mangled: a
+     * bcrypt hash's `$` characters are eaten by dotenv-expand and by shells,
+     * and the backslashes used to escape them survive literally in a panel that
+     * expands nothing — so the *correct* plain form depends on machinery an
+     * operator cannot inspect. Base64 has no character any of them act on.
+     *
+     * Kept optional rather than required: deployments where the plain form
+     * already works must not break, and `requireServerEnv` below still gives a
+     * 500 `server_misconfigured` when neither is set, which is what
+     * distinguishes "not configured" from "wrong password" in the smoke test.
+     */
+    passwordHash =
+      readConfiguredHash(
+        process.env['SUPER_ADMIN_PASSWORD_HASH'],
+        process.env['SUPER_ADMIN_PASSWORD_HASH_B64'],
+      ) ?? '';
+
+    if (passwordHash.trim() === '') {
+      // Preserves the old behaviour exactly: neither variable present is a
+      // configuration error, not a failed sign-in.
+      requireServerEnv('SUPER_ADMIN_PASSWORD_HASH');
+    }
     // Fail fast if the signing secret is missing, rather than at cookie time.
     requireServerEnv('SUPER_ADMIN_JWT_SECRET');
   } catch (error) {

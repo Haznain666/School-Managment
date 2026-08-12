@@ -22,7 +22,7 @@
  * `if (… !== 'nodejs') return;` reads identically to a human and does not work:
  * the parser still walks the code after it and records the import.
  */
-import { describeHashShape } from './lib/super-admin-hash-shape';
+import { describeHashShape, readConfiguredHash } from './lib/super-admin-hash-shape';
 
 export async function register(): Promise<void> {
   if (process.env.NEXT_RUNTIME === 'nodejs') {
@@ -50,7 +50,14 @@ export async function register(): Promise<void> {
  * be the wrong trade.
  */
 function checkSuperAdminHash(): void {
-  const shape = describeHashShape(process.env.SUPER_ADMIN_PASSWORD_HASH);
+  // Whichever variable the login route would use, so a green boot cannot mean
+  // something different from a working sign-in.
+  const shape = describeHashShape(
+    readConfiguredHash(
+      process.env.SUPER_ADMIN_PASSWORD_HASH,
+      process.env.SUPER_ADMIN_PASSWORD_HASH_B64,
+    ),
+  );
   if (shape.ok) return;
 
   // Deliberately loud, and deliberately without the hash itself — it is

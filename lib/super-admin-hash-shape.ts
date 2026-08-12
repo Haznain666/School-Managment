@@ -81,6 +81,53 @@ export function normalizeBcryptHash(hash: string | undefined): string | undefine
   return value.replace(/\\(?=\$)/g, '');
 }
 
+/**
+ * The hash this process should use, from either of the two ways to supply it.
+ *
+ * ── Why a base64 form exists ─────────────────────────────────────────────
+ * Because the plain one cannot be made reliably transportable. A bcrypt hash
+ * contains three `$` characters, and every layer between an operator and a
+ * running process has an opinion about `$`: dotenv-expand eats `$2b` and `$12`
+ * as variable references, a shell does the same, and a panel that does neither
+ * preserves backslashes added to defend against the first two. The correct form
+ * therefore depends on machinery the operator cannot see, and on Hostinger it
+ * changed underneath this deployment when the panel and the `.env` file turned
+ * out to be one store.
+ *
+ * `normalizeBcryptHash` below repairs the damage that is *reversible*. The
+ * expanded case is not: once `$2b` has been substituted away those bytes are
+ * gone, and no amount of repair can invent them. That is the failure this
+ * variable exists to make impossible.
+ *
+ * Base64's alphabet is `A-Z a-z 0-9 + / =`. It contains no `$`, no backslash
+ * and no quote, so there is nothing for any of those layers to act on. It
+ * survives every mechanism that has broken this deployment.
+ *
+ * `SUPER_ADMIN_PASSWORD_HASH_B64` wins when both are set, because an operator
+ * who has just added it is trying to fix exactly this.
+ */
+export function readConfiguredHash(
+  raw: string | undefined,
+  base64: string | undefined,
+): string | undefined {
+  const encoded = base64?.trim();
+
+  if (encoded !== undefined && encoded !== '') {
+    try {
+      // `atob` is a global in both the Node and Edge runtimes, which matters:
+      // this module is compiled for both and must stay dependency-free.
+      const decoded = atob(encoded).trim();
+      if (decoded !== '') return normalizeBcryptHash(decoded);
+    } catch {
+      // Not valid base64. Fall through to the plain variable rather than
+      // failing outright — a typo here should not lock out a deployment whose
+      // plain hash is still correct. The shape check reports what is wrong.
+    }
+  }
+
+  return normalizeBcryptHash(raw);
+}
+
 export function describeHashShape(rawHash: string | undefined): HashShape {
   const hash = normalizeBcryptHash(rawHash);
   const wasRepaired = rawHash !== undefined && hash !== rawHash;
