@@ -125,27 +125,79 @@ advertised by the competitor ("Family Fee Report", "Parent Voucher").
 `student_guardians` already links guardians to students — the grouping key
 exists.
 
-**6. SMS alerts — ~3–5 days**
-No SMS channel exists. Straightforward given the existing sender abstraction in
-`lib/otp-sender.ts` and `lib/invite-sender.ts`.
+**6. ~~SMS alerts~~ — REJECTED 2026-08-12, permanently**
+There will be **no SMS gateway**. The competitor's SMS-triggered alerts are
+delivered on our channels instead: chat + email, with WhatsApp for schools that
+subscribe to it. See `SPRINTS.md` §0.9. The alert *events* still get built
+(absence, fee received, defaulter reminders, marks published) — the transport
+does not. Do not re-open this. `lib/otp-sender.ts`, cited here as the
+abstraction to reuse, no longer exists.
 
-**7. Full accounting — ~15–20 days**
+**7. Full accounting — ~15–20 days — NOW MANDATORY, Sprint 13.5**
 Income and expenses beyond fees, expense categories, vendor payments, a general
 ledger, and income/expense reporting. Without it schools keep separate books,
 which undercuts the "one system" pitch.
 
+**Upgraded from "schedule it when a school asks" on 2026-08-12** at the user's
+instruction, and positioned *before* online payments and POS — all three post to
+the same append-only ledger, and retrofitting one under live money is the
+expensive version of this work.
+
 ### Tier 3 — larger or hardware-dependent
 
-**8. Biometric / device attendance — ~15–25 days**
+**8. Biometric / device attendance — CONFIRMED IN SCOPE 2026-08-12, Sprint 19.6**
 Fingerprint and face-ID devices, barcode ID-card scanning, webcam capture.
-Requires hardware integration and on-premise device connectivity. Heavily
-marketed by the competitor.
+Heavily marketed by the competitor.
 
-**9. Mobile apps (Android / iOS) — ~30–45 days**
-Currently web-only. The competitor ships one app serving all roles.
+The "requires on-premise device connectivity" objection is largely **answered**:
+the ZKTeco family (and its rebrands, which dominate this market) pushes logs
+*outbound* to a configured URL, so there is no local agent, static IP or inbound
+firewall rule. Architecture in `SPRINTS.md` §0.9. Different vendors do not share
+a codebase — hence an adapter registry, with vendors added on demand.
+
+**9. Mobile apps (Android / iOS) — CONFIRMED IN SCOPE 2026-08-12, Sprint 19.7**
+The competitor ships one app serving all roles, and the user requires the same.
+
+**~30–45 days assumed React Native. It is now a Capacitor wrapper around the
+existing PWA** — one codebase, one UI, so the estimate no longer applies. What
+it buys that the web cannot: native camera for gate scanning, native push via
+FCM/APNs (which retires the iOS home-screen problem in §5), and reliable
+background storage for the gate's offline queue.
 
 **10. Bundled school website — ~8–12 days**
 They include a free school website with each subscription.
+
+---
+
+## 2a. Full transcript review — 2026-08-12
+
+The demo video's **full transcript** was reviewed against the codebase on
+2026-08-12. It confirmed §2b below and added the sections listed here. **Every
+decision arising from it is in `SPRINTS.md` §0.9** — read that, not this, for
+what is being built. This section records only what the transcript showed that
+§2b had missed.
+
+**Newly identified, none of which §2b listed:**
+
+| Area | What the competitor demonstrates |
+| --- | --- |
+| **Accounting** | Expense entry + categories, balance sheet, profit & loss, day-book, day-by-day account summary, month-by-month year view, per-accountant cash accounts and settlement, yearly income/expense summary for tax, fee discount report |
+| **Fee counter** | Barcode scan of the printed voucher to pull up a student, bulk class-wise payment entry from a bank statement, bank reconciliation remarks on online payments, partial payment with history |
+| **Documents** | School leaving / character / date-of-birth certificates, staff experience certificates with bulk generate-then-edit, student and staff ID cards with a template designer, blank and pre-filled admission form print |
+| **Communication** | Message templates with merge tags, first/second defaulter reminder sequences, notification history per channel |
+| **Admissions** | Inquiry/lead register with follow-up, live webcam photo capture at admission, monthly new-admission reports |
+| **HR** | Staff loans with instalment recovery from payroll, lecture-wise salary, absence-based deduction rules |
+| **Attendance** | Subject/lecture-wise attendance — ours is per-day only |
+| **Platform** | Header search across students and staff with print actions on the result, campus switcher, language switcher, parent complaint management, Excel export beside PDF on every list |
+
+**Corrections to §2b's "already covered by us" line:** ID cards, character and
+leaving certificates are listed there as covered. They are **not built at all** —
+only the `PrintSheet` framework they would sit on exists. See `SPRINTS.md`
+Sprint 16.5.
+
+**On the video's own claims:** it is a sales demo. The sub-second reporting and
+"Pakistan's number one" are marketing, not verified capability. What is listed
+above is what the recording *shows*, not what it asserts.
 
 ---
 
