@@ -242,6 +242,11 @@ a room, room names derived from `(location_id, class, date)`, videobridge
 horizontally scalable by adding a JVB. Figures are approximate and worth
 re-checking at purchase; the ratio is what decides, and the ratio is stable.
 
+**Confirmed by the user 2026-08-12: self-hosted Jitsi, gated by the
+`online_classes` module flag like everything else.** This is no longer an
+assumption to revisit — the VPS is accepted as platform infrastructure, and a
+per-minute vendor is not to be proposed again unless the cost picture changes.
+
 ### Biometric — build the architecture now, sell it per school
 
 **Different readers do not share a codebase, but they mostly share a protocol
