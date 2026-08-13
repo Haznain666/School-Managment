@@ -549,10 +549,15 @@ template is re-checked at the end of this sprint**, not assumed.
 
 #### Deliverables
 
+> **Status 2026-08-13: A and D are done, B is not started, C is built but wired
+> to nothing.** See `STATE.md` §5z for what exists, the two decisions the user
+> took, and the rule every later screen must follow. The rest of this section is
+> the original plan and remains the spec.
+
 **A. Design system**
-- Decide and install an **icon library**. `lucide-react` is the obvious fit —
-  tree-shakeable, consistent 24px grid, matches the Tailwind idiom — but it is a
-  decision, not a default. Record it.
+- ~~Decide and install an **icon library**.~~ ✅ **`lucide-react`**, 2026-08-13.
+  Recorded in `components/ui/Icon.tsx`, which is the wrapper everything imports
+  so that size and stroke weight cannot drift across 105 components.
 - Extend the token layer: spacing scale, type scale, elevation, border and
   focus-ring tokens. Keep them CSS variables so per-tenant branding still works.
 - **Fill the primitive gaps**: Table, Modal/Dialog, Tabs, Tooltip, Toast,
