@@ -5,6 +5,7 @@ import { notFound } from 'next/navigation';
 import { ExamPapers } from '@/components/exams/ExamPapers';
 import { Badge } from '@/components/ui/Badge';
 import { Card, CardTitle } from '@/components/ui/Card';
+import { PageHeader } from '@/components/ui/PageHeader';
 import { listSubjects } from '@/lib/academics-queries';
 import { admitCardHref, tabulationHref } from '@/lib/exam-print';
 import { getExamDetail, listSectionRoster } from '@/lib/exam-queries';
@@ -48,17 +49,14 @@ export default async function ExamDetailPage({
     <div className="space-y-6">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <Link
-            href="/dashboard/exams"
-            className="text-sm font-medium text-brand-primary hover:underline"
-          >
-            ← All exams
-          </Link>
-          <h2 className="mt-1 text-xl font-semibold text-slate-900">{exam.title}</h2>
-          <p className="mt-1 text-sm text-slate-500">
-            {exam.gradeName} — {exam.sectionName} · {exam.termName} · starts{' '}
-            {exam.examDate}
-          </p>
+          <PageHeader
+            breadcrumbs={[
+              { label: 'Exams', href: '/dashboard/exams' },
+              { label: exam.title },
+            ]}
+            title={exam.title}
+            description={`${exam.gradeName} — ${exam.sectionName} · ${exam.termName} · starts ${exam.examDate}`}
+          />
         </div>
 
         <div className="flex flex-nowrap items-center gap-2 whitespace-nowrap">

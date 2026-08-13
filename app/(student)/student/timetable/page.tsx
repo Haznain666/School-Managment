@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 
 import { TimetableGrid } from '@/components/academics/TimetableGrid';
 import { Card } from '@/components/ui/Card';
+import { PageHeader } from '@/components/ui/PageHeader';
 import {
   getStudentPlacement,
   listTimetableEntries,
@@ -86,11 +87,9 @@ export default async function StudentTimetablePage() {
 
 function Heading({ subtitle }: { subtitle: string | null }) {
   return (
-    <div>
-      <h2 className="text-xl font-semibold text-slate-900">My timetable</h2>
-      <p className="mt-1 text-sm text-slate-500">
-        {subtitle ?? 'Your periods, teachers and rooms for the week.'}
-      </p>
-    </div>
+    <PageHeader
+      title="My timetable"
+      description={subtitle ?? 'Your periods, teachers and rooms for the week.'}
+    />
   );
 }

@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 
 import { AttendanceMarker } from '@/components/academics/AttendanceMarker';
 import { Card } from '@/components/ui/Card';
+import { PageHeader } from '@/components/ui/PageHeader';
 import { listTeacherSections } from '@/lib/academics-queries';
 import { getActiveAcademicYear, listGrades, listSections } from '@/lib/admissions-queries';
 import { requireSchoolRole } from '@/lib/school-guard';
@@ -102,12 +103,9 @@ export default async function TeacherAttendancePage() {
 
 function Heading() {
   return (
-    <div>
-      <h2 className="text-xl font-semibold text-slate-900">Attendance</h2>
-      <p className="mt-1 text-sm text-slate-500">
-        Take the register for one of your classes. Saving again corrects the same
-        day rather than adding to it.
-      </p>
-    </div>
+    <PageHeader
+      title="Attendance"
+      description="Take the register for one of your classes. Saving again corrects the same day rather than adding to it."
+    />
   );
 }

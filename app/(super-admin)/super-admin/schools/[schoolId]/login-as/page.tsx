@@ -1,9 +1,9 @@
 import type { Metadata } from 'next';
-import Link from 'next/link';
 import { notFound } from 'next/navigation';
 
 import { SchoolLoginAsForm } from '@/app/(super-admin)/super-admin/schools/[schoolId]/login-as/SchoolLoginAsForm';
 import { Card } from '@/components/ui/Card';
+import { PageHeader } from '@/components/ui/PageHeader';
 import { getSchoolById } from '@/lib/schools';
 
 export const metadata: Metadata = {
@@ -33,22 +33,15 @@ export default async function SchoolLoginAsPage({
 
   return (
     <div className="max-w-xl space-y-6">
-      <div>
-        <Link
-          href="/super-admin/schools"
-          className="text-sm font-medium text-slate-500 hover:text-slate-700"
-        >
-          ← Back to schools
-        </Link>
-        <h2 className="mt-2 text-xl font-semibold text-slate-900">
-          Sign in to {school.schoolName}
-        </h2>
-        <p className="mt-1 text-sm text-slate-500">
-          Enter your Super Admin credentials to open this school&rsquo;s admin
-          portal. This uses your own operator account — the school&rsquo;s own
-          staff sign in with their email and password, and that is unchanged.
-        </p>
-      </div>
+      <PageHeader
+        breadcrumbs={[
+          { label: 'Schools', href: '/super-admin/schools' },
+          { label: school.schoolName, href: `/super-admin/schools/${school.id}` },
+          { label: 'Sign in as admin' },
+        ]}
+        title={`Sign in to ${school.schoolName}`}
+        description="Enter your Super Admin credentials to open this school’s admin portal. This uses your own operator account — the school’s own staff sign in with their email and password, and that is unchanged."
+      />
 
       {school.isActive ? null : (
         <Card>

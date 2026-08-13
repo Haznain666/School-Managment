@@ -3,6 +3,7 @@ import Link from 'next/link';
 
 import { Badge } from '@/components/ui/Badge';
 import { Card } from '@/components/ui/Card';
+import { PageHeader } from '@/components/ui/PageHeader';
 import {
   RESIT_STATUS_LABELS,
   RESULT_STATUS_LABELS,
@@ -118,12 +119,9 @@ export default async function TeacherMarksPage() {
 
 function Heading() {
   return (
-    <div>
-      <h2 className="text-xl font-semibold text-slate-900">Marks</h2>
-      <p className="mt-1 text-sm text-slate-500">
-        Enter one paper for one class. Save as often as you like; submitting
-        tells the school it is finished. Publishing is their step, not yours.
-      </p>
-    </div>
+    <PageHeader
+      title="Marks"
+      description="Enter one paper for one class. Save as often as you like; submitting tells the school it is finished. Publishing is their step, not yours."
+    />
   );
 }

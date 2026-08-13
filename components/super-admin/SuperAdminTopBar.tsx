@@ -49,14 +49,20 @@ export function SuperAdminTopBar({ email, onOpenNav }: SuperAdminTopBarProps) {
         ) : null}
 
         {/*
-          Shortened on a phone. "Platform Administration" at 375px leaves no
-          room for the sign-out control, and the operator on a phone already
-          knows which product they signed in to.
+          A `<p>`, not an `<h1>`. This is the name of the surface, and it is
+          identical on every screen — so as a heading it would compete with each
+          page's own title for the document's one `h1`, and a screen-reader user
+          jumping by heading would land on "Platform Administration" whatever
+          they had navigated to.
+
+          Shortened on a phone: the full string at 375px leaves no room for the
+          sign-out control, and an operator on a phone already knows which
+          product they signed in to.
         */}
-        <h1 className="truncate text-lg font-semibold text-ink">
+        <p className="truncate text-lg font-semibold text-ink">
           <span className="hidden sm:inline">Platform Administration</span>
           <span className="sm:hidden">Platform</span>
-        </h1>
+        </p>
       </div>
 
       <div className="flex items-center gap-3">

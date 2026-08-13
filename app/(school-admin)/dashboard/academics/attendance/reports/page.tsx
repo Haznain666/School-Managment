@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 
 import { AttendanceReports } from '@/components/academics/AttendanceReports';
+import { PageHeader } from '@/components/ui/PageHeader';
 import { listAcademicYearOptions } from '@/lib/academics-queries';
 import { listGrades, listSections } from '@/lib/admissions-queries';
 import { requireSchoolPermission } from '@/lib/school-guard';
@@ -25,13 +26,10 @@ export default async function AttendanceReportsPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h2 className="text-xl font-semibold text-slate-900">Attendance reports</h2>
-        <p className="mt-1 text-sm text-slate-500">
-          A month at a time, per student, with the class average. Below 75% is
-          where most schools intervene.
-        </p>
-      </div>
+      <PageHeader
+        title="Attendance reports"
+        description="A month at a time, per student, with the class average. Below 75% is where most schools intervene."
+      />
 
       <AttendanceReports
         academicYears={academicYears}

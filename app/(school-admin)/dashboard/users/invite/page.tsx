@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 
 import { InviteForm } from '@/components/school/InviteForm';
+import { PageHeader } from '@/components/ui/PageHeader';
 import { requireSchoolPermission } from '@/lib/school-guard';
 import { listBranchOptions } from '@/lib/school-queries';
 
@@ -17,13 +18,10 @@ export default async function InviteStaffPage() {
 
   return (
     <div className="max-w-3xl space-y-6">
-      <div>
-        <h2 className="text-xl font-semibold text-slate-900">Invite staff</h2>
-        <p className="mt-1 text-sm text-slate-500">
-          The invitation goes out over WhatsApp, with email as a fallback. The
-          link is valid for 72 hours.
-        </p>
-      </div>
+      <PageHeader
+        title="Invite staff"
+        description="The invitation goes out over WhatsApp, with email as a fallback. The link is valid for 72 hours."
+      />
 
       <InviteForm branches={branches} />
     </div>

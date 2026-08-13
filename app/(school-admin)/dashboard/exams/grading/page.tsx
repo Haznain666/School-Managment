@@ -1,9 +1,9 @@
 import type { Metadata } from 'next';
-import Link from 'next/link';
 
 import { GradingSchemeEditor } from '@/components/exams/GradingSchemeEditor';
 import { listGradingSchemes } from '@/lib/exam-queries';
 import { requireSchoolPermission } from '@/lib/school-guard';
+import { PageHeader } from '@/components/ui/PageHeader';
 
 export const metadata: Metadata = {
   title: 'Grading schemes',
@@ -18,21 +18,11 @@ export default async function GradingSchemesPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <Link
-          href="/dashboard/exams"
-          className="text-sm font-medium text-brand-primary hover:underline"
-        >
-          ← Exams
-        </Link>
-        <h2 className="mt-1 text-xl font-semibold text-slate-900">
-          Grading schemes
-        </h2>
-        <p className="mt-1 text-sm text-slate-500">
-          What a percentage is worth at this school. Every school grades
-          differently, so none of this is built in.
-        </p>
-      </div>
+      <PageHeader
+        breadcrumbs={[{ label: 'Exams', href: '/dashboard/exams' }, { label: 'Grading schemes' }]}
+        title="Grading schemes"
+        description="What a percentage is worth at this school. Every school grades differently, so none of this is built in."
+      />
 
       <GradingSchemeEditor
         schemes={schemes}

@@ -5,6 +5,7 @@ import { ChallanPrintView } from '@/components/fees/ChallanPrintView';
 import { PrintButton } from '@/components/fees/PrintButton';
 import { Badge, type BadgeVariant } from '@/components/ui/Badge';
 import { Card, CardTitle } from '@/components/ui/Card';
+import { PageHeader } from '@/components/ui/PageHeader';
 import { MONTH_NAMES } from '@/db/schema/academic-years';
 import {
   CHALLAN_STATUS_LABELS,
@@ -316,11 +317,10 @@ export default async function ParentFeesPage({
 function Heading() {
   return (
     <div className="print:hidden">
-      <h2 className="text-xl font-semibold text-slate-900">Fees</h2>
-      <p className="mt-1 text-sm text-slate-500">
-        Your children&rsquo;s challans and balances. Payments are recorded by the
-        school once received — there is nothing to pay online.
-      </p>
+      <PageHeader
+        title="Fees"
+        description="Your children&rsquo;s challans and balances. Payments are recorded by the school once received — there is nothing to pay online."
+      />
     </div>
   );
 }

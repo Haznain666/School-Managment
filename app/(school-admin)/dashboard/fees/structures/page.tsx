@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { FeeSetupNav } from '@/components/fees/FeeSetupNav';
 import { FeeStructureMatrix } from '@/components/fees/FeeStructureMatrix';
 import { Card } from '@/components/ui/Card';
+import { PageHeader } from '@/components/ui/PageHeader';
 import { listAcademicYears, listAdmissionsBranches } from '@/lib/admissions-queries';
 import { requireSchoolPermission } from '@/lib/school-guard';
 
@@ -24,14 +25,10 @@ export default async function FeeStructuresPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h2 className="text-xl font-semibold text-slate-900">Fee structure</h2>
-        <p className="mt-1 text-sm text-slate-500">
-          What each grade pays under each head, for one academic year. Last
-          year&rsquo;s prices stay as they were — challans already issued have to
-          remain explainable.
-        </p>
-      </div>
+      <PageHeader
+        title="Fee structure"
+        description="What each grade pays under each head, for one academic year. Last year&rsquo;s prices stay as they were — challans already issued have to remain explainable."
+      />
 
       <FeeSetupNav />
 

@@ -1,7 +1,6 @@
 import type { ReactNode } from 'react';
 
 import { Breadcrumb, type Crumb } from '@/components/ui/Breadcrumb';
-import { cn } from '@/lib/utils';
 
 /**
  * The top of a page: where you are, what this is, and the one thing to do here.
@@ -23,8 +22,15 @@ import { cn } from '@/lib/utils';
 
 export interface PageHeaderProps {
   title: string;
-  /** One sentence. What this screen is for, or the scope it is showing. */
-  description?: string;
+  /**
+   * One sentence. What this screen is for, or the scope it is showing.
+   *
+   * `ReactNode` rather than `string` because a handful of descriptions carry a
+   * document number, which is set in the mono face everywhere else it appears
+   * so that a clerk reading it off a paper voucher is comparing like with like.
+   * Forcing those to plain text would silently drop that.
+   */
+  description?: ReactNode;
   /** The trail above the title. Omit on a portal's own landing page. */
   breadcrumbs?: readonly Crumb[];
   /** Primary action, and at most one secondary beside it. */
@@ -45,8 +51,17 @@ export function PageHeader({
   below,
   className,
 }: PageHeaderProps) {
+  /*
+   * No default margin.
+   *
+   * Nearly every page in this product is a `space-y-6` column, so a header that
+   * carried its own `mb-6` would stack with the parent's gap and open a 48px
+   * hole under every title. Spacing between siblings belongs to the layout that
+   * owns them, not to the sibling — pass `className` on the rare page that is
+   * not in a spaced column.
+   */
   return (
-    <header className={cn('mb-6', className)}>
+    <header className={className}>
       {breadcrumbs !== undefined && breadcrumbs.length > 0 ? (
         <Breadcrumb items={breadcrumbs} className="mb-2" />
       ) : null}

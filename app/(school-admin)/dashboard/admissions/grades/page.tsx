@@ -3,6 +3,7 @@ import Link from 'next/link';
 
 import { GradeSetupGrid } from '@/components/admissions/GradeSetupGrid';
 import { Card } from '@/components/ui/Card';
+import { PageHeader } from '@/components/ui/PageHeader';
 import {
   getActiveAcademicYear,
   listAdmissionsBranches,
@@ -48,14 +49,10 @@ export default async function GradesPage({
 
   return (
     <div className="space-y-6">
-      <div>
-        <h2 className="text-xl font-semibold text-slate-900">Grades &amp; sections</h2>
-        <p className="mt-1 text-sm text-slate-500">
-          Grades come from the platform’s list for each branch’s curriculum — you
-          can rename them for display, but not reorder them. Sections are yours,
-          and belong to one academic year.
-        </p>
-      </div>
+      <PageHeader
+        title="Grades &amp; sections"
+        description="Grades come from the platform’s list for each branch’s curriculum — you can rename them for display, but not reorder them. Sections are yours, and belong to one academic year."
+      />
 
       {activeYear === null ? (
         <Card>

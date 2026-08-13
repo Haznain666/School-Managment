@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 
 import { AcademicYearForm } from '@/components/admissions/AcademicYearForm';
+import { PageHeader } from '@/components/ui/PageHeader';
 import { getActiveAcademicYear } from '@/lib/admissions-queries';
 import { requireSchoolPermission } from '@/lib/school-guard';
 
@@ -17,13 +18,10 @@ export default async function NewAcademicYearPage() {
 
   return (
     <div className="max-w-3xl space-y-6">
-      <div>
-        <h2 className="text-xl font-semibold text-slate-900">New academic year</h2>
-        <p className="mt-1 text-sm text-slate-500">
-          Pakistani schools do not share a calendar, so set the months your own
-          session actually runs between. The name is derived from the years.
-        </p>
-      </div>
+      <PageHeader
+        title="New academic year"
+        description="Pakistani schools do not share a calendar, so set the months your own session actually runs between. The name is derived from the years."
+      />
 
       <AcademicYearForm hasActiveYear={activeYear !== null} />
     </div>

@@ -1,5 +1,4 @@
 import type { Metadata } from 'next';
-import Link from 'next/link';
 
 import { ReportCardPicker } from '@/components/exams/ReportCardPicker';
 import { Card } from '@/components/ui/Card';
@@ -7,6 +6,7 @@ import { listAdmissionsBranches, listGrades, listSections } from '@/lib/admissio
 import { gradeLabels, sectionLabel } from '@/lib/class-labels';
 import { listExamTerms } from '@/lib/exam-queries';
 import { requireSchoolPermission } from '@/lib/school-guard';
+import { PageHeader } from '@/components/ui/PageHeader';
 
 export const metadata: Metadata = {
   title: 'Report cards',
@@ -31,18 +31,11 @@ export default async function ReportCardsPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <Link
-          href="/dashboard/exams"
-          className="text-sm font-medium text-brand-primary hover:underline"
-        >
-          ← Exams
-        </Link>
-        <h2 className="mt-1 text-xl font-semibold text-slate-900">Report cards</h2>
-        <p className="mt-1 text-sm text-slate-500">
-          A term of published results for one section, one card per child.
-        </p>
-      </div>
+      <PageHeader
+        breadcrumbs={[{ label: 'Exams', href: '/dashboard/exams' }, { label: 'Report cards' }]}
+        title="Report cards"
+        description="A term of published results for one section, one card per child."
+      />
 
       {terms.length === 0 ? (
         <Card>

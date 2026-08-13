@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 
 import { FeeReports } from '@/components/fees/FeeReports';
+import { PageHeader } from '@/components/ui/PageHeader';
 import { listGrades } from '@/lib/admissions-queries';
 import { requireSchoolPermission } from '@/lib/school-guard';
 
@@ -19,12 +20,10 @@ export default async function FeeReportsPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h2 className="text-xl font-semibold text-slate-900">Fee reports</h2>
-        <p className="mt-1 text-sm text-slate-500">
-          What is owed, what came in, and who needs chasing.
-        </p>
-      </div>
+      <PageHeader
+        title="Fee reports"
+        description="What is owed, what came in, and who needs chasing."
+      />
 
       <FeeReports
         grades={grades.map((grade) => ({ id: grade.id, label: grade.label }))}

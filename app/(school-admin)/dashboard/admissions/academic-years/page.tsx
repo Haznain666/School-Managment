@@ -3,6 +3,7 @@ import Link from 'next/link';
 
 import { AcademicYearTable } from '@/components/admissions/AcademicYearTable';
 import { Button } from '@/components/ui/Button';
+import { PageHeader } from '@/components/ui/PageHeader';
 import { listAcademicYears } from '@/lib/admissions-queries';
 import { requireSchoolPermission } from '@/lib/school-guard';
 
@@ -21,21 +22,17 @@ export default async function AcademicYearsPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-wrap items-start justify-between gap-4">
-        <div>
-          <h2 className="text-xl font-semibold text-slate-900">Academic years</h2>
-          <p className="mt-1 text-sm text-slate-500">
-            Every enrolment, section and student ID belongs to a year. Exactly
-            one is active at a time, and that is the one new admissions go into.
-          </p>
-        </div>
-
-        {canEdit ? (
-          <Link href="/dashboard/admissions/academic-years/new">
-            <Button>Create academic year</Button>
-          </Link>
-        ) : null}
-      </div>
+      <PageHeader
+        title="Academic years"
+        description="Every enrolment, section and student ID belongs to a year. Exactly one is active at a time, and that is the one new admissions go into."
+        actions={
+          canEdit ? (
+            <Link href="/dashboard/admissions/academic-years/new">
+              <Button>Create academic year</Button>
+            </Link>
+          ) : null
+        }
+      />
 
       <AcademicYearTable years={years} canEdit={canEdit} />
     </div>

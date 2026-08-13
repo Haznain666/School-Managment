@@ -3,6 +3,7 @@ import Link from 'next/link';
 
 import { HrNav } from '@/components/hr/HrNav';
 import { Card, CardTitle } from '@/components/ui/Card';
+import { PageHeader } from '@/components/ui/PageHeader';
 import { getHrSummary } from '@/lib/hr-queries';
 import { requireSchoolPermission } from '@/lib/school-guard';
 
@@ -59,12 +60,10 @@ export default async function HrOverviewPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h2 className="text-xl font-semibold text-slate-900">HR &amp; Payroll</h2>
-        <p className="mt-1 text-sm text-slate-500">
-          Your staff, what they are paid, and the leave they take.
-        </p>
-      </div>
+      <PageHeader
+        title="HR &amp; Payroll"
+        description="Your staff, what they are paid, and the leave they take."
+      />
 
       <HrNav />
 

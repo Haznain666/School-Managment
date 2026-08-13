@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 
 import { Card } from '@/components/ui/Card';
+import { PageHeader } from '@/components/ui/PageHeader';
 import { listSubjects, listTimetableSlots } from '@/lib/academics-queries';
 import { getActiveAcademicYear } from '@/lib/admissions-queries';
 import { requireSchoolPermission } from '@/lib/school-guard';
@@ -65,12 +66,10 @@ export default async function AcademicsOverviewPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h2 className="text-xl font-semibold text-slate-900">Academics</h2>
-        <p className="mt-1 text-sm text-slate-500">
-          What the school teaches, when it teaches it, and who was there.
-        </p>
-      </div>
+      <PageHeader
+        title="Academics"
+        description="What the school teaches, when it teaches it, and who was there."
+      />
 
       {activeYear === null ? (
         <Card>

@@ -3,6 +3,7 @@ import Link from 'next/link';
 
 import { Badge } from '@/components/ui/Badge';
 import { Card, CardTitle } from '@/components/ui/Card';
+import { PageHeader } from '@/components/ui/PageHeader';
 import { listSubjects } from '@/lib/academics-queries';
 import { requireSchoolPermission } from '@/lib/school-guard';
 
@@ -21,13 +22,10 @@ export default async function SubjectsPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h2 className="text-xl font-semibold text-slate-900">Subjects</h2>
-        <p className="mt-1 text-sm text-slate-500">
-          What the school teaches. The colour is what makes a subject findable in
-          a full week&rsquo;s grid.
-        </p>
-      </div>
+      <PageHeader
+        title="Subjects"
+        description="What the school teaches. The colour is what makes a subject findable in a full week&rsquo;s grid."
+      />
 
       <Card
         header={

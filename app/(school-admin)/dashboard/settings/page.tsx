@@ -6,6 +6,7 @@ import { schools } from '@/db/schema';
 import { SchoolBrandingForm } from '@/components/school/SchoolBrandingForm';
 import { SchoolProfileForm } from '@/components/school/SchoolProfileForm';
 import { Card, CardTitle } from '@/components/ui/Card';
+import { PageHeader } from '@/components/ui/PageHeader';
 import { db } from '@/lib/drizzle';
 import { requireSchoolPermission } from '@/lib/school-guard';
 
@@ -61,14 +62,10 @@ export default async function SchoolSettingsPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h2 className="text-xl font-semibold text-slate-900">Settings</h2>
-        <p className="mt-1 text-sm text-slate-500">
-          {canEdit
-            ? 'Your school profile and branding. Changes here apply to everyone at your school straight away.'
-            : 'Your school profile and branding. Your role can see these but not change them.'}
-        </p>
-      </div>
+      <PageHeader
+        title="Settings"
+        description={canEdit ? 'Your school profile and branding. Changes here apply to everyone at your school straight away.' : 'Your school profile and branding. Your role can see these but not change them.'}
+      />
 
       <SchoolProfileForm
         readOnly={{

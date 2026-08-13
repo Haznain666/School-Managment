@@ -2,6 +2,7 @@ import { asc } from 'drizzle-orm';
 import type { Metadata } from 'next';
 
 import { BulkModuleManager } from '@/components/super-admin/BulkModuleManager';
+import { PageHeader } from '@/components/ui/PageHeader';
 import { schools } from '@/db/schema';
 import { db } from '@/lib/drizzle';
 
@@ -38,17 +39,10 @@ export default async function BulkModulesPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h2 className="text-xl font-semibold text-slate-900">
-          Modules across schools
-        </h2>
-        <p className="mt-1 text-sm text-slate-500">
-          Switch modules, channels and integrations for several schools at once.
-          Each switch opens showing what the selected schools already hold —
-          only the ones you move are written, so nothing you did not touch is
-          affected.
-        </p>
-      </div>
+      <PageHeader
+        title="Modules across schools"
+        description="Switch modules, channels and integrations for several schools at once. Each switch opens showing what the selected schools already hold — only the ones you move are written, so nothing you did not touch is affected."
+      />
 
       {rows.length === 0 ? (
         <p className="text-sm text-slate-600">

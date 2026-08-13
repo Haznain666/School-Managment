@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 
 import { HrNav } from '@/components/hr/HrNav';
 import { SalaryComponentManager } from '@/components/hr/SalaryComponentManager';
+import { PageHeader } from '@/components/ui/PageHeader';
 import { requireSchoolPermission } from '@/lib/school-guard';
 
 export const metadata: Metadata = {
@@ -16,14 +17,10 @@ export default async function SalaryComponentsPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h2 className="text-xl font-semibold text-slate-900">Salary components</h2>
-        <p className="mt-1 text-sm text-slate-500">
-          The heads your school pays and deducts under. One of them must be
-          marked as the basic salary — every percentage head is measured against
-          it.
-        </p>
-      </div>
+      <PageHeader
+        title="Salary components"
+        description="The heads your school pays and deducts under. One of them must be marked as the basic salary — every percentage head is measured against it."
+      />
 
       <HrNav />
 

@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 
 import { HrNav } from '@/components/hr/HrNav';
 import { StaffManager } from '@/components/hr/StaffManager';
+import { PageHeader } from '@/components/ui/PageHeader';
 import { requireSchoolPermission } from '@/lib/school-guard';
 
 export const metadata: Metadata = {
@@ -16,13 +17,10 @@ export default async function StaffPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h2 className="text-xl font-semibold text-slate-900">Staff</h2>
-        <p className="mt-1 text-sm text-slate-500">
-          The employment records payroll pays. A staff member does not need a
-          portal login to be on this list.
-        </p>
-      </div>
+      <PageHeader
+        title="Staff"
+        description="The employment records payroll pays. A staff member does not need a portal login to be on this list."
+      />
 
       <HrNav />
 

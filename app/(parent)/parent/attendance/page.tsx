@@ -3,6 +3,7 @@ import Link from 'next/link';
 
 import { Badge, type BadgeVariant } from '@/components/ui/Badge';
 import { Card, CardTitle } from '@/components/ui/Card';
+import { PageHeader } from '@/components/ui/PageHeader';
 import {
   ATTENDANCE_STATUS_LABELS,
   type AttendanceStatus,
@@ -166,13 +167,10 @@ export default async function ParentAttendancePage({
 
 function Heading() {
   return (
-    <div>
-      <h2 className="text-xl font-semibold text-slate-900">Attendance</h2>
-      <p className="mt-1 text-sm text-slate-500">
-        Your children&rsquo;s attendance over the last month, as recorded by
-        their teachers.
-      </p>
-    </div>
+    <PageHeader
+      title="Attendance"
+      description="Your children&rsquo;s attendance over the last month, as recorded by their teachers."
+    />
   );
 }
 

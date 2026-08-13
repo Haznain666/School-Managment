@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { ExamScheduler } from '@/components/exams/ExamScheduler';
 import { TermManager } from '@/components/exams/TermManager';
 import { Card } from '@/components/ui/Card';
+import { PageHeader } from '@/components/ui/PageHeader';
 import { listAdmissionsBranches, listGrades, listSections } from '@/lib/admissions-queries';
 import { gradeLabels, sectionLabel } from '@/lib/class-labels';
 import { listAcademicYearOptions } from '@/lib/academics-queries';
@@ -45,30 +46,26 @@ export default async function ExamsOverviewPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h2 className="text-xl font-semibold text-slate-900">Exams &amp; results</h2>
-          <p className="mt-1 text-sm text-slate-500">
-            Terms, datesheets, marks, and the documents a school hands out
-            afterwards.
-          </p>
-        </div>
-
-        <div className="flex flex-nowrap gap-4 whitespace-nowrap text-sm font-medium">
-          <Link
-            href="/dashboard/exams/report-cards"
-            className="text-brand-primary hover:underline"
-          >
-            Report cards
-          </Link>
-          <Link
-            href="/dashboard/exams/grading"
-            className="text-brand-primary hover:underline"
-          >
-            Grading schemes
-          </Link>
-        </div>
-      </div>
+      <PageHeader
+        title="Exams &amp; results"
+        description="Terms, datesheets, marks, and the documents a school hands out afterwards."
+        actions={
+          <div className="flex flex-nowrap gap-4 whitespace-nowrap text-sm font-medium">
+            <Link
+              href="/dashboard/exams/report-cards"
+              className="text-brand-primary hover:underline"
+            >
+              Report cards
+            </Link>
+            <Link
+              href="/dashboard/exams/grading"
+              className="text-brand-primary hover:underline"
+            >
+              Grading schemes
+            </Link>
+          </div>
+        }
+      />
 
       {years.length === 0 ? (
         <Card>
