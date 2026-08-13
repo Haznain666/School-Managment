@@ -1,7 +1,6 @@
 import type { ReactNode } from 'react';
 
-import { SuperAdminSidebar } from '@/components/super-admin/SuperAdminSidebar';
-import { SuperAdminTopBar } from '@/components/super-admin/SuperAdminTopBar';
+import { SuperAdminShell } from '@/components/super-admin/SuperAdminShell';
 import { readSuperAdminSession } from '@/lib/super-admin-guard';
 
 /**
@@ -25,14 +24,5 @@ export default async function SuperAdminLayout({ children }: { children: ReactNo
     return <>{children}</>;
   }
 
-  return (
-    <div className="flex h-screen bg-slate-50">
-      <SuperAdminSidebar />
-
-      <div className="flex min-w-0 flex-1 flex-col">
-        <SuperAdminTopBar email={session.email} />
-        <main className="flex-1 overflow-y-auto p-6">{children}</main>
-      </div>
-    </div>
-  );
+  return <SuperAdminShell email={session.email}>{children}</SuperAdminShell>;
 }

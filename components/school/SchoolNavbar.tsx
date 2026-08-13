@@ -1,4 +1,5 @@
 import { LogoutButton } from '@/components/school/LogoutButton';
+import { SidebarToggle } from '@/components/school/PortalFrame';
 import { ROLE_LABELS, type UserRole } from '@/types/school-auth';
 
 export interface SchoolNavbarProps {
@@ -40,6 +41,13 @@ export function SchoolNavbar({
   return (
     <header className="flex h-16 shrink-0 items-center justify-between gap-4 bg-brand-primary px-4 text-brand-onPrimary sm:px-6">
       <div className="flex min-w-0 items-center gap-3">
+        {/*
+          The only way to the navigation below 768px, where the sidebar does not
+          render. It reaches `PortalFrame`'s state through context rather than a
+          prop, because this header is composed on the server.
+        */}
+        <SidebarToggle />
+
         {logoUrl !== null && logoUrl !== '' ? (
           // School logos arrive at unpredictable dimensions; a plain <img>
           // avoids forcing a size onto them.
