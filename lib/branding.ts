@@ -2,9 +2,10 @@ import { eq } from 'drizzle-orm';
 
 import { schoolBranding, type Palette } from '@/db/schema';
 
+import { deriveThemeVariables } from './brand-derive';
 import { readableForeground, toRgbChannels } from './color-contrast';
 import { db } from './drizzle';
-import { presetFor } from './palette-presets';
+import { DEFAULT_PALETTE, presetFor } from './palette-presets';
 
 /**
  * Per-tenant theming.
@@ -36,13 +37,13 @@ import { presetFor } from './palette-presets';
  * schools themed before this change get them too, without a migration.
  */
 
-export const DEFAULT_PALETTE: Palette = {
-  primary: '#1d4ed8',
-  secondary: '#0f172a',
-  accent: '#0ea5e9',
-  background: '#f8fafc',
-  text: '#0f172a',
-};
+/**
+ * Moved to `lib/palette-presets.ts` in Sprint 10.5 and re-exported here, so
+ * every existing importer is unaffected. It had to leave this module because
+ * this one opens a database connection and the theme contrast audit needs the
+ * default without one — see that file's docblock.
+ */
+export { DEFAULT_PALETTE } from './palette-presets';
 
 const VARIABLE_NAMES: ReadonlyArray<[keyof Palette, string]> = [
   ['primary', '--brand-primary'],
@@ -83,6 +84,18 @@ export function paletteToCSSVars(palette: Palette | null): Record<string, string
     const channels = toRgbChannels(readableForeground(surface));
     if (channels !== null) variables[variableName] = channels;
   }
+
+  /*
+   * Sprint 10.5: the surfaces, borders, inks, status colours and chart series
+   * the interface below the shell is painted with, all computed from the five
+   * above. See `lib/brand-derive.ts` for why five colours cannot paint an
+   * application on their own.
+   *
+   * Emitted last and deliberately not merged over: every name it produces is
+   * its own, so it can neither overwrite the five stored colours nor the three
+   * foregrounds computed from them.
+   */
+  Object.assign(variables, deriveThemeVariables(effective));
 
   return variables;
 }
