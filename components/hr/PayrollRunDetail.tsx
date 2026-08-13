@@ -7,6 +7,14 @@ import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { Card, CardTitle } from '@/components/ui/Card';
 import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeaderCell,
+  TableRow,
+} from '@/components/ui/Table';
+import {
   PAYROLL_RUN_STATUS_LABELS,
   canTransitionRun,
   formatPayrollPeriod,
@@ -263,63 +271,61 @@ export function PayrollRunDetail({ runId, canEdit }: PayrollRunDetailProps) {
           header={<CardTitle title="Payslips" description={`${payslips.length} slips.`} />}
           className="p-0"
         >
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-sm">
-              <thead className="border-b border-line text-xs uppercase tracking-wide text-ink-muted">
-                <tr>
-                  <th scope="col" className="px-5 py-3 font-medium">Number</th>
-                  <th scope="col" className="px-5 py-3 font-medium">Staff</th>
-                  <th scope="col" className="px-5 py-3 font-medium">Gross</th>
-                  <th scope="col" className="px-5 py-3 font-medium">Deductions</th>
-                  <th scope="col" className="px-5 py-3 font-medium">LOP</th>
-                  <th scope="col" className="px-5 py-3 font-medium">Net</th>
-                  <th scope="col" className="px-5 py-3 font-medium">Status</th>
-                  <th scope="col" className="px-5 py-3 font-medium">
+          <Table caption="Payslips in this run">
+              <TableHead>
+                <TableRow>
+                  <TableHeaderCell>Number</TableHeaderCell>
+                  <TableHeaderCell>Staff</TableHeaderCell>
+                  <TableHeaderCell>Gross</TableHeaderCell>
+                  <TableHeaderCell>Deductions</TableHeaderCell>
+                  <TableHeaderCell>LOP</TableHeaderCell>
+                  <TableHeaderCell>Net</TableHeaderCell>
+                  <TableHeaderCell>Status</TableHeaderCell>
+                  <TableHeaderCell>
                     <span className="sr-only">Open</span>
-                  </th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-line">
+                  </TableHeaderCell>
+                </TableRow>
+              </TableHead>
+              <TableBody>
                 {payslips.map((row) => (
-                  <tr key={row.id}>
-                    <td className="px-5 py-3 font-mono text-xs text-ink-muted">
+                  <TableRow key={row.id}>
+                    <TableCell muted className="font-mono text-xs">
                       {row.payslipNumber}
-                    </td>
-                    <td className="px-5 py-3">
+                    </TableCell>
+                    <TableCell>
                       <p className="font-medium text-ink">{row.staffName}</p>
                       <p className="text-xs text-ink-muted">
                         {row.employeeCode}
                         {row.designation === null ? '' : ` · ${row.designation}`}
                       </p>
-                    </td>
-                    <td className="px-5 py-3 text-ink-muted">
+                    </TableCell>
+                    <TableCell muted>
                       {formatPkr(row.grossEarnings)}
-                    </td>
-                    <td className="px-5 py-3 text-ink-muted">
+                    </TableCell>
+                    <TableCell muted>
                       {formatPkr(row.totalDeductions)}
-                    </td>
-                    <td className="px-5 py-3 text-ink-muted">{row.lossOfPayDays}</td>
-                    <td className="px-5 py-3 font-medium text-ink">
+                    </TableCell>
+                    <TableCell muted>{row.lossOfPayDays}</TableCell>
+                    <TableCell rowHeader>
                       {formatPkr(row.netPayable)}
-                    </td>
-                    <td className="px-5 py-3">
+                    </TableCell>
+                    <TableCell>
                       <Badge variant={SLIP_VARIANT[row.status]}>
                         {PAYSLIP_STATUS_LABELS[row.status]}
                       </Badge>
-                    </td>
-                    <td className="px-5 py-3 text-right">
+                    </TableCell>
+                    <TableCell align="numeric">
                       <Link
                         href={`/dashboard/payroll/payslips/${row.id}`}
                         className="text-sm font-medium text-brand-primary hover:underline"
                       >
                         Open
                       </Link>
-                    </td>
-                  </tr>
+                    </TableCell>
+                  </TableRow>
                 ))}
-              </tbody>
-            </table>
-          </div>
+              </TableBody>
+          </Table>
         </Card>
       )}
     </div>

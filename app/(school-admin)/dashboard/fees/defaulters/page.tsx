@@ -3,6 +3,14 @@ import Link from 'next/link';
 
 import { Badge } from '@/components/ui/Badge';
 import { Card, CardTitle } from '@/components/ui/Card';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeaderCell,
+  TableRow,
+} from '@/components/ui/Table';
 import { listAdmissionsBranches, listGrades } from '@/lib/admissions-queries';
 import {
   AGING_BUCKETS,
@@ -178,22 +186,21 @@ export default async function DefaultersPage({
         </Card>
       ) : (
         <Card className="p-0">
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-sm">
-              <thead className="border-b border-line text-xs uppercase tracking-wide text-ink-muted">
-                <tr>
-                  <th scope="col" className="px-4 py-3 font-medium">Student</th>
-                  <th scope="col" className="px-4 py-3 font-medium">Class</th>
-                  <th scope="col" className="px-4 py-3 font-medium">Contact</th>
-                  <th scope="col" className="px-4 py-3 font-medium">Oldest due</th>
-                  <th scope="col" className="px-4 py-3 font-medium">Age</th>
-                  <th scope="col" className="px-4 py-3 text-right font-medium">Outstanding</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-line">
+          <Table caption="Students with money outstanding">
+              <TableHead>
+                <TableRow>
+                  <TableHeaderCell>Student</TableHeaderCell>
+                  <TableHeaderCell>Class</TableHeaderCell>
+                  <TableHeaderCell>Contact</TableHeaderCell>
+                  <TableHeaderCell>Oldest due</TableHeaderCell>
+                  <TableHeaderCell>Age</TableHeaderCell>
+                  <TableHeaderCell align="numeric">Outstanding</TableHeaderCell>
+                </TableRow>
+              </TableHead>
+              <TableBody>
                 {rows.map((row) => (
-                  <tr key={row.studentProfileId}>
-                    <td className="px-4 py-3">
+                  <TableRow key={row.studentProfileId}>
+                    <TableCell>
                       <Link
                         href={`/dashboard/admissions/students/${row.studentProfileId}`}
                         className="font-medium text-brand-primary hover:underline"
@@ -203,12 +210,12 @@ export default async function DefaultersPage({
                       <span className="block font-mono text-xs text-ink-muted">
                         {row.studentNumber}
                       </span>
-                    </td>
-                    <td className="px-4 py-3 text-ink-muted">
+                    </TableCell>
+                    <TableCell muted>
                       {row.gradeName} {row.sectionName}
                       <span className="block text-xs text-ink-muted">{row.branchName}</span>
-                    </td>
-                    <td className="px-4 py-3 text-ink-muted">
+                    </TableCell>
+                    <TableCell muted>
                       {row.reachable ? (
                         <>
                           <span className="block">{row.guardianName ?? '—'}</span>
@@ -219,11 +226,11 @@ export default async function DefaultersPage({
                       ) : (
                         <span className="text-status-warning-ink">No contact on file</span>
                       )}
-                    </td>
-                    <td className="px-4 py-3 font-mono text-xs text-ink-muted">
+                    </TableCell>
+                    <TableCell muted className="font-mono text-xs">
                       {row.oldestDueDate}
-                    </td>
-                    <td className="px-4 py-3">
+                    </TableCell>
+                    <TableCell>
                       <Badge
                         variant={
                           row.bucket === 'd90_plus'
@@ -240,15 +247,14 @@ export default async function DefaultersPage({
                           {row.openChallans} challans
                         </span>
                       ) : null}
-                    </td>
-                    <td className="px-4 py-3 text-right font-mono text-ink">
+                    </TableCell>
+                    <TableCell align="numeric" className="font-mono">
                       {row.outstanding}
-                    </td>
-                  </tr>
+                    </TableCell>
+                  </TableRow>
                 ))}
-              </tbody>
-            </table>
-          </div>
+              </TableBody>
+          </Table>
         </Card>
       )}
     </div>

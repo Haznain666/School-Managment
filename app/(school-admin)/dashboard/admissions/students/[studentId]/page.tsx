@@ -7,6 +7,14 @@ import { StudentProfileCard } from '@/components/admissions/StudentProfileCard';
 import { Badge } from '@/components/ui/Badge';
 import { Card, CardTitle } from '@/components/ui/Card';
 import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeaderCell,
+  TableRow,
+} from '@/components/ui/Table';
+import {
   getStudentDetail,
   listEnrollmentHistory,
   listGuardians,
@@ -112,38 +120,36 @@ export default async function StudentProfilePage({
             No earlier academic years on record.
           </p>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-sm">
-              <thead className="border-b border-line text-xs uppercase tracking-wide text-ink-muted">
-                <tr>
-                  <th scope="col" className="px-5 py-3 font-medium">Year</th>
-                  <th scope="col" className="px-5 py-3 font-medium">Grade</th>
-                  <th scope="col" className="px-5 py-3 font-medium">Section</th>
-                  <th scope="col" className="px-5 py-3 font-medium">Roll no.</th>
-                  <th scope="col" className="px-5 py-3 font-medium">Enrolled</th>
-                  <th scope="col" className="px-5 py-3 font-medium">Status</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-line">
+          <Table caption="Enrolment history">
+              <TableHead>
+                <TableRow>
+                  <TableHeaderCell>Year</TableHeaderCell>
+                  <TableHeaderCell>Grade</TableHeaderCell>
+                  <TableHeaderCell>Section</TableHeaderCell>
+                  <TableHeaderCell>Roll no.</TableHeaderCell>
+                  <TableHeaderCell>Enrolled</TableHeaderCell>
+                  <TableHeaderCell>Status</TableHeaderCell>
+                </TableRow>
+              </TableHead>
+              <TableBody>
                 {history.map((enrollment) => (
-                  <tr key={enrollment.id}>
-                    <td className="px-5 py-3 font-medium text-ink">
+                  <TableRow key={enrollment.id}>
+                    <TableCell rowHeader>
                       {enrollment.academicYearName}
-                    </td>
-                    <td className="px-5 py-3 text-ink-muted">{enrollment.gradeName}</td>
-                    <td className="px-5 py-3 text-ink-muted">{enrollment.sectionName}</td>
-                    <td className="px-5 py-3 text-ink-muted">
+                    </TableCell>
+                    <TableCell muted>{enrollment.gradeName}</TableCell>
+                    <TableCell muted>{enrollment.sectionName}</TableCell>
+                    <TableCell muted>
                       {enrollment.rollNumber ?? '—'}
-                    </td>
-                    <td className="px-5 py-3 text-ink-muted">
+                    </TableCell>
+                    <TableCell muted>
                       {enrollment.enrollmentDate}
-                    </td>
-                    <td className="px-5 py-3 text-ink-muted">{enrollment.status}</td>
-                  </tr>
+                    </TableCell>
+                    <TableCell muted>{enrollment.status}</TableCell>
+                  </TableRow>
                 ))}
-              </tbody>
-            </table>
-          </div>
+              </TableBody>
+          </Table>
         )}
       </Card>
 

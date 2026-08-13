@@ -5,6 +5,14 @@ import Link from 'next/link';
 import { branches, schoolModules, schools } from '@/db/schema';
 import { Badge } from '@/components/ui/Badge';
 import { Card, CardTitle } from '@/components/ui/Card';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeaderCell,
+  TableRow,
+} from '@/components/ui/Table';
 import { db } from '@/lib/drizzle';
 
 export const metadata: Metadata = {
@@ -112,49 +120,47 @@ export default async function SuperAdminDashboardPage() {
             .
           </p>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-sm">
-              <thead className="border-b border-line text-xs uppercase tracking-wide text-ink-muted">
-                <tr>
-                  <th scope="col" className="px-4 py-3 font-medium">
+          <Table caption="Recently added schools">
+              <TableHead>
+                <TableRow>
+                  <TableHeaderCell>
                     Name
-                  </th>
-                  <th scope="col" className="px-4 py-3 font-medium">
+                  </TableHeaderCell>
+                  <TableHeaderCell>
                     City
-                  </th>
-                  <th scope="col" className="px-4 py-3 font-medium">
+                  </TableHeaderCell>
+                  <TableHeaderCell>
                     Subdomain
-                  </th>
-                  <th scope="col" className="px-4 py-3 font-medium">
+                  </TableHeaderCell>
+                  <TableHeaderCell>
                     Status
-                  </th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-line">
+                  </TableHeaderCell>
+                </TableRow>
+              </TableHead>
+              <TableBody>
                 {recent.map((school) => (
-                  <tr key={school.id}>
-                    <td className="px-4 py-3">
+                  <TableRow key={school.id}>
+                    <TableCell>
                       <Link
                         href={`/super-admin/schools/${school.id}`}
                         className="font-medium text-ink hover:text-brand-primary"
                       >
                         {school.name}
                       </Link>
-                    </td>
-                    <td className="px-4 py-3 text-ink-muted">{school.city}</td>
-                    <td className="px-4 py-3 font-mono text-xs text-ink-muted">
+                    </TableCell>
+                    <TableCell muted>{school.city}</TableCell>
+                    <TableCell muted className="font-mono text-xs">
                       {school.slug}
-                    </td>
-                    <td className="px-4 py-3">
+                    </TableCell>
+                    <TableCell>
                       <Badge variant={school.isActive ? 'success' : 'danger'}>
                         {school.isActive ? 'Active' : 'Inactive'}
                       </Badge>
-                    </td>
-                  </tr>
+                    </TableCell>
+                  </TableRow>
                 ))}
-              </tbody>
-            </table>
-          </div>
+              </TableBody>
+          </Table>
         )}
       </Card>
     </div>

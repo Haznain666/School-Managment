@@ -3,6 +3,14 @@ import Link from 'next/link';
 
 import { Badge } from '@/components/ui/Badge';
 import { Card, CardTitle } from '@/components/ui/Card';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeaderCell,
+  TableRow,
+} from '@/components/ui/Table';
 import { getAdmissionsOverview } from '@/lib/admissions-queries';
 import { requireSchoolPermission } from '@/lib/school-guard';
 
@@ -150,39 +158,37 @@ export default async function AdmissionsOverviewPage() {
             No students have been enrolled yet.
           </p>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-sm">
-              <thead className="border-b border-line text-xs uppercase tracking-wide text-ink-muted">
-                <tr>
-                  <th scope="col" className="px-5 py-3 font-medium">Name</th>
-                  <th scope="col" className="px-5 py-3 font-medium">Student ID</th>
-                  <th scope="col" className="px-5 py-3 font-medium">Grade</th>
-                  <th scope="col" className="px-5 py-3 font-medium">Section</th>
-                  <th scope="col" className="px-5 py-3 font-medium">Enrolled</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-line">
+          <Table caption="Admissions by grade">
+              <TableHead>
+                <TableRow>
+                  <TableHeaderCell>Name</TableHeaderCell>
+                  <TableHeaderCell>Student ID</TableHeaderCell>
+                  <TableHeaderCell>Grade</TableHeaderCell>
+                  <TableHeaderCell>Section</TableHeaderCell>
+                  <TableHeaderCell>Enrolled</TableHeaderCell>
+                </TableRow>
+              </TableHead>
+              <TableBody>
                 {overview.recentEnrollments.map((student) => (
-                  <tr key={student.studentProfileId}>
-                    <td className="px-5 py-3 font-medium text-ink">
+                  <TableRow key={student.studentProfileId}>
+                    <TableCell rowHeader>
                       <Link
                         href={`/dashboard/admissions/students/${student.studentProfileId}`}
                         className="hover:underline"
                       >
                         {student.name}
                       </Link>
-                    </td>
-                    <td className="px-5 py-3 font-mono text-xs text-ink-muted">
+                    </TableCell>
+                    <TableCell muted className="font-mono text-xs">
                       {student.studentId}
-                    </td>
-                    <td className="px-5 py-3 text-ink-muted">{student.gradeName}</td>
-                    <td className="px-5 py-3 text-ink-muted">{student.sectionName}</td>
-                    <td className="px-5 py-3 text-ink-muted">{student.enrollmentDate}</td>
-                  </tr>
+                    </TableCell>
+                    <TableCell muted>{student.gradeName}</TableCell>
+                    <TableCell muted>{student.sectionName}</TableCell>
+                    <TableCell muted>{student.enrollmentDate}</TableCell>
+                  </TableRow>
                 ))}
-              </tbody>
-            </table>
-          </div>
+              </TableBody>
+          </Table>
         )}
       </Card>
 

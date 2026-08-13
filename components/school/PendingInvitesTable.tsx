@@ -1,10 +1,20 @@
 'use client';
 
+import { MailPlus } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { Card, CardTitle } from '@/components/ui/Card';
+import { EmptyState } from '@/components/ui/EmptyState';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeaderCell,
+  TableRow,
+} from '@/components/ui/Table';
 import { ROLE_LABELS, isUserRole } from '@/types/school-auth';
 
 interface PendingInvite {
@@ -110,31 +120,38 @@ export function PendingInvitesTable() {
       ) : null}
 
       {invites.length === 0 ? (
-        <p className="px-5 py-4 text-sm text-ink-muted">No invitations are pending.</p>
+        <EmptyState
+          bare
+          tone="empty"
+          icon={MailPlus}
+          title="No invitations are pending"
+          description="Everyone you have invited has either accepted or been cancelled."
+        />
       ) : (
-        <div className="overflow-x-auto">
-          <table className="w-full text-left text-sm">
-            <thead className="border-b border-line text-xs uppercase tracking-wide text-ink-muted">
-              <tr>
-                <th scope="col" className="px-4 py-3 font-medium">Name</th>
-                <th scope="col" className="px-4 py-3 font-medium">Role</th>
-                <th scope="col" className="px-4 py-3 font-medium">Phone</th>
-                <th scope="col" className="px-4 py-3 font-medium">Delivered</th>
-                <th scope="col" className="px-4 py-3 font-medium">Expires</th>
-                <th scope="col" className="px-4 py-3 font-medium">Actions</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-line">
+        <Table caption="Pending invitations" className="rounded-none border-0">
+          <TableHead>
+            <TableRow>
+              <TableHeaderCell>Name</TableHeaderCell>
+              <TableHeaderCell>Role</TableHeaderCell>
+              <TableHeaderCell>Phone</TableHeaderCell>
+              <TableHeaderCell>Delivered</TableHeaderCell>
+              <TableHeaderCell>Expires</TableHeaderCell>
+              <TableHeaderCell>Actions</TableHeaderCell>
+            </TableRow>
+          </TableHead>
+          <TableBody>
               {invites.map((invite) => (
-                <tr key={invite.id}>
-                  <td className="px-4 py-3 font-medium text-ink">{invite.name}</td>
-                  <td className="px-4 py-3 text-ink-muted">
+                <TableRow key={invite.id}>
+                  <TableCell rowHeader>{invite.name}</TableCell>
+                  <TableCell muted>
                     {isUserRole(invite.role) ? ROLE_LABELS[invite.role] : invite.role}
-                  </td>
-                  <td className="px-4 py-3 font-mono text-xs text-ink-muted">
+                  </TableCell>
+                  {/* A phone number is compared digit by digit, so it takes the
+                      mono face like every other identifier in the product. */}
+                  <TableCell muted className="font-mono text-xs">
                     {invite.phone}
-                  </td>
-                  <td className="px-4 py-3">
+                  </TableCell>
+                  <TableCell>
                     <div className="flex gap-1">
                       {invite.whatsappSent ? (
                         <Badge variant="success">WhatsApp</Badge>
@@ -153,9 +170,9 @@ export function PendingInvitesTable() {
                         <Badge variant="danger">Not delivered</Badge>
                       ) : null}
                     </div>
-                  </td>
-                  <td className="px-4 py-3 text-ink-muted">{expiresIn(invite.expiresAt)}</td>
-                  <td className="px-4 py-3">
+                  </TableCell>
+                  <TableCell muted>{expiresIn(invite.expiresAt)}</TableCell>
+                  <TableCell>
                     <div className="flex gap-2">
                       <Button
                         variant="ghost"
@@ -178,12 +195,11 @@ export function PendingInvitesTable() {
                         Cancel
                       </Button>
                     </div>
-                  </td>
-                </tr>
+                  </TableCell>
+                </TableRow>
               ))}
-            </tbody>
-          </table>
-        </div>
+          </TableBody>
+        </Table>
       )}
     </Card>
   );
