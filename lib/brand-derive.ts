@@ -176,6 +176,30 @@ function channelDistance(a: Rgb, b: Rgb): number {
   return Math.abs(a.r - b.r) + Math.abs(a.g - b.g) + Math.abs(a.b - b.b);
 }
 
+/**
+ * Pushes `colour` until it clears `ratio` against *every* surface it might be
+ * painted on, not merely the one it was designed against.
+ *
+ * A single `ensureContrast` answers "is this legible on the page", which is the
+ * wrong question for any token that travels — muted text appears on the page,
+ * on a card, in a table header and inside a selected row, and those are four
+ * different backgrounds. Applying the push once per surface converges, because
+ * on a given theme every push moves the same direction (darker on a light
+ * theme, lighter on a dark one); the second pass over the list is there to
+ * catch the case where satisfying a later surface loosened an earlier one.
+ */
+function ensureAgainstAll(colour: Rgb, surfaces: readonly Rgb[], ratio: number): Rgb {
+  let result = colour;
+
+  for (let pass = 0; pass < 2; pass += 1) {
+    for (const surface of surfaces) {
+      result = ensureContrast(result, surface, ratio);
+    }
+  }
+
+  return result;
+}
+
 /* -----------------------------------------------------------------------------
  * Derivation.
  * -------------------------------------------------------------------------- */
@@ -243,6 +267,34 @@ export function deriveThemeVariables(palette: Palette): Record<string, string> {
   variables['--surface-sunken'] = channels(surfaceSunken);
   variables['--surface-hover'] = channels(surfaceHover);
 
+  /* ── Brand washes ──────────────────────────────────────────────────────────
+   * Computed here, before the inks, rather than beside the other brand tokens
+   * further down. They are *surfaces* — the fill behind a selected table row,
+   * an active nav item, a brand-coloured badge — and `--ink-muted` has to be
+   * legible on them, so they must exist before the inks are resolved.
+   * -------------------------------------------------------------------------- */
+
+  const primarySubtle = mix(primary, background, 0.88);
+  const accentSubtle = mix(accent, background, 0.88);
+
+  /**
+   * Every plane that ordinary muted text can land on.
+   *
+   * ── The bug this list exists to prevent ──────────────────────────────────
+   * `--ink-muted` was originally checked against the page and the card only,
+   * and a browser audit of the rendered DOM then found eighteen real contrast
+   * failures across the palettes — all of them muted text sitting on a surface
+   * that was in neither of those two: table headers on `surface-sunken`,
+   * neutral badges on the same, and a muted cell inside a *selected* row, which
+   * is `primarySubtle`.
+   *
+   * It is the same mistake the status inks had, one plane over: a token
+   * verified against the background it was designed for and then painted on a
+   * different one. Checking against the whole set is the fix, and it is why the
+   * washes are computed above rather than below.
+   */
+  const textPlanes = [background, surfaceRaised, surfaceSunken, primarySubtle, accentSubtle];
+
   /* ── Borders ───────────────────────────────────────────────────────────────
    * Two borders, because they do different jobs and only one of them is
    * decorative.
@@ -292,20 +344,23 @@ export function deriveThemeVariables(palette: Palette): Record<string, string> {
    * for icon ghosts, disabled glyphs and rules.
    * -------------------------------------------------------------------------- */
 
-  variables['--ink'] = channels(ensureContrast(ink, background, TEXT_CONTRAST));
+  variables['--ink'] = channels(ensureAgainstAll(ink, textPlanes, TEXT_CONTRAST));
   variables['--ink-muted'] = channels(
-    ensureContrast(mix(ink, background, 0.38), background, TEXT_CONTRAST),
+    ensureAgainstAll(mix(ink, background, 0.38), textPlanes, TEXT_CONTRAST),
   );
   variables['--ink-faint'] = channels(
-    ensureContrast(mix(ink, background, 0.62), background, UI_CONTRAST),
+    ensureAgainstAll(mix(ink, background, 0.62), textPlanes, UI_CONTRAST),
   );
 
   /* ── Brand, as functional tokens ───────────────────────────────────────── */
 
   // `primary` is stored for use as a *fill*, and is not guaranteed to be legible
-  // as text on the page. A link or an icon painted in it needs its own value.
-  const primaryInk = ensureContrast(primary, background, TEXT_CONTRAST);
-  const accentInk = ensureContrast(accent, background, TEXT_CONTRAST);
+  // as text on the page. A link or an icon painted in it needs its own value —
+  // and it needs it on every plane, because a brand-coloured link inside a
+  // selected table row is sitting on `primarySubtle`, which is the plane made
+  // out of that very colour and therefore the hardest one to be legible on.
+  const primaryInk = ensureAgainstAll(primary, textPlanes, TEXT_CONTRAST);
+  const accentInk = ensureAgainstAll(accent, textPlanes, TEXT_CONTRAST);
 
   variables['--brand-primary-ink'] = channels(primaryInk);
   variables['--brand-accent-ink'] = channels(accentInk);
@@ -319,10 +374,8 @@ export function deriveThemeVariables(palette: Palette): Record<string, string> {
     darkSurface ? mix(accent, white, 0.14) : mix(accent, black, 0.14),
   );
 
-  // The wash behind a selected row, an active nav item, a brand-coloured badge.
-  const primarySubtle = mix(primary, background, 0.88);
-  const accentSubtle = mix(accent, background, 0.88);
-
+  // The washes themselves are computed further up, with the surfaces, because
+  // `--ink-muted` has to be checked against them.
   variables['--brand-primary-subtle'] = channels(primarySubtle);
   variables['--brand-accent-subtle'] = channels(accentSubtle);
   variables['--brand-on-primary-subtle'] = channels(
@@ -393,11 +446,7 @@ export function deriveThemeVariables(palette: Palette): Record<string, string> {
      * theme the card is the lighter of the two — so a value tuned to the page
      * alone comes up short exactly where it is actually used.
      */
-    const statusInk = ensureContrast(
-      ensureContrast(raw, background, TEXT_CONTRAST),
-      surfaceRaised,
-      TEXT_CONTRAST,
-    );
+    const statusInk = ensureAgainstAll(raw, textPlanes, TEXT_CONTRAST);
 
     const subtle = mix(solid, background, 0.86);
 

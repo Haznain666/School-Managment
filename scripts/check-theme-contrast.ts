@@ -92,14 +92,31 @@ const CASES: ReadonlyArray<readonly [string, Palette]> = [
 
 const STATUSES = ['danger', 'warning', 'success', 'info'] as const;
 
+/**
+ * Every plane ordinary text can land on.
+ *
+ * ── Why this is a list and not just `--surface` ──────────────────────────
+ * An earlier version of this file checked the inks against the page and the
+ * card only. It passed, and a contrast audit of the *rendered DOM* then found
+ * eighteen real failures the script had missed — every one of them muted text
+ * on a surface that was in neither: a table header (`surface-sunken`), a
+ * neutral badge (the same), and a muted cell inside a selected row
+ * (`brand-primary-subtle`).
+ *
+ * The lesson is the one this script exists to encode: a token is not "checked"
+ * until it is checked against each surface it is actually painted on. Adding a
+ * new surface token means adding it here.
+ */
+const TEXT_PLANES = [
+  '--surface',
+  '--surface-raised',
+  '--surface-sunken',
+  '--brand-primary-subtle',
+  '--brand-accent-subtle',
+] as const;
+
 /** Foreground token -> the token it is painted on. Must clear 4.5:1. */
 const TEXT_PAIRS: Array<[string, string]> = [
-  ['--ink', '--surface'],
-  ['--ink', '--surface-raised'],
-  ['--ink-muted', '--surface'],
-  ['--ink-muted', '--surface-raised'],
-  ['--brand-primary-ink', '--surface'],
-  ['--brand-accent-ink', '--surface'],
   ['--brand-on-primary-subtle', '--brand-primary-subtle'],
   ['--brand-on-accent-subtle', '--brand-accent-subtle'],
 ];
@@ -108,12 +125,24 @@ const TEXT_PAIRS: Array<[string, string]> = [
 const UI_PAIRS: Array<[string, string]> = [
   ['--focus-ring', '--surface'],
   ['--border-strong', '--surface'],
-  ['--ink-faint', '--surface'],
 ];
 
+for (const plane of TEXT_PLANES) {
+  TEXT_PAIRS.push(['--ink', plane]);
+  TEXT_PAIRS.push(['--ink-muted', plane]);
+  UI_PAIRS.push(['--ink-faint', plane]);
+
+  // Brand-coloured link text and standalone status words appear on every plane
+  // too — a red "Overdue" sits in a table row that may be selected.
+  TEXT_PAIRS.push(['--brand-primary-ink', plane]);
+  TEXT_PAIRS.push(['--brand-accent-ink', plane]);
+
+  for (const status of STATUSES) {
+    TEXT_PAIRS.push([`--status-${status}-ink`, plane]);
+  }
+}
+
 for (const status of STATUSES) {
-  TEXT_PAIRS.push([`--status-${status}-ink`, '--surface']);
-  TEXT_PAIRS.push([`--status-${status}-ink`, '--surface-raised']);
   TEXT_PAIRS.push([`--status-${status}-on-subtle`, `--status-${status}-subtle`]);
   TEXT_PAIRS.push([`--status-${status}-on`, `--status-${status}`]);
   UI_PAIRS.push([`--status-${status}`, '--surface']);

@@ -53,10 +53,10 @@
     --border: 212 215 220;
     --border-strong: 139 144 155;
     --ink: 15 23 42;
-    --ink-muted: 104 109 122;
-    --ink-faint: 137 143 153;
+    --ink-muted: 97 102 114;
+    --ink-faint: 124 130 141;
     --brand-primary-ink: 29 78 216;
-    --brand-accent-ink: 10 121 170;
+    --brand-accent-ink: 8 107 150;
     --brand-primary-hover: 25 67 186;
     --brand-accent-hover: 12 142 200;
     --brand-primary-subtle: 222 229 248;
@@ -71,12 +71,12 @@
     --status-danger-on-subtle: 174 30 68;
     --status-warning: 205 120 35;
     --status-warning-on: 15 23 42;
-    --status-warning-ink: 166 97 28;
+    --status-warning-ink: 148 87 26;
     --status-warning-subtle: 242 232 222;
     --status-warning-on-subtle: 153 89 26;
     --status-success: 28 161 134;
     --status-success-on: 15 23 42;
-    --status-success-ink: 23 130 109;
+    --status-success-ink: 19 112 95;
     --status-success-subtle: 217 238 235;
     --status-success-on-subtle: 20 117 98;
     --status-info: 33 97 191;
@@ -206,6 +206,21 @@
 }
 
 @media print {
+  /*
+   * Paper is white, whatever the school's palette is.
+   *
+   * `body` carried `bg-white` until Sprint 10.5 and now carries `bg-surface`,
+   * which is the school's own background — correct on screen, and a regression
+   * on paper: `[data-print-root]` sets no background of its own, so a school
+   * with a dark palette would print a challan on a dark field on any machine
+   * with "background graphics" switched on. This restores exactly the previous
+   * behaviour and is scoped to print, where the school's colours belong in the
+   * letterhead rather than the sheet.
+   */
+  body {
+    background: #fff;
+  }
+
   body * {
     visibility: hidden;
   }
