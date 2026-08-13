@@ -53,7 +53,7 @@ export default async function SchoolSettingsPage() {
   if (school === undefined) {
     return (
       <Card>
-        <p className="text-sm text-slate-600">This school could not be loaded.</p>
+        <p className="text-sm text-ink-muted">This school could not be loaded.</p>
       </Card>
     );
   }
@@ -87,7 +87,7 @@ export default async function SchoolSettingsPage() {
 
       {permissions.includes('permissions.manage') ? (
         <Card header={<CardTitle title="Roles and permissions" />}>
-          <p className="text-sm text-slate-600">
+          <p className="text-sm text-ink-muted">
             Decide what each role at your school may do — who can take a payment,
             who can approve payroll, who can see a personnel file.
           </p>
@@ -101,7 +101,7 @@ export default async function SchoolSettingsPage() {
       ) : null}
 
       <Card header={<CardTitle title="Notification preferences" />}>
-        <p className="text-sm text-slate-500">Coming soon.</p>
+        <p className="text-sm text-ink-muted">Coming soon.</p>
       </Card>
     </div>
   );

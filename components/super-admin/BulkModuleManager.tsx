@@ -94,8 +94,8 @@ function CurrentState({ on, total }: { on: number; total: number }) {
       className={cn(
         'shrink-0 rounded-full px-2 py-0.5 text-xs',
         on === 0 || on === total
-          ? 'bg-slate-100 text-slate-600'
-          : 'bg-amber-100 text-amber-800',
+          ? 'bg-surface-sunken text-ink-muted'
+          : 'bg-status-warning-subtle text-status-warning-onSubtle',
       )}
     >
       {text}
@@ -138,7 +138,7 @@ function FlagSwitch({
         // this, one changed row in a list of eleven is invisible.
         changed
           ? 'border-brand-primary ring-1 ring-brand-primary/30'
-          : 'border-slate-300',
+          : 'border-line-strong',
       )}
     >
       {options.map((option) => {
@@ -166,9 +166,9 @@ function FlagSwitch({
               'rounded-md px-3 py-1 text-sm font-medium transition',
               active
                 ? option.choice === 'on'
-                  ? 'bg-emerald-600 text-white'
-                  : 'bg-red-600 text-white'
-                : 'text-slate-600 hover:bg-slate-100',
+                  ? 'bg-status-success text-status-success-on'
+                  : 'bg-status-danger text-status-danger-on'
+                : 'text-ink-muted hover:bg-surface-hover',
               unavailable && 'cursor-not-allowed opacity-50 hover:bg-transparent',
             )}
           >
@@ -336,15 +336,15 @@ export function BulkModuleManager({ schools }: BulkModuleManagerProps) {
       return (
         <div
           key={entry.key}
-          className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 py-3 last:border-0"
+          className="flex flex-wrap items-center justify-between gap-3 border-b border-line py-3 last:border-0"
         >
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2">
-              <p className="text-sm font-medium text-slate-900">{entry.label}</p>
+              <p className="text-sm font-medium text-ink">{entry.label}</p>
               {isLoadingStates ? null : <CurrentState {...summary} />}
             </div>
             {entry.description === undefined ? null : (
-              <p className="mt-1 text-sm text-slate-500">{entry.description}</p>
+              <p className="mt-1 text-sm text-ink-muted">{entry.description}</p>
             )}
           </div>
 
@@ -403,7 +403,7 @@ export function BulkModuleManager({ schools }: BulkModuleManagerProps) {
         <div className="space-y-6">
           {PLATFORM_MODULE_PHASES.map((phase) => (
             <section key={phase}>
-              <h3 className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-500">
+              <h3 className="mb-1 text-xs font-semibold uppercase tracking-wide text-ink-muted">
                 Phase {phase}
               </h3>
               {rowsFor(modulesInPhase(phase))}
@@ -424,7 +424,7 @@ export function BulkModuleManager({ schools }: BulkModuleManagerProps) {
 
         {positionOf('whatsapp', baselineOf('whatsapp')).value === 'on' &&
         states.length > 0 ? (
-          <p className="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-800">
+          <p className="mt-3 rounded-lg bg-status-warning-subtle px-3 py-2 text-sm text-status-warning-onSubtle">
             WhatsApp is delivered through each school’s own GoHighLevel
             sub-account.{' '}
             {ghlConnectedCount === states.length
@@ -445,13 +445,13 @@ export function BulkModuleManager({ schools }: BulkModuleManagerProps) {
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2">
-              <p className="text-sm font-medium text-slate-900">{GHL.label}</p>
+              <p className="text-sm font-medium text-ink">{GHL.label}</p>
               {states.length === 0 || isLoadingStates ? null : (
                 <CurrentState on={ghlConnectedCount} total={states.length} />
               )}
             </div>
-            <p className="mt-1 text-sm text-slate-500">{GHL.description}</p>
-            <p className="mt-2 text-sm text-slate-600">
+            <p className="mt-1 text-sm text-ink-muted">{GHL.description}</p>
+            <p className="mt-2 text-sm text-ink-muted">
               <strong>Connecting cannot be done in bulk</strong> — each school
               needs its own {GHL.credentialLabel}, so there is nothing to
               broadcast. Connect one from the{' '}
@@ -471,7 +471,7 @@ export function BulkModuleManager({ schools }: BulkModuleManagerProps) {
         </div>
 
         {disconnectGhl && ghlConnectedCount > 0 ? (
-          <p className="mt-3 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">
+          <p className="mt-3 rounded-lg bg-status-danger-subtle px-3 py-2 text-sm text-status-danger-ink">
             This will clear the {GHL.credentialLabel} from {ghlConnectedCount}{' '}
             school{ghlConnectedCount === 1 ? '' : 's'}. The ids are not kept
             anywhere else — reconnecting means finding each one again in
@@ -481,7 +481,7 @@ export function BulkModuleManager({ schools }: BulkModuleManagerProps) {
       </Card>
 
       {error !== null ? (
-        <p role="alert" className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">
+        <p role="alert" className="rounded-lg bg-status-danger-subtle px-3 py-2 text-sm text-status-danger-ink">
           {error}
         </p>
       ) : null}
@@ -489,7 +489,7 @@ export function BulkModuleManager({ schools }: BulkModuleManagerProps) {
       {result !== null ? (
         <div
           role="status"
-          className="space-y-2 rounded-lg bg-emerald-50 px-4 py-3 text-sm text-emerald-900"
+          className="space-y-2 rounded-lg bg-status-success-subtle px-4 py-3 text-sm text-emerald-900"
         >
           <p className="font-medium">
             Applied {result.flagsPerSchool} change
@@ -501,12 +501,12 @@ export function BulkModuleManager({ schools }: BulkModuleManagerProps) {
             .
           </p>
 
-          <p className="text-emerald-800">
+          <p className="text-status-success-onSubtle">
             {result.schools.map((school) => school.name).join(', ')}
           </p>
 
           {result.missing.length > 0 ? (
-            <p className="text-amber-800">
+            <p className="text-status-warning-onSubtle">
               {result.missing.length} selected school
               {result.missing.length === 1 ? '' : 's'} no longer exist and
               {result.missing.length === 1 ? ' was' : ' were'} skipped.
@@ -514,7 +514,7 @@ export function BulkModuleManager({ schools }: BulkModuleManagerProps) {
           ) : null}
 
           {result.warnings.whatsappWithoutGhl.length > 0 ? (
-            <p className="text-amber-800">
+            <p className="text-status-warning-onSubtle">
               WhatsApp is on but not connected to GoHighLevel at:{' '}
               {result.warnings.whatsappWithoutGhl.join(', ')}. These will keep
               sending by email until each one is connected.
@@ -523,7 +523,7 @@ export function BulkModuleManager({ schools }: BulkModuleManagerProps) {
         </div>
       ) : null}
 
-      <div className="sticky bottom-0 flex flex-wrap items-center gap-3 border-t border-slate-200 bg-slate-50 py-4">
+      <div className="sticky bottom-0 flex flex-wrap items-center gap-3 border-t border-line bg-surface-sunken py-4">
         <Button isLoading={isApplying} disabled={!canApply} onClick={() => void handleApply()}>
           {selectedIds.length === 0
             ? 'Select schools first'
@@ -548,7 +548,7 @@ export function BulkModuleManager({ schools }: BulkModuleManagerProps) {
 
         <Link
           href="/super-admin/schools"
-          className="text-sm font-medium text-slate-500 hover:text-slate-900 hover:underline"
+          className="text-sm font-medium text-ink-muted hover:text-ink hover:underline"
         >
           Back to schools
         </Link>

@@ -25,11 +25,11 @@ function StatCard({
 }) {
   return (
     <Card>
-      <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
+      <p className="text-xs font-medium uppercase tracking-wide text-ink-muted">
         {label}
       </p>
-      <p className="mt-2 text-2xl font-bold text-slate-900">{value}</p>
-      <p className="mt-1 text-xs text-slate-500">{hint}</p>
+      <p className="mt-2 text-2xl font-bold text-ink">{value}</p>
+      <p className="mt-1 text-xs text-ink-muted">{hint}</p>
     </Card>
   );
 }
@@ -46,10 +46,10 @@ function ActionTile({
   return (
     <Link
       href={href}
-      className="block rounded-card border border-slate-200 bg-white p-4 shadow-card transition hover:border-brand-primary"
+      className="block rounded-card border border-line bg-surface-raised p-4 shadow-card transition hover:border-brand-primary"
     >
-      <p className="font-medium text-slate-900">{title}</p>
-      <p className="mt-1 text-sm text-slate-500">{description}</p>
+      <p className="font-medium text-ink">{title}</p>
+      <p className="mt-1 text-sm text-ink-muted">{description}</p>
     </Link>
   );
 }
@@ -80,16 +80,16 @@ export default async function FeesOverviewPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h2 className="text-xl font-semibold text-slate-900">Fee Management</h2>
-        <p className="mt-1 text-sm text-slate-500">
+        <h2 className="text-xl font-semibold text-ink">Fee Management</h2>
+        <p className="mt-1 text-sm text-ink-muted">
           Challans, collections and what is still owed — for {thisMonth}.
         </p>
       </div>
 
       {!overview.hasFeeTypes ? (
         <Card>
-          <h3 className="text-base font-semibold text-slate-900">Setup required</h3>
-          <p className="mt-1 text-sm text-slate-600">
+          <h3 className="text-base font-semibold text-ink">Setup required</h3>
+          <p className="mt-1 text-sm text-ink-muted">
             No fee heads exist yet, so nothing can be priced or billed. Start by
             seeding the standard set — tuition, admission, annual charges, library
             and examination — then set what each grade pays.
@@ -105,10 +105,10 @@ export default async function FeesOverviewPage() {
 
       {activeYear === null ? (
         <Card>
-          <h3 className="text-base font-semibold text-slate-900">
+          <h3 className="text-base font-semibold text-ink">
             No active academic year
           </h3>
-          <p className="mt-1 text-sm text-slate-600">
+          <p className="mt-1 text-sm text-ink-muted">
             Fees are priced per academic year, so nothing can be billed until one
             is set as active.
           </p>
@@ -145,7 +145,7 @@ export default async function FeesOverviewPage() {
       </div>
 
       <section className="space-y-3">
-        <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-500">
+        <h3 className="text-sm font-semibold uppercase tracking-wide text-ink-muted">
           Quick actions
         </h3>
 
@@ -183,21 +183,21 @@ export default async function FeesOverviewPage() {
           />
         }
       >
-        <ol className="space-y-3 text-sm text-slate-600">
+        <ol className="space-y-3 text-sm text-ink-muted">
           <li>
-            <span className="font-medium text-slate-900">1. Fee types</span> — the
+            <span className="font-medium text-ink">1. Fee types</span> — the
             heads you bill under, and whether each is monthly, one-off or annual.
           </li>
           <li>
-            <span className="font-medium text-slate-900">2. Fee structure</span> —
+            <span className="font-medium text-ink">2. Fee structure</span> —
             what every grade pays under every head, for this academic year.
           </li>
           <li>
-            <span className="font-medium text-slate-900">3. Concessions</span> —
+            <span className="font-medium text-ink">3. Concessions</span> —
             sibling, staff and hardship discounts, per student.
           </li>
           <li>
-            <span className="font-medium text-slate-900">4. Challans</span> —
+            <span className="font-medium text-ink">4. Challans</span> —
             generate monthly bills, print them, and record what comes in.
           </li>
         </ol>

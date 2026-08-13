@@ -42,7 +42,7 @@ export default async function ApplySuccessPage({
   return (
     <main
       style={brandStyle}
-      className="flex min-h-screen items-center justify-center bg-slate-50 px-4 py-12"
+      className="flex min-h-screen items-center justify-center bg-surface-sunken px-4 py-12"
     >
       <div className="w-full max-w-lg">
         <div className="mb-8 flex flex-col items-center text-center">
@@ -57,23 +57,23 @@ export default async function ApplySuccessPage({
           ) : (
             <span
               aria-hidden="true"
-              className="mb-4 flex h-16 w-16 items-center justify-center rounded-xl bg-brand-primary text-xl font-bold text-white"
+              className="mb-4 flex h-16 w-16 items-center justify-center rounded-xl bg-brand-primary text-xl font-bold text-brand-onPrimary"
             >
               {(school?.name ?? 'SMS').slice(0, 2).toUpperCase()}
             </span>
           )}
 
-          <h1 className="text-2xl font-bold text-slate-900">
+          <h1 className="text-2xl font-bold text-ink">
             Application submitted successfully
           </h1>
         </div>
 
         <Card>
-          <p className="text-sm text-slate-700">
+          <p className="text-sm text-ink">
             We have received your application for{' '}
-            <strong className="text-slate-900">{studentName}</strong>. Our
+            <strong className="text-ink">{studentName}</strong>. Our
             admissions team will contact{' '}
-            <strong className="text-slate-900">{guardianName}</strong>
+            <strong className="text-ink">{guardianName}</strong>
             {phone === undefined || phone === '' ? null : (
               <>
                 {' '}
@@ -84,16 +84,16 @@ export default async function ApplySuccessPage({
           </p>
 
           {ref === undefined || ref === '' ? null : (
-            <p className="mt-4 rounded-lg bg-slate-50 px-3 py-2 text-sm text-slate-600">
+            <p className="mt-4 rounded-lg bg-surface-sunken px-3 py-2 text-sm text-ink-muted">
               Your reference: <span className="font-mono font-medium">{ref}</span>
-              <span className="mt-1 block text-xs text-slate-500">
+              <span className="mt-1 block text-xs text-ink-muted">
                 Quote this if you contact the school about your application.
               </span>
             </p>
           )}
         </Card>
 
-        <p className="mt-6 text-center text-xs text-slate-400">
+        <p className="mt-6 text-center text-xs text-ink-muted">
           You do not need an account to apply. If {studentName} is offered a
           place, {school?.name ?? 'the school'} will set one up for you.
         </p>

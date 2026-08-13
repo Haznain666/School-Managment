@@ -35,13 +35,13 @@ export default async function ImportStudentsPage() {
   if (activeYear === null) {
     return (
       <div className="max-w-3xl space-y-4">
-        <h2 className="text-xl font-semibold text-slate-900">Import students</h2>
+        <h2 className="text-xl font-semibold text-ink">Import students</h2>
         <Card>
-          <p className="text-sm text-slate-700">
+          <p className="text-sm text-ink">
             This school has no active academic year, so there is nowhere for
             imported students to be enrolled.
           </p>
-          <p className="mt-3 text-sm text-slate-600">
+          <p className="mt-3 text-sm text-ink-muted">
             <Link
               href="/dashboard/admissions/academic-years"
               className="font-medium text-brand-primary hover:underline"
@@ -94,8 +94,8 @@ export default async function ImportStudentsPage() {
   return (
     <div className="max-w-5xl space-y-6">
       <div>
-        <h2 className="text-xl font-semibold text-slate-900">Import students</h2>
-        <p className="mt-1 text-sm text-slate-500">
+        <h2 className="text-xl font-semibold text-ink">Import students</h2>
+        <p className="mt-1 text-sm text-ink-muted">
           Load a class from a spreadsheet. Nothing is saved until you have seen
           exactly what will happen — {activeYear.name}.
         </p>
@@ -103,10 +103,10 @@ export default async function ImportStudentsPage() {
 
       {options.length === 0 ? (
         <Card>
-          <p className="text-sm text-slate-700">
+          <p className="text-sm text-ink">
             There are no classes to import into yet.
           </p>
-          <p className="mt-3 text-sm text-slate-600">
+          <p className="mt-3 text-sm text-ink-muted">
             <Link
               href="/dashboard/admissions/grades"
               className="font-medium text-brand-primary hover:underline"

@@ -56,7 +56,7 @@ export default async function GradesPage({
 
       {activeYear === null ? (
         <Card>
-          <p className="text-sm text-slate-600">
+          <p className="text-sm text-ink-muted">
             There is no active academic year, so sections cannot be created yet.
           </p>
           <Link
@@ -70,7 +70,7 @@ export default async function GradesPage({
 
       {visible.length === 0 ? (
         <Card>
-          <p className="text-sm text-slate-600">
+          <p className="text-sm text-ink-muted">
             This school has no active branches. Branches are created from the
             Super Admin panel, and grades belong to one.
           </p>
@@ -86,8 +86,8 @@ export default async function GradesPage({
                   aria-current={branch.id === selected?.id ? 'page' : undefined}
                   className={
                     branch.id === selected?.id
-                      ? 'rounded-full bg-brand-primary px-3 py-1.5 text-sm font-medium text-white'
-                      : 'rounded-full bg-slate-100 px-3 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-200'
+                      ? 'rounded-full bg-brand-primary px-3 py-1.5 text-sm font-medium text-brand-onPrimary'
+                      : 'rounded-full bg-surface-sunken px-3 py-1.5 text-sm font-medium text-ink-muted hover:bg-line'
                   }
                 >
                   {branch.name}

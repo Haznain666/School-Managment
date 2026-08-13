@@ -198,7 +198,7 @@ export function SalaryComponentManager({ canEdit }: SalaryComponentManagerProps)
   if (components === null) {
     return (
       <Card>
-        <p className="text-sm text-slate-500">Loading salary components…</p>
+        <p className="text-sm text-ink-muted">Loading salary components…</p>
       </Card>
     );
   }
@@ -211,15 +211,15 @@ export function SalaryComponentManager({ canEdit }: SalaryComponentManagerProps)
   return (
     <div className="space-y-4">
       {error !== null ? (
-        <p role="alert" className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">
+        <p role="alert" className="rounded-lg bg-status-danger-subtle px-3 py-2 text-sm text-status-danger-ink">
           {error}
         </p>
       ) : null}
 
       {components.length === 0 ? (
         <Card>
-          <h3 className="text-base font-semibold text-slate-900">Setup required</h3>
-          <p className="mt-1 text-sm text-slate-600">
+          <h3 className="text-base font-semibold text-ink">Setup required</h3>
+          <p className="mt-1 text-sm text-ink-muted">
             Your school has no salary components yet, so no payslip can be
             computed. Seeding creates the seven most schools use — Basic Salary,
             House Rent (45% of basic), Medical (10%), Conveyance, and the EOBI,
@@ -243,7 +243,7 @@ export function SalaryComponentManager({ canEdit }: SalaryComponentManagerProps)
       {components.length > 0 && !hasBasic ? (
         <p
           role="alert"
-          className="rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-800"
+          className="rounded-lg bg-status-warning-subtle px-3 py-2 text-sm text-status-warning-onSubtle"
         >
           No component is marked as the basic salary. Every percentage head will
           compute to zero until one is.
@@ -401,7 +401,7 @@ export function SalaryComponentManager({ canEdit }: SalaryComponentManagerProps)
         >
           <div className="overflow-x-auto">
             <table className="w-full text-left text-sm">
-              <thead className="border-b border-slate-200 text-xs uppercase tracking-wide text-slate-500">
+              <thead className="border-b border-line text-xs uppercase tracking-wide text-ink-muted">
                 <tr>
                   <th scope="col" className="px-5 py-3 font-medium">Name</th>
                   <th scope="col" className="px-5 py-3 font-medium">Type</th>
@@ -414,11 +414,11 @@ export function SalaryComponentManager({ canEdit }: SalaryComponentManagerProps)
                   ) : null}
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-100">
+              <tbody className="divide-y divide-line">
                 {components.map((row) => (
                   <tr key={row.id}>
                     <td className="px-5 py-3">
-                      <p className="font-medium text-slate-900">
+                      <p className="font-medium text-ink">
                         {row.name}
                         {row.isBasic ? (
                           <Badge className="ml-2" variant="success">
@@ -427,18 +427,18 @@ export function SalaryComponentManager({ canEdit }: SalaryComponentManagerProps)
                         ) : null}
                       </p>
                       {row.description === null || row.description === '' ? null : (
-                        <p className="text-xs text-slate-500">{row.description}</p>
+                        <p className="text-xs text-ink-muted">{row.description}</p>
                       )}
                     </td>
-                    <td className="px-5 py-3 text-slate-600">
+                    <td className="px-5 py-3 text-ink-muted">
                       {COMPONENT_KIND_LABELS[row.kind]}
                     </td>
-                    <td className="px-5 py-3 text-slate-600">
+                    <td className="px-5 py-3 text-ink-muted">
                       {row.calculation === 'percent_of_basic'
                         ? `${pointsToPercent(row.defaultPercentBasisPoints)}% of basic`
                         : 'Fixed amount'}
                       {row.proratedByAttendance ? null : (
-                        <span className="block text-xs text-slate-400">
+                        <span className="block text-xs text-ink-muted">
                           Not reduced by unpaid days
                         </span>
                       )}

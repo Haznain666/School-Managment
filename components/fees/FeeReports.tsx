@@ -116,7 +116,7 @@ function OutstandingSection({ grades }: { grades: readonly GradeOption[] }) {
       }
       className="p-0"
     >
-      <div className="grid gap-4 border-b border-slate-200 px-5 py-4 sm:grid-cols-2 lg:grid-cols-3">
+      <div className="grid gap-4 border-b border-line px-5 py-4 sm:grid-cols-2 lg:grid-cols-3">
         <Select
           label="Grade"
           options={[
@@ -137,8 +137,8 @@ function OutstandingSection({ grades }: { grades: readonly GradeOption[] }) {
           }}
         />
         <div className="flex items-end">
-          <p className="text-sm text-slate-600">
-            <span className="font-semibold text-slate-900">{formatPkr(total)}</span>{' '}
+          <p className="text-sm text-ink-muted">
+            <span className="font-semibold text-ink">{formatPkr(total)}</span>{' '}
             outstanding across {(rows ?? []).length} challan
             {(rows ?? []).length === 1 ? '' : 's'}.
           </p>
@@ -146,21 +146,21 @@ function OutstandingSection({ grades }: { grades: readonly GradeOption[] }) {
       </div>
 
       {error !== null ? (
-        <p role="alert" className="px-5 py-3 text-sm text-red-700">
+        <p role="alert" className="px-5 py-3 text-sm text-status-danger-ink">
           {error}
         </p>
       ) : null}
 
       {rows === null ? (
-        <p className="px-5 py-4 text-sm text-slate-500">Loading…</p>
+        <p className="px-5 py-4 text-sm text-ink-muted">Loading…</p>
       ) : rows.length === 0 ? (
-        <p className="px-5 py-4 text-sm text-slate-600">
+        <p className="px-5 py-4 text-sm text-ink-muted">
           Nothing is outstanding for these filters.
         </p>
       ) : (
         <div className="max-h-96 overflow-auto">
           <table className="w-full text-left text-sm">
-            <thead className="sticky top-0 border-b border-slate-200 bg-white text-xs uppercase tracking-wide text-slate-500">
+            <thead className="sticky top-0 border-b border-line bg-surface-raised text-xs uppercase tracking-wide text-ink-muted">
               <tr>
                 <th scope="col" className="px-5 py-3 font-medium">Student</th>
                 <th scope="col" className="px-5 py-3 font-medium">Class</th>
@@ -173,29 +173,29 @@ function OutstandingSection({ grades }: { grades: readonly GradeOption[] }) {
                 </th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-100">
+            <tbody className="divide-y divide-line">
               {rows.map((row) => (
                 <tr key={row.challanId}>
                   <td className="px-5 py-2.5">
-                    <p className="font-medium text-slate-900">{row.studentName}</p>
-                    <p className="font-mono text-xs text-slate-500">{row.studentId}</p>
+                    <p className="font-medium text-ink">{row.studentName}</p>
+                    <p className="font-mono text-xs text-ink-muted">{row.studentId}</p>
                   </td>
-                  <td className="px-5 py-2.5 text-slate-600">
+                  <td className="px-5 py-2.5 text-ink-muted">
                     {row.gradeName ?? '—'}
                     {row.sectionName === null ? '' : ` ${row.sectionName}`}
                   </td>
-                  <td className="px-5 py-2.5 text-slate-600">{periodLabel(row)}</td>
-                  <td className="px-5 py-2.5 text-slate-600">{row.dueDate}</td>
+                  <td className="px-5 py-2.5 text-ink-muted">{periodLabel(row)}</td>
+                  <td className="px-5 py-2.5 text-ink-muted">{row.dueDate}</td>
                   <td className="px-5 py-2.5 text-right">
                     {row.daysOverdue === 0 ? (
-                      <span className="text-slate-500">—</span>
+                      <span className="text-ink-muted">—</span>
                     ) : (
                       <Badge variant={row.daysOverdue >= 30 ? 'danger' : 'warning'}>
                         {row.daysOverdue}d
                       </Badge>
                     )}
                   </td>
-                  <td className="px-5 py-2.5 text-right font-medium text-slate-900">
+                  <td className="px-5 py-2.5 text-right font-medium text-ink">
                     {formatAmount(row.balance)}
                   </td>
                   <td className="px-5 py-2.5 text-right">
@@ -267,7 +267,7 @@ function CollectionSection() {
       }
       className="p-0"
     >
-      <div className="grid gap-4 border-b border-slate-200 px-5 py-4 sm:grid-cols-3">
+      <div className="grid gap-4 border-b border-line px-5 py-4 sm:grid-cols-3">
         <Input
           label="From"
           type="date"
@@ -285,8 +285,8 @@ function CollectionSection() {
           }}
         />
         <div className="flex items-end">
-          <p className="text-sm text-slate-600">
-            <span className="font-semibold text-slate-900">
+          <p className="text-sm text-ink-muted">
+            <span className="font-semibold text-ink">
               {formatPkr(data?.total ?? 0)}
             </span>{' '}
             across {data?.paymentCount ?? 0} payment
@@ -296,20 +296,20 @@ function CollectionSection() {
       </div>
 
       {error !== null ? (
-        <p role="alert" className="px-5 py-3 text-sm text-red-700">
+        <p role="alert" className="px-5 py-3 text-sm text-status-danger-ink">
           {error}
         </p>
       ) : null}
 
       {data === null ? (
-        <p className="px-5 py-4 text-sm text-slate-500">Loading…</p>
+        <p className="px-5 py-4 text-sm text-ink-muted">Loading…</p>
       ) : data.months.length === 0 ? (
-        <p className="px-5 py-4 text-sm text-slate-600">
+        <p className="px-5 py-4 text-sm text-ink-muted">
           No payments were recorded in this range.
         </p>
       ) : (
         <table className="w-full text-left text-sm">
-          <thead className="border-b border-slate-200 text-xs uppercase tracking-wide text-slate-500">
+          <thead className="border-b border-line text-xs uppercase tracking-wide text-ink-muted">
             <tr>
               <th scope="col" className="px-5 py-3 font-medium">Month</th>
               <th scope="col" className="px-5 py-3 font-medium">Share</th>
@@ -317,10 +317,10 @@ function CollectionSection() {
               <th scope="col" className="px-5 py-3 text-right font-medium">Collected</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-slate-100">
+          <tbody className="divide-y divide-line">
             {data.months.map((month) => (
               <tr key={`${month.year}-${month.month}`}>
-                <td className="px-5 py-2.5 text-slate-900">
+                <td className="px-5 py-2.5 text-ink">
                   {MONTH_NAMES[month.month - 1] ?? month.month} {month.year}
                 </td>
                 <td className="px-5 py-2.5">
@@ -334,10 +334,10 @@ function CollectionSection() {
                     }}
                   />
                 </td>
-                <td className="px-5 py-2.5 text-right text-slate-600">
+                <td className="px-5 py-2.5 text-right text-ink-muted">
                   {month.paymentCount}
                 </td>
-                <td className="px-5 py-2.5 text-right font-medium text-slate-900">
+                <td className="px-5 py-2.5 text-right font-medium text-ink">
                   {formatAmount(month.collected)}
                 </td>
               </tr>
@@ -452,7 +452,7 @@ function DefaultersSection({
       }
       className="p-0"
     >
-      <div className="grid gap-4 border-b border-slate-200 px-5 py-4 sm:grid-cols-3">
+      <div className="grid gap-4 border-b border-line px-5 py-4 sm:grid-cols-3">
         <Input
           label="Minimum days overdue"
           type="number"
@@ -475,8 +475,8 @@ function DefaultersSection({
           }}
         />
         <div className="flex items-end">
-          <p className="text-sm text-slate-600">
-            <span className="font-semibold text-slate-900">
+          <p className="text-sm text-ink-muted">
+            <span className="font-semibold text-ink">
               {formatPkr(totalOutstanding)}
             </span>{' '}
             across {(rows ?? []).length} challan
@@ -486,25 +486,25 @@ function DefaultersSection({
       </div>
 
       {error !== null ? (
-        <p role="alert" className="px-5 py-3 text-sm text-red-700">
+        <p role="alert" className="px-5 py-3 text-sm text-status-danger-ink">
           {error}
         </p>
       ) : null}
 
       {notice !== null ? (
-        <p className="px-5 py-3 text-sm text-emerald-700">{notice}</p>
+        <p className="px-5 py-3 text-sm text-status-success-ink">{notice}</p>
       ) : null}
 
       {rows === null ? (
-        <p className="px-5 py-4 text-sm text-slate-500">Loading…</p>
+        <p className="px-5 py-4 text-sm text-ink-muted">Loading…</p>
       ) : rows.length === 0 ? (
-        <p className="px-5 py-4 text-sm text-slate-600">
+        <p className="px-5 py-4 text-sm text-ink-muted">
           Nobody is more than {minDays || '30'} days overdue. That is worth knowing.
         </p>
       ) : (
         <div className="max-h-96 overflow-auto">
           <table className="w-full text-left text-sm">
-            <thead className="sticky top-0 border-b border-slate-200 bg-white text-xs uppercase tracking-wide text-slate-500">
+            <thead className="sticky top-0 border-b border-line bg-surface-raised text-xs uppercase tracking-wide text-ink-muted">
               <tr>
                 <th scope="col" className="px-5 py-3 font-medium">Student</th>
                 <th scope="col" className="px-5 py-3 font-medium">Class</th>
@@ -516,28 +516,28 @@ function DefaultersSection({
                 </th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-100">
+            <tbody className="divide-y divide-line">
               {rows.map((row) => (
                 <tr key={row.challanId}>
                   <td className="px-5 py-2.5">
                     <Link
                       href={`/dashboard/fees/challans/${row.challanId}`}
-                      className="font-medium text-slate-900 hover:underline"
+                      className="font-medium text-ink hover:underline"
                     >
                       {row.studentName}
                     </Link>
-                    <p className="font-mono text-xs text-slate-500">
+                    <p className="font-mono text-xs text-ink-muted">
                       {row.challanNumber}
                     </p>
                   </td>
-                  <td className="px-5 py-2.5 text-slate-600">
+                  <td className="px-5 py-2.5 text-ink-muted">
                     {row.gradeName ?? '—'}
                     {row.sectionName === null ? '' : ` ${row.sectionName}`}
                   </td>
-                  <td className="px-5 py-2.5 text-slate-600">
+                  <td className="px-5 py-2.5 text-ink-muted">
                     {row.guardianName ?? '—'}
                     {row.guardianPhone === null ? null : (
-                      <span className="block font-mono text-xs text-slate-500">
+                      <span className="block font-mono text-xs text-ink-muted">
                         {row.guardianPhone}
                       </span>
                     )}
@@ -545,7 +545,7 @@ function DefaultersSection({
                   <td className="px-5 py-2.5 text-right">
                     <Badge variant="danger">{row.daysOverdue}d</Badge>
                   </td>
-                  <td className="px-5 py-2.5 text-right font-medium text-slate-900">
+                  <td className="px-5 py-2.5 text-right font-medium text-ink">
                     {formatAmount(row.balance)}
                   </td>
                   <td className="px-5 py-2.5 text-right">

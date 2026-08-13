@@ -158,27 +158,27 @@ export function PayrollRunManager({ canEdit }: PayrollRunManagerProps) {
   return (
     <div className="space-y-4">
       {error !== null ? (
-        <p role="alert" className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">
+        <p role="alert" className="rounded-lg bg-status-danger-subtle px-3 py-2 text-sm text-status-danger-ink">
           {error}
         </p>
       ) : null}
 
       {notice !== null ? (
-        <p className="rounded-lg bg-emerald-50 px-3 py-2 text-sm text-emerald-700">
+        <p className="rounded-lg bg-status-success-subtle px-3 py-2 text-sm text-status-success-ink">
           {notice}
         </p>
       ) : null}
 
       {skipped.length > 0 ? (
         <Card>
-          <h3 className="text-base font-semibold text-slate-900">
+          <h3 className="text-base font-semibold text-ink">
             Not paid in this run
           </h3>
-          <p className="mt-1 text-sm text-slate-600">
+          <p className="mt-1 text-sm text-ink-muted">
             These staff were skipped because they have no salary structure. Assign
             one and regenerate while the run is still a draft.
           </p>
-          <ul className="mt-3 space-y-1 text-sm text-slate-700">
+          <ul className="mt-3 space-y-1 text-sm text-ink">
             {skipped.map((row) => (
               <li key={row.staffId}>
                 <Link
@@ -247,11 +247,11 @@ export function PayrollRunManager({ canEdit }: PayrollRunManagerProps) {
 
       {runs === null ? (
         <Card>
-          <p className="text-sm text-slate-500">Loading payroll runs…</p>
+          <p className="text-sm text-ink-muted">Loading payroll runs…</p>
         </Card>
       ) : runs.length === 0 ? (
         <Card>
-          <p className="text-sm text-slate-600">
+          <p className="text-sm text-ink-muted">
             No payroll has been run yet. A run needs active staff with salary
             structures assigned — set those up under Staff first.
           </p>
@@ -268,7 +268,7 @@ export function PayrollRunManager({ canEdit }: PayrollRunManagerProps) {
         >
           <div className="overflow-x-auto">
             <table className="w-full text-left text-sm">
-              <thead className="border-b border-slate-200 text-xs uppercase tracking-wide text-slate-500">
+              <thead className="border-b border-line text-xs uppercase tracking-wide text-ink-muted">
                 <tr>
                   <th scope="col" className="px-5 py-3 font-medium">Period</th>
                   <th scope="col" className="px-5 py-3 font-medium">Staff</th>
@@ -280,22 +280,22 @@ export function PayrollRunManager({ canEdit }: PayrollRunManagerProps) {
                   </th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-100">
+              <tbody className="divide-y divide-line">
                 {runs.map((row) => (
                   <tr key={row.id}>
                     <td className="px-5 py-3">
-                      <p className="font-medium text-slate-900">
+                      <p className="font-medium text-ink">
                         {formatPayrollPeriod(row.payrollMonth, row.payrollYear)}
                       </p>
-                      <p className="text-xs text-slate-500">
+                      <p className="text-xs text-ink-muted">
                         {row.branchName ?? 'Whole school'} · {row.workingDays} working days
                       </p>
                     </td>
-                    <td className="px-5 py-3 text-slate-600">{row.staffCount}</td>
-                    <td className="px-5 py-3 text-slate-600">
+                    <td className="px-5 py-3 text-ink-muted">{row.staffCount}</td>
+                    <td className="px-5 py-3 text-ink-muted">
                       {formatPkr(row.grossTotal)}
                     </td>
-                    <td className="px-5 py-3 font-medium text-slate-900">
+                    <td className="px-5 py-3 font-medium text-ink">
                       {formatPkr(row.netTotal)}
                     </td>
                     <td className="px-5 py-3">

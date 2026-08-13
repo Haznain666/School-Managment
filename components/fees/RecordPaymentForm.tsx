@@ -174,7 +174,7 @@ export function RecordPaymentForm({
         </div>
 
         {error !== null ? (
-          <p role="alert" className="mt-4 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">
+          <p role="alert" className="mt-4 rounded-lg bg-status-danger-subtle px-3 py-2 text-sm text-status-danger-ink">
             {error}
           </p>
         ) : null}
@@ -199,7 +199,7 @@ export function RecordPaymentForm({
           </Button>
         </div>
 
-        <p className="mt-3 text-xs text-slate-500">
+        <p className="mt-3 text-xs text-ink-muted">
           The guardian is sent a WhatsApp confirmation once this is saved. If that
           message fails, the payment is still recorded.
         </p>
@@ -219,14 +219,14 @@ function Summary({
 }) {
   return (
     <div>
-      <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
+      <p className="text-xs font-medium uppercase tracking-wide text-ink-muted">
         {label}
       </p>
       <p
         className={
           emphasis
-            ? 'mt-1 text-2xl font-bold text-slate-900'
-            : 'mt-1 text-lg font-semibold text-slate-700'
+            ? 'mt-1 text-2xl font-bold text-ink'
+            : 'mt-1 text-lg font-semibold text-ink'
         }
       >
         {value}

@@ -25,10 +25,10 @@ export default async function FeesLayout({ children }: { children: ReactNode }) 
   if (!moduleFlags.fee_management) {
     return (
       <Card>
-        <h2 className="text-lg font-semibold text-slate-900">
+        <h2 className="text-lg font-semibold text-ink">
           Fee Management is not enabled
         </h2>
-        <p className="mt-2 text-sm text-slate-600">
+        <p className="mt-2 text-sm text-ink-muted">
           This school does not currently have the Fee Management module switched
           on. Contact the platform administrator to enable it.
         </p>

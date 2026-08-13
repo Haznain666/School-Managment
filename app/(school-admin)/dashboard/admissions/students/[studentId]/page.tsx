@@ -91,7 +91,7 @@ export default async function StudentProfilePage({
 
       <Card header={<CardTitle title="Current enrolment" />}>
         {current === null ? (
-          <p className="text-sm text-slate-600">
+          <p className="text-sm text-ink-muted">
             This student has no placement in the active academic year.
           </p>
         ) : (
@@ -108,13 +108,13 @@ export default async function StudentProfilePage({
 
       <Card header={<CardTitle title="Enrolment history" />} className="p-0">
         {history.length === 0 ? (
-          <p className="px-5 py-4 text-sm text-slate-600">
+          <p className="px-5 py-4 text-sm text-ink-muted">
             No earlier academic years on record.
           </p>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-left text-sm">
-              <thead className="border-b border-slate-200 text-xs uppercase tracking-wide text-slate-500">
+              <thead className="border-b border-line text-xs uppercase tracking-wide text-ink-muted">
                 <tr>
                   <th scope="col" className="px-5 py-3 font-medium">Year</th>
                   <th scope="col" className="px-5 py-3 font-medium">Grade</th>
@@ -124,21 +124,21 @@ export default async function StudentProfilePage({
                   <th scope="col" className="px-5 py-3 font-medium">Status</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-100">
+              <tbody className="divide-y divide-line">
                 {history.map((enrollment) => (
                   <tr key={enrollment.id}>
-                    <td className="px-5 py-3 font-medium text-slate-900">
+                    <td className="px-5 py-3 font-medium text-ink">
                       {enrollment.academicYearName}
                     </td>
-                    <td className="px-5 py-3 text-slate-600">{enrollment.gradeName}</td>
-                    <td className="px-5 py-3 text-slate-600">{enrollment.sectionName}</td>
-                    <td className="px-5 py-3 text-slate-600">
+                    <td className="px-5 py-3 text-ink-muted">{enrollment.gradeName}</td>
+                    <td className="px-5 py-3 text-ink-muted">{enrollment.sectionName}</td>
+                    <td className="px-5 py-3 text-ink-muted">
                       {enrollment.rollNumber ?? '—'}
                     </td>
-                    <td className="px-5 py-3 text-slate-600">
+                    <td className="px-5 py-3 text-ink-muted">
                       {enrollment.enrollmentDate}
                     </td>
-                    <td className="px-5 py-3 text-slate-600">{enrollment.status}</td>
+                    <td className="px-5 py-3 text-ink-muted">{enrollment.status}</td>
                   </tr>
                 ))}
               </tbody>
@@ -161,10 +161,10 @@ export default async function StudentProfilePage({
 function Detail({ label, value }: { label: string; value: string }) {
   return (
     <div>
-      <dt className="text-xs font-medium uppercase tracking-wide text-slate-500">
+      <dt className="text-xs font-medium uppercase tracking-wide text-ink-muted">
         {label}
       </dt>
-      <dd className="mt-0.5 text-sm text-slate-900">{value}</dd>
+      <dd className="mt-0.5 text-sm text-ink">{value}</dd>
     </div>
   );
 }

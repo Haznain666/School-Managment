@@ -25,10 +25,10 @@ export default async function AdmissionsLayout({ children }: { children: ReactNo
   if (!moduleFlags.admissions) {
     return (
       <Card>
-        <h2 className="text-lg font-semibold text-slate-900">
+        <h2 className="text-lg font-semibold text-ink">
           Admissions is not enabled
         </h2>
-        <p className="mt-2 text-sm text-slate-600">
+        <p className="mt-2 text-sm text-ink-muted">
           This school does not currently have the Admissions &amp; Enrollment
           module switched on. Contact the platform administrator to enable it.
         </p>

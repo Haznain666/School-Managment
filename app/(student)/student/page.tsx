@@ -55,10 +55,10 @@ export default async function StudentDashboardPage() {
       <Card>
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
-            <h2 className="text-lg font-semibold text-slate-900">
+            <h2 className="text-lg font-semibold text-ink">
               Welcome{firstName === '' ? '' : `, ${firstName}`}.
             </h2>
-            <p className="mt-1 text-sm text-slate-600">
+            <p className="mt-1 text-sm text-ink-muted">
               {student === null
                 ? 'Your student record is still being set up. Your class details will appear here once your school completes your enrolment.'
                 : 'Your timetable, results and fee status will appear here as your school enables each module.'}
@@ -76,7 +76,7 @@ export default async function StudentDashboardPage() {
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
         <Card header={<CardTitle title="My class" />}>
           {enrollment === null ? (
-            <p className="text-sm text-slate-500">
+            <p className="text-sm text-ink-muted">
               {activeYear === null
                 ? 'Your school has not opened an academic year yet.'
                 : `No placement is recorded for you in ${activeYear.name}.`}
@@ -108,19 +108,19 @@ export default async function StudentDashboardPage() {
         />
         <Card header={<CardTitle title="Fee balance" />}>
           {feeSummary === null ? (
-            <p className="text-sm text-slate-500">
+            <p className="text-sm text-ink-muted">
               Your fee details appear once your enrolment is complete.
             </p>
           ) : (
             <>
-              <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
+              <p className="text-xs font-medium uppercase tracking-wide text-ink-muted">
                 Outstanding
               </p>
               <p
                 className={
                   toPaise(feeSummary.balance) > 0
-                    ? 'mt-1 text-2xl font-bold text-red-600'
-                    : 'mt-1 text-2xl font-bold text-slate-900'
+                    ? 'mt-1 text-2xl font-bold text-status-danger-ink'
+                    : 'mt-1 text-2xl font-bold text-ink'
                 }
               >
                 {formatPkr(feeSummary.balance)}
@@ -132,7 +132,7 @@ export default async function StudentDashboardPage() {
               </dl>
 
               {feeSummary.oldestUnpaid === null ? null : (
-                <p className="mt-3 text-xs text-slate-500">
+                <p className="mt-3 text-xs text-ink-muted">
                   Oldest unpaid challan{' '}
                   <span className="font-mono">
                     {feeSummary.oldestUnpaid.challanNumber}
@@ -141,7 +141,7 @@ export default async function StudentDashboardPage() {
                 </p>
               )}
 
-              <p className="mt-3 text-xs text-slate-500">
+              <p className="mt-3 text-xs text-ink-muted">
                 Contact your school admin for payment — fees cannot be paid
                 through this portal.
               </p>
@@ -151,7 +151,7 @@ export default async function StudentDashboardPage() {
       </div>
 
       <Card header={<CardTitle title="Announcements" />}>
-        <p className="text-sm text-slate-500">
+        <p className="text-sm text-ink-muted">
           School announcements will appear here.
         </p>
       </Card>
@@ -162,10 +162,10 @@ export default async function StudentDashboardPage() {
 function Detail({ label, value }: { label: string; value: string }) {
   return (
     <div>
-      <dt className="text-xs font-medium uppercase tracking-wide text-slate-500">
+      <dt className="text-xs font-medium uppercase tracking-wide text-ink-muted">
         {label}
       </dt>
-      <dd className="mt-0.5 text-sm text-slate-900">{value}</dd>
+      <dd className="mt-0.5 text-sm text-ink">{value}</dd>
     </div>
   );
 }

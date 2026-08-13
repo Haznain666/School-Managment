@@ -73,7 +73,7 @@ export function ReportCardPicker({ terms, sections }: ReportCardPickerProps) {
 
         <div className="flex items-end">
           {termId === '' || sectionId === '' ? (
-            <p className="text-sm text-slate-500">
+            <p className="text-sm text-ink-muted">
               Choose a term and a section to build the print job.
             </p>
           ) : (
@@ -81,7 +81,7 @@ export function ReportCardPicker({ terms, sections }: ReportCardPickerProps) {
               href={reportCardPrintHref(termId, sectionId)}
               target="_blank"
               rel="noopener"
-              className="inline-flex h-10 items-center justify-center rounded-lg bg-brand-primary px-4 text-sm font-medium text-white hover:opacity-90"
+              className="inline-flex h-10 items-center justify-center rounded-lg bg-brand-primary px-4 text-sm font-medium text-brand-onPrimary hover:opacity-90"
             >
               Open report cards
             </Link>
@@ -90,13 +90,13 @@ export function ReportCardPicker({ terms, sections }: ReportCardPickerProps) {
       </div>
 
       {term !== undefined && !term.isPublished ? (
-        <p className="mt-4 rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-800">
+        <p className="mt-4 rounded-lg bg-status-warning-subtle px-3 py-2 text-sm text-status-warning-onSubtle">
           {term.name} is not published yet. The cards will print, marked
           &ldquo;preview&rdquo; — publish the term when the checking is done.
         </p>
       ) : null}
 
-      <p className="mt-4 text-xs text-slate-500">
+      <p className="mt-4 text-xs text-ink-muted">
         At most {MAX_PRINTABLE_REPORT_CARDS} cards in one job. Larger jobs tend
         to fail part-way through the browser&apos;s print dialog, and a
         half-printed stack is discovered while parents are queuing.

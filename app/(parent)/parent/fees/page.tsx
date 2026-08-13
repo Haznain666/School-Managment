@@ -81,7 +81,7 @@ export default async function ParentFeesPage({
       <div className="space-y-6">
         <Heading />
         <Card>
-          <p className="text-sm text-slate-600">
+          <p className="text-sm text-ink-muted">
             No children are recorded against your account yet, so there are no
             fees to show. Your school admin can link you to your child&rsquo;s
             record.
@@ -102,7 +102,7 @@ export default async function ParentFeesPage({
       <div className="space-y-6">
         <Heading />
         <Card>
-          <p className="text-sm text-slate-600">
+          <p className="text-sm text-ink-muted">
             That student is not linked to your account.
           </p>
         </Card>
@@ -136,8 +136,8 @@ export default async function ParentFeesPage({
               }
               className={
                 child.studentProfileId === selected.studentProfileId
-                  ? 'rounded-full bg-brand-primary px-3 py-1.5 text-sm font-medium text-white'
-                  : 'rounded-full bg-slate-100 px-3 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-200'
+                  ? 'rounded-full bg-brand-primary px-3 py-1.5 text-sm font-medium text-brand-onPrimary'
+                  : 'rounded-full bg-surface-sunken px-3 py-1.5 text-sm font-medium text-ink-muted hover:bg-line'
               }
             >
               {child.name}
@@ -176,7 +176,7 @@ export default async function ParentFeesPage({
           >
             <div className="overflow-x-auto">
               <table className="w-full text-left text-sm">
-                <thead className="border-b border-slate-200 text-xs uppercase tracking-wide text-slate-500">
+                <thead className="border-b border-line text-xs uppercase tracking-wide text-ink-muted">
                   <tr>
                     <th scope="col" className="py-2 font-medium">Fee head</th>
                     <th scope="col" className="py-2 text-right font-medium">Amount</th>
@@ -184,30 +184,30 @@ export default async function ParentFeesPage({
                     <th scope="col" className="py-2 text-right font-medium">Net</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-100">
+                <tbody className="divide-y divide-line">
                   {openChallan.items.map((item) => (
                     <tr key={item.id}>
-                      <td className="py-2 text-slate-900">{item.description}</td>
-                      <td className="py-2 text-right text-slate-600">
+                      <td className="py-2 text-ink">{item.description}</td>
+                      <td className="py-2 text-right text-ink-muted">
                         {formatAmount(item.amount)}
                       </td>
-                      <td className="py-2 text-right text-slate-600">
+                      <td className="py-2 text-right text-ink-muted">
                         {Number(item.concessionAmount) === 0
                           ? '—'
                           : `−${formatAmount(item.concessionAmount)}`}
                       </td>
-                      <td className="py-2 text-right font-medium text-slate-900">
+                      <td className="py-2 text-right font-medium text-ink">
                         {formatAmount(item.netAmount)}
                       </td>
                     </tr>
                   ))}
                 </tbody>
-                <tfoot className="border-t border-slate-200">
+                <tfoot className="border-t border-line">
                   <tr>
-                    <th scope="row" colSpan={3} className="py-3 text-left font-medium text-slate-600">
+                    <th scope="row" colSpan={3} className="py-3 text-left font-medium text-ink-muted">
                       Total payable
                     </th>
-                    <td className="py-3 text-right text-base font-bold text-slate-900">
+                    <td className="py-3 text-right text-base font-bold text-ink">
                       {formatAmount(openChallan.totalAmount)}
                     </td>
                   </tr>
@@ -217,7 +217,7 @@ export default async function ParentFeesPage({
 
             <div className="mt-4 flex flex-wrap items-center gap-3">
               <PrintButton label="Print this challan" />
-              <p className="text-sm text-slate-500">
+              <p className="text-sm text-ink-muted">
                 Take the printed slip to your nearest bank branch to pay.
               </p>
             </div>
@@ -261,13 +261,13 @@ export default async function ParentFeesPage({
         className="p-0 print:hidden"
       >
         {challans.length === 0 ? (
-          <p className="px-5 py-4 text-sm text-slate-600">
+          <p className="px-5 py-4 text-sm text-ink-muted">
             No challans have been issued yet.
           </p>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-left text-sm">
-              <thead className="border-b border-slate-200 text-xs uppercase tracking-wide text-slate-500">
+              <thead className="border-b border-line text-xs uppercase tracking-wide text-ink-muted">
                 <tr>
                   <th scope="col" className="px-5 py-3 font-medium">Period</th>
                   <th scope="col" className="px-5 py-3 font-medium">Challan #</th>
@@ -277,24 +277,24 @@ export default async function ParentFeesPage({
                   <th scope="col" className="px-5 py-3 font-medium">Due date</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-100">
+              <tbody className="divide-y divide-line">
                 {challans.map((row) => (
                   <tr key={row.id}>
                     <td className="px-5 py-3">
                       <Link
                         href={`/parent/fees?child=${selected.studentProfileId}&challan=${row.id}`}
-                        className="font-medium text-slate-900 hover:underline"
+                        className="font-medium text-ink hover:underline"
                       >
                         {periodLabel(row)}
                       </Link>
                     </td>
-                    <td className="px-5 py-3 font-mono text-xs text-slate-600">
+                    <td className="px-5 py-3 font-mono text-xs text-ink-muted">
                       {row.challanNumber}
                     </td>
-                    <td className="px-5 py-3 text-right text-slate-900">
+                    <td className="px-5 py-3 text-right text-ink">
                       {formatAmount(row.totalAmount)}
                     </td>
-                    <td className="px-5 py-3 text-right text-slate-600">
+                    <td className="px-5 py-3 text-right text-ink-muted">
                       {formatAmount(row.paidAmount)}
                     </td>
                     <td className="px-5 py-3">
@@ -302,7 +302,7 @@ export default async function ParentFeesPage({
                         {CHALLAN_STATUS_LABELS[row.status]}
                       </Badge>
                     </td>
-                    <td className="px-5 py-3 text-slate-600">{row.dueDate}</td>
+                    <td className="px-5 py-3 text-ink-muted">{row.dueDate}</td>
                   </tr>
                 ))}
               </tbody>
@@ -336,14 +336,14 @@ function SummaryCard({
 }) {
   return (
     <Card className="print:hidden">
-      <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
+      <p className="text-xs font-medium uppercase tracking-wide text-ink-muted">
         {label}
       </p>
       <p
         className={
           emphasis
-            ? 'mt-2 text-2xl font-bold text-red-600'
-            : 'mt-2 text-2xl font-bold text-slate-900'
+            ? 'mt-2 text-2xl font-bold text-status-danger-ink'
+            : 'mt-2 text-2xl font-bold text-ink'
         }
       >
         {value}

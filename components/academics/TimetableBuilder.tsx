@@ -10,6 +10,7 @@ import { subjectShortLabel } from '@/db/schema/subjects';
 import { formatTimeOfDay } from '@/db/schema/timetable-slots';
 import { WEEKDAY_NAMES, WEEKDAY_SHORT_NAMES } from '@/db/schema/timetable-entries';
 import { schoolErrorMessage, schoolFetch } from '@/lib/school-client';
+import { readableForeground } from '@/lib/color-contrast';
 
 /**
  * The weekly timetable builder.
@@ -97,6 +98,10 @@ interface EditingCell {
   teacherId: string;
   room: string;
 }
+
+
+/** Used when a subject has no colour of its own. */
+const SUBJECT_FALLBACK = '#475569';
 
 /** The key an entry occupies in the grid. */
 function cellKey(slotId: string, dayOfWeek: number): string {
@@ -286,31 +291,31 @@ export function TimetableBuilder({
       </Card>
 
       {error !== null && editing === null ? (
-        <p role="alert" className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">
+        <p role="alert" className="rounded-lg bg-status-danger-subtle px-3 py-2 text-sm text-status-danger-ink">
           {error}
         </p>
       ) : null}
 
       {sectionId === '' ? (
         <Card>
-          <p className="text-sm text-slate-600">
+          <p className="text-sm text-ink-muted">
             Choose a year, grade and section to build its week.
           </p>
         </Card>
       ) : isLoading ? (
         <Card>
-          <p className="text-sm text-slate-500">Loading the timetable…</p>
+          <p className="text-sm text-ink-muted">Loading the timetable…</p>
         </Card>
       ) : slots.length === 0 ? (
         <Card>
-          <p className="text-sm text-slate-600">
+          <p className="text-sm text-ink-muted">
             This school has no periods yet, so there is no grid to fill. Add the
             bell schedule below and the week will appear.
           </p>
         </Card>
       ) : subjects.length === 0 ? (
         <Card>
-          <p className="text-sm text-slate-600">
+          <p className="text-sm text-ink-muted">
             No subjects have been created yet — there is nothing to place in the
             grid.
           </p>
@@ -319,7 +324,7 @@ export function TimetableBuilder({
         <Card className="p-0">
           <div className="overflow-x-auto">
             <table className="w-full min-w-[46rem] border-collapse text-left text-sm">
-              <thead className="border-b border-slate-200 text-xs uppercase tracking-wide text-slate-500">
+              <thead className="border-b border-line text-xs uppercase tracking-wide text-ink-muted">
                 <tr>
                   <th scope="col" className="w-40 px-4 py-3 font-medium">Period</th>
                   {WEEKDAY_SHORT_NAMES.map((day) => (
@@ -329,14 +334,14 @@ export function TimetableBuilder({
                   ))}
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-100">
+              <tbody className="divide-y divide-line">
                 {slots.map((slot) => (
                   <tr key={slot.id}>
                     <th scope="row" className="px-4 py-2 text-left align-top">
-                      <span className="block font-medium text-slate-900">
+                      <span className="block font-medium text-ink">
                         {slot.name}
                       </span>
-                      <span className="block text-xs font-normal text-slate-500">
+                      <span className="block text-xs font-normal text-ink-muted">
                         {formatTimeOfDay(slot.startTime)} –{' '}
                         {formatTimeOfDay(slot.endTime)}
                       </span>
@@ -347,7 +352,7 @@ export function TimetableBuilder({
                       // band rather than five empty cells inviting a click.
                       <td
                         colSpan={WEEKDAY_SHORT_NAMES.length}
-                        className="bg-slate-50 px-3 py-3 text-center text-xs font-medium uppercase tracking-wide text-slate-500"
+                        className="bg-surface-sunken px-3 py-3 text-center text-xs font-medium uppercase tracking-wide text-ink-muted"
                       >
                         {slot.name}
                       </td>
@@ -364,13 +369,21 @@ export function TimetableBuilder({
                               }}
                               className={
                                 entry === undefined
-                                  ? 'flex h-[4.5rem] w-full items-center justify-center rounded-lg border border-dashed border-slate-300 text-xs text-slate-400 transition hover:border-brand-primary hover:text-brand-primary'
-                                  : 'flex h-[4.5rem] w-full flex-col justify-center gap-0.5 rounded-lg px-2 py-1.5 text-left text-white transition hover:opacity-90'
+                                  ? 'flex h-[4.5rem] w-full items-center justify-center rounded-lg border border-dashed border-line-strong text-xs text-ink-muted transition hover:border-brand-primary hover:text-brand-primary'
+                                  : 'flex h-[4.5rem] w-full flex-col justify-center gap-0.5 rounded-lg px-2 py-1.5 text-left transition hover:opacity-90'
                               }
                               style={
                                 entry === undefined
                                   ? undefined
-                                  : { backgroundColor: entry.subjectColor ?? '#475569' }
+                                  : {
+                                      backgroundColor: entry.subjectColor ?? SUBJECT_FALLBACK,
+                                      // Computed, not assumed white -- a school
+                                      // may colour a subject pale. See
+                                      // TimetableGrid for the same fix.
+                                      color: readableForeground(
+                                        entry.subjectColor ?? SUBJECT_FALLBACK,
+                                      ),
+                                    }
                               }
                             >
                               {entry === undefined ? (
@@ -411,7 +424,7 @@ export function TimetableBuilder({
           role="dialog"
           aria-modal="true"
           aria-label={`${editing.slot.name}, ${WEEKDAY_NAMES[editing.dayOfWeek] ?? ''}`}
-          className="fixed inset-0 z-40 flex items-center justify-center bg-slate-900/40 p-4"
+          className="fixed inset-0 z-40 flex items-center justify-center bg-[rgb(2_6_23/0.55)] p-4"
         >
           <div className="w-full max-w-lg">
             <Card
@@ -463,7 +476,7 @@ export function TimetableBuilder({
                 {error !== null ? (
                   <p
                     role="alert"
-                    className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700"
+                    className="rounded-lg bg-status-danger-subtle px-3 py-2 text-sm text-status-danger-ink"
                   >
                     {error}
                   </p>

@@ -20,7 +20,7 @@ export default async function NewBranchPage({
 
   return (
     <div className="max-w-3xl space-y-6">
-      <h3 className="text-lg font-semibold text-slate-900">Add branch</h3>
+      <h3 className="text-lg font-semibold text-ink">Add branch</h3>
       <BranchForm schoolId={schoolId} />
     </div>
   );

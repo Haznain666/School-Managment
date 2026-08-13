@@ -110,24 +110,24 @@ export function SchoolMultiSelect({
             setOpen((current) => !current);
           }}
           className={cn(
-            'flex w-full items-center justify-between gap-3 rounded-lg border border-slate-300 bg-white px-3 py-2 text-left text-sm transition',
+            'flex w-full items-center justify-between gap-3 rounded-lg border border-line-strong bg-surface-raised px-3 py-2 text-left text-sm transition',
             'focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-primary',
-            disabled ? 'cursor-not-allowed opacity-60' : 'hover:bg-slate-50',
+            disabled ? 'cursor-not-allowed opacity-60' : 'hover:bg-surface-hover',
           )}
         >
-          <span className={selectedIds.length === 0 ? 'text-slate-500' : 'text-slate-900'}>
+          <span className={selectedIds.length === 0 ? 'text-ink-muted' : 'text-ink'}>
             {selectedIds.length === 0
               ? 'Choose schools…'
               : `${selectedIds.length} school${selectedIds.length === 1 ? '' : 's'} selected`}
           </span>
-          <span aria-hidden="true" className="text-slate-400">
+          <span aria-hidden="true" className="text-ink-muted">
             {open ? '▲' : '▼'}
           </span>
         </button>
 
         {open ? (
-          <div className="absolute z-20 mt-1 w-full rounded-lg border border-slate-200 bg-white shadow-lg">
-            <div className="border-b border-slate-100 p-2">
+          <div className="absolute z-20 mt-1 w-full rounded-lg border border-line bg-surface-raised shadow-lg">
+            <div className="border-b border-line p-2">
               <Input
                 label="Filter schools"
                 hideLabel
@@ -142,7 +142,7 @@ export function SchoolMultiSelect({
 
             <ul role="listbox" aria-multiselectable="true" className="max-h-72 overflow-y-auto p-1">
               {matches.length === 0 ? (
-                <li className="px-3 py-4 text-sm text-slate-500">
+                <li className="px-3 py-4 text-sm text-ink-muted">
                   No school matches “{query}”.
                 </li>
               ) : (
@@ -156,7 +156,7 @@ export function SchoolMultiSelect({
                           'flex cursor-pointer items-start gap-3 rounded-md px-3 py-2 text-sm',
                           !isSelected && atMax
                             ? 'cursor-not-allowed opacity-50'
-                            : 'hover:bg-slate-50',
+                            : 'hover:bg-surface-hover',
                         )}
                       >
                         <input
@@ -169,15 +169,15 @@ export function SchoolMultiSelect({
                           }}
                         />
                         <span className="min-w-0">
-                          <span className="block font-medium text-slate-900">
+                          <span className="block font-medium text-ink">
                             {school.name}
                             {school.isActive ? null : (
-                              <span className="ml-2 text-xs font-normal text-amber-700">
+                              <span className="ml-2 text-xs font-normal text-status-warning-ink">
                                 inactive
                               </span>
                             )}
                           </span>
-                          <span className="block font-mono text-xs text-slate-500">
+                          <span className="block font-mono text-xs text-ink-muted">
                             {school.city} · {school.slug}
                           </span>
                         </span>
@@ -188,7 +188,7 @@ export function SchoolMultiSelect({
               )}
             </ul>
 
-            <div className="flex items-center justify-between gap-2 border-t border-slate-100 px-2 py-2">
+            <div className="flex items-center justify-between gap-2 border-t border-line px-2 py-2">
               <Button
                 size="sm"
                 variant="ghost"
@@ -228,7 +228,7 @@ export function SchoolMultiSelect({
       </div>
 
       {selectedSchools.length === 0 ? (
-        <p className="text-sm text-slate-500">
+        <p className="text-sm text-ink-muted">
           No schools selected. Nothing can be applied until at least one is.
         </p>
       ) : (
@@ -256,7 +256,7 @@ export function SchoolMultiSelect({
           </div>
 
           {atMax ? (
-            <p className="mt-2 text-sm text-amber-700">
+            <p className="mt-2 text-sm text-status-warning-ink">
               {max} schools is the most one apply may touch. Remove one to add
               another.
             </p>

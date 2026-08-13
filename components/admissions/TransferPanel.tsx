@@ -154,8 +154,8 @@ export function TransferPanel({
   if (done !== null) {
     return (
       <Card header={<CardTitle title="Transferred" />}>
-        <p className="text-sm text-slate-700">{done}</p>
-        <p className="mt-3 text-sm text-slate-600">
+        <p className="text-sm text-ink">{done}</p>
+        <p className="mt-3 text-sm text-ink-muted">
           Their old enrolment is closed as transferred, not deleted — it still
           says which campus and section they were in, and when.
         </p>
@@ -190,7 +190,7 @@ export function TransferPanel({
   return (
     <div className="space-y-4">
       {error !== null ? (
-        <p role="alert" className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">
+        <p role="alert" className="rounded-lg bg-status-danger-subtle px-3 py-2 text-sm text-status-danger-ink">
           {error}
         </p>
       ) : null}
@@ -250,7 +250,7 @@ export function TransferPanel({
       {quote !== null ? (
         <Card header={<CardTitle title={`Fees for ${quote.period}`} />}>
           {Number(quote.monthlyTotal) === 0 ? (
-            <p className="text-sm text-slate-600">
+            <p className="text-sm text-ink-muted">
               Nothing is outstanding for this month, so there is nothing to
               split. The new campus bills them from its next run.
             </p>
@@ -258,32 +258,32 @@ export function TransferPanel({
             <>
               <dl className="grid gap-4 sm:grid-cols-3">
                 <div>
-                  <dt className="text-xs uppercase tracking-wide text-slate-500">
+                  <dt className="text-xs uppercase tracking-wide text-ink-muted">
                     Outstanding this month
                   </dt>
-                  <dd className="mt-1 font-mono text-sm text-slate-900">
+                  <dd className="mt-1 font-mono text-sm text-ink">
                     PKR {quote.monthlyTotal}
                   </dd>
                 </div>
                 <div>
-                  <dt className="text-xs uppercase tracking-wide text-slate-500">
+                  <dt className="text-xs uppercase tracking-wide text-ink-muted">
                     {current?.branchName ?? 'Leaving campus'} credits
                   </dt>
-                  <dd className="mt-1 font-mono text-sm text-slate-900">
+                  <dd className="mt-1 font-mono text-sm text-ink">
                     PKR {quote.credit}
                   </dd>
                 </div>
                 <div>
-                  <dt className="text-xs uppercase tracking-wide text-slate-500">
+                  <dt className="text-xs uppercase tracking-wide text-ink-muted">
                     New campus bills
                   </dt>
-                  <dd className="mt-1 font-mono text-sm text-slate-900">
+                  <dd className="mt-1 font-mono text-sm text-ink">
                     PKR {quote.charge}
                   </dd>
                 </div>
               </dl>
 
-              <p className="mt-4 text-sm text-slate-600">
+              <p className="mt-4 text-sm text-ink-muted">
                 {quote.daysBefore} of {quote.daysInMonth} days at the old
                 campus, {quote.daysAfter} at the new one. The parent&rsquo;s
                 total for the month does not change — the money moves between
@@ -291,7 +291,7 @@ export function TransferPanel({
               </p>
 
               {quote.challanIds.length > 0 ? (
-                <p className="mt-2 text-sm text-amber-800">
+                <p className="mt-2 text-sm text-status-warning-onSubtle">
                   {quote.challanIds.length} open challan
                   {quote.challanIds.length === 1 ? '' : 's'} for this month will
                   be cancelled. A challan already paid is not touched — refunds
@@ -306,7 +306,7 @@ export function TransferPanel({
       <div className="flex flex-wrap items-center gap-3">
         {confirming ? (
           <>
-            <span className="text-sm text-slate-700">
+            <span className="text-sm text-ink">
               Move {studentName} on {effectiveDate}?
             </span>
             <Button

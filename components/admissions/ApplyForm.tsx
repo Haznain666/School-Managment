@@ -317,7 +317,7 @@ export function ApplyForm({ branches, grades }: ApplyFormProps) {
           </div>
 
           {duplicateStatus !== null ? (
-            <p className="rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-800 sm:col-span-2">
+            <p className="rounded-lg bg-status-warning-subtle px-3 py-2 text-sm text-status-warning-onSubtle sm:col-span-2">
               We already have an application from this number, currently{' '}
               {duplicateStatus}. You can still submit another one if you are
               applying for a second child.
@@ -384,7 +384,7 @@ export function ApplyForm({ branches, grades }: ApplyFormProps) {
       </Card>
 
       {error !== null ? (
-        <p role="alert" className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">
+        <p role="alert" className="rounded-lg bg-status-danger-subtle px-3 py-2 text-sm text-status-danger-ink">
           {error}
         </p>
       ) : null}

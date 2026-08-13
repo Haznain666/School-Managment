@@ -73,7 +73,7 @@ export default async function ParentAttendancePage({
       <div className="space-y-6">
         <Heading />
         <Card>
-          <p className="text-sm text-slate-600">
+          <p className="text-sm text-ink-muted">
             No children are recorded against your account yet, so there is no
             attendance to show. Your school admin can link you to your
             child&rsquo;s record.
@@ -106,8 +106,8 @@ export default async function ParentAttendancePage({
               }
               className={
                 child.studentProfileId === selected.studentProfileId
-                  ? 'rounded-full bg-brand-primary px-3 py-1.5 text-sm font-medium text-white'
-                  : 'rounded-full bg-slate-100 px-3 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-200'
+                  ? 'rounded-full bg-brand-primary px-3 py-1.5 text-sm font-medium text-brand-onPrimary'
+                  : 'rounded-full bg-surface-sunken px-3 py-1.5 text-sm font-medium text-ink-muted hover:bg-line'
               }
             >
               {child.name}
@@ -137,20 +137,20 @@ export default async function ParentAttendancePage({
         className="p-0"
       >
         {records.length === 0 ? (
-          <p className="px-5 py-4 text-sm text-slate-600">
+          <p className="px-5 py-4 text-sm text-ink-muted">
             No attendance has been recorded in the last 30 days.
           </p>
         ) : (
-          <ul className="divide-y divide-slate-100">
+          <ul className="divide-y divide-line">
             {records.map((record) => (
               <li
                 key={record.date}
                 className="flex flex-wrap items-center justify-between gap-3 px-5 py-3"
               >
                 <div className="min-w-0">
-                  <p className="font-medium text-slate-900">{record.date}</p>
+                  <p className="font-medium text-ink">{record.date}</p>
                   {record.notes === null || record.notes === '' ? null : (
-                    <p className="text-xs text-slate-500">{record.notes}</p>
+                    <p className="text-xs text-ink-muted">{record.notes}</p>
                   )}
                 </div>
                 <Badge variant={STATUS_VARIANTS[record.status]}>
@@ -185,14 +185,14 @@ function SummaryCard({
 }) {
   return (
     <Card>
-      <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
+      <p className="text-xs font-medium uppercase tracking-wide text-ink-muted">
         {label}
       </p>
       <p
         className={
           emphasis
-            ? 'mt-2 text-2xl font-bold text-red-600'
-            : 'mt-2 text-2xl font-bold text-slate-900'
+            ? 'mt-2 text-2xl font-bold text-status-danger-ink'
+            : 'mt-2 text-2xl font-bold text-ink'
         }
       >
         {value}

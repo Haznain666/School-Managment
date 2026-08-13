@@ -290,25 +290,25 @@ export function StudentTable({
       </div>
 
       {error !== null ? (
-        <p role="alert" className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">
+        <p role="alert" className="rounded-lg bg-status-danger-subtle px-3 py-2 text-sm text-status-danger-ink">
           {error}
         </p>
       ) : null}
 
       {data === null ? (
         <Card>
-          <p className="text-sm text-slate-500">Loading students…</p>
+          <p className="text-sm text-ink-muted">Loading students…</p>
         </Card>
       ) : data.students.length === 0 ? (
         <Card>
-          <p className="text-sm text-slate-600">No students match those filters.</p>
+          <p className="text-sm text-ink-muted">No students match those filters.</p>
         </Card>
       ) : (
         <>
           <Card className="p-0">
             <div className="overflow-x-auto">
               <table className="w-full text-left text-sm">
-                <thead className="border-b border-slate-200 text-xs uppercase tracking-wide text-slate-500">
+                <thead className="border-b border-line text-xs uppercase tracking-wide text-ink-muted">
                   <tr>
                     <th scope="col" className="px-4 py-3 font-medium">Student ID</th>
                     <th scope="col" className="px-4 py-3 font-medium">Name</th>
@@ -320,19 +320,19 @@ export function StudentTable({
                     <th scope="col" className="px-4 py-3 font-medium">Actions</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-100">
+                <tbody className="divide-y divide-line">
                   {data.students.map((row) => (
                     <tr key={row.studentProfileId}>
-                      <td className="px-4 py-3 font-mono text-xs text-slate-600">
+                      <td className="px-4 py-3 font-mono text-xs text-ink-muted">
                         {row.studentId}
                       </td>
-                      <td className="px-4 py-3 font-medium text-slate-900">{row.name}</td>
-                      <td className="px-4 py-3 text-slate-600">{row.gradeName}</td>
-                      <td className="px-4 py-3 text-slate-600">{row.sectionName}</td>
-                      <td className="px-4 py-3 font-mono text-xs text-slate-600">
+                      <td className="px-4 py-3 font-medium text-ink">{row.name}</td>
+                      <td className="px-4 py-3 text-ink-muted">{row.gradeName}</td>
+                      <td className="px-4 py-3 text-ink-muted">{row.sectionName}</td>
+                      <td className="px-4 py-3 font-mono text-xs text-ink-muted">
                         {row.guardianPhone ?? '—'}
                       </td>
-                      <td className="px-4 py-3 text-slate-600">{row.enrollmentDate}</td>
+                      <td className="px-4 py-3 text-ink-muted">{row.enrollmentDate}</td>
                       <td className="px-4 py-3">
                         <Badge variant={statusVariant(row.status)}>
                           {ENROLLMENT_STATUS_LABELS[row.status]}
@@ -353,7 +353,7 @@ export function StudentTable({
             </div>
           </Card>
 
-          <div className="flex items-center justify-between text-sm text-slate-600">
+          <div className="flex items-center justify-between text-sm text-ink-muted">
             <span>
               {data.total} student{data.total === 1 ? '' : 's'} · page {data.page} of{' '}
               {totalPages}

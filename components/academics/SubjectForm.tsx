@@ -109,7 +109,7 @@ export function SubjectForm({ subject = null }: SubjectFormProps) {
           />
 
           <fieldset className="sm:col-span-2">
-            <legend className="mb-1.5 block text-sm font-medium text-slate-700">
+            <legend className="mb-1.5 block text-sm font-medium text-ink">
               Colour
             </legend>
 
@@ -126,21 +126,21 @@ export function SubjectForm({ subject = null }: SubjectFormProps) {
                   }}
                   className={
                     color === option
-                      ? 'h-9 w-9 rounded-full ring-2 ring-slate-900 ring-offset-2'
-                      : 'h-9 w-9 rounded-full ring-1 ring-slate-300'
+                      ? 'h-9 w-9 rounded-full ring-2 ring-ink ring-offset-2'
+                      : 'h-9 w-9 rounded-full ring-1 ring-line-strong'
                   }
                   style={{ backgroundColor: option }}
                 />
               ))}
             </div>
 
-            <p className="mt-1.5 text-sm text-slate-500">
+            <p className="mt-1.5 text-sm text-ink-muted">
               How this subject appears in the weekly grid.
             </p>
           </fieldset>
 
           {subject === null ? null : (
-            <label className="flex items-start gap-2 text-sm text-slate-700 sm:col-span-2">
+            <label className="flex items-start gap-2 text-sm text-ink sm:col-span-2">
               <input
                 type="checkbox"
                 className="mt-0.5 h-4 w-4"
@@ -152,7 +152,7 @@ export function SubjectForm({ subject = null }: SubjectFormProps) {
               />
               <span>
                 Active
-                <span className="block text-xs text-slate-500">
+                <span className="block text-xs text-ink-muted">
                   A retired subject stays on the timetables it already appears in
                   but cannot be added to new ones.
                 </span>
@@ -163,7 +163,7 @@ export function SubjectForm({ subject = null }: SubjectFormProps) {
       </Card>
 
       {error !== null ? (
-        <p role="alert" className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">
+        <p role="alert" className="rounded-lg bg-status-danger-subtle px-3 py-2 text-sm text-status-danger-ink">
           {error}
         </p>
       ) : null}

@@ -25,7 +25,7 @@ export async function BrandedLoginLayout({
   return (
     <main
       style={brandStyle}
-      className="flex min-h-screen items-center justify-center bg-slate-50 px-4 py-12"
+      className="flex min-h-screen items-center justify-center bg-surface-sunken px-4 py-12"
     >
       <div className="w-full max-w-sm">
         <div className="mb-8 flex flex-col items-center text-center">
@@ -40,17 +40,17 @@ export async function BrandedLoginLayout({
           ) : (
             <span
               aria-hidden="true"
-              className="mb-4 flex h-16 w-16 items-center justify-center rounded-xl bg-brand-primary text-xl font-bold text-white"
+              className="mb-4 flex h-16 w-16 items-center justify-center rounded-xl bg-brand-primary text-xl font-bold text-brand-onPrimary"
             >
               {(school?.name ?? 'SMS').slice(0, 2).toUpperCase()}
             </span>
           )}
 
-          <h1 className="text-2xl font-bold text-slate-900">
+          <h1 className="text-2xl font-bold text-ink">
             {school?.name ?? 'SMS Platform'}
           </h1>
           {subtitle !== undefined ? (
-            <p className="mt-1 text-sm text-slate-500">{subtitle}</p>
+            <p className="mt-1 text-sm text-ink-muted">{subtitle}</p>
           ) : null}
         </div>
 

@@ -54,10 +54,10 @@ export default async function EnrollStudentPage({
   if (activeYear === null) {
     return (
       <Card>
-        <h2 className="text-lg font-semibold text-slate-900">
+        <h2 className="text-lg font-semibold text-ink">
           No active academic year
         </h2>
-        <p className="mt-2 text-sm text-slate-600">
+        <p className="mt-2 text-sm text-ink-muted">
           Students are enrolled into an academic year, and their IDs are numbered
           per year, so one has to exist first.
         </p>
@@ -74,8 +74,8 @@ export default async function EnrollStudentPage({
   if (schoolCode === null || schoolCode === '') {
     return (
       <Card>
-        <h2 className="text-lg font-semibold text-slate-900">No school code set</h2>
-        <p className="mt-2 text-sm text-slate-600">
+        <h2 className="text-lg font-semibold text-ink">No school code set</h2>
+        <p className="mt-2 text-sm text-ink-muted">
           Student IDs are built from a short school code, e.g.{' '}
           <span className="font-mono">GVS-{activeYear.startYear}-0001</span>. Ask
           the platform administrator to set one for this school before enrolling.
@@ -123,15 +123,15 @@ export default async function EnrollStudentPage({
   return (
     <div className="max-w-4xl space-y-6">
       <div>
-        <h2 className="text-xl font-semibold text-slate-900">Enrol a student</h2>
-        <p className="mt-1 text-sm text-slate-500">
+        <h2 className="text-xl font-semibold text-ink">Enrol a student</h2>
+        <p className="mt-1 text-sm text-ink-muted">
           Creates the student’s record, their placement for {activeYear.name} and
           their guardians, then mirrors them into GoHighLevel.
         </p>
       </div>
 
       {prefill === undefined ? null : (
-        <p className="rounded-lg bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
+        <p className="rounded-lg bg-status-success-subtle px-3 py-2 text-sm text-status-success-onSubtle">
           Pre-filled from an accepted application. Check the details before
           submitting — anything you change here is what gets stored.
         </p>

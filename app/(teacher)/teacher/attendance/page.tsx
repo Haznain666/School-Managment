@@ -35,7 +35,7 @@ export default async function TeacherAttendancePage() {
       <div className="space-y-6">
         <Heading />
         <Card>
-          <p className="text-sm text-slate-600">
+          <p className="text-sm text-ink-muted">
             {activeYear === null
               ? 'Your school has not opened an academic year yet, so there is no register to take.'
               : 'Your staff record is still being set up.'}
@@ -56,7 +56,7 @@ export default async function TeacherAttendancePage() {
       <div className="space-y-6">
         <Heading />
         <Card>
-          <p className="text-sm text-slate-600">
+          <p className="text-sm text-ink-muted">
             You are not timetabled into any section for {activeYear.name}, so
             there is no register for you to take. Your school admin assigns
             classes on the timetable.

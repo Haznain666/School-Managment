@@ -174,18 +174,18 @@ export function SchoolTable() {
       </div>
 
       {error !== null ? (
-        <p role="alert" className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">
+        <p role="alert" className="rounded-lg bg-status-danger-subtle px-3 py-2 text-sm text-status-danger-ink">
           {error}
         </p>
       ) : null}
 
       {rows === null ? (
         <Card>
-          <p className="text-sm text-slate-500">Loading schools…</p>
+          <p className="text-sm text-ink-muted">Loading schools…</p>
         </Card>
       ) : rows.length === 0 ? (
         <Card>
-          <p className="text-sm text-slate-600">
+          <p className="text-sm text-ink-muted">
             No schools match those filters.
           </p>
         </Card>
@@ -193,7 +193,7 @@ export function SchoolTable() {
         <Card className="p-0">
           <div className="overflow-x-auto">
             <table className="w-full text-left text-sm">
-              <thead className="border-b border-slate-200 text-xs uppercase tracking-wide text-slate-500">
+              <thead className="border-b border-line text-xs uppercase tracking-wide text-ink-muted">
                 <tr>
                   <th scope="col" className="px-4 py-3 font-medium">Name</th>
                   <th scope="col" className="px-4 py-3 font-medium">City</th>
@@ -212,19 +212,19 @@ export function SchoolTable() {
                   <th scope="col" className="px-4 py-3 text-right font-medium">Actions</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-100">
+              <tbody className="divide-y divide-line">
                 {rows.map((school) => (
                   <tr key={school.id}>
                     <td className="px-4 py-3">
                       <Link
                         href={`/super-admin/schools/${school.id}`}
-                        className="font-medium text-slate-900 hover:text-brand-primary"
+                        className="font-medium text-ink hover:text-brand-primary"
                       >
                         {school.name}
                       </Link>
                     </td>
-                    <td className="px-4 py-3 text-slate-600">{school.city}</td>
-                    <td className="px-4 py-3 font-mono text-xs text-slate-600">
+                    <td className="px-4 py-3 text-ink-muted">{school.city}</td>
+                    <td className="px-4 py-3 font-mono text-xs text-ink-muted">
                       {school.slug}
                     </td>
                     {/*
@@ -236,7 +236,7 @@ export function SchoolTable() {
                     */}
                     <td
                       title={school.locationId}
-                      className="max-w-[10rem] truncate px-4 py-3 font-mono text-xs text-slate-600"
+                      className="max-w-[10rem] truncate px-4 py-3 font-mono text-xs text-ink-muted"
                     >
                       {school.locationId}
                     </td>
@@ -254,7 +254,7 @@ export function SchoolTable() {
                             <Badge variant={state.variant}>{state.label}</Badge>
                             {school.subdomainError != null &&
                               school.subdomainError !== '' && (
-                                <p className="max-w-[16rem] text-xs text-red-700">
+                                <p className="max-w-[16rem] text-xs text-status-danger-ink">
                                   {school.subdomainError}
                                 </p>
                               )}

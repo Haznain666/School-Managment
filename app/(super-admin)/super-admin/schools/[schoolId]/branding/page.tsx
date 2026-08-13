@@ -21,8 +21,8 @@ export default async function SchoolBrandingPage({
   return (
     <div className="space-y-4">
       <div>
-        <h3 className="text-lg font-semibold text-slate-900">Branding</h3>
-        <p className="mt-1 text-sm text-slate-500">
+        <h3 className="text-lg font-semibold text-ink">Branding</h3>
+        <p className="mt-1 text-sm text-ink-muted">
           Upload the school logo and choose a colour palette. Colours are
           extracted from the logo and applied across the school&rsquo;s portal.
         </p>

@@ -45,7 +45,7 @@ export default async function BulkModulesPage() {
       />
 
       {rows.length === 0 ? (
-        <p className="text-sm text-slate-600">
+        <p className="text-sm text-ink-muted">
           There are no schools yet.
         </p>
       ) : (

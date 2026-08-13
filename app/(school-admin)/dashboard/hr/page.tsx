@@ -71,12 +71,12 @@ export default async function HrOverviewPage() {
         {tiles.map((tile) => (
           <Link key={tile.label} href={tile.href} className="block">
             <Card className="h-full transition hover:border-brand-primary">
-              <p className="text-xs uppercase tracking-wide text-slate-500">
+              <p className="text-xs uppercase tracking-wide text-ink-muted">
                 {tile.label}
               </p>
-              <p className="mt-1 text-2xl font-semibold text-slate-900">{tile.value}</p>
+              <p className="mt-1 text-2xl font-semibold text-ink">{tile.value}</p>
               {tile.hint === undefined ? null : (
-                <p className="mt-1 text-xs text-slate-500">{tile.hint}</p>
+                <p className="mt-1 text-xs text-ink-muted">{tile.hint}</p>
               )}
             </Card>
           </Link>
@@ -85,7 +85,7 @@ export default async function HrOverviewPage() {
 
       {summary.componentsConfigured === 0 ? (
         <Card header={<CardTitle title="Start here" />}>
-          <p className="text-sm text-slate-600">
+          <p className="text-sm text-ink-muted">
             No salary components are set up, so no payslip can be computed. Seed
             the usual heads — basic, house rent, medical, and the statutory
             deductions — and then assign each staff member their figures.
@@ -99,7 +99,7 @@ export default async function HrOverviewPage() {
         </Card>
       ) : summary.staffWithoutSalary > 0 ? (
         <Card header={<CardTitle title="Before the next run" />}>
-          <p className="text-sm text-slate-600">
+          <p className="text-sm text-ink-muted">
             {summary.staffWithoutSalary} active staff member
             {summary.staffWithoutSalary === 1 ? ' has' : 's have'} no salary
             structure assigned. Payroll skips them rather than paying them zero —

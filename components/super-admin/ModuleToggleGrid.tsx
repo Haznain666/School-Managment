@@ -123,7 +123,7 @@ export function ModuleToggleGrid({ schoolId }: ModuleToggleGridProps) {
   if (saved === null) {
     return (
       <Card>
-        <p className="text-sm text-slate-500">
+        <p className="text-sm text-ink-muted">
           {error ?? 'Loading module settings…'}
         </p>
       </Card>
@@ -139,7 +139,7 @@ export function ModuleToggleGrid({ schoolId }: ModuleToggleGridProps) {
         return (
           <section key={phase} className="space-y-3">
             <div className="flex items-center justify-between gap-4">
-              <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-500">
+              <h3 className="text-sm font-semibold uppercase tracking-wide text-ink-muted">
                 Phase {phase}
               </h3>
               <div className="flex gap-2">
@@ -185,18 +185,18 @@ export function ModuleToggleGrid({ schoolId }: ModuleToggleGridProps) {
       })}
 
       {error !== null ? (
-        <p role="alert" className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">
+        <p role="alert" className="rounded-lg bg-status-danger-subtle px-3 py-2 text-sm text-status-danger-ink">
           {error}
         </p>
       ) : null}
 
       {notice !== null ? (
-        <p className="rounded-lg bg-emerald-50 px-3 py-2 text-sm text-emerald-700">
+        <p className="rounded-lg bg-status-success-subtle px-3 py-2 text-sm text-status-success-ink">
           {notice}
         </p>
       ) : null}
 
-      <div className="sticky bottom-0 flex items-center gap-3 border-t border-slate-200 bg-slate-50 py-4">
+      <div className="sticky bottom-0 flex items-center gap-3 border-t border-line bg-surface-sunken py-4">
         <Button
           isLoading={isSaving}
           disabled={dirtyKeys.length === 0}

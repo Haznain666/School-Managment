@@ -84,11 +84,11 @@ const STATUS_INITIALS: Record<AttendanceStatus, string> = {
 };
 
 const SELECTED_CLASSES: Record<AttendanceStatus, string> = {
-  present: 'bg-emerald-600 text-white',
-  absent: 'bg-red-600 text-white',
-  late: 'bg-amber-500 text-white',
-  excused: 'bg-slate-600 text-white',
-  holiday: 'bg-slate-400 text-white',
+  present: 'bg-status-success text-status-success-on',
+  absent: 'bg-status-danger text-status-danger-on',
+  late: 'bg-status-warning text-status-warning-on',
+  excused: 'bg-ink-muted text-surface',
+  holiday: 'bg-surface-sunken text-ink-muted',
 };
 
 function today(): string {
@@ -284,24 +284,24 @@ export function AttendanceMarker({
       </Card>
 
       {error !== null ? (
-        <p role="alert" className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">
+        <p role="alert" className="rounded-lg bg-status-danger-subtle px-3 py-2 text-sm text-status-danger-ink">
           {error}
         </p>
       ) : null}
 
       {sectionId === '' ? (
         <Card>
-          <p className="text-sm text-slate-600">
+          <p className="text-sm text-ink-muted">
             Choose a class to take its register.
           </p>
         </Card>
       ) : isLoading ? (
         <Card>
-          <p className="text-sm text-slate-500">Loading the register…</p>
+          <p className="text-sm text-ink-muted">Loading the register…</p>
         </Card>
       ) : students.length === 0 ? (
         <Card>
-          <p className="text-sm text-slate-600">
+          <p className="text-sm text-ink-muted">
             No students are actively enrolled in this section for this year.
           </p>
         </Card>
@@ -328,7 +328,7 @@ export function AttendanceMarker({
           }
           className="p-0"
         >
-          <ul className="divide-y divide-slate-100">
+          <ul className="divide-y divide-line">
             {students.map((student) => {
               const status = marks[student.studentProfileId];
 
@@ -338,8 +338,8 @@ export function AttendanceMarker({
                   className="flex flex-wrap items-center justify-between gap-3 px-5 py-3"
                 >
                   <div className="min-w-0">
-                    <p className="font-medium text-slate-900">{student.studentName}</p>
-                    <p className="text-xs text-slate-500">
+                    <p className="font-medium text-ink">{student.studentName}</p>
+                    <p className="text-xs text-ink-muted">
                       {student.rollNumber === null || student.rollNumber === ''
                         ? 'No roll number'
                         : `Roll ${student.rollNumber}`}{' '}
@@ -368,7 +368,7 @@ export function AttendanceMarker({
                         className={
                           status === option
                             ? `h-9 w-9 rounded-lg text-sm font-semibold ${SELECTED_CLASSES[option]}`
-                            : 'h-9 w-9 rounded-lg border border-slate-300 text-sm font-semibold text-slate-500 transition hover:border-slate-400 hover:text-slate-700'
+                            : 'h-9 w-9 rounded-lg border border-line-strong text-sm font-semibold text-ink-muted transition hover:border-line-strong hover:text-ink'
                         }
                       >
                         {STATUS_INITIALS[option]}
@@ -380,7 +380,7 @@ export function AttendanceMarker({
             })}
           </ul>
 
-          <div className="flex flex-wrap items-center gap-3 border-t border-slate-200 bg-slate-50 px-5 py-3">
+          <div className="flex flex-wrap items-center gap-3 border-t border-line bg-surface-sunken px-5 py-3">
             <Button
               isLoading={isSaving}
               onClick={() => {
@@ -389,7 +389,7 @@ export function AttendanceMarker({
             >
               Save attendance
             </Button>
-            <p className="text-xs text-slate-500">
+            <p className="text-xs text-ink-muted">
               {counts.unmarked === 0
                 ? 'Every student has been marked.'
                 : `${counts.unmarked} student${counts.unmarked === 1 ? '' : 's'} still unmarked — they will be left as they are.`}

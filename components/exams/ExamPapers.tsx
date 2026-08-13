@@ -178,13 +178,13 @@ export function ExamPapers({
       }
     >
       {error !== null ? (
-        <p role="alert" className="mb-4 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">
+        <p role="alert" className="mb-4 rounded-lg bg-status-danger-subtle px-3 py-2 text-sm text-status-danger-ink">
           {error}
         </p>
       ) : null}
 
       {isOpen ? (
-        <div className="mb-5 space-y-4 rounded-lg border border-slate-200 bg-slate-50 p-4">
+        <div className="mb-5 space-y-4 rounded-lg border border-line bg-surface-sunken p-4">
           <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
             <Select
               label="Subject"
@@ -247,18 +247,18 @@ export function ExamPapers({
       ) : null}
 
       {papers.length === 0 ? (
-        <p className="text-sm text-slate-600">
+        <p className="text-sm text-ink-muted">
           No papers yet. The datesheet cannot be announced until there is at
           least one — an admit card with nothing on it is worse than none.
         </p>
       ) : (
-        <ul className="divide-y divide-slate-100">
+        <ul className="divide-y divide-line">
           {papers.map((paper) => (
             <li key={paper.id} className="py-3">
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div className="min-w-0">
-                  <p className="font-medium text-slate-900">{paper.subjectName}</p>
-                  <p className="text-xs text-slate-500">
+                  <p className="font-medium text-ink">{paper.subjectName}</p>
+                  <p className="text-xs text-ink-muted">
                     Out of {paper.maxMarks} · pass {paper.passingMarks}
                     {paper.examDate === null ? '' : ` · ${paper.examDate}`}
                     {paper.slot === null || paper.slot === '' ? '' : ` · ${paper.slot}`}

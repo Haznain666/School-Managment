@@ -146,7 +146,7 @@ export function SlotManager({ canEdit }: SlotManagerProps) {
   if (slots === null) {
     return (
       <Card>
-        <p className="text-sm text-slate-500">Loading the bell schedule…</p>
+        <p className="text-sm text-ink-muted">Loading the bell schedule…</p>
       </Card>
     );
   }
@@ -178,14 +178,14 @@ export function SlotManager({ canEdit }: SlotManagerProps) {
       {error !== null ? (
         <p
           role="alert"
-          className="mb-4 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700"
+          className="mb-4 rounded-lg bg-status-danger-subtle px-3 py-2 text-sm text-status-danger-ink"
         >
           {error}
         </p>
       ) : null}
 
       {draft !== null ? (
-        <div className="mb-4 rounded-lg border border-slate-200 p-4">
+        <div className="mb-4 rounded-lg border border-line p-4">
           <div className="grid gap-4 sm:grid-cols-2">
             <Input
               label="Name"
@@ -224,7 +224,7 @@ export function SlotManager({ canEdit }: SlotManagerProps) {
               }}
             />
 
-            <label className="flex items-start gap-2 text-sm text-slate-700 sm:col-span-2">
+            <label className="flex items-start gap-2 text-sm text-ink sm:col-span-2">
               <input
                 type="checkbox"
                 className="mt-0.5 h-4 w-4"
@@ -235,7 +235,7 @@ export function SlotManager({ canEdit }: SlotManagerProps) {
               />
               <span>
                 This is a break
-                <span className="block text-xs text-slate-500">
+                <span className="block text-xs text-ink-muted">
                   Assembly, the interval, prayer. It spans the whole week in the
                   grid and no lesson can be placed in it.
                 </span>
@@ -266,24 +266,24 @@ export function SlotManager({ canEdit }: SlotManagerProps) {
       ) : null}
 
       {slots.length === 0 ? (
-        <p className="text-sm text-slate-600">
+        <p className="text-sm text-ink-muted">
           No periods yet. The timetable grid has no rows until the school&rsquo;s
           bell schedule is entered.
         </p>
       ) : (
-        <ul className="divide-y divide-slate-100">
+        <ul className="divide-y divide-line">
           {slots.map((row) => (
             <li
               key={row.id}
               className="flex flex-wrap items-center justify-between gap-3 py-3"
             >
               <div className="min-w-0">
-                <p className="font-medium text-slate-900">
+                <p className="font-medium text-ink">
                   {row.name}{' '}
                   {row.isBreak ? <Badge variant="neutral">Break</Badge> : null}
                   {row.isActive ? null : <Badge variant="neutral">Retired</Badge>}
                 </p>
-                <p className="text-xs text-slate-500">
+                <p className="text-xs text-ink-muted">
                   {formatTimeOfDay(row.startTime)} – {formatTimeOfDay(row.endTime)} ·
                   position {row.orderIndex}
                 </p>

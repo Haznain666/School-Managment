@@ -161,7 +161,7 @@ export function StaffManager({ canEdit }: StaffManagerProps) {
   return (
     <div className="space-y-4">
       {error !== null ? (
-        <p role="alert" className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">
+        <p role="alert" className="rounded-lg bg-status-danger-subtle px-3 py-2 text-sm text-status-danger-ink">
           {error}
         </p>
       ) : null}
@@ -305,11 +305,11 @@ export function StaffManager({ canEdit }: StaffManagerProps) {
 
       {rows === null ? (
         <Card>
-          <p className="text-sm text-slate-500">Loading staff…</p>
+          <p className="text-sm text-ink-muted">Loading staff…</p>
         </Card>
       ) : rows.length === 0 ? (
         <Card>
-          <p className="text-sm text-slate-600">
+          <p className="text-sm text-ink-muted">
             No staff match this filter. Add your staff before setting up payroll —
             a run pays whoever is active and has a salary structure.
           </p>
@@ -326,7 +326,7 @@ export function StaffManager({ canEdit }: StaffManagerProps) {
         >
           <div className="overflow-x-auto">
             <table className="w-full text-left text-sm">
-              <thead className="border-b border-slate-200 text-xs uppercase tracking-wide text-slate-500">
+              <thead className="border-b border-line text-xs uppercase tracking-wide text-ink-muted">
                 <tr>
                   <th scope="col" className="px-5 py-3 font-medium">Name</th>
                   <th scope="col" className="px-5 py-3 font-medium">Code</th>
@@ -338,20 +338,20 @@ export function StaffManager({ canEdit }: StaffManagerProps) {
                   </th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-100">
+              <tbody className="divide-y divide-line">
                 {rows.map((row) => (
                   <tr key={row.id}>
                     <td className="px-5 py-3">
-                      <p className="font-medium text-slate-900">{row.fullName}</p>
+                      <p className="font-medium text-ink">{row.fullName}</p>
                       {row.department === null ? null : (
-                        <p className="text-xs text-slate-500">{row.department}</p>
+                        <p className="text-xs text-ink-muted">{row.department}</p>
                       )}
                     </td>
-                    <td className="px-5 py-3 text-slate-600">{row.employeeCode}</td>
-                    <td className="px-5 py-3 text-slate-600">
+                    <td className="px-5 py-3 text-ink-muted">{row.employeeCode}</td>
+                    <td className="px-5 py-3 text-ink-muted">
                       {row.designation ?? '—'}
                     </td>
-                    <td className="px-5 py-3 text-slate-600">
+                    <td className="px-5 py-3 text-ink-muted">
                       {row.branchName ?? 'All branches'}
                     </td>
                     <td className="px-5 py-3">

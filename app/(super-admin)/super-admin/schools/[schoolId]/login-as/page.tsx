@@ -45,7 +45,7 @@ export default async function SchoolLoginAsPage({
 
       {school.isActive ? null : (
         <Card>
-          <p className="text-sm text-amber-800">
+          <p className="text-sm text-status-warning-onSubtle">
             This school is deactivated, so its portal is closed to everyone
             including you. Reactivate it from the school list first.
           </p>
@@ -55,8 +55,8 @@ export default async function SchoolLoginAsPage({
       <SchoolLoginAsForm schoolId={school.id} schoolName={school.schoolName} />
 
       <Card>
-        <h3 className="text-sm font-semibold text-slate-900">What this does</h3>
-        <ul className="mt-2 space-y-1.5 text-sm text-slate-600">
+        <h3 className="text-sm font-semibold text-ink">What this does</h3>
+        <ul className="mt-2 space-y-1.5 text-sm text-ink-muted">
           <li>
             Opens{' '}
             <span className="font-mono text-xs">{school.slug}</span> with full

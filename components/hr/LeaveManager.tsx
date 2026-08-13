@@ -207,7 +207,7 @@ export function LeaveManager({ canEdit }: LeaveManagerProps) {
   return (
     <div className="space-y-6">
       {error !== null ? (
-        <p role="alert" className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">
+        <p role="alert" className="rounded-lg bg-status-danger-subtle px-3 py-2 text-sm text-status-danger-ink">
           {error}
         </p>
       ) : null}
@@ -234,9 +234,9 @@ export function LeaveManager({ canEdit }: LeaveManagerProps) {
         }
       >
         {types === null ? (
-          <p className="text-sm text-slate-500">Loading leave types…</p>
+          <p className="text-sm text-ink-muted">Loading leave types…</p>
         ) : types.length === 0 ? (
-          <p className="text-sm text-slate-600">
+          <p className="text-sm text-ink-muted">
             No leave types yet. Seeding creates the usual four — Casual (10 days),
             Sick (8), Annual (14) and Unpaid, the one that docks pay.
           </p>
@@ -245,10 +245,10 @@ export function LeaveManager({ canEdit }: LeaveManagerProps) {
             {types.map((row) => (
               <li
                 key={row.id}
-                className="rounded-lg border border-slate-200 px-3 py-2 text-sm"
+                className="rounded-lg border border-line px-3 py-2 text-sm"
               >
-                <span className="font-medium text-slate-900">{row.name}</span>
-                <span className="ml-2 text-slate-500">
+                <span className="font-medium text-ink">{row.name}</span>
+                <span className="ml-2 text-ink-muted">
                   {row.annualQuotaDays === 0
                     ? 'no quota'
                     : `${row.annualQuotaDays} days/year`}
@@ -383,11 +383,11 @@ export function LeaveManager({ canEdit }: LeaveManagerProps) {
 
       {requests === null ? (
         <Card>
-          <p className="text-sm text-slate-500">Loading requests…</p>
+          <p className="text-sm text-ink-muted">Loading requests…</p>
         </Card>
       ) : requests.length === 0 ? (
         <Card>
-          <p className="text-sm text-slate-600">No leave requests to show.</p>
+          <p className="text-sm text-ink-muted">No leave requests to show.</p>
         </Card>
       ) : (
         <Card
@@ -401,7 +401,7 @@ export function LeaveManager({ canEdit }: LeaveManagerProps) {
         >
           <div className="overflow-x-auto">
             <table className="w-full text-left text-sm">
-              <thead className="border-b border-slate-200 text-xs uppercase tracking-wide text-slate-500">
+              <thead className="border-b border-line text-xs uppercase tracking-wide text-ink-muted">
                 <tr>
                   <th scope="col" className="px-5 py-3 font-medium">Staff</th>
                   <th scope="col" className="px-5 py-3 font-medium">Type</th>
@@ -415,14 +415,14 @@ export function LeaveManager({ canEdit }: LeaveManagerProps) {
                   ) : null}
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-100">
+              <tbody className="divide-y divide-line">
                 {requests.map((row) => (
                   <tr key={row.id}>
                     <td className="px-5 py-3">
-                      <p className="font-medium text-slate-900">{row.staffName}</p>
-                      <p className="text-xs text-slate-500">{row.employeeCode}</p>
+                      <p className="font-medium text-ink">{row.staffName}</p>
+                      <p className="text-xs text-ink-muted">{row.employeeCode}</p>
                     </td>
-                    <td className="px-5 py-3 text-slate-600">
+                    <td className="px-5 py-3 text-ink-muted">
                       {row.leaveTypeName}
                       {row.isPaid ? null : (
                         <Badge className="ml-2" variant="danger">
@@ -430,19 +430,19 @@ export function LeaveManager({ canEdit }: LeaveManagerProps) {
                         </Badge>
                       )}
                     </td>
-                    <td className="px-5 py-3 text-slate-600">
+                    <td className="px-5 py-3 text-ink-muted">
                       {row.startDate} → {row.endDate}
                       {row.reason === null || row.reason === '' ? null : (
-                        <p className="text-xs text-slate-500">{row.reason}</p>
+                        <p className="text-xs text-ink-muted">{row.reason}</p>
                       )}
                     </td>
-                    <td className="px-5 py-3 text-slate-600">{row.totalDays}</td>
+                    <td className="px-5 py-3 text-ink-muted">{row.totalDays}</td>
                     <td className="px-5 py-3">
                       <Badge variant={STATUS_VARIANT[row.status]}>
                         {LEAVE_STATUS_LABELS[row.status]}
                       </Badge>
                       {row.decisionNote === null || row.decisionNote === '' ? null : (
-                        <p className="mt-1 text-xs text-slate-500">{row.decisionNote}</p>
+                        <p className="mt-1 text-xs text-ink-muted">{row.decisionNote}</p>
                       )}
                     </td>
                     {canEdit ? (

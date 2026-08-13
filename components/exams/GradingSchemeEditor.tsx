@@ -160,7 +160,7 @@ export function GradingSchemeEditor({ schemes, canWrite }: GradingSchemeEditorPr
         }
       >
         {error !== null ? (
-          <p role="alert" className="mb-4 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">
+          <p role="alert" className="mb-4 rounded-lg bg-status-danger-subtle px-3 py-2 text-sm text-status-danger-ink">
             {error}
           </p>
         ) : null}
@@ -173,7 +173,7 @@ export function GradingSchemeEditor({ schemes, canWrite }: GradingSchemeEditorPr
             why their bands do nothing. */}
         {schemes.length > 0 &&
         !schemes.some((scheme) => scheme.isDefault && scheme.isActive) ? (
-          <p className="mb-4 rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-800">
+          <p className="mb-4 rounded-lg bg-status-warning-subtle px-3 py-2 text-sm text-status-warning-onSubtle">
             None of these schemes is the active default, so report cards and
             tabulation sheets are printing a dash for every grade. Choose one
             with <strong>Make default</strong>.
@@ -181,22 +181,22 @@ export function GradingSchemeEditor({ schemes, canWrite }: GradingSchemeEditorPr
         ) : null}
 
         {schemes.length === 0 && !isEditing ? (
-          <p className="text-sm text-slate-600">
+          <p className="text-sm text-ink-muted">
             No grading scheme yet, so report cards will print marks and
             percentages but no letter grades. That is a real state, not a
             failure — until the school says what an A is, nothing here is
             entitled to guess.
           </p>
         ) : (
-          <ul className="divide-y divide-slate-100">
+          <ul className="divide-y divide-line">
             {schemes.map((scheme) => (
               <li
                 key={scheme.id}
                 className="flex flex-wrap items-center justify-between gap-3 py-3"
               >
                 <div className="min-w-0">
-                  <p className="font-medium text-slate-900">{scheme.name}</p>
-                  <p className="text-xs text-slate-500">
+                  <p className="font-medium text-ink">{scheme.name}</p>
+                  <p className="text-xs text-ink-muted">
                     {scheme.bands
                       .map((band) => `${band.label} ${band.minPercentage}+`)
                       .join(' · ')}
@@ -262,7 +262,7 @@ export function GradingSchemeEditor({ schemes, canWrite }: GradingSchemeEditorPr
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
-                  <tr className="border-b border-slate-200 text-left text-xs uppercase tracking-wide text-slate-500">
+                  <tr className="border-b border-line text-left text-xs uppercase tracking-wide text-ink-muted">
                     <th className="py-2 pr-3 font-medium">Grade</th>
                     <th className="py-2 pr-3 font-medium">From %</th>
                     <th className="py-2 pr-3 font-medium">To %</th>
@@ -271,7 +271,7 @@ export function GradingSchemeEditor({ schemes, canWrite }: GradingSchemeEditorPr
                     <th className="py-2 font-medium" />
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-100">
+                <tbody className="divide-y divide-line">
                   {drafts.map((draft, index) => (
                     // The index is the identity here on purpose: these rows have
                     // no id until they are saved, and reordering is not offered.
@@ -297,7 +297,7 @@ export function GradingSchemeEditor({ schemes, canWrite }: GradingSchemeEditorPr
                                 ),
                               );
                             }}
-                            className={`${width} rounded-lg border border-slate-300 px-2 py-1.5 text-sm`}
+                            className={`${width} rounded-lg border border-line-strong px-2 py-1.5 text-sm`}
                           />
                         </td>
                       ))}
@@ -350,7 +350,7 @@ export function GradingSchemeEditor({ schemes, canWrite }: GradingSchemeEditorPr
               </Button>
 
               {problem === null ? null : (
-                <p className="text-sm text-amber-700">{problem}</p>
+                <p className="text-sm text-status-warning-ink">{problem}</p>
               )}
             </div>
           </div>

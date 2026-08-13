@@ -88,7 +88,7 @@ export function PendingInvitesTable() {
   if (invites === null) {
     return (
       <Card header={<CardTitle title="Pending invitations" />}>
-        <p className="text-sm text-slate-500">{error ?? 'Loading invitations…'}</p>
+        <p className="text-sm text-ink-muted">{error ?? 'Loading invitations…'}</p>
       </Card>
     );
   }
@@ -104,17 +104,17 @@ export function PendingInvitesTable() {
       className="p-0"
     >
       {error !== null ? (
-        <p role="alert" className="mx-4 mt-4 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">
+        <p role="alert" className="mx-4 mt-4 rounded-lg bg-status-danger-subtle px-3 py-2 text-sm text-status-danger-ink">
           {error}
         </p>
       ) : null}
 
       {invites.length === 0 ? (
-        <p className="px-5 py-4 text-sm text-slate-600">No invitations are pending.</p>
+        <p className="px-5 py-4 text-sm text-ink-muted">No invitations are pending.</p>
       ) : (
         <div className="overflow-x-auto">
           <table className="w-full text-left text-sm">
-            <thead className="border-b border-slate-200 text-xs uppercase tracking-wide text-slate-500">
+            <thead className="border-b border-line text-xs uppercase tracking-wide text-ink-muted">
               <tr>
                 <th scope="col" className="px-4 py-3 font-medium">Name</th>
                 <th scope="col" className="px-4 py-3 font-medium">Role</th>
@@ -124,14 +124,14 @@ export function PendingInvitesTable() {
                 <th scope="col" className="px-4 py-3 font-medium">Actions</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-100">
+            <tbody className="divide-y divide-line">
               {invites.map((invite) => (
                 <tr key={invite.id}>
-                  <td className="px-4 py-3 font-medium text-slate-900">{invite.name}</td>
-                  <td className="px-4 py-3 text-slate-600">
+                  <td className="px-4 py-3 font-medium text-ink">{invite.name}</td>
+                  <td className="px-4 py-3 text-ink-muted">
                     {isUserRole(invite.role) ? ROLE_LABELS[invite.role] : invite.role}
                   </td>
-                  <td className="px-4 py-3 font-mono text-xs text-slate-600">
+                  <td className="px-4 py-3 font-mono text-xs text-ink-muted">
                     {invite.phone}
                   </td>
                   <td className="px-4 py-3">
@@ -154,7 +154,7 @@ export function PendingInvitesTable() {
                       ) : null}
                     </div>
                   </td>
-                  <td className="px-4 py-3 text-slate-600">{expiresIn(invite.expiresAt)}</td>
+                  <td className="px-4 py-3 text-ink-muted">{expiresIn(invite.expiresAt)}</td>
                   <td className="px-4 py-3">
                     <div className="flex gap-2">
                       <Button

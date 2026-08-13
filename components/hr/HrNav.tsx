@@ -42,8 +42,8 @@ export function HrNav() {
             className={cn(
               'rounded-full px-4 py-1.5 text-sm font-medium transition',
               isCurrent
-                ? 'bg-brand-primary text-white'
-                : 'bg-slate-100 text-slate-600 hover:bg-slate-200',
+                ? 'bg-brand-primary text-brand-onPrimary'
+                : 'bg-surface-sunken text-ink-muted hover:bg-line',
             )}
           >
             {link.label}

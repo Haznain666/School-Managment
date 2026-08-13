@@ -69,10 +69,10 @@ export default async function ExamsOverviewPage() {
 
       {years.length === 0 ? (
         <Card>
-          <h3 className="text-base font-semibold text-slate-900">
+          <h3 className="text-base font-semibold text-ink">
             No academic year
           </h3>
-          <p className="mt-1 text-sm text-slate-600">
+          <p className="mt-1 text-sm text-ink-muted">
             An exam term is filed against a year, so nothing here can be set up
             until one exists.
           </p>

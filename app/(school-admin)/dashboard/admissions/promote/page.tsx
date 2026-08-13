@@ -46,11 +46,11 @@ export default async function PromoteStudentsPage() {
           title="Promote students"
         />
         <Card>
-          <p className="text-sm text-slate-700">
+          <p className="text-sm text-ink">
             A promotion moves students from one academic year into another, and
             this school has {years.length === 0 ? 'none' : 'only one'}.
           </p>
-          <p className="mt-3 text-sm text-slate-600">
+          <p className="mt-3 text-sm text-ink-muted">
             <Link
               href="/dashboard/admissions/academic-years"
               className="font-medium text-brand-primary hover:underline"

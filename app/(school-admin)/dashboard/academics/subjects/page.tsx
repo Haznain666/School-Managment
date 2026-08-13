@@ -47,14 +47,14 @@ export default async function SubjectsPage() {
         className="p-0"
       >
         {subjects.length === 0 ? (
-          <p className="px-5 py-4 text-sm text-slate-600">
+          <p className="px-5 py-4 text-sm text-ink-muted">
             No subjects yet. A timetable cannot be built until the school has at
             least one.
           </p>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-left text-sm">
-              <thead className="border-b border-slate-200 text-xs uppercase tracking-wide text-slate-500">
+              <thead className="border-b border-line text-xs uppercase tracking-wide text-ink-muted">
                 <tr>
                   <th scope="col" className="px-5 py-3 font-medium">Subject</th>
                   <th scope="col" className="px-5 py-3 font-medium">Code</th>
@@ -66,22 +66,22 @@ export default async function SubjectsPage() {
                   ) : null}
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-100">
+              <tbody className="divide-y divide-line">
                 {subjects.map((subject) => (
                   <tr key={subject.id}>
                     <td className="px-5 py-3">
                       <div className="flex items-center gap-3">
                         <span
                           aria-hidden="true"
-                          className="h-4 w-4 shrink-0 rounded-full ring-1 ring-inset ring-slate-300"
+                          className="h-4 w-4 shrink-0 rounded-full ring-1 ring-inset ring-line-strong"
                           style={{ backgroundColor: subject.color ?? '#e2e8f0' }}
                         />
-                        <span className="font-medium text-slate-900">
+                        <span className="font-medium text-ink">
                           {subject.name}
                         </span>
                       </div>
                     </td>
-                    <td className="px-5 py-3 font-mono text-xs text-slate-600">
+                    <td className="px-5 py-3 font-mono text-xs text-ink-muted">
                       {subject.code ?? '—'}
                     </td>
                     <td className="px-5 py-3">

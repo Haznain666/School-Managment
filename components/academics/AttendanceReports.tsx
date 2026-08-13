@@ -75,9 +75,9 @@ function barColor(percentage: number): string {
 }
 
 function textColor(percentage: number): string {
-  if (percentage >= 90) return 'text-emerald-700';
-  if (percentage >= 75) return 'text-amber-700';
-  return 'text-red-700';
+  if (percentage >= 90) return 'text-status-success-ink';
+  if (percentage >= 75) return 'text-status-warning-ink';
+  return 'text-status-danger-ink';
 }
 
 export function AttendanceReports({
@@ -209,24 +209,24 @@ export function AttendanceReports({
       </Card>
 
       {error !== null ? (
-        <p role="alert" className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">
+        <p role="alert" className="rounded-lg bg-status-danger-subtle px-3 py-2 text-sm text-status-danger-ink">
           {error}
         </p>
       ) : null}
 
       {sectionId === '' ? (
         <Card>
-          <p className="text-sm text-slate-600">
+          <p className="text-sm text-ink-muted">
             Choose a class to see its month.
           </p>
         </Card>
       ) : isLoading ? (
         <Card>
-          <p className="text-sm text-slate-500">Loading the report…</p>
+          <p className="text-sm text-ink-muted">Loading the report…</p>
         </Card>
       ) : students.length === 0 ? (
         <Card>
-          <p className="text-sm text-slate-600">
+          <p className="text-sm text-ink-muted">
             No students are actively enrolled in this section for this year.
           </p>
         </Card>
@@ -238,7 +238,7 @@ export function AttendanceReports({
               description={`${students.length} student${students.length === 1 ? '' : 's'}. Late counts as present; holidays are excluded from the percentage.`}
               action={
                 <div className="text-right">
-                  <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
+                  <p className="text-xs font-medium uppercase tracking-wide text-ink-muted">
                     Class average
                   </p>
                   <p
@@ -254,7 +254,7 @@ export function AttendanceReports({
         >
           <div className="overflow-x-auto">
             <table className="w-full text-left text-sm">
-              <thead className="border-b border-slate-200 text-xs uppercase tracking-wide text-slate-500">
+              <thead className="border-b border-line text-xs uppercase tracking-wide text-ink-muted">
                 <tr>
                   <th scope="col" className="px-5 py-3 font-medium">Student</th>
                   <th scope="col" className="px-3 py-3 text-right font-medium">P</th>
@@ -266,28 +266,28 @@ export function AttendanceReports({
                   <th scope="col" className="w-48 px-5 py-3 font-medium">Attendance</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-100">
+              <tbody className="divide-y divide-line">
                 {students.map((row) => (
                   <tr key={row.studentProfileId}>
                     <td className="px-5 py-3">
-                      <p className="font-medium text-slate-900">{row.studentName}</p>
-                      <p className="text-xs text-slate-500">
+                      <p className="font-medium text-ink">{row.studentName}</p>
+                      <p className="text-xs text-ink-muted">
                         {row.rollNumber === null || row.rollNumber === ''
                           ? 'No roll number'
                           : `Roll ${row.rollNumber}`}{' '}
                         · <span className="font-mono">{row.studentId}</span>
                       </p>
                     </td>
-                    <td className="px-3 py-3 text-right text-slate-600">{row.present}</td>
-                    <td className="px-3 py-3 text-right text-slate-600">{row.absent}</td>
-                    <td className="px-3 py-3 text-right text-slate-600">{row.late}</td>
-                    <td className="px-3 py-3 text-right text-slate-600">{row.excused}</td>
-                    <td className="px-3 py-3 text-right text-slate-600">{row.holiday}</td>
-                    <td className="px-3 py-3 text-right text-slate-600">{row.total}</td>
+                    <td className="px-3 py-3 text-right text-ink-muted">{row.present}</td>
+                    <td className="px-3 py-3 text-right text-ink-muted">{row.absent}</td>
+                    <td className="px-3 py-3 text-right text-ink-muted">{row.late}</td>
+                    <td className="px-3 py-3 text-right text-ink-muted">{row.excused}</td>
+                    <td className="px-3 py-3 text-right text-ink-muted">{row.holiday}</td>
+                    <td className="px-3 py-3 text-right text-ink-muted">{row.total}</td>
                     <td className="px-5 py-3">
                       <div className="flex items-center gap-2">
                         <div
-                          className="h-2 w-full overflow-hidden rounded-full bg-slate-100"
+                          className="h-2 w-full overflow-hidden rounded-full bg-surface-sunken"
                           role="img"
                           aria-label={`${row.percentage}% attendance`}
                         >

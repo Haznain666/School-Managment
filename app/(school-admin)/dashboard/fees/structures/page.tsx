@@ -34,7 +34,7 @@ export default async function FeeStructuresPage() {
 
       {academicYears.length === 0 ? (
         <Card>
-          <p className="text-sm text-slate-600">
+          <p className="text-sm text-ink-muted">
             No academic years exist yet, and fees are priced per year, so there is
             nothing to set up.
           </p>

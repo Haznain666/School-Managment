@@ -39,7 +39,7 @@ export default async function ReportCardsPage() {
 
       {terms.length === 0 ? (
         <Card>
-          <p className="text-sm text-slate-600">
+          <p className="text-sm text-ink-muted">
             No exam terms yet. A report card is issued for a term, so there is
             nothing to print until one exists.
           </p>

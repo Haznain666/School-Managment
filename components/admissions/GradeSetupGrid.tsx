@@ -163,7 +163,7 @@ export function GradeSetupGrid({
   if (grades === null) {
     return (
       <Card>
-        <p className="text-sm text-slate-500">Loading grades…</p>
+        <p className="text-sm text-ink-muted">Loading grades…</p>
       </Card>
     );
   }
@@ -194,13 +194,13 @@ export function GradeSetupGrid({
         }
       >
         {error !== null ? (
-          <p role="alert" className="mb-4 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">
+          <p role="alert" className="mb-4 rounded-lg bg-status-danger-subtle px-3 py-2 text-sm text-status-danger-ink">
             {error}
           </p>
         ) : null}
 
         {grades.length === 0 ? (
-          <p className="text-sm text-slate-600">
+          <p className="text-sm text-ink-muted">
             This branch has no grades yet. Initialising seeds the{' '}
             {expected.length} grades of the{' '}
             {CURRICULUM_LEVEL_LABELS[curriculumLevel]} ladder, from{' '}
@@ -208,7 +208,7 @@ export function GradeSetupGrid({
             rename any of them afterwards.
           </p>
         ) : (
-          <ul className="divide-y divide-slate-100">
+          <ul className="divide-y divide-line">
             {grades.map((grade) => (
               <GradeRowItem
                 key={grade.id}
@@ -256,8 +256,8 @@ function GradeRowItem({
     <li className="py-4">
       <div className="grid gap-3 sm:grid-cols-[10rem_1fr_auto] sm:items-start">
         <div>
-          <p className="text-sm font-medium text-slate-900">{grade.name}</p>
-          <p className="text-xs text-slate-500">Position {grade.sortOrder}</p>
+          <p className="text-sm font-medium text-ink">{grade.name}</p>
+          <p className="text-xs text-ink-muted">Position {grade.sortOrder}</p>
         </div>
 
         <div className="space-y-3">
@@ -287,17 +287,17 @@ function GradeRowItem({
               ) : null}
             </div>
           ) : (
-            <p className="text-sm text-slate-600">{grade.label}</p>
+            <p className="text-sm text-ink-muted">{grade.label}</p>
           )}
 
           <div className="flex flex-wrap items-center gap-2">
             {sections.length === 0 ? (
-              <span className="text-xs text-slate-500">No sections yet</span>
+              <span className="text-xs text-ink-muted">No sections yet</span>
             ) : (
               sections.map((section) => (
                 <span
                   key={section.id}
-                  className="inline-flex items-center gap-2 rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-700"
+                  className="inline-flex items-center gap-2 rounded-full bg-surface-sunken px-3 py-1 text-xs font-medium text-ink"
                 >
                   {section.name} · {section.studentCount}
                   {section.capacity === null ? '' : `/${section.capacity}`}
@@ -305,7 +305,7 @@ function GradeRowItem({
                     <button
                       type="button"
                       aria-label={`Remove section ${section.name}`}
-                      className="text-slate-400 hover:text-red-600"
+                      className="text-ink-muted hover:text-red-600"
                       onClick={() => {
                         void onRemoveSection(section.id);
                       }}

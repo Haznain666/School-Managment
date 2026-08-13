@@ -230,7 +230,7 @@ export function BrandingManager({ schoolId }: BrandingManagerProps) {
   if (isLoading) {
     return (
       <Card>
-        <p className="text-sm text-slate-500">Loading branding…</p>
+        <p className="text-sm text-ink-muted">Loading branding…</p>
       </Card>
     );
   }
@@ -242,7 +242,7 @@ export function BrandingManager({ schoolId }: BrandingManagerProps) {
       <Card>
         {pendingFile !== null ? (
           <div>
-            <p className="mb-4 text-sm font-medium text-slate-900">
+            <p className="mb-4 text-sm font-medium text-ink">
               Frame the logo
             </p>
             <LogoCanvasEditor
@@ -270,7 +270,7 @@ export function BrandingManager({ schoolId }: BrandingManagerProps) {
             'flex flex-col items-center justify-center rounded-lg border-2 border-dashed px-6 py-10 text-center transition',
             isDragging
               ? 'border-brand-primary bg-brand-primary/5'
-              : 'border-slate-300 bg-slate-50',
+              : 'border-line-strong bg-surface-sunken',
           )}
         >
           {logoUrl !== null ? (
@@ -279,14 +279,14 @@ export function BrandingManager({ schoolId }: BrandingManagerProps) {
             <img
               src={logoUrl}
               alt="Current school logo"
-              className="mb-4 h-20 w-20 rounded-lg bg-white object-contain p-1 shadow-sm"
+              className="mb-4 h-20 w-20 rounded-lg bg-surface-raised object-contain p-1 shadow-sm"
             />
           ) : null}
 
-          <p className="text-sm font-medium text-slate-900">
+          <p className="text-sm font-medium text-ink">
             {logoUrl === null ? 'Upload the school logo' : 'Replace the logo'}
           </p>
-          <p className="mt-1 text-xs text-slate-500">
+          <p className="mt-1 text-xs text-ink-muted">
             Drag and drop, or click to browse. PNG, JPG, SVG or WebP, up to 2 MB.
           </p>
 
@@ -313,22 +313,22 @@ export function BrandingManager({ schoolId }: BrandingManagerProps) {
       </Card>
 
       {error !== null ? (
-        <p role="alert" className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">
+        <p role="alert" className="rounded-lg bg-status-danger-subtle px-3 py-2 text-sm text-status-danger-ink">
           {error}
         </p>
       ) : null}
 
       {notice !== null ? (
-        <p className="rounded-lg bg-emerald-50 px-3 py-2 text-sm text-emerald-700">
+        <p className="rounded-lg bg-status-success-subtle px-3 py-2 text-sm text-status-success-ink">
           {notice}
         </p>
       ) : null}
 
       <div>
-        <h3 className="mb-1 text-sm font-semibold uppercase tracking-wide text-slate-500">
+        <h3 className="mb-1 text-sm font-semibold uppercase tracking-wide text-ink-muted">
           Preset palettes
         </h3>
-        <p className="mb-3 text-xs text-slate-500">
+        <p className="mb-3 text-xs text-ink-muted">
           Curated, and available whether or not a logo has been uploaded. A
           preset overrides the palettes derived from the logo.
         </p>
@@ -343,10 +343,10 @@ export function BrandingManager({ schoolId }: BrandingManagerProps) {
                 className={cn(isActive && 'ring-2 ring-brand-primary')}
               >
                 <div className="mb-1 flex items-center justify-between gap-2">
-                  <p className="text-sm font-medium text-slate-900">{preset.name}</p>
+                  <p className="text-sm font-medium text-ink">{preset.name}</p>
                   {isActive ? <Badge variant="success">Currently Active</Badge> : null}
                 </div>
-                <p className="mb-3 text-xs text-slate-500">{preset.description}</p>
+                <p className="mb-3 text-xs text-ink-muted">{preset.description}</p>
 
                 <PalettePreview palette={preset.palette} />
 
@@ -374,10 +374,10 @@ export function BrandingManager({ schoolId }: BrandingManagerProps) {
 
       {hasPalettes ? (
         <div>
-          <h3 className="mb-1 text-sm font-semibold uppercase tracking-wide text-slate-500">
+          <h3 className="mb-1 text-sm font-semibold uppercase tracking-wide text-ink-muted">
             From this logo
           </h3>
-          <p className="mb-3 text-xs text-slate-500">
+          <p className="mb-3 text-xs text-ink-muted">
             {presetKey === null
               ? 'Derived from the uploaded logo.'
               : 'Derived from the uploaded logo. Selecting one clears the preset above.'}
@@ -396,7 +396,7 @@ export function BrandingManager({ schoolId }: BrandingManagerProps) {
                   className={cn(isActive && 'ring-2 ring-brand-primary')}
                 >
                   <div className="mb-3 flex items-center justify-between gap-2">
-                    <p className="text-sm font-medium text-slate-900">
+                    <p className="text-sm font-medium text-ink">
                       {PALETTE_NAMES[index] ?? `Palette ${index + 1}`}
                     </p>
                     {isActive ? <Badge variant="success">Currently Active</Badge> : null}
@@ -427,7 +427,7 @@ export function BrandingManager({ schoolId }: BrandingManagerProps) {
         </div>
       ) : (
         <Card>
-          <p className="text-sm text-slate-600">
+          <p className="text-sm text-ink-muted">
             No palettes yet. Upload a logo and three will be generated from it.
           </p>
         </Card>

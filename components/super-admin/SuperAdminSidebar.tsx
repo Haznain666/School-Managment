@@ -57,9 +57,9 @@ function isActive(pathname: string, href: string): boolean {
  * So it uses the *platform* tokens — `surface`, `ink`, `line` — which on this
  * route resolve to the defaults in `globals.css` because no palette has been
  * applied above it. That is a real change from Sprint 10.5: this file was
- * hardcoded `bg-white`, `border-slate-200`, `text-slate-900` and `text-slate-500`
- * throughout, which happened to look the same but could never respond to
- * anything.
+ * hardcoded `bg-white`, `border-slate-200`, `text-slate-900` and
+ * `text-slate-500` throughout, which happened to look the same but could never
+ * respond to anything.
  */
 export function SuperAdminSidebar() {
   return (

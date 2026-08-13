@@ -184,17 +184,17 @@ export function UserDetailPanel({ user, branches, canEdit }: UserDetailPanelProp
       <Card header={<CardTitle title="Profile" />}>
         <dl className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           <div>
-            <dt className="text-xs uppercase tracking-wide text-slate-500">Phone</dt>
-            <dd className="mt-1 font-mono text-sm text-slate-900">{user.phone}</dd>
+            <dt className="text-xs uppercase tracking-wide text-ink-muted">Phone</dt>
+            <dd className="mt-1 font-mono text-sm text-ink">{user.phone}</dd>
           </div>
           <div>
-            <dt className="text-xs uppercase tracking-wide text-slate-500">Email</dt>
-            <dd className="mt-1 text-sm text-slate-900">
-              {user.email ?? <span className="text-slate-400">Not set</span>}
+            <dt className="text-xs uppercase tracking-wide text-ink-muted">Email</dt>
+            <dd className="mt-1 text-sm text-ink">
+              {user.email ?? <span className="text-ink-muted">Not set</span>}
             </dd>
           </div>
           <div>
-            <dt className="text-xs uppercase tracking-wide text-slate-500">Status</dt>
+            <dt className="text-xs uppercase tracking-wide text-ink-muted">Status</dt>
             <dd className="mt-1">
               {/*
                 From `authUserId`, not `joinedAt`. "Invite pending" implied an
@@ -212,8 +212,8 @@ export function UserDetailPanel({ user, branches, canEdit }: UserDetailPanelProp
             </dd>
           </div>
           <div>
-            <dt className="text-xs uppercase tracking-wide text-slate-500">Joined</dt>
-            <dd className="mt-1 text-sm text-slate-900">
+            <dt className="text-xs uppercase tracking-wide text-ink-muted">Joined</dt>
+            <dd className="mt-1 text-sm text-ink">
               {user.joinedAt === null
                 ? '—'
                 : new Date(user.joinedAt).toLocaleDateString()}
@@ -280,13 +280,13 @@ export function UserDetailPanel({ user, branches, canEdit }: UserDetailPanelProp
         </div>
 
         {error !== null ? (
-          <p role="alert" className="mt-4 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">
+          <p role="alert" className="mt-4 rounded-lg bg-status-danger-subtle px-3 py-2 text-sm text-status-danger-ink">
             {error}
           </p>
         ) : null}
 
         {notice !== null ? (
-          <p className="mt-4 rounded-lg bg-emerald-50 px-3 py-2 text-sm text-emerald-700">
+          <p className="mt-4 rounded-lg bg-status-success-subtle px-3 py-2 text-sm text-status-success-ink">
             {notice}
           </p>
         ) : null}
@@ -303,7 +303,7 @@ export function UserDetailPanel({ user, branches, canEdit }: UserDetailPanelProp
             </Button>
           </div>
         ) : (
-          <p className="mt-4 text-xs text-slate-500">
+          <p className="mt-4 text-xs text-ink-muted">
             Only a school administrator or HR manager can change these.
           </p>
         )}
@@ -318,7 +318,7 @@ export function UserDetailPanel({ user, branches, canEdit }: UserDetailPanelProp
             />
           }
         >
-          <p className="text-sm text-slate-600">
+          <p className="text-sm text-ink-muted">
             Delete is for a row that should never have existed — a mistyped
             address, a duplicate, an invitation to the wrong person. Anyone
             whose name is already on a record the school keeps cannot be
@@ -329,7 +329,7 @@ export function UserDetailPanel({ user, branches, canEdit }: UserDetailPanelProp
           {deleteError !== null ? (
             <p
               role="alert"
-              className="mt-4 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700"
+              className="mt-4 rounded-lg bg-status-danger-subtle px-3 py-2 text-sm text-status-danger-ink"
             >
               {deleteError}
             </p>
@@ -337,7 +337,7 @@ export function UserDetailPanel({ user, branches, canEdit }: UserDetailPanelProp
 
           {confirmingDelete ? (
             <div className="mt-4 flex flex-wrap items-center gap-3">
-              <span className="text-sm text-red-700">
+              <span className="text-sm text-status-danger-ink">
                 Delete {user.name} permanently?
               </span>
               <Button

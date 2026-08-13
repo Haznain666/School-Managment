@@ -151,7 +151,7 @@ export function AcademicPlacementForm({
 
   return (
     <div className="space-y-4">
-      <p className="rounded-lg bg-slate-50 px-3 py-2 text-sm text-slate-600">
+      <p className="rounded-lg bg-surface-sunken px-3 py-2 text-sm text-ink-muted">
         The student will be enrolled in the <strong>{academicYearName}</strong>{' '}
         academic year.
       </p>
@@ -225,7 +225,7 @@ export function AcademicPlacementForm({
       </div>
 
       {value.branchId !== '' && !isLoadingGrades && gradeOptions.length === 0 ? (
-        <p className="rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-800">
+        <p className="rounded-lg bg-status-warning-subtle px-3 py-2 text-sm text-status-warning-onSubtle">
           This branch has no grades yet. Initialise them on the{' '}
           <a href="/dashboard/admissions/grades" className="font-medium underline">
             Grades &amp; Sections
@@ -235,14 +235,14 @@ export function AcademicPlacementForm({
       ) : null}
 
       {value.gradeId !== '' && sectionOptions.length === 0 ? (
-        <p className="rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-800">
+        <p className="rounded-lg bg-status-warning-subtle px-3 py-2 text-sm text-status-warning-onSubtle">
           This grade has no sections for {academicYearName}. Add one on the Grades
           &amp; Sections page.
         </p>
       ) : null}
 
       {error !== null ? (
-        <p role="alert" className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">
+        <p role="alert" className="rounded-lg bg-status-danger-subtle px-3 py-2 text-sm text-status-danger-ink">
           {error}
         </p>
       ) : null}

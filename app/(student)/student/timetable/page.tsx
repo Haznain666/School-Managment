@@ -44,7 +44,7 @@ export default async function StudentTimetablePage() {
       <div className="space-y-6">
         <Heading subtitle={null} />
         <Card>
-          <p className="text-sm text-slate-600">
+          <p className="text-sm text-ink-muted">
             {activeYear === null
               ? 'Your school has not opened an academic year yet, so there is no timetable to show.'
               : 'No placement is recorded for you this year, so there is no timetable to show yet.'}

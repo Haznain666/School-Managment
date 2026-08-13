@@ -47,12 +47,12 @@ export default async function SchoolDetailLayout({
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
           <div className="flex items-center gap-3">
-            <h2 className="text-xl font-semibold text-slate-900">{school.name}</h2>
+            <h2 className="text-xl font-semibold text-ink">{school.name}</h2>
             <Badge variant={school.isActive ? 'success' : 'danger'}>
               {school.isActive ? 'Active' : 'Inactive'}
             </Badge>
           </div>
-          <p className="mt-1 text-sm text-slate-500">
+          <p className="mt-1 text-sm text-ink-muted">
             {school.city} ·{' '}
             <span className="font-mono text-xs">
               {school.slug}.{publicEnv.appDomain}

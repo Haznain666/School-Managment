@@ -25,11 +25,11 @@ export interface PasswordFieldProps {
 }
 
 const METER_COLORS = [
-  'bg-slate-200',
+  'bg-line',
   'bg-red-500',
   'bg-amber-500',
   'bg-lime-500',
-  'bg-emerald-600',
+  'bg-status-success',
 ];
 
 /**
@@ -65,7 +65,7 @@ export function PasswordField({
 
   return (
     <div className="w-full">
-      <label htmlFor={id} className="mb-1.5 block text-sm font-medium text-slate-700">
+      <label htmlFor={id} className="mb-1.5 block text-sm font-medium text-ink">
         {label}
       </label>
 
@@ -85,13 +85,13 @@ export function PasswordField({
             onChange(event.target.value);
           }}
           className={cn(
-            'block w-full rounded-lg border bg-white py-2 pl-3 pr-16 text-sm text-slate-900',
-            'placeholder:text-slate-400',
+            'block w-full rounded-lg border bg-surface-raised py-2 pl-3 pr-16 text-sm text-ink',
+            'placeholder:text-ink-muted',
             'focus:outline focus:outline-2 focus:outline-offset-0',
-            'disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-slate-500',
+            'disabled:cursor-not-allowed disabled:bg-surface-sunken disabled:text-ink-muted',
             hasError
-              ? 'border-red-400 focus:outline-red-500'
-              : 'border-slate-300 focus:outline-brand-primary',
+              ? 'border-status-danger focus:outline-red-500'
+              : 'border-line-strong focus:outline-brand-primary',
           )}
         />
 
@@ -106,7 +106,7 @@ export function PasswordField({
           onClick={() => {
             setRevealed((current) => !current);
           }}
-          className="absolute inset-y-0 right-0 px-3 text-xs font-medium text-slate-500 hover:text-slate-800 disabled:text-slate-300"
+          className="absolute inset-y-0 right-0 px-3 text-xs font-medium text-ink-muted hover:text-ink disabled:text-ink-faint"
         >
           {revealed ? 'Hide' : 'Show'}
         </button>
@@ -120,12 +120,12 @@ export function PasswordField({
                 key={step}
                 className={cn(
                   'h-1 flex-1 rounded-full transition-colors',
-                  score >= step ? METER_COLORS[score] : 'bg-slate-200',
+                  score >= step ? METER_COLORS[score] : 'bg-line',
                 )}
               />
             ))}
           </div>
-          <p className="mt-1 text-xs text-slate-500">
+          <p className="mt-1 text-xs text-ink-muted">
             {value === ''
               ? `At least ${PASSWORD_MIN_LENGTH} characters, with a letter and a number.`
               : (PASSWORD_SCORE_LABELS[score] ?? '')}
@@ -134,11 +134,11 @@ export function PasswordField({
       ) : null}
 
       {hasError ? (
-        <p id={messageId} role="alert" className="mt-1.5 text-sm text-red-600">
+        <p id={messageId} role="alert" className="mt-1.5 text-sm text-status-danger-ink">
           {error}
         </p>
       ) : hint !== undefined ? (
-        <p id={messageId} className="mt-1.5 text-sm text-slate-500">
+        <p id={messageId} className="mt-1.5 text-sm text-ink-muted">
           {hint}
         </p>
       ) : null}

@@ -36,7 +36,7 @@ export default async function GenerateChallansPage() {
 
       {academicYears.length === 0 ? (
         <Card>
-          <p className="text-sm text-slate-600">
+          <p className="text-sm text-ink-muted">
             No academic years exist yet, so nothing can be billed.
           </p>
           <Link
@@ -48,7 +48,7 @@ export default async function GenerateChallansPage() {
         </Card>
       ) : !hasMonthlyType ? (
         <Card>
-          <p className="text-sm text-slate-600">
+          <p className="text-sm text-ink-muted">
             No active monthly fee head exists, so a monthly challan would be empty.
             Set up your fee types first.
           </p>

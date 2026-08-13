@@ -29,7 +29,7 @@ export function SchoolTabs({ schoolId }: SchoolTabsProps) {
   ];
 
   return (
-    <nav aria-label="School sections" className="border-b border-slate-200">
+    <nav aria-label="School sections" className="border-b border-line">
       <ul className="-mb-px flex gap-1">
         {tabs.map((tab) => {
           // Overview is the base path, so it must match exactly or every
@@ -48,7 +48,7 @@ export function SchoolTabs({ schoolId }: SchoolTabsProps) {
                   'inline-block border-b-2 px-4 py-2.5 text-sm font-medium transition',
                   active
                     ? 'border-brand-primary text-brand-primary'
-                    : 'border-transparent text-slate-500 hover:border-slate-300 hover:text-slate-900',
+                    : 'border-transparent text-ink-muted hover:border-line-strong hover:text-ink',
                 )}
               >
                 {tab.label}

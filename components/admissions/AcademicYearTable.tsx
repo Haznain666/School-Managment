@@ -71,7 +71,7 @@ export function AcademicYearTable({ years, canEdit }: AcademicYearTableProps) {
   if (years.length === 0) {
     return (
       <Card>
-        <p className="text-sm text-slate-600">
+        <p className="text-sm text-ink-muted">
           No academic years yet. Create one before enrolling students — every
           placement, section and student ID is filed under a year.
         </p>
@@ -87,7 +87,7 @@ export function AcademicYearTable({ years, canEdit }: AcademicYearTableProps) {
   return (
     <div className="space-y-4">
       {error !== null ? (
-        <p role="alert" className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">
+        <p role="alert" className="rounded-lg bg-status-danger-subtle px-3 py-2 text-sm text-status-danger-ink">
           {error}
         </p>
       ) : null}
@@ -95,7 +95,7 @@ export function AcademicYearTable({ years, canEdit }: AcademicYearTableProps) {
       <Card className="p-0">
         <div className="overflow-x-auto">
           <table className="w-full text-left text-sm">
-            <thead className="border-b border-slate-200 text-xs uppercase tracking-wide text-slate-500">
+            <thead className="border-b border-line text-xs uppercase tracking-wide text-ink-muted">
               <tr>
                 <th scope="col" className="px-4 py-3 font-medium">Name</th>
                 <th scope="col" className="px-4 py-3 font-medium">Starts</th>
@@ -105,14 +105,14 @@ export function AcademicYearTable({ years, canEdit }: AcademicYearTableProps) {
                 <th scope="col" className="px-4 py-3 font-medium">Actions</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-100">
+            <tbody className="divide-y divide-line">
               {years.map((year) => (
                 <tr key={year.id}>
-                  <td className="px-4 py-3 font-medium text-slate-900">{year.name}</td>
-                  <td className="px-4 py-3 text-slate-600">
+                  <td className="px-4 py-3 font-medium text-ink">{year.name}</td>
+                  <td className="px-4 py-3 text-ink-muted">
                     {formatMonthYear(year.startMonth, year.startYear)}
                   </td>
-                  <td className="px-4 py-3 text-slate-600">
+                  <td className="px-4 py-3 text-ink-muted">
                     {formatMonthYear(year.endMonth, year.endYear)}
                   </td>
                   <td className="px-4 py-3">
@@ -120,7 +120,7 @@ export function AcademicYearTable({ years, canEdit }: AcademicYearTableProps) {
                       {year.isActive ? 'Active' : 'Inactive'}
                     </Badge>
                   </td>
-                  <td className="px-4 py-3 text-slate-600">{year.studentCount}</td>
+                  <td className="px-4 py-3 text-ink-muted">{year.studentCount}</td>
                   <td className="px-4 py-3">
                     {canEdit ? (
                       <div className="flex flex-wrap gap-2">
@@ -153,7 +153,7 @@ export function AcademicYearTable({ years, canEdit }: AcademicYearTableProps) {
                         ) : null}
                       </div>
                     ) : (
-                      <span className="text-xs text-slate-400">View only</span>
+                      <span className="text-xs text-ink-muted">View only</span>
                     )}
                   </td>
                 </tr>

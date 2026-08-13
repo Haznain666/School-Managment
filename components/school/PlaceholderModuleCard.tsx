@@ -28,7 +28,7 @@ export function PlaceholderModuleCard({
   return (
     <div
       className={cn(
-        'rounded-card border border-dashed border-slate-300 bg-slate-50 p-5',
+        'rounded-card border border-dashed border-line-strong bg-surface-sunken p-5',
         className,
       )}
     >
@@ -37,11 +37,11 @@ export function PlaceholderModuleCard({
           {icon}
         </span>
         <div className="min-w-0">
-          <p className="font-medium text-slate-500">{title}</p>
+          <p className="font-medium text-ink-muted">{title}</p>
           {description !== undefined ? (
-            <p className="mt-1 text-sm text-slate-400">{description}</p>
+            <p className="mt-1 text-sm text-ink-muted">{description}</p>
           ) : null}
-          <p className="mt-2 text-xs uppercase tracking-wide text-slate-400">
+          <p className="mt-2 text-xs uppercase tracking-wide text-ink-muted">
             Available in the {moduleName} module
           </p>
         </div>

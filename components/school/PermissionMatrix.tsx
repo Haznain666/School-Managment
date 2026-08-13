@@ -154,7 +154,7 @@ export function PermissionMatrix({ canEdit }: PermissionMatrixProps) {
   if (data === null) {
     return (
       <Card>
-        <p className="text-sm text-slate-500">{error ?? 'Loading permissions…'}</p>
+        <p className="text-sm text-ink-muted">{error ?? 'Loading permissions…'}</p>
       </Card>
     );
   }
@@ -162,13 +162,13 @@ export function PermissionMatrix({ canEdit }: PermissionMatrixProps) {
   return (
     <div className="space-y-4">
       {error !== null ? (
-        <p role="alert" className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">
+        <p role="alert" className="rounded-lg bg-status-danger-subtle px-3 py-2 text-sm text-status-danger-ink">
           {error}
         </p>
       ) : null}
 
       {notice !== null ? (
-        <p className="rounded-lg bg-emerald-50 px-3 py-2 text-sm text-emerald-700">
+        <p className="rounded-lg bg-status-success-subtle px-3 py-2 text-sm text-status-success-ink">
           {notice}
         </p>
       ) : null}
@@ -176,13 +176,13 @@ export function PermissionMatrix({ canEdit }: PermissionMatrixProps) {
       <Card>
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div>
-            <p className="text-sm text-slate-600">
+            <p className="text-sm text-ink-muted">
               {changedFromDefault === 0
                 ? 'Every permission is at the platform default.'
                 : `${changedFromDefault} permission${changedFromDefault === 1 ? '' : 's'} differ from the platform default, marked with a dot.`}
             </p>
             {staged.size > 0 ? (
-              <p className="mt-1 text-sm font-medium text-amber-800">
+              <p className="mt-1 text-sm font-medium text-status-warning-onSubtle">
                 {staged.size} unsaved change{staged.size === 1 ? '' : 's'}.
               </p>
             ) : null}
@@ -222,7 +222,7 @@ export function PermissionMatrix({ canEdit }: PermissionMatrixProps) {
         >
           <div className="overflow-x-auto">
             <table className="w-full text-left text-sm">
-              <thead className="border-b border-slate-200 text-xs uppercase tracking-wide text-slate-500">
+              <thead className="border-b border-line text-xs uppercase tracking-wide text-ink-muted">
                 <tr>
                   <th scope="col" className="px-5 py-3 font-medium">Permission</th>
                   {CONFIGURABLE_ROLES.map((role) => (
@@ -237,15 +237,15 @@ export function PermissionMatrix({ canEdit }: PermissionMatrixProps) {
                   ))}
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-100">
+              <tbody className="divide-y divide-line">
                 {group.permissions.map((permission) => (
                   <tr key={permission}>
                     <th scope="row" className="px-5 py-3 text-left font-normal">
-                      <span className="font-medium text-slate-900">
+                      <span className="font-medium text-ink">
                         {PERMISSION_LABELS[permission]}
                       </span>
                       {PERMISSION_DESCRIPTIONS[permission] === undefined ? null : (
-                        <span className="block text-xs text-slate-500">
+                        <span className="block text-xs text-ink-muted">
                           {PERMISSION_DESCRIPTIONS[permission]}
                         </span>
                       )}
@@ -279,8 +279,8 @@ export function PermissionMatrix({ canEdit }: PermissionMatrixProps) {
                               'focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-primary',
                               'disabled:cursor-not-allowed disabled:opacity-60',
                               granted
-                                ? 'bg-emerald-600 text-white'
-                                : 'bg-slate-100 text-slate-400 hover:bg-slate-200',
+                                ? 'bg-status-success text-status-success-on'
+                                : 'bg-surface-sunken text-ink-muted hover:bg-line',
                             )}
                           >
                             {granted ? '✓' : '—'}
@@ -307,7 +307,7 @@ export function PermissionMatrix({ canEdit }: PermissionMatrixProps) {
         <dl className="grid gap-3 sm:grid-cols-2">
           {CONFIGURABLE_ROLES.map((role) => (
             <div key={role}>
-              <dt className="text-sm font-medium text-slate-900">
+              <dt className="text-sm font-medium text-ink">
                 {ROLE_LABELS[role]}
                 {role === UNREVOKABLE.role ? (
                   <Badge className="ml-2" variant="neutral">
@@ -315,7 +315,7 @@ export function PermissionMatrix({ canEdit }: PermissionMatrixProps) {
                   </Badge>
                 ) : null}
               </dt>
-              <dd className="text-sm text-slate-600">{ROLE_DESCRIPTIONS[role]}</dd>
+              <dd className="text-sm text-ink-muted">{ROLE_DESCRIPTIONS[role]}</dd>
             </div>
           ))}
         </dl>

@@ -17,7 +17,7 @@ export interface PalettePreviewProps {
 export function PalettePreview({ palette }: PalettePreviewProps) {
   return (
     <div
-      className="overflow-hidden rounded-lg border border-slate-200"
+      className="overflow-hidden rounded-lg border border-line"
       style={{ backgroundColor: palette.background }}
       aria-hidden="true"
     >
@@ -103,11 +103,11 @@ export function PaletteSwatches({ palette }: PalettePreviewProps) {
       {entries.map(([label, color]) => (
         <li key={label} className="text-center">
           <span
-            className="block h-8 w-full rounded border border-slate-200"
+            className="block h-8 w-full rounded border border-line"
             style={{ backgroundColor: color }}
             title={`${label} ${color}`}
           />
-          <span className="mt-1 block text-[10px] uppercase tracking-wide text-slate-500">
+          <span className="mt-1 block text-[10px] uppercase tracking-wide text-ink-muted">
             {label}
           </span>
         </li>

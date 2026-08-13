@@ -269,20 +269,20 @@ export function FeeStructureMatrix({
       </Card>
 
       {error !== null ? (
-        <p role="alert" className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">
+        <p role="alert" className="rounded-lg bg-status-danger-subtle px-3 py-2 text-sm text-status-danger-ink">
           {error}
         </p>
       ) : null}
 
       {notice !== null ? (
-        <p className="rounded-lg bg-emerald-50 px-3 py-2 text-sm text-emerald-700">
+        <p className="rounded-lg bg-status-success-subtle px-3 py-2 text-sm text-status-success-ink">
           {notice}
         </p>
       ) : null}
 
       {matrix === null ? (
         <Card>
-          <p className="text-sm text-slate-500">
+          <p className="text-sm text-ink-muted">
             {academicYearId === ''
               ? 'Choose an academic year to price.'
               : 'Loading the fee structure…'}
@@ -290,7 +290,7 @@ export function FeeStructureMatrix({
         </Card>
       ) : matrix.feeTypes.length === 0 || matrix.grades.length === 0 ? (
         <Card>
-          <p className="text-sm text-slate-600">
+          <p className="text-sm text-ink-muted">
             {matrix.feeTypes.length === 0
               ? 'No active fee types exist yet. Set those up first — there is nothing to price without them.'
               : 'This branch has no grades yet. Set up its grade ladder in Admissions first.'}
@@ -324,13 +324,13 @@ export function FeeStructureMatrix({
         >
           <div className="overflow-x-auto">
             <table className="w-full text-left text-sm">
-              <thead className="border-b border-slate-200 text-xs uppercase tracking-wide text-slate-500">
+              <thead className="border-b border-line text-xs uppercase tracking-wide text-ink-muted">
                 <tr>
                   <th scope="col" className="px-5 py-3 font-medium">Grade</th>
                   {matrix.feeTypes.map((feeType) => (
                     <th key={feeType.id} scope="col" className="px-3 py-3 font-medium">
-                      <span className="block text-slate-700">{feeType.name}</span>
-                      <span className="block font-normal normal-case text-slate-400">
+                      <span className="block text-ink">{feeType.name}</span>
+                      <span className="block font-normal normal-case text-ink-muted">
                         {FEE_CATEGORY_LABELS[feeType.feeCategory]}
                       </span>
                     </th>
@@ -339,12 +339,12 @@ export function FeeStructureMatrix({
                 </tr>
               </thead>
 
-              <tbody className="divide-y divide-slate-100">
+              <tbody className="divide-y divide-line">
                 {matrix.grades.map((grade) => (
                   <tr key={grade.id}>
                     <th
                       scope="row"
-                      className="whitespace-nowrap px-5 py-2 text-left font-medium text-slate-900"
+                      className="whitespace-nowrap px-5 py-2 text-left font-medium text-ink"
                     >
                       {grade.label}
                     </th>
@@ -362,7 +362,7 @@ export function FeeStructureMatrix({
                             disabled={!canEdit}
                             value={draft[key] ?? ''}
                             placeholder="—"
-                            className="w-28 rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-right text-sm text-slate-900 focus:outline focus:outline-2 focus:outline-brand-primary disabled:bg-slate-50 disabled:text-slate-500"
+                            className="w-28 rounded-lg border border-line-strong bg-surface-raised px-2 py-1.5 text-right text-sm text-ink focus:outline focus:outline-2 focus:outline-brand-primary disabled:bg-surface-sunken disabled:text-ink-muted"
                             onChange={(event) => {
                               setDraft((current) => ({
                                 ...current,
@@ -374,24 +374,24 @@ export function FeeStructureMatrix({
                       );
                     })}
 
-                    <td className="px-5 py-2 text-right font-medium text-slate-900">
+                    <td className="px-5 py-2 text-right font-medium text-ink">
                       {formatAmount(rowTotal(grade.id))}
                     </td>
                   </tr>
                 ))}
               </tbody>
 
-              <tfoot className="border-t border-slate-200 bg-slate-50 text-sm">
+              <tfoot className="border-t border-line bg-surface-sunken text-sm">
                 <tr>
-                  <th scope="row" className="px-5 py-3 text-left font-medium text-slate-600">
+                  <th scope="row" className="px-5 py-3 text-left font-medium text-ink-muted">
                     All grades
                   </th>
                   {matrix.feeTypes.map((feeType) => (
-                    <td key={feeType.id} className="px-3 py-3 text-right text-slate-600">
+                    <td key={feeType.id} className="px-3 py-3 text-right text-ink-muted">
                       {formatAmount(columnTotal(feeType.id))}
                     </td>
                   ))}
-                  <td className="px-5 py-3 text-right font-semibold text-slate-900">
+                  <td className="px-5 py-3 text-right font-semibold text-ink">
                     {formatAmount(
                       matrix.grades.reduce((sum, grade) => sum + rowTotal(grade.id), 0),
                     )}

@@ -117,9 +117,9 @@ function DocumentTile({
 }) {
   if (disabled) {
     return (
-      <div className="rounded-card border border-slate-200 bg-slate-50 p-4">
-        <p className="font-medium text-slate-500">{title}</p>
-        <p className="mt-1 text-sm text-slate-500">{description}</p>
+      <div className="rounded-card border border-line bg-surface-sunken p-4">
+        <p className="font-medium text-ink-muted">{title}</p>
+        <p className="mt-1 text-sm text-ink-muted">{description}</p>
       </div>
     );
   }
@@ -129,10 +129,10 @@ function DocumentTile({
       href={href}
       target="_blank"
       rel="noopener"
-      className="block rounded-card border border-slate-200 bg-white p-4 shadow-card transition hover:border-brand-primary"
+      className="block rounded-card border border-line bg-surface-raised p-4 shadow-card transition hover:border-brand-primary"
     >
-      <p className="font-medium text-slate-900">{title}</p>
-      <p className="mt-1 text-sm text-slate-500">{description}</p>
+      <p className="font-medium text-ink">{title}</p>
+      <p className="mt-1 text-sm text-ink-muted">{description}</p>
     </Link>
   );
 }

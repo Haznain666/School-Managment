@@ -75,10 +75,10 @@ export default async function ParentDashboardPage({
   return (
     <div className="space-y-6">
       <Card>
-        <h2 className="text-lg font-semibold text-slate-900">
+        <h2 className="text-lg font-semibold text-ink">
           Welcome{firstName === '' ? '' : `, ${firstName}`}.
         </h2>
-        <p className="mt-1 text-sm text-slate-600">
+        <p className="mt-1 text-sm text-ink-muted">
           {children.length === 0
             ? 'Your children will appear here once they are enrolled by your school admin.'
             : `You are recorded as a guardian for ${children.length} student${
@@ -98,8 +98,8 @@ export default async function ParentDashboardPage({
               }
               className={
                 child.studentProfileId === selected?.studentProfileId
-                  ? 'rounded-full bg-brand-primary px-3 py-1.5 text-sm font-medium text-white'
-                  : 'rounded-full bg-slate-100 px-3 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-200'
+                  ? 'rounded-full bg-brand-primary px-3 py-1.5 text-sm font-medium text-brand-onPrimary'
+                  : 'rounded-full bg-surface-sunken px-3 py-1.5 text-sm font-medium text-ink-muted hover:bg-line'
               }
             >
               {child.name}
@@ -137,25 +137,25 @@ export default async function ParentDashboardPage({
           }
         >
           {children.length === 0 ? (
-            <p className="text-sm text-slate-500">
+            <p className="text-sm text-ink-muted">
               Fee details appear once your children are enrolled.
             </p>
           ) : (
             <>
-              <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
+              <p className="text-xs font-medium uppercase tracking-wide text-ink-muted">
                 Total outstanding
               </p>
               <p
                 className={
                   totalBalancePaise > 0
-                    ? 'mt-1 text-2xl font-bold text-red-600'
-                    : 'mt-1 text-2xl font-bold text-slate-900'
+                    ? 'mt-1 text-2xl font-bold text-status-danger-ink'
+                    : 'mt-1 text-2xl font-bold text-ink'
                 }
               >
                 {formatPkr(totalBalancePaise / 100)}
               </p>
 
-              <ul className="mt-4 divide-y divide-slate-100">
+              <ul className="mt-4 divide-y divide-line">
                 {children.map((child) => {
                   const summary = feeSummaries.get(child.studentProfileId);
                   const balance = summary?.balance ?? '0';
@@ -164,17 +164,17 @@ export default async function ParentDashboardPage({
                   return (
                     <li key={child.studentProfileId} className="py-2.5">
                       <div className="flex flex-wrap items-baseline justify-between gap-2">
-                        <span className="text-sm font-medium text-slate-900">
+                        <span className="text-sm font-medium text-ink">
                           {child.name}
                         </span>
-                        <span className="text-sm text-slate-700">
+                        <span className="text-sm text-ink">
                           {formatPkr(balance)}
                         </span>
                       </div>
                       {oldest === null ? (
-                        <p className="text-xs text-emerald-700">Nothing outstanding.</p>
+                        <p className="text-xs text-status-success-ink">Nothing outstanding.</p>
                       ) : (
-                        <p className="text-xs text-slate-500">
+                        <p className="text-xs text-ink-muted">
                           Oldest unpaid:{' '}
                           <span className="font-mono">{oldest.challanNumber}</span>, due{' '}
                           {oldest.dueDate}
@@ -197,7 +197,7 @@ export default async function ParentDashboardPage({
       </div>
 
       <Card header={<CardTitle title="Announcements" />}>
-        <p className="text-sm text-slate-500">
+        <p className="text-sm text-ink-muted">
           School announcements will appear here.
         </p>
       </Card>
@@ -229,7 +229,7 @@ function ChildCard({
           {child.photoUrl === null || child.photoUrl === '' ? (
             <span
               aria-hidden="true"
-              className="flex h-20 w-20 items-center justify-center rounded-xl bg-brand-primary text-xl font-bold text-white"
+              className="flex h-20 w-20 items-center justify-center rounded-xl bg-brand-primary text-xl font-bold text-brand-onPrimary"
             >
               {initialsOf(child.name)}
             </span>
@@ -246,18 +246,18 @@ function ChildCard({
 
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-3">
-            <h3 className="text-lg font-semibold text-slate-900">{child.name}</h3>
+            <h3 className="text-lg font-semibold text-ink">{child.name}</h3>
             <Badge variant="neutral">
               <span className="font-mono">{child.studentId}</span>
             </Badge>
-            <span className="text-xs text-slate-500">
+            <span className="text-xs text-ink-muted">
               You are their{' '}
               {GUARDIAN_RELATIONSHIP_LABELS[child.relationship].toLowerCase()}
             </span>
           </div>
 
           {child.enrollment === null ? (
-            <p className="mt-3 text-sm text-slate-500">
+            <p className="mt-3 text-sm text-ink-muted">
               {noActiveYear
                 ? 'The school has not opened an academic year yet.'
                 : 'No class placement is recorded for the current academic year.'}
@@ -282,10 +282,10 @@ function ChildCard({
 function Detail({ label, value }: { label: string; value: string }) {
   return (
     <div>
-      <dt className="text-xs font-medium uppercase tracking-wide text-slate-500">
+      <dt className="text-xs font-medium uppercase tracking-wide text-ink-muted">
         {label}
       </dt>
-      <dd className="mt-0.5 text-sm text-slate-900">{value}</dd>
+      <dd className="mt-0.5 text-sm text-ink">{value}</dd>
     </div>
   );
 }

@@ -80,8 +80,8 @@ export default async function DefaultersPage({
   return (
     <div className="space-y-6">
       <div>
-        <h2 className="text-xl font-semibold text-slate-900">Aged debt</h2>
-        <p className="mt-1 text-sm text-slate-500">
+        <h2 className="text-xl font-semibold text-ink">Aged debt</h2>
+        <p className="mt-1 text-sm text-ink-muted">
           Everyone with money outstanding, aged from the date it fell due —
           worst first. To send reminders, use the Defaulters tab in{' '}
           <Link href="/dashboard/fees/reports" className="font-medium text-brand-primary hover:underline">
@@ -99,13 +99,13 @@ export default async function DefaultersPage({
                 className={
                   bucket === key
                     ? 'inline-flex flex-col rounded-lg border border-brand-primary px-3 py-2'
-                    : 'inline-flex flex-col rounded-lg border border-slate-200 px-3 py-2 hover:border-slate-400'
+                    : 'inline-flex flex-col rounded-lg border border-line px-3 py-2 hover:border-line-strong'
                 }
               >
-                <span className="text-xs uppercase tracking-wide text-slate-500">
+                <span className="text-xs uppercase tracking-wide text-ink-muted">
                   {BUCKET_LABELS[key]}
                 </span>
-                <span className="mt-0.5 font-mono text-sm text-slate-900">
+                <span className="mt-0.5 font-mono text-sm text-ink">
                   PKR {summary.buckets[key]}
                 </span>
               </span>
@@ -114,7 +114,7 @@ export default async function DefaultersPage({
         </div>
 
         {summary.unreachable > 0 ? (
-          <p className="mt-4 text-sm text-amber-800">
+          <p className="mt-4 text-sm text-status-warning-onSubtle">
             {summary.unreachable} of these households have no phone number and
             no email address on file — nobody can be chased about them until a
             contact is recorded.
@@ -134,7 +134,7 @@ export default async function DefaultersPage({
         <div className="flex flex-wrap gap-2 text-sm">
           <Link
             href={linkFor({ branch: undefined })}
-            className={filters.branch === undefined ? 'font-semibold text-brand-primary' : 'text-slate-600 hover:underline'}
+            className={filters.branch === undefined ? 'font-semibold text-brand-primary' : 'text-ink-muted hover:underline'}
           >
             All campuses
           </Link>
@@ -142,7 +142,7 @@ export default async function DefaultersPage({
             <Link
               key={branch.id}
               href={linkFor({ branch: branch.id })}
-              className={filters.branch === branch.id ? 'font-semibold text-brand-primary' : 'text-slate-600 hover:underline'}
+              className={filters.branch === branch.id ? 'font-semibold text-brand-primary' : 'text-ink-muted hover:underline'}
             >
               {branch.name}
             </Link>
@@ -154,7 +154,7 @@ export default async function DefaultersPage({
         <div className="flex flex-wrap gap-2 text-sm">
           <Link
             href={linkFor({ grade: undefined })}
-            className={filters.grade === undefined ? 'font-semibold text-brand-primary' : 'text-slate-600 hover:underline'}
+            className={filters.grade === undefined ? 'font-semibold text-brand-primary' : 'text-ink-muted hover:underline'}
           >
             All classes
           </Link>
@@ -162,7 +162,7 @@ export default async function DefaultersPage({
             <Link
               key={grade.id}
               href={linkFor({ grade: grade.id })}
-              className={filters.grade === grade.id ? 'font-semibold text-brand-primary' : 'text-slate-600 hover:underline'}
+              className={filters.grade === grade.id ? 'font-semibold text-brand-primary' : 'text-ink-muted hover:underline'}
             >
               {classNames.get(grade.id) ?? grade.label}
             </Link>
@@ -172,7 +172,7 @@ export default async function DefaultersPage({
 
       {rows.length === 0 ? (
         <Card>
-          <p className="text-sm text-slate-600">
+          <p className="text-sm text-ink-muted">
             Nothing outstanding under those filters.
           </p>
         </Card>
@@ -180,7 +180,7 @@ export default async function DefaultersPage({
         <Card className="p-0">
           <div className="overflow-x-auto">
             <table className="w-full text-left text-sm">
-              <thead className="border-b border-slate-200 text-xs uppercase tracking-wide text-slate-500">
+              <thead className="border-b border-line text-xs uppercase tracking-wide text-ink-muted">
                 <tr>
                   <th scope="col" className="px-4 py-3 font-medium">Student</th>
                   <th scope="col" className="px-4 py-3 font-medium">Class</th>
@@ -190,7 +190,7 @@ export default async function DefaultersPage({
                   <th scope="col" className="px-4 py-3 text-right font-medium">Outstanding</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-100">
+              <tbody className="divide-y divide-line">
                 {rows.map((row) => (
                   <tr key={row.studentProfileId}>
                     <td className="px-4 py-3">
@@ -200,27 +200,27 @@ export default async function DefaultersPage({
                       >
                         {row.studentName}
                       </Link>
-                      <span className="block font-mono text-xs text-slate-500">
+                      <span className="block font-mono text-xs text-ink-muted">
                         {row.studentNumber}
                       </span>
                     </td>
-                    <td className="px-4 py-3 text-slate-600">
+                    <td className="px-4 py-3 text-ink-muted">
                       {row.gradeName} {row.sectionName}
-                      <span className="block text-xs text-slate-400">{row.branchName}</span>
+                      <span className="block text-xs text-ink-muted">{row.branchName}</span>
                     </td>
-                    <td className="px-4 py-3 text-slate-600">
+                    <td className="px-4 py-3 text-ink-muted">
                       {row.reachable ? (
                         <>
                           <span className="block">{row.guardianName ?? '—'}</span>
-                          <span className="block font-mono text-xs text-slate-500">
+                          <span className="block font-mono text-xs text-ink-muted">
                             {row.guardianPhone ?? row.guardianEmail}
                           </span>
                         </>
                       ) : (
-                        <span className="text-amber-700">No contact on file</span>
+                        <span className="text-status-warning-ink">No contact on file</span>
                       )}
                     </td>
-                    <td className="px-4 py-3 font-mono text-xs text-slate-600">
+                    <td className="px-4 py-3 font-mono text-xs text-ink-muted">
                       {row.oldestDueDate}
                     </td>
                     <td className="px-4 py-3">
@@ -236,12 +236,12 @@ export default async function DefaultersPage({
                         {BUCKET_LABELS[row.bucket]}
                       </Badge>
                       {row.openChallans > 1 ? (
-                        <span className="mt-1 block text-xs text-slate-500">
+                        <span className="mt-1 block text-xs text-ink-muted">
                           {row.openChallans} challans
                         </span>
                       ) : null}
                     </td>
-                    <td className="px-4 py-3 text-right font-mono text-slate-900">
+                    <td className="px-4 py-3 text-right font-mono text-ink">
                       {row.outstanding}
                     </td>
                   </tr>

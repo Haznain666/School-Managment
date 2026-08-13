@@ -190,22 +190,22 @@ export function GuardianPanel({
           />
         }
       >
-        <ul className="divide-y divide-slate-100">
+        <ul className="divide-y divide-line">
           {guardians.map((guardian) => (
             <li key={guardian.id} className="flex flex-wrap items-start justify-between gap-3 py-3">
               <div className="min-w-0">
-                <p className="font-medium text-slate-900">
+                <p className="font-medium text-ink">
                   {guardian.name}{' '}
-                  <span className="text-sm font-normal text-slate-500">
+                  <span className="text-sm font-normal text-ink-muted">
                     · {GUARDIAN_RELATIONSHIP_LABELS[guardian.relationship]}
                   </span>
                 </p>
-                <p className="font-mono text-xs text-slate-600">{guardian.phone}</p>
+                <p className="font-mono text-xs text-ink-muted">{guardian.phone}</p>
                 {guardian.email === null ? null : (
-                  <p className="text-xs text-slate-500">{guardian.email}</p>
+                  <p className="text-xs text-ink-muted">{guardian.email}</p>
                 )}
                 {guardian.occupation === null ? null : (
-                  <p className="text-xs text-slate-500">{guardian.occupation}</p>
+                  <p className="text-xs text-ink-muted">{guardian.occupation}</p>
                 )}
 
                 <div className="mt-2 flex flex-wrap gap-2">
@@ -256,7 +256,7 @@ export function GuardianPanel({
         </ul>
 
         {isAdding ? (
-          <div className="mt-4 grid gap-4 border-t border-slate-200 pt-4 sm:grid-cols-2">
+          <div className="mt-4 grid gap-4 border-t border-line pt-4 sm:grid-cols-2">
             <Input
               label="Full name"
               required
@@ -337,14 +337,14 @@ export function GuardianPanel({
       </Card>
 
       <Card header={<CardTitle title="GoHighLevel sync" />}>
-        <p className="text-sm text-slate-600">
+        <p className="text-sm text-ink-muted">
           {unsynced
             ? 'Some records have not reached GoHighLevel. Enrolment never fails because of a CRM outage, so this can be re-run at any time.'
             : 'This student and every guardian have a GoHighLevel contact.'}
         </p>
 
         {studentGhlContactId === null ? null : (
-          <p className="mt-2 font-mono text-xs text-slate-500">
+          <p className="mt-2 font-mono text-xs text-ink-muted">
             Student contact: {studentGhlContactId}
           </p>
         )}
@@ -363,13 +363,13 @@ export function GuardianPanel({
         ) : null}
 
         {notice !== null ? (
-          <p className="mt-3 rounded-lg bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
+          <p className="mt-3 rounded-lg bg-status-success-subtle px-3 py-2 text-sm text-status-success-onSubtle">
             {notice}
           </p>
         ) : null}
 
         {error !== null ? (
-          <p role="alert" className="mt-3 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">
+          <p role="alert" className="mt-3 rounded-lg bg-status-danger-subtle px-3 py-2 text-sm text-status-danger-ink">
             {error}
           </p>
         ) : null}

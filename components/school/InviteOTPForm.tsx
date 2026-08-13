@@ -155,7 +155,7 @@ export function InviteOTPForm({
 
   const errorBanner =
     error === null ? null : (
-      <p role="alert" className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">
+      <p role="alert" className="rounded-lg bg-status-danger-subtle px-3 py-2 text-sm text-status-danger-ink">
         {error}
       </p>
     );
@@ -166,16 +166,16 @@ export function InviteOTPForm({
         onSubmit={(event) => {
           void handleDetailsSubmit(event);
         }}
-        className="space-y-4 rounded-card border border-slate-200 bg-white p-6 shadow-card"
+        className="space-y-4 rounded-card border border-line bg-surface-raised p-6 shadow-card"
         noValidate
       >
         <div>
-          <p className="text-sm text-slate-600">
+          <p className="text-sm text-ink-muted">
             You have been invited to join <strong>{schoolName}</strong> as{' '}
             <strong>{roleName}</strong>.
           </p>
           {branchName !== null ? (
-            <p className="mt-1 text-sm text-slate-500">Branch: {branchName}</p>
+            <p className="mt-1 text-sm text-ink-muted">Branch: {branchName}</p>
           ) : null}
         </div>
 
@@ -190,7 +190,7 @@ export function InviteOTPForm({
           disabled={isLoading}
         />
 
-        <p className="rounded-lg bg-slate-50 px-3 py-2 text-sm text-slate-600">
+        <p className="rounded-lg bg-surface-sunken px-3 py-2 text-sm text-ink-muted">
           A code will be sent to {sentTo}.
         </p>
 
@@ -208,12 +208,12 @@ export function InviteOTPForm({
       onSubmit={(event) => {
         void handleOtpSubmit(event);
       }}
-      className="space-y-4 rounded-card border border-slate-200 bg-white p-6 shadow-card"
+      className="space-y-4 rounded-card border border-line bg-surface-raised p-6 shadow-card"
       noValidate
     >
       <div>
-        <h2 className="text-base font-semibold text-slate-900">Enter your code</h2>
-        <p className="mt-1 text-sm text-slate-500">Sent to {sentTo}</p>
+        <h2 className="text-base font-semibold text-ink">Enter your code</h2>
+        <p className="mt-1 text-sm text-ink-muted">Sent to {sentTo}</p>
       </div>
 
       <Input
@@ -243,7 +243,7 @@ export function InviteOTPForm({
       <div className="flex items-center justify-between text-sm">
         <button
           type="button"
-          className="text-slate-500 underline-offset-2 hover:underline"
+          className="text-ink-muted underline-offset-2 hover:underline"
           disabled={isLoading}
           onClick={() => {
             setStep('details');
@@ -256,7 +256,7 @@ export function InviteOTPForm({
 
         <button
           type="button"
-          className="text-brand-primary underline-offset-2 hover:underline disabled:text-slate-400 disabled:no-underline"
+          className="text-brand-primary underline-offset-2 hover:underline disabled:text-ink-faint disabled:no-underline"
           disabled={!canResend || isLoading}
           onClick={() => {
             void sendOtp(true);

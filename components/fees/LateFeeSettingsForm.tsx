@@ -143,12 +143,12 @@ export function LateFeeSettingsForm({ initial, canEdit }: LateFeeSettingsFormPro
           />
 
           <fieldset>
-            <legend className="mb-1.5 block text-sm font-medium text-slate-700">
+            <legend className="mb-1.5 block text-sm font-medium text-ink">
               How it is charged
             </legend>
             <div className="flex flex-col gap-2">
               {LATE_FEE_TYPES.map((value) => (
-                <label key={value} className="flex items-center gap-2 text-sm text-slate-700">
+                <label key={value} className="flex items-center gap-2 text-sm text-ink">
                   <input
                     type="radio"
                     name="lateFeeType"
@@ -197,18 +197,18 @@ export function LateFeeSettingsForm({ initial, canEdit }: LateFeeSettingsFormPro
           />
         </div>
 
-        <p className="rounded-lg bg-slate-50 px-3 py-2 text-sm text-slate-600">
+        <p className="rounded-lg bg-surface-sunken px-3 py-2 text-sm text-ink-muted">
           {summary}
         </p>
 
         {error !== null ? (
-          <p role="alert" className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">
+          <p role="alert" className="rounded-lg bg-status-danger-subtle px-3 py-2 text-sm text-status-danger-ink">
             {error}
           </p>
         ) : null}
 
         {notice !== null ? (
-          <p className="rounded-lg bg-emerald-50 px-3 py-2 text-sm text-emerald-700">
+          <p className="rounded-lg bg-status-success-subtle px-3 py-2 text-sm text-status-success-ink">
             {notice}
           </p>
         ) : null}
@@ -223,7 +223,7 @@ export function LateFeeSettingsForm({ initial, canEdit }: LateFeeSettingsFormPro
             Save settings
           </Button>
         ) : (
-          <p className="text-sm text-slate-500">
+          <p className="text-sm text-ink-muted">
             Only a school administrator can change these settings.
           </p>
         )}

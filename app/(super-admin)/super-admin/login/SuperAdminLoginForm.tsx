@@ -78,7 +78,7 @@ export function SuperAdminLoginForm({ nextPath }: SuperAdminLoginFormProps) {
         harmlessly. Credentials never reach a URL either way.
       */
       method="post"
-      className="space-y-4 rounded-card border border-slate-200 bg-white p-6 shadow-card"
+      className="space-y-4 rounded-card border border-line bg-surface-raised p-6 shadow-card"
       noValidate
     >
       <Input
@@ -108,7 +108,7 @@ export function SuperAdminLoginForm({ nextPath }: SuperAdminLoginFormProps) {
       />
 
       {error !== null ? (
-        <p role="alert" className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">
+        <p role="alert" className="rounded-lg bg-status-danger-subtle px-3 py-2 text-sm text-status-danger-ink">
           {error}
         </p>
       ) : null}

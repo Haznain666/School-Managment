@@ -85,7 +85,7 @@ export default async function TransferStudentPage({
 
       {sections.length < 2 ? (
         <Card>
-          <p className="text-sm text-slate-700">
+          <p className="text-sm text-ink">
             This school has classes at only one campus, so there is nowhere to
             transfer to.
           </p>

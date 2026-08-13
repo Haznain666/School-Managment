@@ -35,7 +35,7 @@ export default async function TeacherTimetablePage() {
       <div className="space-y-6">
         <Heading yearName={activeYear?.name ?? null} />
         <Card>
-          <p className="text-sm text-slate-600">
+          <p className="text-sm text-ink-muted">
             {activeYear === null
               ? 'Your school has not opened an academic year yet, so there is no timetable to show.'
               : 'Your staff record is still being set up. Your timetable will appear once it is complete.'}
@@ -74,8 +74,8 @@ export default async function TeacherTimetablePage() {
 function Heading({ yearName }: { yearName: string | null }) {
   return (
     <div>
-      <h2 className="text-xl font-semibold text-slate-900">My timetable</h2>
-      <p className="mt-1 text-sm text-slate-500">
+      <h2 className="text-xl font-semibold text-ink">My timetable</h2>
+      <p className="mt-1 text-sm text-ink-muted">
         Every period you take{yearName === null ? '' : ` in ${yearName}`}, with the
         class and the room.
       </p>

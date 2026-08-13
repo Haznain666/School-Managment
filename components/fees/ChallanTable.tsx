@@ -329,17 +329,17 @@ export function ChallanTable({
       </Card>
 
       {error !== null ? (
-        <p role="alert" className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">
+        <p role="alert" className="rounded-lg bg-status-danger-subtle px-3 py-2 text-sm text-status-danger-ink">
           {error}
         </p>
       ) : null}
 
       <Card className="p-0">
         {data === null ? (
-          <p className="px-5 py-4 text-sm text-slate-500">Loading challans…</p>
+          <p className="px-5 py-4 text-sm text-ink-muted">Loading challans…</p>
         ) : data.challans.length === 0 ? (
           <div className="px-5 py-6">
-            <p className="text-sm text-slate-600">
+            <p className="text-sm text-ink-muted">
               No challans match these filters.
             </p>
             {canGenerate ? (
@@ -354,17 +354,17 @@ export function ChallanTable({
         ) : (
           <>
             {selectedIds.length > 0 ? (
-              <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 bg-slate-50 px-5 py-3">
-                <p aria-live="polite" className="text-sm text-slate-700">
+              <div className="flex flex-wrap items-center justify-between gap-3 border-b border-line bg-surface-sunken px-5 py-3">
+                <p aria-live="polite" className="text-sm text-ink">
                   <span className="font-medium">{selectedIds.length}</span> selected
                   {selectedOnPage === selectedIds.length ? null : (
-                    <span className="text-slate-500">
+                    <span className="text-ink-muted">
                       {' '}
                       ({selectedOnPage} on this page)
                     </span>
                   )}
                   {overCap ? (
-                    <span className="block text-red-700">
+                    <span className="block text-status-danger-ink">
                       Print at most {MAX_PRINTABLE_CHALLANS} at once — large jobs
                       fail part-way through the browser&apos;s print dialog.
                     </span>
@@ -406,7 +406,7 @@ export function ChallanTable({
 
             <div className="overflow-x-auto">
               <table className="w-full text-left text-sm">
-                <thead className="border-b border-slate-200 text-xs uppercase tracking-wide text-slate-500">
+                <thead className="border-b border-line text-xs uppercase tracking-wide text-ink-muted">
                   <tr>
                     <th scope="col" className="w-10 py-3 pl-5 pr-0">
                       <input
@@ -435,13 +435,13 @@ export function ChallanTable({
                   </tr>
                 </thead>
 
-                <tbody className="divide-y divide-slate-100">
+                <tbody className="divide-y divide-line">
                   {data.challans.map((row) => {
                     const balance =
                       (toPaise(row.totalAmount) - toPaise(row.paidAmount)) / 100;
 
                     return (
-                      <tr key={row.id} className={selected.has(row.id) ? 'bg-slate-50' : undefined}>
+                      <tr key={row.id} className={selected.has(row.id) ? 'bg-surface-sunken' : undefined}>
                         <td className="w-10 py-3 pl-5 pr-0">
                           <input
                             type="checkbox"
@@ -453,27 +453,27 @@ export function ChallanTable({
                             }}
                           />
                         </td>
-                        <td className="px-5 py-3 font-mono text-xs text-slate-600">
+                        <td className="px-5 py-3 font-mono text-xs text-ink-muted">
                           {row.challanNumber}
                         </td>
                         <td className="px-5 py-3">
-                          <p className="font-medium text-slate-900">{row.studentName}</p>
-                          <p className="font-mono text-xs text-slate-500">
+                          <p className="font-medium text-ink">{row.studentName}</p>
+                          <p className="font-mono text-xs text-ink-muted">
                             {row.studentId}
                           </p>
                         </td>
-                        <td className="px-5 py-3 text-slate-600">
+                        <td className="px-5 py-3 text-ink-muted">
                           {row.gradeName ?? '—'}
                           {row.sectionName === null ? '' : ` ${row.sectionName}`}
                         </td>
-                        <td className="px-5 py-3 text-slate-600">{billingLabel(row)}</td>
-                        <td className="px-5 py-3 text-right text-slate-900">
+                        <td className="px-5 py-3 text-ink-muted">{billingLabel(row)}</td>
+                        <td className="px-5 py-3 text-right text-ink">
                           {formatAmount(row.totalAmount)}
                         </td>
-                        <td className="px-5 py-3 text-right text-slate-600">
+                        <td className="px-5 py-3 text-right text-ink-muted">
                           {formatAmount(row.paidAmount)}
                         </td>
-                        <td className="px-5 py-3 text-right font-medium text-slate-900">
+                        <td className="px-5 py-3 text-right font-medium text-ink">
                           {formatAmount(balance)}
                         </td>
                         <td className="px-5 py-3">
@@ -481,7 +481,7 @@ export function ChallanTable({
                             {CHALLAN_STATUS_LABELS[row.status]}
                           </Badge>
                         </td>
-                        <td className="px-5 py-3 text-slate-600">{row.dueDate}</td>
+                        <td className="px-5 py-3 text-ink-muted">{row.dueDate}</td>
                         <td className="px-5 py-3 text-right">
                           <Link
                             href={`/dashboard/fees/challans/${row.id}`}
@@ -495,18 +495,18 @@ export function ChallanTable({
                   })}
                 </tbody>
 
-                <tfoot className="border-t border-slate-200 bg-slate-50">
+                <tfoot className="border-t border-line bg-surface-sunken">
                   <tr>
-                    <th scope="row" colSpan={5} className="px-5 py-3 text-left font-medium text-slate-600">
+                    <th scope="row" colSpan={5} className="px-5 py-3 text-left font-medium text-ink-muted">
                       Totals for these filters
                     </th>
-                    <td className="px-5 py-3 text-right font-semibold text-slate-900">
+                    <td className="px-5 py-3 text-right font-semibold text-ink">
                       {formatAmount(data.totals.billed)}
                     </td>
-                    <td className="px-5 py-3 text-right font-semibold text-slate-900">
+                    <td className="px-5 py-3 text-right font-semibold text-ink">
                       {formatAmount(data.totals.paid)}
                     </td>
-                    <td className="px-5 py-3 text-right font-semibold text-slate-900">
+                    <td className="px-5 py-3 text-right font-semibold text-ink">
                       {formatAmount(data.totals.balance)}
                     </td>
                     <td colSpan={3} />
@@ -515,8 +515,8 @@ export function ChallanTable({
               </table>
             </div>
 
-            <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-200 px-5 py-3">
-              <p className="text-sm text-slate-500">
+            <div className="flex flex-wrap items-center justify-between gap-3 border-t border-line px-5 py-3">
+              <p className="text-sm text-ink-muted">
                 {data.total} challan{data.total === 1 ? '' : 's'} · page {data.page} of{' '}
                 {totalPages}
               </p>

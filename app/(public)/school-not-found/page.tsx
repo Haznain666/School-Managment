@@ -14,11 +14,11 @@ export const metadata: Metadata = {
 export default function SchoolNotFoundPage() {
   return (
     <main className="mx-auto flex min-h-screen max-w-xl flex-col justify-center px-6 text-center">
-      <h1 className="text-3xl font-bold text-slate-900">School portal unavailable</h1>
-      <p className="mt-3 text-slate-600">
+      <h1 className="text-3xl font-bold text-ink">School portal unavailable</h1>
+      <p className="mt-3 text-ink-muted">
         This address does not lead to an active school portal.
       </p>
-      <p className="mt-6 text-sm text-slate-500">
+      <p className="mt-6 text-sm text-ink-muted">
         Check the link your school gave you, or contact your school
         administrator.
       </p>

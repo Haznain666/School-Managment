@@ -49,7 +49,7 @@ export default async function StudentsPage() {
 
       {academicYears.length === 0 ? (
         <Card>
-          <p className="text-sm text-slate-600">
+          <p className="text-sm text-ink-muted">
             No academic years exist yet, so there is nothing to list.
           </p>
           <Link

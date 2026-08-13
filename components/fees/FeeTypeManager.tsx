@@ -161,7 +161,7 @@ export function FeeTypeManager({ canEdit }: FeeTypeManagerProps) {
   if (feeTypes === null) {
     return (
       <Card>
-        <p className="text-sm text-slate-500">Loading fee types…</p>
+        <p className="text-sm text-ink-muted">Loading fee types…</p>
       </Card>
     );
   }
@@ -174,7 +174,7 @@ export function FeeTypeManager({ canEdit }: FeeTypeManagerProps) {
       {error !== null ? (
         <p
           role="alert"
-          className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700"
+          className="rounded-lg bg-status-danger-subtle px-3 py-2 text-sm text-status-danger-ink"
         >
           {error}
         </p>
@@ -182,8 +182,8 @@ export function FeeTypeManager({ canEdit }: FeeTypeManagerProps) {
 
       {feeTypes.length === 0 ? (
         <Card>
-          <h3 className="text-base font-semibold text-slate-900">Setup required</h3>
-          <p className="mt-1 text-sm text-slate-600">
+          <h3 className="text-base font-semibold text-ink">Setup required</h3>
+          <p className="mt-1 text-sm text-ink-muted">
             Your school has no fee heads yet, so nothing can be priced or billed.
             Seeding creates the five most schools use — Tuition Fee (monthly),
             Admission Fee (one time), and Annual Charges, Library Fee and
@@ -305,7 +305,7 @@ export function FeeTypeManager({ canEdit }: FeeTypeManagerProps) {
         >
           <div className="overflow-x-auto">
             <table className="w-full text-left text-sm">
-              <thead className="border-b border-slate-200 text-xs uppercase tracking-wide text-slate-500">
+              <thead className="border-b border-line text-xs uppercase tracking-wide text-ink-muted">
                 <tr>
                   <th scope="col" className="px-5 py-3 font-medium">Name</th>
                   <th scope="col" className="px-5 py-3 font-medium">Category</th>
@@ -318,19 +318,19 @@ export function FeeTypeManager({ canEdit }: FeeTypeManagerProps) {
                   ) : null}
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-100">
+              <tbody className="divide-y divide-line">
                 {feeTypes.map((row) => (
                   <tr key={row.id}>
                     <td className="px-5 py-3">
-                      <p className="font-medium text-slate-900">{row.name}</p>
+                      <p className="font-medium text-ink">{row.name}</p>
                       {row.description === null || row.description === '' ? null : (
-                        <p className="text-xs text-slate-500">{row.description}</p>
+                        <p className="text-xs text-ink-muted">{row.description}</p>
                       )}
                     </td>
-                    <td className="px-5 py-3 text-slate-600">
+                    <td className="px-5 py-3 text-ink-muted">
                       {FEE_CATEGORY_LABELS[row.feeCategory]}
                     </td>
-                    <td className="px-5 py-3 text-slate-600">{row.sortOrder}</td>
+                    <td className="px-5 py-3 text-ink-muted">{row.sortOrder}</td>
                     <td className="px-5 py-3">
                       <Badge variant={row.isActive ? 'success' : 'neutral'}>
                         {row.isActive ? 'Active' : 'Retired'}

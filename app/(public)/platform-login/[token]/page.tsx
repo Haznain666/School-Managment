@@ -34,7 +34,7 @@ export default async function PlatformLoginPage({
   return (
     <BrandedLoginLayout subtitle="Platform administrator access">
       <PlatformLoginClient token={token} schoolSlug={slug} />
-      <p className="mt-6 text-center text-xs text-slate-400">
+      <p className="mt-6 text-center text-xs text-ink-muted">
         You are entering this school as the platform Super Admin. School staff
         sign in with their mobile number instead.
       </p>

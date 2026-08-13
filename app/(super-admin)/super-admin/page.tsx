@@ -22,11 +22,11 @@ interface StatCardProps {
 function StatCard({ label, value, hint }: StatCardProps) {
   return (
     <Card>
-      <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
+      <p className="text-xs font-medium uppercase tracking-wide text-ink-muted">
         {label}
       </p>
-      <p className="mt-2 text-3xl font-bold text-slate-900">{value}</p>
-      <p className="mt-1 text-xs text-slate-500">{hint}</p>
+      <p className="mt-2 text-3xl font-bold text-ink">{value}</p>
+      <p className="mt-1 text-xs text-ink-muted">{hint}</p>
     </Card>
   );
 }
@@ -101,7 +101,7 @@ export default async function SuperAdminDashboardPage() {
         className="p-0"
       >
         {recent.length === 0 ? (
-          <p className="text-sm text-slate-600">
+          <p className="text-sm text-ink-muted">
             No schools yet.{' '}
             <Link
               href="/super-admin/schools/new"
@@ -114,7 +114,7 @@ export default async function SuperAdminDashboardPage() {
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-left text-sm">
-              <thead className="border-b border-slate-200 text-xs uppercase tracking-wide text-slate-500">
+              <thead className="border-b border-line text-xs uppercase tracking-wide text-ink-muted">
                 <tr>
                   <th scope="col" className="px-4 py-3 font-medium">
                     Name
@@ -130,19 +130,19 @@ export default async function SuperAdminDashboardPage() {
                   </th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-100">
+              <tbody className="divide-y divide-line">
                 {recent.map((school) => (
                   <tr key={school.id}>
                     <td className="px-4 py-3">
                       <Link
                         href={`/super-admin/schools/${school.id}`}
-                        className="font-medium text-slate-900 hover:text-brand-primary"
+                        className="font-medium text-ink hover:text-brand-primary"
                       >
                         {school.name}
                       </Link>
                     </td>
-                    <td className="px-4 py-3 text-slate-600">{school.city}</td>
-                    <td className="px-4 py-3 font-mono text-xs text-slate-600">
+                    <td className="px-4 py-3 text-ink-muted">{school.city}</td>
+                    <td className="px-4 py-3 font-mono text-xs text-ink-muted">
                       {school.slug}
                     </td>
                     <td className="px-4 py-3">

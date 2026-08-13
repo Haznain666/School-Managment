@@ -135,7 +135,7 @@ export function PayrollRunDetail({ runId, canEdit }: PayrollRunDetailProps) {
   if (run === null) {
     return (
       <Card>
-        <p className="text-sm text-slate-500">{error ?? 'Loading payroll run…'}</p>
+        <p className="text-sm text-ink-muted">{error ?? 'Loading payroll run…'}</p>
       </Card>
     );
   }
@@ -143,13 +143,13 @@ export function PayrollRunDetail({ runId, canEdit }: PayrollRunDetailProps) {
   return (
     <div className="space-y-4">
       {error !== null ? (
-        <p role="alert" className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">
+        <p role="alert" className="rounded-lg bg-status-danger-subtle px-3 py-2 text-sm text-status-danger-ink">
           {error}
         </p>
       ) : null}
 
       {notice !== null ? (
-        <p className="rounded-lg bg-emerald-50 px-3 py-2 text-sm text-emerald-700">
+        <p className="rounded-lg bg-status-success-subtle px-3 py-2 text-sm text-status-success-ink">
           {notice}
         </p>
       ) : null}
@@ -220,33 +220,33 @@ export function PayrollRunDetail({ runId, canEdit }: PayrollRunDetailProps) {
       >
         <dl className="grid gap-4 sm:grid-cols-3">
           <div>
-            <dt className="text-xs uppercase tracking-wide text-slate-500">
+            <dt className="text-xs uppercase tracking-wide text-ink-muted">
               Gross earnings
             </dt>
-            <dd className="text-lg font-semibold text-slate-900">
+            <dd className="text-lg font-semibold text-ink">
               {formatPkr(run.grossTotal)}
             </dd>
           </div>
           <div>
-            <dt className="text-xs uppercase tracking-wide text-slate-500">
+            <dt className="text-xs uppercase tracking-wide text-ink-muted">
               Deductions, including loss of pay
             </dt>
-            <dd className="text-lg font-semibold text-slate-900">
+            <dd className="text-lg font-semibold text-ink">
               {formatPkr(run.deductionTotal)}
             </dd>
           </div>
           <div>
-            <dt className="text-xs uppercase tracking-wide text-slate-500">
+            <dt className="text-xs uppercase tracking-wide text-ink-muted">
               Net payable
             </dt>
-            <dd className="text-lg font-semibold text-slate-900">
+            <dd className="text-lg font-semibold text-ink">
               {formatPkr(run.netTotal)}
             </dd>
           </div>
         </dl>
 
         {run.status === 'draft' ? (
-          <p className="mt-4 text-sm text-slate-500">
+          <p className="mt-4 text-sm text-ink-muted">
             This run is still a draft, so it can be recomputed after fixing a
             salary structure or correcting the register. Once approved it is
             fixed.
@@ -256,7 +256,7 @@ export function PayrollRunDetail({ runId, canEdit }: PayrollRunDetailProps) {
 
       {payslips.length === 0 ? (
         <Card>
-          <p className="text-sm text-slate-600">This run has no payslips.</p>
+          <p className="text-sm text-ink-muted">This run has no payslips.</p>
         </Card>
       ) : (
         <Card
@@ -265,7 +265,7 @@ export function PayrollRunDetail({ runId, canEdit }: PayrollRunDetailProps) {
         >
           <div className="overflow-x-auto">
             <table className="w-full text-left text-sm">
-              <thead className="border-b border-slate-200 text-xs uppercase tracking-wide text-slate-500">
+              <thead className="border-b border-line text-xs uppercase tracking-wide text-ink-muted">
                 <tr>
                   <th scope="col" className="px-5 py-3 font-medium">Number</th>
                   <th scope="col" className="px-5 py-3 font-medium">Staff</th>
@@ -279,27 +279,27 @@ export function PayrollRunDetail({ runId, canEdit }: PayrollRunDetailProps) {
                   </th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-100">
+              <tbody className="divide-y divide-line">
                 {payslips.map((row) => (
                   <tr key={row.id}>
-                    <td className="px-5 py-3 font-mono text-xs text-slate-600">
+                    <td className="px-5 py-3 font-mono text-xs text-ink-muted">
                       {row.payslipNumber}
                     </td>
                     <td className="px-5 py-3">
-                      <p className="font-medium text-slate-900">{row.staffName}</p>
-                      <p className="text-xs text-slate-500">
+                      <p className="font-medium text-ink">{row.staffName}</p>
+                      <p className="text-xs text-ink-muted">
                         {row.employeeCode}
                         {row.designation === null ? '' : ` · ${row.designation}`}
                       </p>
                     </td>
-                    <td className="px-5 py-3 text-slate-600">
+                    <td className="px-5 py-3 text-ink-muted">
                       {formatPkr(row.grossEarnings)}
                     </td>
-                    <td className="px-5 py-3 text-slate-600">
+                    <td className="px-5 py-3 text-ink-muted">
                       {formatPkr(row.totalDeductions)}
                     </td>
-                    <td className="px-5 py-3 text-slate-600">{row.lossOfPayDays}</td>
-                    <td className="px-5 py-3 font-medium text-slate-900">
+                    <td className="px-5 py-3 text-ink-muted">{row.lossOfPayDays}</td>
+                    <td className="px-5 py-3 font-medium text-ink">
                       {formatPkr(row.netPayable)}
                     </td>
                     <td className="px-5 py-3">
