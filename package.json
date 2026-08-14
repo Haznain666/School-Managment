@@ -17,7 +17,8 @@
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
     "db:push": "drizzle-kit push",
-    "db:studio": "drizzle-kit studio"
+    "db:studio": "drizzle-kit studio",
+    "check-dashboard": "esbuild scripts/check-dashboard-queries.ts --bundle --platform=node --format=esm --packages=external --alias:server-only=./scripts/server-only-shim.mjs --outfile=node_modules/.cache/check-dashboard.mjs --log-level=warning && node node_modules/.cache/check-dashboard.mjs"
   },
   "dependencies": {
     "@supabase/ssr": "^0.7.0",

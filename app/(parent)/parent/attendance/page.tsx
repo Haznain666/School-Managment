@@ -8,6 +8,7 @@ import {
   ATTENDANCE_STATUS_LABELS,
   type AttendanceStatus,
 } from '@/db/schema/attendance-records';
+import { DonutChart } from '@/components/charts/DonutChart';
 import { listStudentAttendance, summariseAttendance } from '@/lib/academics-queries';
 import { getActiveAcademicYear, listChildrenForGuardian } from '@/lib/admissions-queries';
 import { requireSchoolRole } from '@/lib/school-guard';
@@ -116,15 +117,47 @@ export default async function ParentAttendancePage({
         </nav>
       ) : null}
 
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <SummaryCard label="Present" value={String(summary.present)} />
-        <SummaryCard label="Absent" value={String(summary.absent)} emphasis={summary.absent > 0} />
-        <SummaryCard label="Late" value={String(summary.late)} />
-        <SummaryCard
-          label="Attendance"
-          value={`${summary.percentage.toFixed(1)}%`}
-          emphasis={summary.percentage < 75 && records.length > 0}
-        />
+      <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_18rem]">
+        <div className="grid gap-4 sm:grid-cols-2">
+          <SummaryCard label="Present" value={String(summary.present)} />
+          <SummaryCard label="Absent" value={String(summary.absent)} emphasis={summary.absent > 0} />
+          <SummaryCard label="Late" value={String(summary.late)} />
+          <SummaryCard
+            label="Attendance"
+            value={`${summary.percentage.toFixed(1)}%`}
+            emphasis={summary.percentage < 75 && records.length > 0}
+          />
+        </div>
+
+        {/*
+          The ring repeats the four figures beside it rather than adding new
+          ones, and that is the point: a parent opening this on a phone wants
+          "is my child's attendance all right", and one shape answers that
+          faster than four numbers do. The percentage sits in the hole because
+          it is the figure they came for; the ring is its context.
+
+          Holidays are excluded from the slices for the same reason they are
+          excluded from the percentage — a term break is not a day anybody
+          failed to attend, and drawing it would make every holiday look like a
+          gap in the child's record.
+        */}
+        {records.length === 0 ? null : (
+          <Card>
+            <DonutChart
+              title={`${selected.name}'s attendance`}
+              summary={`${summary.percentage.toFixed(1)}% attendance over the last 30 days: present ${summary.present}, late ${summary.late}, absent ${summary.absent}, excused ${summary.excused}.`}
+              centerValue={`${Math.round(summary.percentage)}%`}
+              centerLabel="attendance"
+              slices={[
+                { label: 'Present', value: summary.present, fillClass: 'fill-status-success' },
+                { label: 'Late', value: summary.late, fillClass: 'fill-status-warning' },
+                { label: 'Absent', value: summary.absent, fillClass: 'fill-status-danger' },
+                { label: 'Excused', value: summary.excused, fillClass: 'fill-status-info' },
+              ].filter((slice) => slice.value > 0)}
+              format={(value) => `${value} day${value === 1 ? '' : 's'}`}
+            />
+          </Card>
+        )}
       </div>
 
       <Card

@@ -1,8 +1,18 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 
+import { BarChart } from '@/components/charts/BarChart';
+import { DonutChart } from '@/components/charts/DonutChart';
+import { LineChart } from '@/components/charts/LineChart';
 import { Card, CardTitle } from '@/components/ui/Card';
+import { PageHeader } from '@/components/ui/PageHeader';
+import { StatTile, StatTileGrid } from '@/components/ui/StatTile';
 import { getActiveAcademicYear } from '@/lib/admissions-queries';
+import {
+  getAgingBuckets,
+  getCollectionTrend,
+  getFeeStatusSplit,
+} from '@/lib/dashboard-queries';
 import { getFeeOverview } from '@/lib/fee-queries';
 import { formatPkr } from '@/lib/money';
 import { requireSchoolPermission } from '@/lib/school-guard';
@@ -13,26 +23,6 @@ export const metadata: Metadata = {
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
-
-function StatCard({
-  label,
-  value,
-  hint,
-}: {
-  label: string;
-  value: string;
-  hint: string;
-}) {
-  return (
-    <Card>
-      <p className="text-xs font-medium uppercase tracking-wide text-ink-muted">
-        {label}
-      </p>
-      <p className="mt-2 text-2xl font-bold text-ink">{value}</p>
-      <p className="mt-1 text-xs text-ink-muted">{hint}</p>
-    </Card>
-  );
-}
 
 function ActionTile({
   href,
@@ -69,9 +59,12 @@ const MONTH_LABEL = new Intl.DateTimeFormat('en-GB', {
 export default async function FeesOverviewPage() {
   const { locationId, permissions } = await requireSchoolPermission('fees.read');
 
-  const [overview, activeYear] = await Promise.all([
+  const [overview, activeYear, split, aging, trend] = await Promise.all([
     getFeeOverview(locationId),
     getActiveAcademicYear(locationId),
+    getFeeStatusSplit(locationId),
+    getAgingBuckets(locationId),
+    getCollectionTrend(locationId),
   ]);
 
   const thisMonth = MONTH_LABEL.format(new Date());
@@ -79,12 +72,10 @@ export default async function FeesOverviewPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h2 className="text-xl font-semibold text-ink">Fee Management</h2>
-        <p className="mt-1 text-sm text-ink-muted">
-          Challans, collections and what is still owed — for {thisMonth}.
-        </p>
-      </div>
+      <PageHeader
+        title="Fee Management"
+        description={`Challans, collections and what is still owed — for ${thisMonth}.`}
+      />
 
       {!overview.hasFeeTypes ? (
         <Card>
@@ -121,28 +112,96 @@ export default async function FeesOverviewPage() {
         </Card>
       ) : null}
 
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <StatCard
+      <StatTileGrid>
+        <StatTile
           label="Collected this month"
           value={formatPkr(overview.collectedThisMonth)}
-          hint={`Payments received in ${thisMonth}`}
+          detail={`Payments received in ${thisMonth}`}
         />
-        <StatCard
+        <StatTile
           label="Outstanding this month"
           value={formatPkr(overview.outstandingThisMonth)}
-          hint={`Still owed on ${thisMonth} challans`}
+          detail={`Still owed on ${thisMonth} challans`}
         />
-        <StatCard
+        <StatTile
           label="Overdue challans"
-          value={String(overview.overdueCount)}
-          hint="Past their due date and unsettled"
+          value={overview.overdueCount.toLocaleString()}
+          detail="Past their due date and unsettled"
         />
-        <StatCard
+        <StatTile
           label="Students with concessions"
-          value={String(overview.studentsWithConcessions)}
-          hint="Holding a discount in force today"
+          value={overview.studentsWithConcessions.toLocaleString()}
+          detail="Holding a discount in force today"
         />
+      </StatTileGrid>
+
+      <div className="grid gap-5 lg:grid-cols-2">
+        {split === null || split.collected + split.outstanding + split.overdue === 0 ? null : (
+          <Card
+            header={
+              <CardTitle
+                title="This year's billing"
+                description={`Everything raised for ${activeYear?.name ?? 'the active year'}`}
+              />
+            }
+          >
+            <DonutChart
+              title="Billing status for the year"
+              summary={`Of everything billed this year, ${formatPkr(split.collected)} is collected, ${formatPkr(split.outstanding)} is not yet due and ${formatPkr(split.overdue)} is overdue.`}
+              centerValue={`${Math.round(
+                (100 * split.collected) /
+                  Math.max(1, split.collected + split.outstanding + split.overdue),
+              )}%`}
+              centerLabel="collected"
+              /*
+                The three slices do not overlap and sum to everything billed —
+                see `getFeeStatusSplit`. A donut whose parts double-count adds
+                up to more than the whole it claims to divide.
+              */
+              slices={[
+                { label: 'Collected', value: split.collected, fillClass: 'fill-status-success' },
+                { label: 'Not yet due', value: split.outstanding, fillClass: 'fill-status-warning' },
+                { label: 'Overdue', value: split.overdue, fillClass: 'fill-status-danger' },
+              ]}
+              format={formatPkr}
+            />
+          </Card>
+        )}
+
+        {aging.every((bucket) => bucket.value === 0) ? null : (
+          <Card
+            header={
+              <CardTitle
+                title="Outstanding by age"
+                description="How long the unpaid balance has been unpaid"
+              />
+            }
+          >
+            <BarChart
+              title="Outstanding balance by age"
+              summary={`${formatPkr(aging.reduce((sum, b) => sum + b.value, 0))} outstanding in total, of which ${formatPkr(aging[aging.length - 1]?.value ?? 0)} is more than 90 days overdue.`}
+              categories={aging.map((bucket) => bucket.label)}
+              series={[{ label: 'Outstanding', values: aging.map((bucket) => bucket.value) }]}
+            />
+          </Card>
+        )}
       </div>
+
+      {trend.every((point) => point.value === 0) ? null : (
+        <Card
+          header={
+            <CardTitle title="Collection by month" description="Payments received, last 12 months" />
+          }
+        >
+          <LineChart
+            title="Fee collection by month"
+            summary={`Collections over the last ${trend.length} months, from ${formatPkr(trend[0]?.value ?? 0)} to ${formatPkr(trend[trend.length - 1]?.value ?? 0)}.`}
+            categories={trend.map((point) => point.label)}
+            series={[{ label: 'Collected', values: trend.map((point) => point.value) }]}
+            area
+          />
+        </Card>
+      )}
 
       <section className="space-y-3">
         <h3 className="text-sm font-semibold uppercase tracking-wide text-ink-muted">
