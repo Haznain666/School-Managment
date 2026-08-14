@@ -8,6 +8,14 @@ import { Card, CardTitle } from '@/components/ui/Card';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
 import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeaderCell,
+  TableRow,
+} from '@/components/ui/Table';
+import {
   EMPLOYMENT_TYPE_LABELS,
   EMPLOYMENT_TYPES,
   STAFF_STATUS_LABELS,
@@ -508,16 +516,16 @@ export function StaffDetailPanel({ staffId, canEdit }: StaffDetailPanelProps) {
         ) : (
           <>
             <div className="overflow-x-auto">
-              <table className="w-full text-left text-sm">
-                <thead className="border-b border-line text-xs uppercase tracking-wide text-ink-muted">
-                  <tr>
-                    <th scope="col" className="px-5 py-3 font-medium">Include</th>
-                    <th scope="col" className="px-5 py-3 font-medium">Component</th>
-                    <th scope="col" className="px-5 py-3 font-medium">Amount / rate</th>
-                    <th scope="col" className="px-5 py-3 font-medium">Value</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-line">
+              <Table caption="Salary structure" className="rounded-none border-0">
+                <TableHead>
+                  <TableRow>
+                    <TableHeaderCell>Include</TableHeaderCell>
+                    <TableHeaderCell>Component</TableHeaderCell>
+                    <TableHeaderCell>Amount / rate</TableHeaderCell>
+                    <TableHeaderCell>Value</TableHeaderCell>
+                  </TableRow>
+                </TableHead>
+                <TableBody>
                   {components.map((component) => {
                     const entry = matrix[component.id] ?? {
                       included: false,
@@ -526,8 +534,8 @@ export function StaffDetailPanel({ staffId, canEdit }: StaffDetailPanelProps) {
                     };
 
                     return (
-                      <tr key={component.id}>
-                        <td className="px-5 py-3">
+                      <TableRow key={component.id}>
+                        <TableCell>
                           <input
                             type="checkbox"
                             aria-label={`Include ${component.name}`}
@@ -544,8 +552,8 @@ export function StaffDetailPanel({ staffId, canEdit }: StaffDetailPanelProps) {
                               });
                             }}
                           />
-                        </td>
-                        <td className="px-5 py-3">
+                        </TableCell>
+                        <TableCell>
                           <p className="font-medium text-ink">
                             {component.name}
                             {component.isBasic ? (
@@ -557,8 +565,8 @@ export function StaffDetailPanel({ staffId, canEdit }: StaffDetailPanelProps) {
                           <p className="text-xs text-ink-muted">
                             {component.kind === 'earning' ? 'Earning' : 'Deduction'}
                           </p>
-                        </td>
-                        <td className="px-5 py-3">
+                        </TableCell>
+                        <TableCell>
                           {component.calculation === 'percent_of_basic' ? (
                             <Input
                               label={`${component.name} percentage`}
@@ -601,15 +609,15 @@ export function StaffDetailPanel({ staffId, canEdit }: StaffDetailPanelProps) {
                               }}
                             />
                           )}
-                        </td>
-                        <td className="px-5 py-3 text-ink">
+                        </TableCell>
+                        <TableCell>
                           {entry.included ? formatPkr(rowValuePaise(component) / 100) : '—'}
-                        </td>
-                      </tr>
+                        </TableCell>
+                      </TableRow>
                     );
                   })}
-                </tbody>
-              </table>
+                </TableBody>
+              </Table>
             </div>
 
             <div className="flex flex-wrap items-center justify-between gap-4 border-t border-line bg-surface-sunken px-5 py-3">

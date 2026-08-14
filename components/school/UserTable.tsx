@@ -8,6 +8,14 @@ import { Card } from '@/components/ui/Card';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
 import { Button } from '@/components/ui/Button';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeaderCell,
+  TableRow,
+} from '@/components/ui/Table';
 import { MAX_BULK_DELETE, type DeletionOutcome } from '@/lib/user-deletion';
 import { ROLE_LABELS, isUserRole } from '@/types/school-auth';
 
@@ -445,11 +453,15 @@ export function UserTable({ branches, lockedBranchId, canManage }: UserTableProp
         <>
           <Card className="p-0">
             <div className="overflow-x-auto">
-              <table className="w-full text-left text-sm">
-                <thead className="border-b border-line text-xs uppercase tracking-wide text-ink-muted">
-                  <tr>
+              <Table
+                caption="School users and staff"
+                className="rounded-none border-0"
+                maxHeight="34rem"
+              >
+                <TableHead>
+                  <TableRow>
                     {canManage ? (
-                      <th scope="col" className="w-10 px-4 py-3">
+                      <TableHeaderCell className="w-10">
                         <input
                           ref={headerCheckbox}
                           type="checkbox"
@@ -458,21 +470,21 @@ export function UserTable({ branches, lockedBranchId, canManage }: UserTableProp
                           checked={pageIds.length > 0 && selectedOnPage === pageIds.length}
                           onChange={togglePage}
                         />
-                      </th>
+                      </TableHeaderCell>
                     ) : null}
-                    <th scope="col" className="px-4 py-3 font-medium">Name</th>
-                    <th scope="col" className="px-4 py-3 font-medium">Role</th>
-                    <th scope="col" className="px-4 py-3 font-medium">Branch</th>
-                    <th scope="col" className="px-4 py-3 font-medium">Phone</th>
-                    <th scope="col" className="px-4 py-3 font-medium">Status</th>
-                    <th scope="col" className="px-4 py-3 font-medium">Actions</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-line">
+                    <TableHeaderCell>Name</TableHeaderCell>
+                    <TableHeaderCell>Role</TableHeaderCell>
+                    <TableHeaderCell>Branch</TableHeaderCell>
+                    <TableHeaderCell>Phone</TableHeaderCell>
+                    <TableHeaderCell>Status</TableHeaderCell>
+                    <TableHeaderCell>Actions</TableHeaderCell>
+                  </TableRow>
+                </TableHead>
+                <TableBody>
                   {users.map((user) => (
-                    <tr key={user.id} className={selected.has(user.id) ? 'bg-surface-sunken' : undefined}>
+                    <TableRow key={user.id} selected={selected.has(user.id)}>
                       {canManage ? (
-                        <td className="px-4 py-3">
+                        <TableCell>
                           <input
                             type="checkbox"
                             aria-label={`Select ${user.name}`}
@@ -482,19 +494,19 @@ export function UserTable({ branches, lockedBranchId, canManage }: UserTableProp
                               toggle(user.id);
                             }}
                           />
-                        </td>
+                        </TableCell>
                       ) : null}
-                      <td className="px-4 py-3 font-medium text-ink">{user.name}</td>
-                      <td className="px-4 py-3 text-ink-muted">
+                      <TableCell rowHeader>{user.name}</TableCell>
+                      <TableCell muted>
                         {isUserRole(user.role) ? ROLE_LABELS[user.role] : user.role}
-                      </td>
-                      <td className="px-4 py-3 text-ink-muted">
+                      </TableCell>
+                      <TableCell muted>
                         {user.branchName ?? 'All branches'}
-                      </td>
-                      <td className="px-4 py-3 font-mono text-xs text-ink-muted">
+                      </TableCell>
+                      <TableCell muted className="font-mono text-xs">
                         {user.phone}
-                      </td>
-                      <td className="px-4 py-3">
+                      </TableCell>
+                      <TableCell>
                         {/*
                           Read from `authUserId`, not `joinedAt` — having a
                           Supabase identity is what "has signed in" means, and
@@ -508,19 +520,19 @@ export function UserTable({ branches, lockedBranchId, canManage }: UserTableProp
                         ) : (
                           <Badge variant="success">Active</Badge>
                         )}
-                      </td>
-                      <td className="px-4 py-3">
+                      </TableCell>
+                      <TableCell>
                         <Link
                           href={`/dashboard/users/${user.id}`}
                           className="text-sm font-medium text-brand-primary hover:underline"
                         >
                           View
                         </Link>
-                      </td>
-                    </tr>
+                      </TableCell>
+                    </TableRow>
                   ))}
-                </tbody>
-              </table>
+                </TableBody>
+              </Table>
             </div>
           </Card>
 

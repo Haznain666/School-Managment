@@ -7,6 +7,14 @@ import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { Card, CardTitle } from '@/components/ui/Card';
 import { Input } from '@/components/ui/Input';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeaderCell,
+  TableRow,
+} from '@/components/ui/Table';
 import { bandsProblem, SUGGESTED_BANDS, type ResolvedBand } from '@/lib/grading';
 import { schoolErrorMessage, schoolFetch } from '@/lib/school-client';
 
@@ -260,22 +268,22 @@ export function GradingSchemeEditor({ schemes, canWrite }: GradingSchemeEditorPr
             </div>
 
             <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b border-line text-left text-xs uppercase tracking-wide text-ink-muted">
-                    <th className="py-2 pr-3 font-medium">Grade</th>
-                    <th className="py-2 pr-3 font-medium">From %</th>
-                    <th className="py-2 pr-3 font-medium">To %</th>
-                    <th className="py-2 pr-3 font-medium">GPA</th>
-                    <th className="py-2 pr-3 font-medium">Remark</th>
-                    <th className="py-2 font-medium" />
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-line">
+              <Table caption="Grade bands" className="rounded-none border-0">
+                <TableHead>
+                  <TableRow className="border-b border-line text-left text-xs uppercase tracking-wide text-ink-muted">
+                    <TableHeaderCell className="pr-3">Grade</TableHeaderCell>
+                    <TableHeaderCell className="pr-3">From %</TableHeaderCell>
+                    <TableHeaderCell className="pr-3">To %</TableHeaderCell>
+                    <TableHeaderCell className="pr-3">GPA</TableHeaderCell>
+                    <TableHeaderCell className="pr-3">Remark</TableHeaderCell>
+                    <TableHeaderCell />
+                  </TableRow>
+                </TableHead>
+                <TableBody>
                   {drafts.map((draft, index) => (
                     // The index is the identity here on purpose: these rows have
                     // no id until they are saved, and reordering is not offered.
-                    <tr key={index}>
+                    <TableRow key={index}>
                       {(
                         [
                           ['label', 'w-24'],
@@ -285,7 +293,7 @@ export function GradingSchemeEditor({ schemes, canWrite }: GradingSchemeEditorPr
                           ['remark', 'w-40'],
                         ] as const
                       ).map(([field, width]) => (
-                        <td key={field} className="py-2 pr-3">
+                        <TableCell className="pr-3" key={field}>
                           <input
                             value={draft[field]}
                             aria-label={`${field} for band ${index + 1}`}
@@ -299,9 +307,9 @@ export function GradingSchemeEditor({ schemes, canWrite }: GradingSchemeEditorPr
                             }}
                             className={`${width} rounded-lg border border-line-strong px-2 py-1.5 text-sm`}
                           />
-                        </td>
+                        </TableCell>
                       ))}
-                      <td className="py-2 text-right">
+                      <TableCell align="numeric">
                         <Button
                           size="sm"
                           variant="ghost"
@@ -313,11 +321,11 @@ export function GradingSchemeEditor({ schemes, canWrite }: GradingSchemeEditorPr
                         >
                           Remove
                         </Button>
-                      </td>
-                    </tr>
+                      </TableCell>
+                    </TableRow>
                   ))}
-                </tbody>
-              </table>
+                </TableBody>
+              </Table>
             </div>
 
             <div className="flex flex-wrap items-center gap-3">

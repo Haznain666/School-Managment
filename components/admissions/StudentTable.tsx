@@ -9,6 +9,14 @@ import { Card } from '@/components/ui/Card';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
 import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeaderCell,
+  TableRow,
+} from '@/components/ui/Table';
+import {
   ENROLLMENT_STATUSES,
   ENROLLMENT_STATUS_LABELS,
   type EnrollmentStatus,
@@ -307,49 +315,49 @@ export function StudentTable({
         <>
           <Card className="p-0">
             <div className="overflow-x-auto">
-              <table className="w-full text-left text-sm">
-                <thead className="border-b border-line text-xs uppercase tracking-wide text-ink-muted">
-                  <tr>
-                    <th scope="col" className="px-4 py-3 font-medium">Student ID</th>
-                    <th scope="col" className="px-4 py-3 font-medium">Name</th>
-                    <th scope="col" className="px-4 py-3 font-medium">Grade</th>
-                    <th scope="col" className="px-4 py-3 font-medium">Section</th>
-                    <th scope="col" className="px-4 py-3 font-medium">Guardian phone</th>
-                    <th scope="col" className="px-4 py-3 font-medium">Enrolled</th>
-                    <th scope="col" className="px-4 py-3 font-medium">Status</th>
-                    <th scope="col" className="px-4 py-3 font-medium">Actions</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-line">
+              <Table caption="Students" className="rounded-none border-0">
+                <TableHead>
+                  <TableRow>
+                    <TableHeaderCell>Student ID</TableHeaderCell>
+                    <TableHeaderCell>Name</TableHeaderCell>
+                    <TableHeaderCell>Grade</TableHeaderCell>
+                    <TableHeaderCell>Section</TableHeaderCell>
+                    <TableHeaderCell>Guardian phone</TableHeaderCell>
+                    <TableHeaderCell>Enrolled</TableHeaderCell>
+                    <TableHeaderCell>Status</TableHeaderCell>
+                    <TableHeaderCell>Actions</TableHeaderCell>
+                  </TableRow>
+                </TableHead>
+                <TableBody>
                   {data.students.map((row) => (
-                    <tr key={row.studentProfileId}>
-                      <td className="px-4 py-3 font-mono text-xs text-ink-muted">
+                    <TableRow key={row.studentProfileId}>
+                      <TableCell muted className="font-mono text-xs">
                         {row.studentId}
-                      </td>
-                      <td className="px-4 py-3 font-medium text-ink">{row.name}</td>
-                      <td className="px-4 py-3 text-ink-muted">{row.gradeName}</td>
-                      <td className="px-4 py-3 text-ink-muted">{row.sectionName}</td>
-                      <td className="px-4 py-3 font-mono text-xs text-ink-muted">
+                      </TableCell>
+                      <TableCell rowHeader>{row.name}</TableCell>
+                      <TableCell muted>{row.gradeName}</TableCell>
+                      <TableCell muted>{row.sectionName}</TableCell>
+                      <TableCell muted className="font-mono text-xs">
                         {row.guardianPhone ?? '—'}
-                      </td>
-                      <td className="px-4 py-3 text-ink-muted">{row.enrollmentDate}</td>
-                      <td className="px-4 py-3">
+                      </TableCell>
+                      <TableCell muted>{row.enrollmentDate}</TableCell>
+                      <TableCell>
                         <Badge variant={statusVariant(row.status)}>
                           {ENROLLMENT_STATUS_LABELS[row.status]}
                         </Badge>
-                      </td>
-                      <td className="px-4 py-3">
+                      </TableCell>
+                      <TableCell>
                         <Link
                           href={`/dashboard/admissions/students/${row.studentProfileId}`}
                           className="text-sm font-medium text-brand-primary hover:underline"
                         >
                           View profile
                         </Link>
-                      </td>
-                    </tr>
+                      </TableCell>
+                    </TableRow>
                   ))}
-                </tbody>
-              </table>
+                </TableBody>
+              </Table>
             </div>
           </Card>
 

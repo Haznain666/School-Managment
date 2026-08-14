@@ -6,6 +6,14 @@ import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { Card, CardTitle } from '@/components/ui/Card';
 import { Select } from '@/components/ui/Select';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeaderCell,
+  TableRow,
+} from '@/components/ui/Table';
 
 export interface GradeOption {
   id: string;
@@ -432,27 +440,27 @@ export function PromotionRunner({
         className="p-0"
       >
         <div className="overflow-x-auto">
-          <table className="w-full text-left text-sm">
-            <thead className="border-b border-line text-xs uppercase tracking-wide text-ink-muted">
-              <tr>
-                <th scope="col" className="px-4 py-3 font-medium">Student</th>
-                <th scope="col" className="px-4 py-3 font-medium">Now in</th>
-                <th scope="col" className="px-4 py-3 font-medium">Decision</th>
-                <th scope="col" className="px-4 py-3 font-medium">Goes to</th>
-                <th scope="col" className="px-4 py-3 font-medium">Note</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-line">
+          <Table caption="Students in this promotion" className="rounded-none border-0">
+            <TableHead>
+              <TableRow>
+                <TableHeaderCell>Student</TableHeaderCell>
+                <TableHeaderCell>Now in</TableHeaderCell>
+                <TableHeaderCell>Decision</TableHeaderCell>
+                <TableHeaderCell>Goes to</TableHeaderCell>
+                <TableHeaderCell>Note</TableHeaderCell>
+              </TableRow>
+            </TableHead>
+            <TableBody>
               {rows.map((row) => (
-                <tr key={row.id}>
-                  <td className="px-4 py-2">
+                <TableRow key={row.id}>
+                  <TableCell>
                     <span className="font-medium text-ink">{row.name}</span>
                     <span className="block font-mono text-xs text-ink-muted">
                       {row.studentId}
                     </span>
-                  </td>
-                  <td className="px-4 py-2 text-ink-muted">{row.fromSectionName}</td>
-                  <td className="px-4 py-2">
+                  </TableCell>
+                  <TableCell muted>{row.fromSectionName}</TableCell>
+                  <TableCell>
                     <select
                       aria-label={`Decision for ${row.name}`}
                       className="rounded-lg border border-line-strong px-2 py-1 text-sm"
@@ -471,8 +479,8 @@ export function PromotionRunner({
                         </option>
                       ))}
                     </select>
-                  </td>
-                  <td className="px-4 py-2">
+                  </TableCell>
+                  <TableCell>
                     {row.decision === 'promote' ? (
                       <select
                         aria-label={`Class for ${row.name}`}
@@ -494,12 +502,12 @@ export function PromotionRunner({
                         {row.decision === 'retain' ? 'Stays put' : '—'}
                       </span>
                     )}
-                  </td>
-                  <td className="px-4 py-2 text-xs text-status-warning-onSubtle">{row.note ?? ''}</td>
-                </tr>
+                  </TableCell>
+                  <TableCell className="text-xs text-status-warning-onSubtle">{row.note ?? ''}</TableCell>
+                </TableRow>
               ))}
-            </tbody>
-          </table>
+            </TableBody>
+          </Table>
         </div>
       </Card>
 

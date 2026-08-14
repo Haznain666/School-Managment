@@ -7,6 +7,14 @@ import { Button } from '@/components/ui/Button';
 import { Card, CardTitle } from '@/components/ui/Card';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeaderCell,
+  TableRow,
+} from '@/components/ui/Table';
 
 interface Member {
   challanId: string;
@@ -299,39 +307,39 @@ export function FamilyVouchers({ canWrite, defaultMonth, defaultYear }: FamilyVo
       {issued.length > 0 ? (
         <Card className="p-0" header={<CardTitle title="Issued vouchers" />}>
           <div className="overflow-x-auto">
-            <table className="w-full text-left text-sm">
-              <thead className="border-b border-line text-xs uppercase tracking-wide text-ink-muted">
-                <tr>
-                  <th scope="col" className="px-4 py-3 font-medium">Voucher</th>
-                  <th scope="col" className="px-4 py-3 font-medium">Family</th>
-                  <th scope="col" className="px-4 py-3 font-medium">Children</th>
-                  <th scope="col" className="px-4 py-3 font-medium">Due</th>
-                  <th scope="col" className="px-4 py-3 font-medium">Status</th>
-                  <th scope="col" className="px-4 py-3 text-right font-medium">Total</th>
+            <Table caption="Family vouchers" className="rounded-none border-0">
+              <TableHead>
+                <TableRow>
+                  <TableHeaderCell>Voucher</TableHeaderCell>
+                  <TableHeaderCell>Family</TableHeaderCell>
+                  <TableHeaderCell>Children</TableHeaderCell>
+                  <TableHeaderCell>Due</TableHeaderCell>
+                  <TableHeaderCell>Status</TableHeaderCell>
+                  <TableHeaderCell align="numeric">Total</TableHeaderCell>
                   {canWrite ? (
-                    <th scope="col" className="px-4 py-3 text-right font-medium">
+                    <TableHeaderCell align="numeric">
                       Payment
-                    </th>
+                    </TableHeaderCell>
                   ) : null}
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-line">
+                </TableRow>
+              </TableHead>
+              <TableBody>
                 {issued.map((row) => (
-                  <tr key={row.id}>
-                    <td className="px-4 py-3 font-mono text-xs text-ink">
+                  <TableRow key={row.id}>
+                    <TableCell className="font-mono text-xs">
                       {row.challanNumber}
-                    </td>
-                    <td className="px-4 py-3 text-ink">
+                    </TableCell>
+                    <TableCell>
                       {row.guardianName}
                       <span className="block font-mono text-xs text-ink-muted">
                         {row.phone}
                       </span>
-                    </td>
-                    <td className="px-4 py-3 text-ink-muted">{row.memberCount}</td>
-                    <td className="px-4 py-3 font-mono text-xs text-ink-muted">
+                    </TableCell>
+                    <TableCell muted>{row.memberCount}</TableCell>
+                    <TableCell muted className="font-mono text-xs">
                       {row.dueDate}
-                    </td>
-                    <td className="px-4 py-3">
+                    </TableCell>
+                    <TableCell>
                       <Badge
                         variant={
                           row.status === 'paid'
@@ -345,14 +353,14 @@ export function FamilyVouchers({ canWrite, defaultMonth, defaultYear }: FamilyVo
                       >
                         {row.status}
                       </Badge>
-                    </td>
-                    <td className="px-4 py-3 text-right font-mono text-ink">
+                    </TableCell>
+                    <TableCell align="numeric" className="font-mono">
                       {row.paidAmount === '0.00'
                         ? row.totalAmount
                         : `${row.paidAmount} / ${row.totalAmount}`}
-                    </td>
+                    </TableCell>
                     {canWrite ? (
-                      <td className="px-4 py-3 text-right">
+                      <TableCell align="numeric">
                         {row.status === 'paid' || row.status === 'cancelled' ? (
                           <span className="text-xs text-ink-muted">—</span>
                         ) : payingId === row.id ? (
@@ -431,12 +439,12 @@ export function FamilyVouchers({ canWrite, defaultMonth, defaultYear }: FamilyVo
                             Take payment
                           </Button>
                         )}
-                      </td>
+                      </TableCell>
                     ) : null}
-                  </tr>
+                  </TableRow>
                 ))}
-              </tbody>
-            </table>
+              </TableBody>
+            </Table>
           </div>
         </Card>
       ) : null}

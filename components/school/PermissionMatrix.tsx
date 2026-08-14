@@ -6,6 +6,14 @@ import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { Card, CardTitle } from '@/components/ui/Card';
 import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeaderCell,
+  TableRow,
+} from '@/components/ui/Table';
+import {
   CONFIGURABLE_ROLES,
   PERMISSION_DESCRIPTIONS,
   PERMISSION_GROUPS,
@@ -221,26 +229,22 @@ export function PermissionMatrix({ canEdit }: PermissionMatrixProps) {
           className="p-0"
         >
           <div className="overflow-x-auto">
-            <table className="w-full text-left text-sm">
-              <thead className="border-b border-line text-xs uppercase tracking-wide text-ink-muted">
-                <tr>
-                  <th scope="col" className="px-5 py-3 font-medium">Permission</th>
+            <Table caption="Permissions by role" className="rounded-none border-0">
+              <TableHead>
+                <TableRow>
+                  <TableHeaderCell>Permission</TableHeaderCell>
                   {CONFIGURABLE_ROLES.map((role) => (
-                    <th
-                      key={role}
-                      scope="col"
-                      className="px-3 py-3 text-center font-medium"
-                      title={ROLE_DESCRIPTIONS[role]}
-                    >
+                    <TableHeaderCell align="center" className="text-center" key={role}
+                      title={ROLE_DESCRIPTIONS[role]}>
                       {ROLE_LABELS[role]}
-                    </th>
+                    </TableHeaderCell>
                   ))}
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-line">
+                </TableRow>
+              </TableHead>
+              <TableBody>
                 {group.permissions.map((permission) => (
-                  <tr key={permission}>
-                    <th scope="row" className="px-5 py-3 text-left font-normal">
+                  <TableRow key={permission}>
+                    <TableCell rowHeader className="font-normal">
                       <span className="font-medium text-ink">
                         {PERMISSION_LABELS[permission]}
                       </span>
@@ -249,7 +253,7 @@ export function PermissionMatrix({ canEdit }: PermissionMatrixProps) {
                           {PERMISSION_DESCRIPTIONS[permission]}
                         </span>
                       )}
-                    </th>
+                    </TableCell>
 
                     {CONFIGURABLE_ROLES.map((role) => {
                       const granted = valueOf(role, permission);
@@ -259,7 +263,7 @@ export function PermissionMatrix({ canEdit }: PermissionMatrixProps) {
                       const moved = !isDefault(role, permission);
 
                       return (
-                        <td key={role} className="px-3 py-3 text-center">
+                        <TableCell align="center" className="text-center" key={role}>
                           <button
                             type="button"
                             role="switch"
@@ -292,13 +296,13 @@ export function PermissionMatrix({ canEdit }: PermissionMatrixProps) {
                               />
                             ) : null}
                           </button>
-                        </td>
+                        </TableCell>
                       );
                     })}
-                  </tr>
+                  </TableRow>
                 ))}
-              </tbody>
-            </table>
+              </TableBody>
+            </Table>
           </div>
         </Card>
       ))}

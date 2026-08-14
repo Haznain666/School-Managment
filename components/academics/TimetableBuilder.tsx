@@ -6,6 +6,14 @@ import { Button } from '@/components/ui/Button';
 import { Card, CardTitle } from '@/components/ui/Card';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeaderCell,
+  TableRow,
+} from '@/components/ui/Table';
 import { subjectShortLabel } from '@/db/schema/subjects';
 import { formatTimeOfDay } from '@/db/schema/timetable-slots';
 import { WEEKDAY_NAMES, WEEKDAY_SHORT_NAMES } from '@/db/schema/timetable-entries';
@@ -323,21 +331,21 @@ export function TimetableBuilder({
       ) : (
         <Card className="p-0">
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[46rem] border-collapse text-left text-sm">
-              <thead className="border-b border-line text-xs uppercase tracking-wide text-ink-muted">
-                <tr>
-                  <th scope="col" className="w-40 px-4 py-3 font-medium">Period</th>
+            <Table caption="Weekly timetable" className="rounded-none border-0">
+              <TableHead>
+                <TableRow>
+                  <TableHeaderCell className="w-40">Period</TableHeaderCell>
                   {WEEKDAY_SHORT_NAMES.map((day) => (
-                    <th key={day} scope="col" className="px-3 py-3 font-medium">
+                    <TableHeaderCell key={day}>
                       {day}
-                    </th>
+                    </TableHeaderCell>
                   ))}
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-line">
+                </TableRow>
+              </TableHead>
+              <TableBody>
                 {slots.map((slot) => (
-                  <tr key={slot.id}>
-                    <th scope="row" className="px-4 py-2 text-left align-top">
+                  <TableRow key={slot.id}>
+                    <TableCell rowHeader>
                       <span className="block font-medium text-ink">
                         {slot.name}
                       </span>
@@ -345,23 +353,20 @@ export function TimetableBuilder({
                         {formatTimeOfDay(slot.startTime)} –{' '}
                         {formatTimeOfDay(slot.endTime)}
                       </span>
-                    </th>
+                    </TableCell>
 
                     {slot.isBreak ? (
                       // Nothing is taught across a break, so it reads as one
                       // band rather than five empty cells inviting a click.
-                      <td
-                        colSpan={WEEKDAY_SHORT_NAMES.length}
-                        className="bg-surface-sunken px-3 py-3 text-center text-xs font-medium uppercase tracking-wide text-ink-muted"
-                      >
+                      <TableCell align="center" muted className="bg-surface-sunken text-center text-xs uppercase tracking-wide" colSpan={WEEKDAY_SHORT_NAMES.length}>
                         {slot.name}
-                      </td>
+                      </TableCell>
                     ) : (
                       WEEKDAY_SHORT_NAMES.map((_day, dayIndex) => {
                         const entry = entriesByCell.get(cellKey(slot.id, dayIndex));
 
                         return (
-                          <td key={`${slot.id}-${dayIndex}`} className="px-1.5 py-1.5 align-top">
+                          <TableCell key={`${slot.id}-${dayIndex}`}>
                             <button
                               type="button"
                               onClick={() => {
@@ -407,14 +412,14 @@ export function TimetableBuilder({
                                 </>
                               )}
                             </button>
-                          </td>
+                          </TableCell>
                         );
                       })
                     )}
-                  </tr>
+                  </TableRow>
                 ))}
-              </tbody>
-            </table>
+              </TableBody>
+            </Table>
           </div>
         </Card>
       )}

@@ -8,6 +8,14 @@ import { Card, CardTitle } from '@/components/ui/Card';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
 import { Textarea } from '@/components/ui/Textarea';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeaderCell,
+  TableRow,
+} from '@/components/ui/Table';
 import { LEAVE_STATUS_LABELS, type LeaveStatus } from '@/db/schema/leave-requests';
 import { schoolErrorMessage, schoolFetch } from '@/lib/school-client';
 
@@ -400,53 +408,53 @@ export function LeaveManager({ canEdit }: LeaveManagerProps) {
           className="p-0"
         >
           <div className="overflow-x-auto">
-            <table className="w-full text-left text-sm">
-              <thead className="border-b border-line text-xs uppercase tracking-wide text-ink-muted">
-                <tr>
-                  <th scope="col" className="px-5 py-3 font-medium">Staff</th>
-                  <th scope="col" className="px-5 py-3 font-medium">Type</th>
-                  <th scope="col" className="px-5 py-3 font-medium">Dates</th>
-                  <th scope="col" className="px-5 py-3 font-medium">Days</th>
-                  <th scope="col" className="px-5 py-3 font-medium">Status</th>
+            <Table caption="Leave requests" className="rounded-none border-0">
+              <TableHead>
+                <TableRow>
+                  <TableHeaderCell>Staff</TableHeaderCell>
+                  <TableHeaderCell>Type</TableHeaderCell>
+                  <TableHeaderCell>Dates</TableHeaderCell>
+                  <TableHeaderCell>Days</TableHeaderCell>
+                  <TableHeaderCell>Status</TableHeaderCell>
                   {canEdit ? (
-                    <th scope="col" className="px-5 py-3 font-medium">
+                    <TableHeaderCell>
                       <span className="sr-only">Decide</span>
-                    </th>
+                    </TableHeaderCell>
                   ) : null}
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-line">
+                </TableRow>
+              </TableHead>
+              <TableBody>
                 {requests.map((row) => (
-                  <tr key={row.id}>
-                    <td className="px-5 py-3">
+                  <TableRow key={row.id}>
+                    <TableCell>
                       <p className="font-medium text-ink">{row.staffName}</p>
                       <p className="text-xs text-ink-muted">{row.employeeCode}</p>
-                    </td>
-                    <td className="px-5 py-3 text-ink-muted">
+                    </TableCell>
+                    <TableCell muted>
                       {row.leaveTypeName}
                       {row.isPaid ? null : (
                         <Badge className="ml-2" variant="danger">
                           Unpaid
                         </Badge>
                       )}
-                    </td>
-                    <td className="px-5 py-3 text-ink-muted">
+                    </TableCell>
+                    <TableCell muted>
                       {row.startDate} → {row.endDate}
                       {row.reason === null || row.reason === '' ? null : (
                         <p className="text-xs text-ink-muted">{row.reason}</p>
                       )}
-                    </td>
-                    <td className="px-5 py-3 text-ink-muted">{row.totalDays}</td>
-                    <td className="px-5 py-3">
+                    </TableCell>
+                    <TableCell muted>{row.totalDays}</TableCell>
+                    <TableCell>
                       <Badge variant={STATUS_VARIANT[row.status]}>
                         {LEAVE_STATUS_LABELS[row.status]}
                       </Badge>
                       {row.decisionNote === null || row.decisionNote === '' ? null : (
                         <p className="mt-1 text-xs text-ink-muted">{row.decisionNote}</p>
                       )}
-                    </td>
+                    </TableCell>
                     {canEdit ? (
-                      <td className="px-5 py-3">
+                      <TableCell>
                         {row.status === 'pending' ? (
                           <div className="flex justify-end gap-2">
                             <Button
@@ -469,12 +477,12 @@ export function LeaveManager({ canEdit }: LeaveManagerProps) {
                             </Button>
                           </div>
                         ) : null}
-                      </td>
+                      </TableCell>
                     ) : null}
-                  </tr>
+                  </TableRow>
                 ))}
-              </tbody>
-            </table>
+              </TableBody>
+            </Table>
           </div>
         </Card>
       )}

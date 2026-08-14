@@ -9,6 +9,14 @@ import { Card, CardTitle } from '@/components/ui/Card';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
 import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeaderCell,
+  TableRow,
+} from '@/components/ui/Table';
+import {
   PAYROLL_MONTH_NAMES,
   PAYROLL_RUN_STATUS_LABELS,
   formatPayrollPeriod,
@@ -267,54 +275,54 @@ export function PayrollRunManager({ canEdit }: PayrollRunManagerProps) {
           className="p-0"
         >
           <div className="overflow-x-auto">
-            <table className="w-full text-left text-sm">
-              <thead className="border-b border-line text-xs uppercase tracking-wide text-ink-muted">
-                <tr>
-                  <th scope="col" className="px-5 py-3 font-medium">Period</th>
-                  <th scope="col" className="px-5 py-3 font-medium">Staff</th>
-                  <th scope="col" className="px-5 py-3 font-medium">Gross</th>
-                  <th scope="col" className="px-5 py-3 font-medium">Net</th>
-                  <th scope="col" className="px-5 py-3 font-medium">Status</th>
-                  <th scope="col" className="px-5 py-3 font-medium">
+            <Table caption="Payroll runs" className="rounded-none border-0">
+              <TableHead>
+                <TableRow>
+                  <TableHeaderCell>Period</TableHeaderCell>
+                  <TableHeaderCell>Staff</TableHeaderCell>
+                  <TableHeaderCell>Gross</TableHeaderCell>
+                  <TableHeaderCell>Net</TableHeaderCell>
+                  <TableHeaderCell>Status</TableHeaderCell>
+                  <TableHeaderCell>
                     <span className="sr-only">Open</span>
-                  </th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-line">
+                  </TableHeaderCell>
+                </TableRow>
+              </TableHead>
+              <TableBody>
                 {runs.map((row) => (
-                  <tr key={row.id}>
-                    <td className="px-5 py-3">
+                  <TableRow key={row.id}>
+                    <TableCell>
                       <p className="font-medium text-ink">
                         {formatPayrollPeriod(row.payrollMonth, row.payrollYear)}
                       </p>
                       <p className="text-xs text-ink-muted">
                         {row.branchName ?? 'Whole school'} · {row.workingDays} working days
                       </p>
-                    </td>
-                    <td className="px-5 py-3 text-ink-muted">{row.staffCount}</td>
-                    <td className="px-5 py-3 text-ink-muted">
+                    </TableCell>
+                    <TableCell muted>{row.staffCount}</TableCell>
+                    <TableCell muted>
                       {formatPkr(row.grossTotal)}
-                    </td>
-                    <td className="px-5 py-3 font-medium text-ink">
+                    </TableCell>
+                    <TableCell rowHeader>
                       {formatPkr(row.netTotal)}
-                    </td>
-                    <td className="px-5 py-3">
+                    </TableCell>
+                    <TableCell>
                       <Badge variant={STATUS_VARIANT[row.status]}>
                         {PAYROLL_RUN_STATUS_LABELS[row.status]}
                       </Badge>
-                    </td>
-                    <td className="px-5 py-3 text-right">
+                    </TableCell>
+                    <TableCell align="numeric">
                       <Link
                         href={`/dashboard/payroll/runs/${row.id}`}
                         className="text-sm font-medium text-brand-primary hover:underline"
                       >
                         Open
                       </Link>
-                    </td>
-                  </tr>
+                    </TableCell>
+                  </TableRow>
                 ))}
-              </tbody>
-            </table>
+              </TableBody>
+            </Table>
           </div>
         </Card>
       )}

@@ -6,6 +6,14 @@ import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { Card, CardTitle } from '@/components/ui/Card';
 import { Select } from '@/components/ui/Select';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeaderCell,
+  TableRow,
+} from '@/components/ui/Table';
 import { CsvError, MAX_CSV_ROWS, parseCsv } from '@/lib/csv';
 import { IMPORT_FIELDS, suggestColumnMap, validateRow } from '@/lib/student-import';
 
@@ -329,32 +337,32 @@ export function StudentImporter({ sections }: StudentImporterProps) {
           className="p-0"
         >
           <div className="overflow-x-auto">
-            <table className="w-full text-left text-sm">
-              <thead className="border-b border-line text-xs uppercase tracking-wide text-ink-muted">
-                <tr>
+            <Table caption="Rows to import" className="rounded-none border-0">
+              <TableHead>
+                <TableRow>
                   {IMPORT_FIELDS.filter((field) => columnMap[field.key] !== undefined && columnMap[field.key] !== '').map(
                     (field) => (
-                      <th key={field.key} scope="col" className="px-4 py-3 font-medium">
+                      <TableHeaderCell key={field.key}>
                         {field.label}
-                      </th>
+                      </TableHeaderCell>
                     ),
                   )}
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-line">
+                </TableRow>
+              </TableHead>
+              <TableBody>
                 {preview.map((row, index) => (
-                  <tr key={index}>
+                  <TableRow key={index}>
                     {IMPORT_FIELDS.filter(
                       (field) => columnMap[field.key] !== undefined && columnMap[field.key] !== '',
                     ).map((field) => (
-                      <td key={field.key} className="px-4 py-3 text-ink">
+                      <TableCell key={field.key}>
                         {row[columnMap[field.key]!] ?? ''}
-                      </td>
+                      </TableCell>
                     ))}
-                  </tr>
+                  </TableRow>
                 ))}
-              </tbody>
-            </table>
+              </TableBody>
+            </Table>
           </div>
 
           {previewProblems.length > 0 ? (
@@ -468,42 +476,42 @@ export function StudentImporter({ sections }: StudentImporterProps) {
 
       <Card className="p-0" header={<CardTitle title={OUTCOME_LABELS[shown] ?? 'Rows'} />}>
         <div className="overflow-x-auto">
-          <table className="w-full text-left text-sm">
-            <thead className="border-b border-line text-xs uppercase tracking-wide text-ink-muted">
-              <tr>
-                <th scope="col" className="px-4 py-3 font-medium">Row</th>
-                <th scope="col" className="px-4 py-3 font-medium">Student</th>
-                <th scope="col" className="px-4 py-3 font-medium">Guardian</th>
-                <th scope="col" className="px-4 py-3 font-medium">What we found</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-line">
+          <Table caption="Rows with problems" className="rounded-none border-0">
+            <TableHead>
+              <TableRow>
+                <TableHeaderCell>Row</TableHeaderCell>
+                <TableHeaderCell>Student</TableHeaderCell>
+                <TableHeaderCell>Guardian</TableHeaderCell>
+                <TableHeaderCell>What we found</TableHeaderCell>
+              </TableRow>
+            </TableHead>
+            <TableBody>
               {rows.length === 0 ? (
-                <tr>
-                  <td colSpan={4} className="px-4 py-6 text-sm text-ink-muted">
+                <TableRow>
+                  <TableCell muted className="text-sm" colSpan={4}>
                     Nothing in this group.
-                  </td>
-                </tr>
+                  </TableCell>
+                </TableRow>
               ) : (
                 rows.map((row) => (
-                  <tr key={row.id}>
-                    <td className="px-4 py-3 font-mono text-xs text-ink-muted">
+                  <TableRow key={row.id}>
+                    <TableCell muted className="font-mono text-xs">
                       {row.rowNumber}
-                    </td>
-                    <td className="px-4 py-3 text-ink">
+                    </TableCell>
+                    <TableCell>
                       {row.raw[columnMap['name'] ?? ''] ?? '—'}
-                    </td>
-                    <td className="px-4 py-3 text-ink-muted">
+                    </TableCell>
+                    <TableCell muted>
                       {row.raw[columnMap['guardianName'] ?? ''] ?? '—'}
-                    </td>
-                    <td className="px-4 py-3 text-ink-muted">
+                    </TableCell>
+                    <TableCell muted>
                       {row.errors.length === 0 ? '—' : row.errors.join(' ')}
-                    </td>
-                  </tr>
+                    </TableCell>
+                  </TableRow>
                 ))
               )}
-            </tbody>
-          </table>
+            </TableBody>
+          </Table>
         </div>
       </Card>
 

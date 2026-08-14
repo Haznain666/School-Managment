@@ -10,6 +10,14 @@ import { Select } from '@/components/ui/Select';
 import { Textarea } from '@/components/ui/Textarea';
 import { Toggle } from '@/components/ui/Toggle';
 import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeaderCell,
+  TableRow,
+} from '@/components/ui/Table';
+import {
   COMPONENT_CALCULATION_LABELS,
   COMPONENT_CALCULATIONS,
   COMPONENT_KIND_LABELS,
@@ -400,24 +408,24 @@ export function SalaryComponentManager({ canEdit }: SalaryComponentManagerProps)
           className="p-0"
         >
           <div className="overflow-x-auto">
-            <table className="w-full text-left text-sm">
-              <thead className="border-b border-line text-xs uppercase tracking-wide text-ink-muted">
-                <tr>
-                  <th scope="col" className="px-5 py-3 font-medium">Name</th>
-                  <th scope="col" className="px-5 py-3 font-medium">Type</th>
-                  <th scope="col" className="px-5 py-3 font-medium">Calculation</th>
-                  <th scope="col" className="px-5 py-3 font-medium">Status</th>
+            <Table caption="Salary components" className="rounded-none border-0">
+              <TableHead>
+                <TableRow>
+                  <TableHeaderCell>Name</TableHeaderCell>
+                  <TableHeaderCell>Type</TableHeaderCell>
+                  <TableHeaderCell>Calculation</TableHeaderCell>
+                  <TableHeaderCell>Status</TableHeaderCell>
                   {canEdit ? (
-                    <th scope="col" className="px-5 py-3 font-medium">
+                    <TableHeaderCell>
                       <span className="sr-only">Actions</span>
-                    </th>
+                    </TableHeaderCell>
                   ) : null}
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-line">
+                </TableRow>
+              </TableHead>
+              <TableBody>
                 {components.map((row) => (
-                  <tr key={row.id}>
-                    <td className="px-5 py-3">
+                  <TableRow key={row.id}>
+                    <TableCell>
                       <p className="font-medium text-ink">
                         {row.name}
                         {row.isBasic ? (
@@ -429,11 +437,11 @@ export function SalaryComponentManager({ canEdit }: SalaryComponentManagerProps)
                       {row.description === null || row.description === '' ? null : (
                         <p className="text-xs text-ink-muted">{row.description}</p>
                       )}
-                    </td>
-                    <td className="px-5 py-3 text-ink-muted">
+                    </TableCell>
+                    <TableCell muted>
                       {COMPONENT_KIND_LABELS[row.kind]}
-                    </td>
-                    <td className="px-5 py-3 text-ink-muted">
+                    </TableCell>
+                    <TableCell muted>
                       {row.calculation === 'percent_of_basic'
                         ? `${pointsToPercent(row.defaultPercentBasisPoints)}% of basic`
                         : 'Fixed amount'}
@@ -442,14 +450,14 @@ export function SalaryComponentManager({ canEdit }: SalaryComponentManagerProps)
                           Not reduced by unpaid days
                         </span>
                       )}
-                    </td>
-                    <td className="px-5 py-3">
+                    </TableCell>
+                    <TableCell>
                       <Badge variant={row.isActive ? 'success' : 'neutral'}>
                         {row.isActive ? 'Active' : 'Retired'}
                       </Badge>
-                    </td>
+                    </TableCell>
                     {canEdit ? (
-                      <td className="px-5 py-3">
+                      <TableCell>
                         <div className="flex justify-end gap-2">
                           <Button
                             size="sm"
@@ -482,12 +490,12 @@ export function SalaryComponentManager({ canEdit }: SalaryComponentManagerProps)
                             {row.isActive ? 'Retire' : 'Restore'}
                           </Button>
                         </div>
-                      </td>
+                      </TableCell>
                     ) : null}
-                  </tr>
+                  </TableRow>
                 ))}
-              </tbody>
-            </table>
+              </TableBody>
+            </Table>
           </div>
         </Card>
       )}

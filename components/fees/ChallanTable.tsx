@@ -8,6 +8,15 @@ import { Button } from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableFoot,
+  TableHead,
+  TableHeaderCell,
+  TableRow,
+} from '@/components/ui/Table';
 import { MONTH_NAMES } from '@/db/schema/academic-years';
 import {
   CHALLAN_STATUSES,
@@ -405,10 +414,14 @@ export function ChallanTable({
             ) : null}
 
             <div className="overflow-x-auto">
-              <table className="w-full text-left text-sm">
-                <thead className="border-b border-line text-xs uppercase tracking-wide text-ink-muted">
-                  <tr>
-                    <th scope="col" className="w-10 py-3 pl-5 pr-0">
+              <Table
+                caption="Fee challans"
+                className="rounded-none border-0"
+                maxHeight="32rem"
+              >
+                <TableHead>
+                  <TableRow>
+                    <TableHeaderCell className="w-10 pl-5 pr-0">
                       <input
                         ref={headerBox}
                         type="checkbox"
@@ -419,30 +432,30 @@ export function ChallanTable({
                           togglePage(event.target.checked);
                         }}
                       />
-                    </th>
-                    <th scope="col" className="px-5 py-3 font-medium">Challan #</th>
-                    <th scope="col" className="px-5 py-3 font-medium">Student</th>
-                    <th scope="col" className="px-5 py-3 font-medium">Class</th>
-                    <th scope="col" className="px-5 py-3 font-medium">Period</th>
-                    <th scope="col" className="px-5 py-3 text-right font-medium">Amount</th>
-                    <th scope="col" className="px-5 py-3 text-right font-medium">Paid</th>
-                    <th scope="col" className="px-5 py-3 text-right font-medium">Balance</th>
-                    <th scope="col" className="px-5 py-3 font-medium">Status</th>
-                    <th scope="col" className="px-5 py-3 font-medium">Due</th>
-                    <th scope="col" className="px-5 py-3 font-medium">
+                    </TableHeaderCell>
+                    <TableHeaderCell>Challan #</TableHeaderCell>
+                    <TableHeaderCell>Student</TableHeaderCell>
+                    <TableHeaderCell>Class</TableHeaderCell>
+                    <TableHeaderCell>Period</TableHeaderCell>
+                    <TableHeaderCell align="numeric">Amount</TableHeaderCell>
+                    <TableHeaderCell align="numeric">Paid</TableHeaderCell>
+                    <TableHeaderCell align="numeric">Balance</TableHeaderCell>
+                    <TableHeaderCell>Status</TableHeaderCell>
+                    <TableHeaderCell>Due</TableHeaderCell>
+                    <TableHeaderCell>
                       <span className="sr-only">Actions</span>
-                    </th>
-                  </tr>
-                </thead>
+                    </TableHeaderCell>
+                  </TableRow>
+                </TableHead>
 
-                <tbody className="divide-y divide-line">
+                <TableBody>
                   {data.challans.map((row) => {
                     const balance =
                       (toPaise(row.totalAmount) - toPaise(row.paidAmount)) / 100;
 
                     return (
-                      <tr key={row.id} className={selected.has(row.id) ? 'bg-surface-sunken' : undefined}>
-                        <td className="w-10 py-3 pl-5 pr-0">
+                      <TableRow key={row.id} selected={selected.has(row.id)}>
+                        <TableCell className="w-10 pl-5 pr-0">
                           <input
                             type="checkbox"
                             className="h-4 w-4 align-middle"
@@ -452,67 +465,67 @@ export function ChallanTable({
                               toggleRow(row.id, event.target.checked);
                             }}
                           />
-                        </td>
-                        <td className="px-5 py-3 font-mono text-xs text-ink-muted">
+                        </TableCell>
+                        <TableCell muted className="font-mono text-xs">
                           {row.challanNumber}
-                        </td>
-                        <td className="px-5 py-3">
+                        </TableCell>
+                        <TableCell>
                           <p className="font-medium text-ink">{row.studentName}</p>
                           <p className="font-mono text-xs text-ink-muted">
                             {row.studentId}
                           </p>
-                        </td>
-                        <td className="px-5 py-3 text-ink-muted">
+                        </TableCell>
+                        <TableCell muted>
                           {row.gradeName ?? '—'}
                           {row.sectionName === null ? '' : ` ${row.sectionName}`}
-                        </td>
-                        <td className="px-5 py-3 text-ink-muted">{billingLabel(row)}</td>
-                        <td className="px-5 py-3 text-right text-ink">
+                        </TableCell>
+                        <TableCell muted>{billingLabel(row)}</TableCell>
+                        <TableCell align="numeric">
                           {formatAmount(row.totalAmount)}
-                        </td>
-                        <td className="px-5 py-3 text-right text-ink-muted">
+                        </TableCell>
+                        <TableCell align="numeric" muted>
                           {formatAmount(row.paidAmount)}
-                        </td>
-                        <td className="px-5 py-3 text-right font-medium text-ink">
+                        </TableCell>
+                        <TableCell rowHeader align="numeric">
                           {formatAmount(balance)}
-                        </td>
-                        <td className="px-5 py-3">
+                        </TableCell>
+                        <TableCell>
                           <Badge variant={STATUS_VARIANTS[row.status]}>
                             {CHALLAN_STATUS_LABELS[row.status]}
                           </Badge>
-                        </td>
-                        <td className="px-5 py-3 text-ink-muted">{row.dueDate}</td>
-                        <td className="px-5 py-3 text-right">
+                        </TableCell>
+                        <TableCell muted>{row.dueDate}</TableCell>
+                        <TableCell align="numeric">
                           <Link
                             href={`/dashboard/fees/challans/${row.id}`}
                             className="text-sm font-medium text-brand-primary hover:underline"
                           >
                             View
                           </Link>
-                        </td>
-                      </tr>
+                        </TableCell>
+                      </TableRow>
                     );
                   })}
-                </tbody>
+                </TableBody>
 
-                <tfoot className="border-t border-line bg-surface-sunken">
-                  <tr>
-                    <th scope="row" colSpan={5} className="px-5 py-3 text-left font-medium text-ink-muted">
+                <TableFoot>
+                  <TableRow>
+                    <TableCell rowHeader muted colSpan={5}>
                       Totals for these filters
-                    </th>
-                    <td className="px-5 py-3 text-right font-semibold text-ink">
+                    </TableCell>
+                    <TableCell align="numeric" className="font-semibold">
                       {formatAmount(data.totals.billed)}
-                    </td>
-                    <td className="px-5 py-3 text-right font-semibold text-ink">
+                    </TableCell>
+                    <TableCell align="numeric" className="font-semibold">
                       {formatAmount(data.totals.paid)}
-                    </td>
-                    <td className="px-5 py-3 text-right font-semibold text-ink">
+                    </TableCell>
+                    <TableCell align="numeric" className="font-semibold">
                       {formatAmount(data.totals.balance)}
-                    </td>
-                    <td colSpan={3} />
-                  </tr>
-                </tfoot>
-              </table>
+                    </TableCell>
+                    <TableCell colSpan={3} />
+                  </TableRow>
+                </TableFoot>
+              </Table>
             </div>
 
             <div className="flex flex-wrap items-center justify-between gap-3 border-t border-line px-5 py-3">

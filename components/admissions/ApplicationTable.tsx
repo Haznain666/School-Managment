@@ -7,6 +7,14 @@ import type { BadgeVariant } from '@/components/ui/Badge';
 import { Card } from '@/components/ui/Card';
 import { Input } from '@/components/ui/Input';
 import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeaderCell,
+  TableRow,
+} from '@/components/ui/Table';
+import {
   APPLICATION_STATUSES,
   APPLICATION_STATUS_LABELS,
   type ApplicationStatus,
@@ -149,38 +157,38 @@ export function ApplicationTable() {
       ) : (
         <Card className="p-0">
           <div className="overflow-x-auto">
-            <table className="w-full text-left text-sm">
-              <thead className="border-b border-line text-xs uppercase tracking-wide text-ink-muted">
-                <tr>
-                  <th scope="col" className="px-4 py-3 font-medium">Student</th>
-                  <th scope="col" className="px-4 py-3 font-medium">Guardian</th>
-                  <th scope="col" className="px-4 py-3 font-medium">Phone</th>
-                  <th scope="col" className="px-4 py-3 font-medium">Grade</th>
-                  <th scope="col" className="px-4 py-3 font-medium">Branch</th>
-                  <th scope="col" className="px-4 py-3 font-medium">Submitted</th>
-                  <th scope="col" className="px-4 py-3 font-medium">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-line">
+            <Table caption="Admission applications" className="rounded-none border-0">
+              <TableHead>
+                <TableRow>
+                  <TableHeaderCell>Student</TableHeaderCell>
+                  <TableHeaderCell>Guardian</TableHeaderCell>
+                  <TableHeaderCell>Phone</TableHeaderCell>
+                  <TableHeaderCell>Grade</TableHeaderCell>
+                  <TableHeaderCell>Branch</TableHeaderCell>
+                  <TableHeaderCell>Submitted</TableHeaderCell>
+                  <TableHeaderCell>Actions</TableHeaderCell>
+                </TableRow>
+              </TableHead>
+              <TableBody>
                 {applications.map((application) => (
-                  <tr key={application.id}>
-                    <td className="px-4 py-3 font-medium text-ink">
+                  <TableRow key={application.id}>
+                    <TableCell rowHeader>
                       {application.studentName}
-                    </td>
-                    <td className="px-4 py-3 text-ink-muted">{application.guardianName}</td>
-                    <td className="px-4 py-3 font-mono text-xs text-ink-muted">
+                    </TableCell>
+                    <TableCell muted>{application.guardianName}</TableCell>
+                    <TableCell muted className="font-mono text-xs">
                       {application.guardianPhone}
-                    </td>
-                    <td className="px-4 py-3 text-ink-muted">
+                    </TableCell>
+                    <TableCell muted>
                       {application.gradeName ?? 'Not specified'}
-                    </td>
-                    <td className="px-4 py-3 text-ink-muted">
+                    </TableCell>
+                    <TableCell muted>
                       {application.branchName ?? '—'}
-                    </td>
-                    <td className="px-4 py-3 text-ink-muted">
+                    </TableCell>
+                    <TableCell muted>
                       {formatDate(application.submittedAt)}
-                    </td>
-                    <td className="px-4 py-3">
+                    </TableCell>
+                    <TableCell>
                       {application.convertedToStudentProfileId === null ? (
                         <Link
                           href={`/dashboard/admissions/applications/${application.id}`}
@@ -196,11 +204,11 @@ export function ApplicationTable() {
                           View student
                         </Link>
                       )}
-                    </td>
-                  </tr>
+                    </TableCell>
+                  </TableRow>
                 ))}
-              </tbody>
-            </table>
+              </TableBody>
+            </Table>
           </div>
         </Card>
       )}

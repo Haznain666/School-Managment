@@ -6,6 +6,14 @@ import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { Card, CardTitle } from '@/components/ui/Card';
 import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeaderCell,
+  TableRow,
+} from '@/components/ui/Table';
+import {
   RESIT_STATUS_LABELS,
   RESULT_STATUS_LABELS,
   type ResitStatus,
@@ -305,19 +313,19 @@ export function MarksEntry({
         ) : (
           <>
             <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b border-line text-left text-xs uppercase tracking-wide text-ink-muted">
-                    <th className="px-5 py-2 font-medium">Student</th>
+              <Table caption="Marks for this paper" className="rounded-none border-0">
+                <TableHead>
+                  <TableRow className="border-b border-line text-left text-xs uppercase tracking-wide text-ink-muted">
+                    <TableHeaderCell>Student</TableHeaderCell>
                     {attempt === 2 ? (
-                      <th className="px-3 py-2 font-medium">Original</th>
+                      <TableHeaderCell>Original</TableHeaderCell>
                     ) : null}
-                    <th className="px-3 py-2 font-medium">Marks</th>
-                    <th className="px-3 py-2 font-medium">%</th>
-                    <th className="px-3 py-2 font-medium">Absent</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-line">
+                    <TableHeaderCell>Marks</TableHeaderCell>
+                    <TableHeaderCell>%</TableHeaderCell>
+                    <TableHeaderCell>Absent</TableHeaderCell>
+                  </TableRow>
+                </TableHead>
+                <TableBody>
                   {students.map((student) => {
                     const draft = drafts[student.studentProfileId] ?? {
                       value: '',
@@ -328,8 +336,8 @@ export function MarksEntry({
                     const bad = valid && (value < 0 || value > paper.maxMarks);
 
                     return (
-                      <tr key={student.studentProfileId}>
-                        <td className="px-5 py-2">
+                      <TableRow key={student.studentProfileId}>
+                        <TableCell>
                           <p className="font-medium text-ink">
                             {student.studentName}
                           </p>
@@ -339,17 +347,17 @@ export function MarksEntry({
                               : `Roll ${student.rollNumber}`}{' '}
                             · <span className="font-mono">{student.studentId}</span>
                           </p>
-                        </td>
+                        </TableCell>
 
                         {attempt === 2 ? (
-                          <td className="px-3 py-2 text-ink-muted">
+                          <TableCell muted>
                             {student.originalAbsent
                               ? 'Absent'
                               : formatMark(student.originalMarks)}
-                          </td>
+                          </TableCell>
                         ) : null}
 
-                        <td className="px-3 py-2">
+                        <TableCell>
                           <input
                             type="number"
                             inputMode="decimal"
@@ -377,15 +385,15 @@ export function MarksEntry({
                                 : 'w-24 rounded-lg border border-line-strong px-2 py-1.5 text-sm disabled:bg-surface-sunken'
                             }
                           />
-                        </td>
+                        </TableCell>
 
-                        <td className="px-3 py-2 text-ink-muted">
+                        <TableCell muted>
                           {draft.isAbsent || !valid
                             ? '—'
                             : formatPercentage(percentageOf(value, paper.maxMarks))}
-                        </td>
+                        </TableCell>
 
-                        <td className="px-3 py-2">
+                        <TableCell>
                           <input
                             type="checkbox"
                             disabled={isLocked}
@@ -404,12 +412,12 @@ export function MarksEntry({
                             }}
                             className="h-4 w-4 rounded border-line-strong"
                           />
-                        </td>
-                      </tr>
+                        </TableCell>
+                      </TableRow>
                     );
                   })}
-                </tbody>
-              </table>
+                </TableBody>
+              </Table>
             </div>
 
             {isLocked ? null : (

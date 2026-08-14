@@ -4,6 +4,14 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { Card, CardTitle } from '@/components/ui/Card';
 import { Select } from '@/components/ui/Select';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeaderCell,
+  TableRow,
+} from '@/components/ui/Table';
 import { MONTH_NAMES } from '@/db/schema/academic-years';
 import { schoolErrorMessage, schoolFetch } from '@/lib/school-client';
 
@@ -253,23 +261,23 @@ export function AttendanceReports({
           className="p-0"
         >
           <div className="overflow-x-auto">
-            <table className="w-full text-left text-sm">
-              <thead className="border-b border-line text-xs uppercase tracking-wide text-ink-muted">
-                <tr>
-                  <th scope="col" className="px-5 py-3 font-medium">Student</th>
-                  <th scope="col" className="px-3 py-3 text-right font-medium">P</th>
-                  <th scope="col" className="px-3 py-3 text-right font-medium">A</th>
-                  <th scope="col" className="px-3 py-3 text-right font-medium">L</th>
-                  <th scope="col" className="px-3 py-3 text-right font-medium">E</th>
-                  <th scope="col" className="px-3 py-3 text-right font-medium">H</th>
-                  <th scope="col" className="px-3 py-3 text-right font-medium">Days</th>
-                  <th scope="col" className="w-48 px-5 py-3 font-medium">Attendance</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-line">
+            <Table caption="Attendance by student" className="rounded-none border-0">
+              <TableHead>
+                <TableRow>
+                  <TableHeaderCell>Student</TableHeaderCell>
+                  <TableHeaderCell align="numeric">P</TableHeaderCell>
+                  <TableHeaderCell align="numeric">A</TableHeaderCell>
+                  <TableHeaderCell align="numeric">L</TableHeaderCell>
+                  <TableHeaderCell align="numeric">E</TableHeaderCell>
+                  <TableHeaderCell align="numeric">H</TableHeaderCell>
+                  <TableHeaderCell align="numeric">Days</TableHeaderCell>
+                  <TableHeaderCell className="w-48">Attendance</TableHeaderCell>
+                </TableRow>
+              </TableHead>
+              <TableBody>
                 {students.map((row) => (
-                  <tr key={row.studentProfileId}>
-                    <td className="px-5 py-3">
+                  <TableRow key={row.studentProfileId}>
+                    <TableCell>
                       <p className="font-medium text-ink">{row.studentName}</p>
                       <p className="text-xs text-ink-muted">
                         {row.rollNumber === null || row.rollNumber === ''
@@ -277,14 +285,14 @@ export function AttendanceReports({
                           : `Roll ${row.rollNumber}`}{' '}
                         · <span className="font-mono">{row.studentId}</span>
                       </p>
-                    </td>
-                    <td className="px-3 py-3 text-right text-ink-muted">{row.present}</td>
-                    <td className="px-3 py-3 text-right text-ink-muted">{row.absent}</td>
-                    <td className="px-3 py-3 text-right text-ink-muted">{row.late}</td>
-                    <td className="px-3 py-3 text-right text-ink-muted">{row.excused}</td>
-                    <td className="px-3 py-3 text-right text-ink-muted">{row.holiday}</td>
-                    <td className="px-3 py-3 text-right text-ink-muted">{row.total}</td>
-                    <td className="px-5 py-3">
+                    </TableCell>
+                    <TableCell align="numeric" muted>{row.present}</TableCell>
+                    <TableCell align="numeric" muted>{row.absent}</TableCell>
+                    <TableCell align="numeric" muted>{row.late}</TableCell>
+                    <TableCell align="numeric" muted>{row.excused}</TableCell>
+                    <TableCell align="numeric" muted>{row.holiday}</TableCell>
+                    <TableCell align="numeric" muted>{row.total}</TableCell>
+                    <TableCell>
                       <div className="flex items-center gap-2">
                         <div
                           className="h-2 w-full overflow-hidden rounded-full bg-surface-sunken"
@@ -302,11 +310,11 @@ export function AttendanceReports({
                           {row.percentage.toFixed(1)}%
                         </span>
                       </div>
-                    </td>
-                  </tr>
+                    </TableCell>
+                  </TableRow>
                 ))}
-              </tbody>
-            </table>
+              </TableBody>
+            </Table>
           </div>
         </Card>
       )}

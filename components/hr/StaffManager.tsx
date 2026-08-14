@@ -9,6 +9,14 @@ import { Card, CardTitle } from '@/components/ui/Card';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
 import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeaderCell,
+  TableRow,
+} from '@/components/ui/Table';
+import {
   EMPLOYMENT_TYPE_LABELS,
   EMPLOYMENT_TYPES,
   STAFF_STATUS_LABELS,
@@ -325,52 +333,52 @@ export function StaffManager({ canEdit }: StaffManagerProps) {
           className="p-0"
         >
           <div className="overflow-x-auto">
-            <table className="w-full text-left text-sm">
-              <thead className="border-b border-line text-xs uppercase tracking-wide text-ink-muted">
-                <tr>
-                  <th scope="col" className="px-5 py-3 font-medium">Name</th>
-                  <th scope="col" className="px-5 py-3 font-medium">Code</th>
-                  <th scope="col" className="px-5 py-3 font-medium">Designation</th>
-                  <th scope="col" className="px-5 py-3 font-medium">Branch</th>
-                  <th scope="col" className="px-5 py-3 font-medium">Status</th>
-                  <th scope="col" className="px-5 py-3 font-medium">
+            <Table caption="Staff" className="rounded-none border-0">
+              <TableHead>
+                <TableRow>
+                  <TableHeaderCell>Name</TableHeaderCell>
+                  <TableHeaderCell>Code</TableHeaderCell>
+                  <TableHeaderCell>Designation</TableHeaderCell>
+                  <TableHeaderCell>Branch</TableHeaderCell>
+                  <TableHeaderCell>Status</TableHeaderCell>
+                  <TableHeaderCell>
                     <span className="sr-only">Open</span>
-                  </th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-line">
+                  </TableHeaderCell>
+                </TableRow>
+              </TableHead>
+              <TableBody>
                 {rows.map((row) => (
-                  <tr key={row.id}>
-                    <td className="px-5 py-3">
+                  <TableRow key={row.id}>
+                    <TableCell>
                       <p className="font-medium text-ink">{row.fullName}</p>
                       {row.department === null ? null : (
                         <p className="text-xs text-ink-muted">{row.department}</p>
                       )}
-                    </td>
-                    <td className="px-5 py-3 text-ink-muted">{row.employeeCode}</td>
-                    <td className="px-5 py-3 text-ink-muted">
+                    </TableCell>
+                    <TableCell muted>{row.employeeCode}</TableCell>
+                    <TableCell muted>
                       {row.designation ?? '—'}
-                    </td>
-                    <td className="px-5 py-3 text-ink-muted">
+                    </TableCell>
+                    <TableCell muted>
                       {row.branchName ?? 'All branches'}
-                    </td>
-                    <td className="px-5 py-3">
+                    </TableCell>
+                    <TableCell>
                       <Badge variant={STATUS_VARIANT[row.status]}>
                         {STAFF_STATUS_LABELS[row.status]}
                       </Badge>
-                    </td>
-                    <td className="px-5 py-3 text-right">
+                    </TableCell>
+                    <TableCell align="numeric">
                       <Link
                         href={`/dashboard/hr/staff/${row.id}`}
                         className="text-sm font-medium text-brand-primary hover:underline"
                       >
                         Open
                       </Link>
-                    </td>
-                  </tr>
+                    </TableCell>
+                  </TableRow>
                 ))}
-              </tbody>
-            </table>
+              </TableBody>
+            </Table>
           </div>
         </Card>
       )}

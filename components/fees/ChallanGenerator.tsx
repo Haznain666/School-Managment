@@ -8,6 +8,15 @@ import { Button } from '@/components/ui/Button';
 import { Card, CardTitle } from '@/components/ui/Card';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableFoot,
+  TableHead,
+  TableHeaderCell,
+  TableRow,
+} from '@/components/ui/Table';
 import { MONTH_NAMES } from '@/db/schema/academic-years';
 import { formatAmount, formatPkr } from '@/lib/money';
 import { schoolErrorMessage, schoolFetch } from '@/lib/school-client';
@@ -332,44 +341,44 @@ function SinglePanel({
           ) : (
             <>
               <div className="overflow-x-auto">
-                <table className="w-full text-left text-sm">
-                  <thead className="border-b border-line text-xs uppercase tracking-wide text-ink-muted">
-                    <tr>
-                      <th scope="col" className="py-2 font-medium">Fee head</th>
-                      <th scope="col" className="py-2 text-right font-medium">Amount</th>
-                      <th scope="col" className="py-2 text-right font-medium">Concession</th>
-                      <th scope="col" className="py-2 text-right font-medium">Net</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-line">
+                <Table caption="Students to bill" className="rounded-none border-0">
+                  <TableHead>
+                    <TableRow>
+                      <TableHeaderCell>Fee head</TableHeaderCell>
+                      <TableHeaderCell align="numeric">Amount</TableHeaderCell>
+                      <TableHeaderCell align="numeric">Concession</TableHeaderCell>
+                      <TableHeaderCell align="numeric">Net</TableHeaderCell>
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
                     {items.map((item) => (
-                      <tr key={item.description}>
-                        <td className="py-2 text-ink">{item.description}</td>
-                        <td className="py-2 text-right text-ink-muted">
+                      <TableRow key={item.description}>
+                        <TableCell>{item.description}</TableCell>
+                        <TableCell align="numeric" muted>
                           {formatAmount(item.amount)}
-                        </td>
-                        <td className="py-2 text-right text-ink-muted">
+                        </TableCell>
+                        <TableCell align="numeric" muted>
                           {Number(item.concessionAmount) === 0
                             ? '—'
                             : `−${formatAmount(item.concessionAmount)}`}
-                        </td>
-                        <td className="py-2 text-right font-medium text-ink">
+                        </TableCell>
+                        <TableCell rowHeader align="numeric">
                           {formatAmount(item.netAmount)}
-                        </td>
-                      </tr>
+                        </TableCell>
+                      </TableRow>
                     ))}
-                  </tbody>
-                  <tfoot className="border-t border-line">
-                    <tr>
-                      <th scope="row" colSpan={3} className="py-3 text-left font-medium text-ink-muted">
+                  </TableBody>
+                  <TableFoot>
+                    <TableRow>
+                      <TableCell rowHeader muted colSpan={3}>
                         Total
-                      </th>
-                      <td className="py-3 text-right text-base font-bold text-ink">
+                      </TableCell>
+                      <TableCell align="numeric" className="text-base font-bold">
                         {formatPkr(totals.totalAmount)}
-                      </td>
-                    </tr>
-                  </tfoot>
-                </table>
+                      </TableCell>
+                    </TableRow>
+                  </TableFoot>
+                </Table>
               </div>
 
               <Button

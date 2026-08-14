@@ -6,6 +6,14 @@ import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { Card, CardTitle } from '@/components/ui/Card';
 import { Input } from '@/components/ui/Input';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeaderCell,
+  TableRow,
+} from '@/components/ui/Table';
 import { superAdminFetch, SuperAdminApiError } from '@/lib/super-admin-client';
 import { MAX_BULK_DELETE, type DeletionOutcome } from '@/lib/user-deletion';
 import { ROLE_LABELS, isUserRole } from '@/types/school-auth';
@@ -561,10 +569,10 @@ export function SchoolUsersTable({ schoolId }: SchoolUsersTableProps) {
           }
         >
           <div className="overflow-x-auto">
-            <table className="w-full text-left text-sm">
-              <thead className="border-b border-line text-xs uppercase tracking-wide text-ink-muted">
-                <tr>
-                  <th scope="col" className="w-10 px-4 py-3">
+            <Table caption="Users at this school" className="rounded-none border-0">
+              <TableHead>
+                <TableRow>
+                  <TableHeaderCell className="w-10">
                     <input
                       ref={headerCheckbox}
                       type="checkbox"
@@ -573,24 +581,24 @@ export function SchoolUsersTable({ schoolId }: SchoolUsersTableProps) {
                       checked={users.length > 0 && selectedCount === users.length}
                       onChange={togglePage}
                     />
-                  </th>
-                  <th scope="col" className="px-4 py-3 font-medium">Name</th>
-                  <th scope="col" className="px-4 py-3 font-medium">Role</th>
-                  <th scope="col" className="px-4 py-3 font-medium">Email</th>
-                  <th scope="col" className="px-4 py-3 font-medium">Phone</th>
-                  <th scope="col" className="px-4 py-3 font-medium">Status</th>
-                  <th scope="col" className="px-4 py-3 text-right font-medium">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-line">
+                  </TableHeaderCell>
+                  <TableHeaderCell>Name</TableHeaderCell>
+                  <TableHeaderCell>Role</TableHeaderCell>
+                  <TableHeaderCell>Email</TableHeaderCell>
+                  <TableHeaderCell>Phone</TableHeaderCell>
+                  <TableHeaderCell>Status</TableHeaderCell>
+                  <TableHeaderCell align="numeric">Actions</TableHeaderCell>
+                </TableRow>
+              </TableHead>
+              <TableBody>
                 {users.map((user) => {
                   const busy = pendingId === user.id;
                   const confirming = confirmDelete === user.id;
                   const hasEmail = user.email !== null && user.email !== '';
 
                   return (
-                    <tr key={user.id} className={user.isActive ? undefined : 'bg-surface-sunken'}>
-                      <td className="px-4 py-3 align-top">
+                    <TableRow key={user.id} className={user.isActive ? undefined : 'bg-surface-sunken'}>
+                      <TableCell>
                         <input
                           type="checkbox"
                           aria-label={`Select ${user.name}`}
@@ -600,19 +608,19 @@ export function SchoolUsersTable({ schoolId }: SchoolUsersTableProps) {
                             toggle(user.id);
                           }}
                         />
-                      </td>
-                      <td className="px-4 py-3 align-top">
+                      </TableCell>
+                      <TableCell>
                         <span className="font-medium text-ink">{user.name}</span>
                         {user.branchName !== null ? (
                           <span className="block text-xs text-ink-muted">
                             {user.branchName}
                           </span>
                         ) : null}
-                      </td>
-                      <td className="px-4 py-3 align-top text-ink-muted">
+                      </TableCell>
+                      <TableCell muted>
                         {isUserRole(user.role) ? ROLE_LABELS[user.role] : user.role}
-                      </td>
-                      <td className="px-4 py-3 align-top text-ink-muted">
+                      </TableCell>
+                      <TableCell muted>
                         {hasEmail ? (
                           user.email
                         ) : (
@@ -623,11 +631,11 @@ export function SchoolUsersTable({ schoolId }: SchoolUsersTableProps) {
                             None — cannot sign in
                           </span>
                         )}
-                      </td>
-                      <td className="px-4 py-3 align-top font-mono text-xs text-ink-muted">
+                      </TableCell>
+                      <TableCell muted className="font-mono text-xs">
                         {user.phone}
-                      </td>
-                      <td className="px-4 py-3 align-top">
+                      </TableCell>
+                      <TableCell>
                         {!user.isActive ? (
                           <Badge variant="danger">Deactivated</Badge>
                         ) : user.hasAuthAccount ? (
@@ -635,8 +643,8 @@ export function SchoolUsersTable({ schoolId }: SchoolUsersTableProps) {
                         ) : (
                           <Badge variant="warning">Never signed in</Badge>
                         )}
-                      </td>
-                      <td className="px-4 py-3 align-top">
+                      </TableCell>
+                      <TableCell>
                         {confirming ? (
                           <div className="flex flex-nowrap items-center justify-end gap-2 whitespace-nowrap">
                             <span className="text-xs text-status-danger-ink">
@@ -721,12 +729,12 @@ export function SchoolUsersTable({ schoolId }: SchoolUsersTableProps) {
                             </Button>
                           </div>
                         )}
-                      </td>
-                    </tr>
+                      </TableCell>
+                    </TableRow>
                   );
                 })}
-              </tbody>
-            </table>
+              </TableBody>
+            </Table>
           </div>
         </Card>
       )}
