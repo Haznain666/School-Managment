@@ -3243,13 +3243,46 @@ Definitions that are load-bearing and must not be "simplified":
   failure §5e records. **Build it in the same session as a print check, not
   before.**
 
-### What to do next
+### ▶ The two Sprint 10.5 tasks still open
 
-1. **Print one of each document on real A4** — unchanged, and now blocking the
-   report-card chart as well.
-2. **The exams charts**, per the note above.
-3. **Finish the eight remaining `PageHeader` pages** — trivial, listed above.
-4. Re-run `npm run check-theme` after any change to the derivation, and
+**Task 1 — the exams charts.** Grade distribution per exam, subject-wise
+averages and pass rate, on `/dashboard/exams/[examId]` and the exams overview.
+Add the aggregates to `lib/dashboard-queries.ts` beside the others and register
+them in `scripts/check-dashboard-queries.ts` so they are executed against the
+real schema like the existing eight.
+
+*The part that makes this harder than the other seven aggregates:* grade bands
+are **per school**, resolved through `lib/grading.ts` against the scheme the
+school configured. A distribution cannot be computed with fixed percentage
+buckets — two schools with the same marks must produce different distributions
+if their schemes differ, and the report card already grades this way, so a
+chart that used fixed bands would contradict the document. Resolve marks →
+grade through the same helper the report card uses.
+
+Note also that `exam_results.isAbsent` exists and an absent student has no
+mark: they belong in neither a grade band nor a pass-rate denominator, the same
+way `holiday` is excluded from attendance.
+
+**Task 2 — the report card's per-subject bar. Build this ONLY in a session that
+also does the print check.** It is the emblematic case for the whole
+server-rendered-SVG charting decision *because it prints* — and that is exactly
+why it must not be added to a template nobody has ever put on paper. §5e is the
+precedent: `PrintSheet` shipped blank challans for two days because a print
+change went unverified. The chart goes into `ReportCardDocument`, which means:
+
+1. Print one of each document on real A4 first, so there is a known-good
+   baseline (this is the standing item from §5n).
+2. Add the bar, static SVG only, no client hydration.
+3. Print the report card again and compare.
+
+**Do not do step 2 without steps 1 and 3 in the same session.**
+
+### What else to do next
+
+1. **Print one of each document on real A4** — the standing item from §5n, now
+   also the gate on Task 2 above.
+2. **Finish the eight remaining `PageHeader` pages** — trivial, listed above.
+3. Re-run `npm run check-theme` after any change to the derivation, and
    regenerate the `globals.css` defaults with `-- --css` when it moves.
 
 ### ⚠️ Still not verified inside a real session
