@@ -97,7 +97,7 @@ export default async function ReportCardPrintPage({
           description={`${cards.length} report card${cards.length === 1 ? '' : 's'}, one per sheet.`}
         />
         {published ? null : (
-          <p className="mt-2 rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-800">
+          <p className="mt-2 rounded-lg bg-status-warning-subtle px-3 py-2 text-sm text-status-warning-onSubtle">
             This term is not published, so every card is marked{' '}
             <strong>PREVIEW</strong>. Publish the term when the checking is done
             — a card handed out before that has no standing.

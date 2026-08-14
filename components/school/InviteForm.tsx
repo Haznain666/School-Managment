@@ -216,7 +216,7 @@ export function InviteForm({ branches }: InviteFormProps) {
 
           {showAdmissionsNotice ? (
             <div className="sm:col-span-2">
-              <p className="rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-800">
+              <p className="rounded-lg bg-status-warning-subtle px-3 py-2 text-sm text-status-warning-onSubtle">
                 These accounts are typically created via the Admissions module.
                 You can still invite manually here.
               </p>
@@ -226,13 +226,13 @@ export function InviteForm({ branches }: InviteFormProps) {
       </Card>
 
       {error !== null ? (
-        <p role="alert" className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">
+        <p role="alert" className="rounded-lg bg-status-danger-subtle px-3 py-2 text-sm text-status-danger-ink">
           {error}
         </p>
       ) : null}
 
       {warning !== null ? (
-        <p className="rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-800">{warning}</p>
+        <p className="rounded-lg bg-status-warning-subtle px-3 py-2 text-sm text-status-warning-onSubtle">{warning}</p>
       ) : null}
 
       <div className="flex gap-3">

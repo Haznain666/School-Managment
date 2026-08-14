@@ -33,8 +33,8 @@ export default async function SchoolUsersPage({
   return (
     <div className="space-y-4">
       <div>
-        <h3 className="text-lg font-semibold text-slate-900">Users</h3>
-        <p className="mt-1 text-sm text-slate-500">
+        <h3 className="text-lg font-semibold text-ink">Users</h3>
+        <p className="mt-1 text-sm text-ink-muted">
           Everyone with portal access at this school. Sign-in is by email, so
           &ldquo;Send sign-in email&rdquo; is how someone who has never signed
           in gets started. Emergency links are the last resort, for when email

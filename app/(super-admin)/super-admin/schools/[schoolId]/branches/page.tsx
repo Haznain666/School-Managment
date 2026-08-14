@@ -24,8 +24,8 @@ export default async function SchoolBranchesPage({
     <div className="space-y-4">
       <div className="flex items-start justify-between gap-4">
         <div>
-          <h3 className="text-lg font-semibold text-slate-900">Branches</h3>
-          <p className="mt-1 text-sm text-slate-500">
+          <h3 className="text-lg font-semibold text-ink">Branches</h3>
+          <p className="mt-1 text-sm text-ink-muted">
             Campuses belonging to this school. Each carries its own curriculum
             level.
           </p>

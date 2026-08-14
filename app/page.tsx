@@ -14,21 +14,21 @@ export default function LandingPage() {
       <p className="text-sm font-semibold uppercase tracking-wide text-brand-primary">
         SMS Platform
       </p>
-      <h1 className="mt-3 text-4xl font-bold tracking-tight text-slate-900">
+      <h1 className="mt-3 text-4xl font-bold tracking-tight text-ink">
         School management, built for Pakistani schools.
       </h1>
-      <p className="mt-4 text-lg text-slate-600">
+      <p className="mt-4 text-lg text-ink-muted">
         Admissions, branches, staff and students — one system per school, on your
         own subdomain.
       </p>
 
-      <div className="mt-10 rounded-card border border-slate-200 bg-slate-50 p-6">
-        <h2 className="text-base font-semibold text-slate-900">
+      <div className="mt-10 rounded-card border border-line bg-surface-sunken p-6">
+        <h2 className="text-base font-semibold text-ink">
           Looking for your school portal?
         </h2>
-        <p className="mt-2 text-sm text-slate-600">
+        <p className="mt-2 text-sm text-ink-muted">
           Each school has its own address, for example{' '}
-          <code className="rounded bg-white px-1.5 py-0.5 text-slate-800">
+          <code className="rounded bg-surface-raised px-1.5 py-0.5 text-ink">
             yourschool.{process.env.NEXT_PUBLIC_APP_DOMAIN ?? 'platform.com'}
           </code>
           . Use the link your school gave you to sign in.

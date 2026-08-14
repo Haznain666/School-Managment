@@ -135,16 +135,16 @@ export function AcademicYearForm({ hasActiveYear }: AcademicYearFormProps) {
           />
 
           <div className="sm:col-span-2">
-            <p className="text-sm text-slate-600">
+            <p className="text-sm text-ink-muted">
               This year will be called{' '}
-              <strong className="text-slate-900">{preview}</strong>.
+              <strong className="text-ink">{preview}</strong>.
             </p>
             {problem !== null ? (
-              <p className="mt-1 text-sm text-amber-800">{problem}</p>
+              <p className="mt-1 text-sm text-status-warning-onSubtle">{problem}</p>
             ) : null}
           </div>
 
-          <label className="flex items-start gap-2 text-sm text-slate-700 sm:col-span-2">
+          <label className="flex items-start gap-2 text-sm text-ink sm:col-span-2">
             <input
               type="checkbox"
               className="mt-0.5 h-4 w-4"
@@ -156,7 +156,7 @@ export function AcademicYearForm({ hasActiveYear }: AcademicYearFormProps) {
             />
             <span>
               Make this the active academic year
-              <span className="block text-xs text-slate-500">
+              <span className="block text-xs text-ink-muted">
                 New enrolments, the dashboard counts and the public application
                 form all follow the active year. Only one can be active at a time.
               </span>
@@ -166,7 +166,7 @@ export function AcademicYearForm({ hasActiveYear }: AcademicYearFormProps) {
       </Card>
 
       {error !== null ? (
-        <p role="alert" className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">
+        <p role="alert" className="rounded-lg bg-status-danger-subtle px-3 py-2 text-sm text-status-danger-ink">
           {error}
         </p>
       ) : null}

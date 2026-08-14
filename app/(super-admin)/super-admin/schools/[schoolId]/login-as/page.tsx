@@ -1,9 +1,9 @@
 import type { Metadata } from 'next';
-import Link from 'next/link';
 import { notFound } from 'next/navigation';
 
 import { SchoolLoginAsForm } from '@/app/(super-admin)/super-admin/schools/[schoolId]/login-as/SchoolLoginAsForm';
 import { Card } from '@/components/ui/Card';
+import { PageHeader } from '@/components/ui/PageHeader';
 import { getSchoolById } from '@/lib/schools';
 
 export const metadata: Metadata = {
@@ -33,26 +33,19 @@ export default async function SchoolLoginAsPage({
 
   return (
     <div className="max-w-xl space-y-6">
-      <div>
-        <Link
-          href="/super-admin/schools"
-          className="text-sm font-medium text-slate-500 hover:text-slate-700"
-        >
-          ← Back to schools
-        </Link>
-        <h2 className="mt-2 text-xl font-semibold text-slate-900">
-          Sign in to {school.schoolName}
-        </h2>
-        <p className="mt-1 text-sm text-slate-500">
-          Enter your Super Admin credentials to open this school&rsquo;s admin
-          portal. This uses your own operator account — the school&rsquo;s own
-          staff sign in with their email and password, and that is unchanged.
-        </p>
-      </div>
+      <PageHeader
+        breadcrumbs={[
+          { label: 'Schools', href: '/super-admin/schools' },
+          { label: school.schoolName, href: `/super-admin/schools/${school.id}` },
+          { label: 'Sign in as admin' },
+        ]}
+        title={`Sign in to ${school.schoolName}`}
+        description="Enter your Super Admin credentials to open this school’s admin portal. This uses your own operator account — the school’s own staff sign in with their email and password, and that is unchanged."
+      />
 
       {school.isActive ? null : (
         <Card>
-          <p className="text-sm text-amber-800">
+          <p className="text-sm text-status-warning-onSubtle">
             This school is deactivated, so its portal is closed to everyone
             including you. Reactivate it from the school list first.
           </p>
@@ -62,8 +55,8 @@ export default async function SchoolLoginAsPage({
       <SchoolLoginAsForm schoolId={school.id} schoolName={school.schoolName} />
 
       <Card>
-        <h3 className="text-sm font-semibold text-slate-900">What this does</h3>
-        <ul className="mt-2 space-y-1.5 text-sm text-slate-600">
+        <h3 className="text-sm font-semibold text-ink">What this does</h3>
+        <ul className="mt-2 space-y-1.5 text-sm text-ink-muted">
           <li>
             Opens{' '}
             <span className="font-mono text-xs">{school.slug}</span> with full

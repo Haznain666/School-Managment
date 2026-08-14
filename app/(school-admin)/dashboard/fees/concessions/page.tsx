@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 
 import { ConcessionManager } from '@/components/fees/ConcessionManager';
 import { FeeSetupNav } from '@/components/fees/FeeSetupNav';
+import { PageHeader } from '@/components/ui/PageHeader';
 import { listFeeTypes } from '@/lib/fee-queries';
 import { requireSchoolPermission } from '@/lib/school-guard';
 
@@ -18,14 +19,10 @@ export default async function ConcessionsPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h2 className="text-xl font-semibold text-slate-900">Concessions</h2>
-        <p className="mt-1 text-sm text-slate-500">
-          Sibling, staff and hardship discounts, granted per student. A concession
-          is applied when a challan is generated, so it affects future bills
-          rather than ones already issued.
-        </p>
-      </div>
+      <PageHeader
+        title="Concessions"
+        description="Sibling, staff and hardship discounts, granted per student. A concession is applied when a challan is generated, so it affects future bills rather than ones already issued."
+      />
 
       <FeeSetupNav />
 

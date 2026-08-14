@@ -7,6 +7,14 @@ import type { BadgeVariant } from '@/components/ui/Badge';
 import { Card } from '@/components/ui/Card';
 import { Input } from '@/components/ui/Input';
 import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeaderCell,
+  TableRow,
+} from '@/components/ui/Table';
+import {
   APPLICATION_STATUSES,
   APPLICATION_STATUS_LABELS,
   type ApplicationStatus,
@@ -108,8 +116,8 @@ export function ApplicationTable() {
               }}
               className={
                 status === value
-                  ? 'rounded-full bg-brand-primary px-3 py-1.5 text-sm font-medium text-white'
-                  : 'rounded-full bg-slate-100 px-3 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-200'
+                  ? 'rounded-full bg-brand-primary px-3 py-1.5 text-sm font-medium text-brand-onPrimary'
+                  : 'rounded-full bg-surface-sunken px-3 py-1.5 text-sm font-medium text-ink-muted hover:bg-line'
               }
             >
               {APPLICATION_STATUS_LABELS[value]}
@@ -131,56 +139,56 @@ export function ApplicationTable() {
       </div>
 
       {error !== null ? (
-        <p role="alert" className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">
+        <p role="alert" className="rounded-lg bg-status-danger-subtle px-3 py-2 text-sm text-status-danger-ink">
           {error}
         </p>
       ) : null}
 
       {applications === null ? (
         <Card>
-          <p className="text-sm text-slate-500">Loading applications…</p>
+          <p className="text-sm text-ink-muted">Loading applications…</p>
         </Card>
       ) : applications.length === 0 ? (
         <Card>
-          <p className="text-sm text-slate-600">
+          <p className="text-sm text-ink-muted">
             No {APPLICATION_STATUS_LABELS[status].toLowerCase()} applications.
           </p>
         </Card>
       ) : (
         <Card className="p-0">
           <div className="overflow-x-auto">
-            <table className="w-full text-left text-sm">
-              <thead className="border-b border-slate-200 text-xs uppercase tracking-wide text-slate-500">
-                <tr>
-                  <th scope="col" className="px-4 py-3 font-medium">Student</th>
-                  <th scope="col" className="px-4 py-3 font-medium">Guardian</th>
-                  <th scope="col" className="px-4 py-3 font-medium">Phone</th>
-                  <th scope="col" className="px-4 py-3 font-medium">Grade</th>
-                  <th scope="col" className="px-4 py-3 font-medium">Branch</th>
-                  <th scope="col" className="px-4 py-3 font-medium">Submitted</th>
-                  <th scope="col" className="px-4 py-3 font-medium">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
+            <Table caption="Admission applications" className="rounded-none border-0">
+              <TableHead>
+                <TableRow>
+                  <TableHeaderCell>Student</TableHeaderCell>
+                  <TableHeaderCell>Guardian</TableHeaderCell>
+                  <TableHeaderCell>Phone</TableHeaderCell>
+                  <TableHeaderCell>Grade</TableHeaderCell>
+                  <TableHeaderCell>Branch</TableHeaderCell>
+                  <TableHeaderCell>Submitted</TableHeaderCell>
+                  <TableHeaderCell>Actions</TableHeaderCell>
+                </TableRow>
+              </TableHead>
+              <TableBody>
                 {applications.map((application) => (
-                  <tr key={application.id}>
-                    <td className="px-4 py-3 font-medium text-slate-900">
+                  <TableRow key={application.id}>
+                    <TableCell rowHeader>
                       {application.studentName}
-                    </td>
-                    <td className="px-4 py-3 text-slate-600">{application.guardianName}</td>
-                    <td className="px-4 py-3 font-mono text-xs text-slate-600">
+                    </TableCell>
+                    <TableCell muted>{application.guardianName}</TableCell>
+                    <TableCell muted className="font-mono text-xs">
                       {application.guardianPhone}
-                    </td>
-                    <td className="px-4 py-3 text-slate-600">
+                    </TableCell>
+                    <TableCell muted>
                       {application.gradeName ?? 'Not specified'}
-                    </td>
-                    <td className="px-4 py-3 text-slate-600">
+                    </TableCell>
+                    <TableCell muted>
                       {application.branchName ?? '—'}
-                    </td>
-                    <td className="px-4 py-3 text-slate-600">
+                    </TableCell>
+                    <TableCell muted>
                       {formatDate(application.submittedAt)}
-                    </td>
-                    <td className="px-4 py-3">
+                    </TableCell>
+                    <TableCell>
                       {application.convertedToStudentProfileId === null ? (
                         <Link
                           href={`/dashboard/admissions/applications/${application.id}`}
@@ -196,17 +204,17 @@ export function ApplicationTable() {
                           View student
                         </Link>
                       )}
-                    </td>
-                  </tr>
+                    </TableCell>
+                  </TableRow>
                 ))}
-              </tbody>
-            </table>
+              </TableBody>
+            </Table>
           </div>
         </Card>
       )}
 
       {applications !== null && applications.length > 0 ? (
-        <p className="text-sm text-slate-500">
+        <p className="text-sm text-ink-muted">
           {applications.length} {APPLICATION_STATUS_LABELS[status].toLowerCase()}{' '}
           application{applications.length === 1 ? '' : 's'}.
         </p>

@@ -6,6 +6,14 @@ import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { Card, CardTitle } from '@/components/ui/Card';
 import { Select } from '@/components/ui/Select';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeaderCell,
+  TableRow,
+} from '@/components/ui/Table';
 
 export interface GradeOption {
   id: string;
@@ -275,12 +283,12 @@ export function PromotionRunner({
   const banner = (
     <>
       {error !== null ? (
-        <p role="alert" className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">
+        <p role="alert" className="rounded-lg bg-status-danger-subtle px-3 py-2 text-sm text-status-danger-ink">
           {error}
         </p>
       ) : null}
       {notice !== null ? (
-        <p role="status" className="rounded-lg bg-slate-100 px-3 py-2 text-sm text-slate-700">
+        <p role="status" className="rounded-lg bg-surface-sunken px-3 py-2 text-sm text-ink">
           {notice}
         </p>
       ) : null}
@@ -300,7 +308,7 @@ export function PromotionRunner({
               <Badge variant="neutral">{applied.graduated} graduated</Badge>
             ) : null}
           </div>
-          <p className="mt-4 text-sm text-slate-600">
+          <p className="mt-4 text-sm text-ink-muted">
             Last year&rsquo;s enrolments are still there and still say which
             section each child was in — promotion adds rows, it does not edit
             them.
@@ -432,30 +440,30 @@ export function PromotionRunner({
         className="p-0"
       >
         <div className="overflow-x-auto">
-          <table className="w-full text-left text-sm">
-            <thead className="border-b border-slate-200 text-xs uppercase tracking-wide text-slate-500">
-              <tr>
-                <th scope="col" className="px-4 py-3 font-medium">Student</th>
-                <th scope="col" className="px-4 py-3 font-medium">Now in</th>
-                <th scope="col" className="px-4 py-3 font-medium">Decision</th>
-                <th scope="col" className="px-4 py-3 font-medium">Goes to</th>
-                <th scope="col" className="px-4 py-3 font-medium">Note</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100">
+          <Table caption="Students in this promotion" className="rounded-none border-0">
+            <TableHead>
+              <TableRow>
+                <TableHeaderCell>Student</TableHeaderCell>
+                <TableHeaderCell>Now in</TableHeaderCell>
+                <TableHeaderCell>Decision</TableHeaderCell>
+                <TableHeaderCell>Goes to</TableHeaderCell>
+                <TableHeaderCell>Note</TableHeaderCell>
+              </TableRow>
+            </TableHead>
+            <TableBody>
               {rows.map((row) => (
-                <tr key={row.id}>
-                  <td className="px-4 py-2">
-                    <span className="font-medium text-slate-900">{row.name}</span>
-                    <span className="block font-mono text-xs text-slate-500">
+                <TableRow key={row.id}>
+                  <TableCell>
+                    <span className="font-medium text-ink">{row.name}</span>
+                    <span className="block font-mono text-xs text-ink-muted">
                       {row.studentId}
                     </span>
-                  </td>
-                  <td className="px-4 py-2 text-slate-600">{row.fromSectionName}</td>
-                  <td className="px-4 py-2">
+                  </TableCell>
+                  <TableCell muted>{row.fromSectionName}</TableCell>
+                  <TableCell>
                     <select
                       aria-label={`Decision for ${row.name}`}
-                      className="rounded-lg border border-slate-300 px-2 py-1 text-sm"
+                      className="rounded-lg border border-line-strong px-2 py-1 text-sm"
                       value={row.decision}
                       onChange={(event) => {
                         const decision = event.target.value as Decision;
@@ -471,12 +479,12 @@ export function PromotionRunner({
                         </option>
                       ))}
                     </select>
-                  </td>
-                  <td className="px-4 py-2">
+                  </TableCell>
+                  <TableCell>
                     {row.decision === 'promote' ? (
                       <select
                         aria-label={`Class for ${row.name}`}
-                        className="rounded-lg border border-slate-300 px-2 py-1 text-sm"
+                        className="rounded-lg border border-line-strong px-2 py-1 text-sm"
                         value={row.toSectionId ?? ''}
                         onChange={(event) => {
                           setRow(row.id, { toSectionId: event.target.value || null });
@@ -490,21 +498,21 @@ export function PromotionRunner({
                         ))}
                       </select>
                     ) : (
-                      <span className="text-slate-400">
+                      <span className="text-ink-muted">
                         {row.decision === 'retain' ? 'Stays put' : '—'}
                       </span>
                     )}
-                  </td>
-                  <td className="px-4 py-2 text-xs text-amber-800">{row.note ?? ''}</td>
-                </tr>
+                  </TableCell>
+                  <TableCell className="text-xs text-status-warning-onSubtle">{row.note ?? ''}</TableCell>
+                </TableRow>
               ))}
-            </tbody>
-          </table>
+            </TableBody>
+          </Table>
         </div>
       </Card>
 
       {missingSection > 0 ? (
-        <p className="rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-900">
+        <p className="rounded-lg bg-status-warning-subtle px-3 py-2 text-sm text-status-warning-onSubtle">
           {missingSection} student{missingSection === 1 ? ' has' : 's have'} no
           class chosen. Pick one for each, or change them to retain.
         </p>
@@ -513,7 +521,7 @@ export function PromotionRunner({
       <div className="flex flex-wrap items-center gap-3">
         {confirming ? (
           <>
-            <span className="text-sm text-slate-700">
+            <span className="text-sm text-ink">
               Move {rows.length} student{rows.length === 1 ? '' : 's'}? This is
               not a single click to undo.
             </span>

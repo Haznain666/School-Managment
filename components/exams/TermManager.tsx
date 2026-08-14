@@ -127,13 +127,13 @@ export function TermManager({
       }
     >
       {error !== null ? (
-        <p role="alert" className="mb-4 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">
+        <p role="alert" className="mb-4 rounded-lg bg-status-danger-subtle px-3 py-2 text-sm text-status-danger-ink">
           {error}
         </p>
       ) : null}
 
       {isOpen ? (
-        <div className="mb-5 space-y-4 rounded-lg border border-slate-200 bg-slate-50 p-4">
+        <div className="mb-5 space-y-4 rounded-lg border border-line bg-surface-sunken p-4">
           <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
             <Input
               label="Term name"
@@ -195,25 +195,25 @@ export function TermManager({
       ) : null}
 
       {terms.length === 0 ? (
-        <p className="text-sm text-slate-600">
+        <p className="text-sm text-ink-muted">
           No terms yet. A term holds the exams a report card is built from, so
           this is the first thing to set up.
         </p>
       ) : (
-        <ul className="divide-y divide-slate-100">
+        <ul className="divide-y divide-line">
           {terms.map((term) => (
             <li
               key={term.id}
               className="flex flex-wrap items-center justify-between gap-3 py-3"
             >
               <div className="min-w-0">
-                <p className="font-medium text-slate-900">
+                <p className="font-medium text-ink">
                   {term.name}{' '}
-                  <span className="text-sm font-normal text-slate-500">
+                  <span className="text-sm font-normal text-ink-muted">
                     · {term.academicYearName}
                   </span>
                 </p>
-                <p className="text-xs text-slate-500">
+                <p className="text-xs text-ink-muted">
                   {term.startDate} to {term.endDate} · {term.examCount} exam
                   {term.examCount === 1 ? '' : 's'}
                 </p>

@@ -96,7 +96,7 @@ export function IntegrationsPanel({ schoolId }: IntegrationsPanelProps) {
   if (state === null) {
     return (
       <Card>
-        <p className="text-sm text-slate-500">
+        <p className="text-sm text-ink-muted">
           {error ?? 'Loading integration settings…'}
         </p>
       </Card>
@@ -112,8 +112,8 @@ export function IntegrationsPanel({ schoolId }: IntegrationsPanelProps) {
       <div className="space-y-4">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div className="min-w-0">
-            <p className="text-sm font-medium text-slate-900">{GHL.label}</p>
-            <p className="mt-1 max-w-prose text-sm text-slate-500">
+            <p className="text-sm font-medium text-ink">{GHL.label}</p>
+            <p className="mt-1 max-w-prose text-sm text-ink-muted">
               {GHL.description}
             </p>
           </div>
@@ -121,8 +121,8 @@ export function IntegrationsPanel({ schoolId }: IntegrationsPanelProps) {
           <span
             className={
               connected
-                ? 'shrink-0 rounded-full bg-emerald-100 px-3 py-1 text-xs font-medium text-emerald-800'
-                : 'shrink-0 rounded-full bg-slate-100 px-3 py-1 text-xs font-medium text-slate-600'
+                ? 'shrink-0 rounded-full bg-status-success-subtle px-3 py-1 text-xs font-medium text-status-success-onSubtle'
+                : 'shrink-0 rounded-full bg-surface-sunken px-3 py-1 text-xs font-medium text-ink-muted'
             }
           >
             {connected ? 'Connected' : 'Not connected'}
@@ -145,12 +145,12 @@ export function IntegrationsPanel({ schoolId }: IntegrationsPanelProps) {
         </div>
 
         {connected ? (
-          <p className="text-sm text-slate-500">
+          <p className="text-sm text-ink-muted">
             Contact sync and — when the WhatsApp channel is on — message
             delivery run through this sub-account.
           </p>
         ) : (
-          <p className="text-sm text-slate-500">
+          <p className="text-sm text-ink-muted">
             This school works fully without GoHighLevel. Anything that would
             have gone to it is skipped, and the WhatsApp channel cannot send
             until it is connected.
@@ -158,18 +158,18 @@ export function IntegrationsPanel({ schoolId }: IntegrationsPanelProps) {
         )}
 
         {error !== null ? (
-          <p role="alert" className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">
+          <p role="alert" className="rounded-lg bg-status-danger-subtle px-3 py-2 text-sm text-status-danger-ink">
             {error}
           </p>
         ) : notice !== null ? (
-          <p role="status" className="rounded-lg bg-emerald-50 px-3 py-2 text-sm text-emerald-700">
+          <p role="status" className="rounded-lg bg-status-success-subtle px-3 py-2 text-sm text-status-success-ink">
             {notice}
           </p>
         ) : null}
 
         {confirmingDisconnect ? (
-          <div className="rounded-lg bg-red-50 px-4 py-3">
-            <p className="text-sm text-red-800">
+          <div className="rounded-lg bg-status-danger-subtle px-4 py-3">
+            <p className="text-sm text-status-danger-onSubtle">
               Disconnect {GHL.label} from this school? The{' '}
               {GHL.credentialLabel} is not stored anywhere else, so
               reconnecting means finding it again in GoHighLevel.

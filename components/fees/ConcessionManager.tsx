@@ -214,14 +214,14 @@ export function ConcessionManager({ feeTypes, canEdit }: ConcessionManagerProps)
       </Card>
 
       {error !== null ? (
-        <p role="alert" className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">
+        <p role="alert" className="rounded-lg bg-status-danger-subtle px-3 py-2 text-sm text-status-danger-ink">
           {error}
         </p>
       ) : null}
 
       {student === null ? (
         <Card>
-          <p className="text-sm text-slate-600">
+          <p className="text-sm text-ink-muted">
             Search for a student to see and manage their concessions.
           </p>
         </Card>
@@ -247,14 +247,14 @@ export function ConcessionManager({ feeTypes, canEdit }: ConcessionManagerProps)
           }
         >
           {concessions === null ? (
-            <p className="text-sm text-slate-500">Loading…</p>
+            <p className="text-sm text-ink-muted">Loading…</p>
           ) : concessions.length === 0 ? (
-            <p className="text-sm text-slate-600">
+            <p className="text-sm text-ink-muted">
               {student.name} has no concessions. Their challans are billed at the
               full rate for their grade.
             </p>
           ) : (
-            <ul className="divide-y divide-slate-100">
+            <ul className="divide-y divide-line">
               {concessions.map((row) => (
                 <li
                   key={row.id}
@@ -262,20 +262,20 @@ export function ConcessionManager({ feeTypes, canEdit }: ConcessionManagerProps)
                 >
                   <div className="min-w-0">
                     <div className="flex flex-wrap items-center gap-2">
-                      <p className="font-medium text-slate-900">{row.concessionName}</p>
+                      <p className="font-medium text-ink">{row.concessionName}</p>
                       <Badge variant={isActive(row) ? 'success' : 'neutral'}>
                         {isActive(row) ? 'In force' : 'Not in force'}
                       </Badge>
                     </div>
-                    <p className="mt-0.5 text-sm text-slate-600">
+                    <p className="mt-0.5 text-sm text-ink-muted">
                       {describeDiscount(row)}
                     </p>
-                    <p className="text-xs text-slate-500">
+                    <p className="text-xs text-ink-muted">
                       From {row.validFrom}
                       {row.validUntil === null ? ' · no end date' : ` to ${row.validUntil}`}
                     </p>
                     {row.notes === null || row.notes === '' ? null : (
-                      <p className="mt-1 text-xs text-slate-500">{row.notes}</p>
+                      <p className="mt-1 text-xs text-ink-muted">{row.notes}</p>
                     )}
                   </div>
 

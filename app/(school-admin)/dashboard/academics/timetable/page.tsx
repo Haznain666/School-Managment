@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 
 import { SlotManager } from '@/components/academics/SlotManager';
 import { TimetableBuilder } from '@/components/academics/TimetableBuilder';
+import { PageHeader } from '@/components/ui/PageHeader';
 import {
   listAcademicYearOptions,
   listSubjects,
@@ -38,13 +39,10 @@ export default async function TimetablePage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h2 className="text-xl font-semibold text-slate-900">Timetable</h2>
-        <p className="mt-1 text-sm text-slate-500">
-          Build a section&rsquo;s week. Clashes are only visible when the whole
-          week is on one screen, which is why this is a grid and not a list.
-        </p>
-      </div>
+      <PageHeader
+        title="Timetable"
+        description="Build a section&rsquo;s week. Clashes are only visible when the whole week is on one screen, which is why this is a grid and not a list."
+      />
 
       <TimetableBuilder
         academicYears={academicYears}

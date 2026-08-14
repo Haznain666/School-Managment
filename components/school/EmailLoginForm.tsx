@@ -284,17 +284,17 @@ export function EmailLoginForm({ schoolName, schoolSlug }: EmailLoginFormProps) 
 
   const banner =
     error !== null ? (
-      <p role="alert" className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">
+      <p role="alert" className="rounded-lg bg-status-danger-subtle px-3 py-2 text-sm text-status-danger-ink">
         {error}
       </p>
     ) : notice !== null ? (
-      <p role="status" className="rounded-lg bg-slate-50 px-3 py-2 text-sm text-slate-600">
+      <p role="status" className="rounded-lg bg-surface-sunken px-3 py-2 text-sm text-ink-muted">
         {notice}
       </p>
     ) : null;
 
   const formClass =
-    'space-y-4 rounded-card border border-slate-200 bg-white p-6 shadow-card';
+    'space-y-4 rounded-card border border-line bg-surface-raised p-6 shadow-card';
 
   if (step === 'password') {
     return (
@@ -306,7 +306,7 @@ export function EmailLoginForm({ schoolName, schoolSlug }: EmailLoginFormProps) 
         className={formClass}
         noValidate
       >
-        <h2 className="text-base font-semibold text-slate-900">
+        <h2 className="text-base font-semibold text-ink">
           Sign in to {schoolName}
         </h2>
 
@@ -368,10 +368,10 @@ export function EmailLoginForm({ schoolName, schoolSlug }: EmailLoginFormProps) 
         noValidate
       >
         <div>
-          <h2 className="text-base font-semibold text-slate-900">
+          <h2 className="text-base font-semibold text-ink">
             Forgot your password?
           </h2>
-          <p className="mt-1 text-sm text-slate-500">
+          <p className="mt-1 text-sm text-ink-muted">
             We will email you a six-digit code to confirm it is you, then you
             can choose a new one.
           </p>
@@ -402,7 +402,7 @@ export function EmailLoginForm({ schoolName, schoolSlug }: EmailLoginFormProps) 
 
         <button
           type="button"
-          className="block w-full text-center text-sm text-slate-500 underline-offset-2 hover:underline"
+          className="block w-full text-center text-sm text-ink-muted underline-offset-2 hover:underline"
           disabled={isLoading}
           onClick={() => {
             setError(null);
@@ -426,8 +426,8 @@ export function EmailLoginForm({ schoolName, schoolSlug }: EmailLoginFormProps) 
         noValidate
       >
         <div>
-          <h2 className="text-base font-semibold text-slate-900">Enter your code</h2>
-          <p className="mt-1 text-sm text-slate-500">Sent to {email.trim()}</p>
+          <h2 className="text-base font-semibold text-ink">Enter your code</h2>
+          <p className="mt-1 text-sm text-ink-muted">Sent to {email.trim()}</p>
         </div>
 
         <Input
@@ -458,7 +458,7 @@ export function EmailLoginForm({ schoolName, schoolSlug }: EmailLoginFormProps) 
         <div className="flex items-center justify-between text-sm">
           <button
             type="button"
-            className="text-slate-500 underline-offset-2 hover:underline"
+            className="text-ink-muted underline-offset-2 hover:underline"
             disabled={isLoading}
             onClick={() => {
               setError(null);
@@ -472,7 +472,7 @@ export function EmailLoginForm({ schoolName, schoolSlug }: EmailLoginFormProps) 
 
           <button
             type="button"
-            className="text-brand-primary underline-offset-2 hover:underline disabled:text-slate-400 disabled:no-underline"
+            className="text-brand-primary underline-offset-2 hover:underline disabled:text-ink-faint disabled:no-underline"
             disabled={!canResend || isLoading}
             onClick={() => {
               void sendCode(true);
@@ -495,8 +495,8 @@ export function EmailLoginForm({ schoolName, schoolSlug }: EmailLoginFormProps) 
       noValidate
     >
       <div>
-        <h2 className="text-base font-semibold text-slate-900">Choose a password</h2>
-        <p className="mt-1 text-sm text-slate-500">
+        <h2 className="text-base font-semibold text-ink">Choose a password</h2>
+        <p className="mt-1 text-sm text-ink-muted">
           You are signed in. Set a password and you will use it from now on.
         </p>
       </div>

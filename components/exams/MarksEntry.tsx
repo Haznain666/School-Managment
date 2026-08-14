@@ -6,6 +6,14 @@ import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { Card, CardTitle } from '@/components/ui/Card';
 import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeaderCell,
+  TableRow,
+} from '@/components/ui/Table';
+import {
   RESIT_STATUS_LABELS,
   RESULT_STATUS_LABELS,
   type ResitStatus,
@@ -248,7 +256,7 @@ export function MarksEntry({
                 </Badge>
 
                 {status.resitStatus === 'none' ? null : (
-                  <div className="flex overflow-hidden rounded-lg border border-slate-300">
+                  <div className="flex overflow-hidden rounded-lg border border-line-strong">
                     {[1, 2].map((option) => (
                       <button
                         key={option}
@@ -259,8 +267,8 @@ export function MarksEntry({
                         }}
                         className={
                           attempt === option
-                            ? 'bg-brand-primary px-3 py-1.5 text-sm font-medium text-white'
-                            : 'bg-white px-3 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-50'
+                            ? 'bg-brand-primary px-3 py-1.5 text-sm font-medium text-brand-onPrimary'
+                            : 'bg-surface-raised px-3 py-1.5 text-sm font-medium text-ink-muted hover:bg-surface-hover'
                         }
                       >
                         {option === 1 ? 'Original' : 'Re-sit'}
@@ -273,13 +281,13 @@ export function MarksEntry({
           />
         }
       >
-        <p className="text-sm text-slate-600">
+        <p className="text-sm text-ink-muted">
           {counts.marked} marked · {counts.absent} absent · {counts.unmarked} still
           blank · {counts.failed} below the pass mark
         </p>
 
         {isLocked ? (
-          <p className="mt-3 rounded-lg bg-slate-50 px-3 py-2 text-sm text-slate-600">
+          <p className="mt-3 rounded-lg bg-surface-sunken px-3 py-2 text-sm text-ink-muted">
             {attemptStatus === 'published'
               ? 'These marks are published and cannot be changed here. Somebody with permission to publish has to unpublish them first — a grade a parent has already seen should not change quietly.'
               : attemptStatus === 'none'
@@ -290,34 +298,34 @@ export function MarksEntry({
       </Card>
 
       {error !== null ? (
-        <p role="alert" className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">
+        <p role="alert" className="rounded-lg bg-status-danger-subtle px-3 py-2 text-sm text-status-danger-ink">
           {error}
         </p>
       ) : null}
 
       <Card className="p-0">
         {isLoading ? (
-          <p className="px-5 py-4 text-sm text-slate-500">Loading the marks sheet…</p>
+          <p className="px-5 py-4 text-sm text-ink-muted">Loading the marks sheet…</p>
         ) : students.length === 0 ? (
-          <p className="px-5 py-4 text-sm text-slate-600">
+          <p className="px-5 py-4 text-sm text-ink-muted">
             No students are actively enrolled in this section for this year.
           </p>
         ) : (
           <>
             <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b border-slate-200 text-left text-xs uppercase tracking-wide text-slate-500">
-                    <th className="px-5 py-2 font-medium">Student</th>
+              <Table caption="Marks for this paper" className="rounded-none border-0">
+                <TableHead>
+                  <TableRow className="border-b border-line text-left text-xs uppercase tracking-wide text-ink-muted">
+                    <TableHeaderCell>Student</TableHeaderCell>
                     {attempt === 2 ? (
-                      <th className="px-3 py-2 font-medium">Original</th>
+                      <TableHeaderCell>Original</TableHeaderCell>
                     ) : null}
-                    <th className="px-3 py-2 font-medium">Marks</th>
-                    <th className="px-3 py-2 font-medium">%</th>
-                    <th className="px-3 py-2 font-medium">Absent</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
+                    <TableHeaderCell>Marks</TableHeaderCell>
+                    <TableHeaderCell>%</TableHeaderCell>
+                    <TableHeaderCell>Absent</TableHeaderCell>
+                  </TableRow>
+                </TableHead>
+                <TableBody>
                   {students.map((student) => {
                     const draft = drafts[student.studentProfileId] ?? {
                       value: '',
@@ -328,28 +336,28 @@ export function MarksEntry({
                     const bad = valid && (value < 0 || value > paper.maxMarks);
 
                     return (
-                      <tr key={student.studentProfileId}>
-                        <td className="px-5 py-2">
-                          <p className="font-medium text-slate-900">
+                      <TableRow key={student.studentProfileId}>
+                        <TableCell>
+                          <p className="font-medium text-ink">
                             {student.studentName}
                           </p>
-                          <p className="text-xs text-slate-500">
+                          <p className="text-xs text-ink-muted">
                             {student.rollNumber === null || student.rollNumber === ''
                               ? 'No roll number'
                               : `Roll ${student.rollNumber}`}{' '}
                             · <span className="font-mono">{student.studentId}</span>
                           </p>
-                        </td>
+                        </TableCell>
 
                         {attempt === 2 ? (
-                          <td className="px-3 py-2 text-slate-600">
+                          <TableCell muted>
                             {student.originalAbsent
                               ? 'Absent'
                               : formatMark(student.originalMarks)}
-                          </td>
+                          </TableCell>
                         ) : null}
 
-                        <td className="px-3 py-2">
+                        <TableCell>
                           <input
                             type="number"
                             inputMode="decimal"
@@ -373,19 +381,19 @@ export function MarksEntry({
                             }}
                             className={
                               bad
-                                ? 'w-24 rounded-lg border border-red-400 px-2 py-1.5 text-sm outline-red-500'
-                                : 'w-24 rounded-lg border border-slate-300 px-2 py-1.5 text-sm disabled:bg-slate-50'
+                                ? 'w-24 rounded-lg border border-status-danger px-2 py-1.5 text-sm outline-red-500'
+                                : 'w-24 rounded-lg border border-line-strong px-2 py-1.5 text-sm disabled:bg-surface-sunken'
                             }
                           />
-                        </td>
+                        </TableCell>
 
-                        <td className="px-3 py-2 text-slate-600">
+                        <TableCell muted>
                           {draft.isAbsent || !valid
                             ? '—'
                             : formatPercentage(percentageOf(value, paper.maxMarks))}
-                        </td>
+                        </TableCell>
 
-                        <td className="px-3 py-2">
+                        <TableCell>
                           <input
                             type="checkbox"
                             disabled={isLocked}
@@ -402,18 +410,18 @@ export function MarksEntry({
                               }));
                               setSavedAt(null);
                             }}
-                            className="h-4 w-4 rounded border-slate-300"
+                            className="h-4 w-4 rounded border-line-strong"
                           />
-                        </td>
-                      </tr>
+                        </TableCell>
+                      </TableRow>
                     );
                   })}
-                </tbody>
-              </table>
+                </TableBody>
+              </Table>
             </div>
 
             {isLocked ? null : (
-              <div className="flex flex-wrap items-center gap-3 border-t border-slate-200 bg-slate-50 px-5 py-3">
+              <div className="flex flex-wrap items-center gap-3 border-t border-line bg-surface-sunken px-5 py-3">
                 <Button
                   variant="secondary"
                   isLoading={isSaving}
@@ -439,7 +447,7 @@ export function MarksEntry({
                   <Badge variant="success">✓ Saved at {savedAt}</Badge>
                 )}
 
-                <p className="text-xs text-slate-500">
+                <p className="text-xs text-ink-muted">
                   {outOfRange
                     ? `Some marks are outside 0–${paper.maxMarks}.`
                     : counts.unmarked === 0

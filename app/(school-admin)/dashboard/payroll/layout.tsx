@@ -23,10 +23,10 @@ export default async function PayrollLayout({ children }: { children: ReactNode 
   if (!moduleFlags.hr_payroll) {
     return (
       <Card>
-        <h2 className="text-lg font-semibold text-slate-900">
+        <h2 className="text-lg font-semibold text-ink">
           HR &amp; Payroll is not enabled
         </h2>
-        <p className="mt-2 text-sm text-slate-600">
+        <p className="mt-2 text-sm text-ink-muted">
           This school does not currently have the HR &amp; Payroll module switched
           on. Contact the platform administrator to enable it.
         </p>

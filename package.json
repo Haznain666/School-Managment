@@ -12,11 +12,13 @@
     "check-super-admin": "node scripts/check-super-admin-env.mjs",
     "fingerprint": "node scripts/fingerprint.mjs",
     "smoke-test": "node scripts/smoke-test-live.mjs",
+    "check-theme": "esbuild scripts/check-theme-contrast.ts --bundle --platform=node --format=esm --outfile=node_modules/.cache/check-theme.mjs --log-level=warning && node node_modules/.cache/check-theme.mjs",
     "typecheck": "tsc --noEmit",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
     "db:push": "drizzle-kit push",
-    "db:studio": "drizzle-kit studio"
+    "db:studio": "drizzle-kit studio",
+    "check-dashboard": "esbuild scripts/check-dashboard-queries.ts --bundle --platform=node --format=esm --packages=external --alias:server-only=./scripts/server-only-shim.mjs --outfile=node_modules/.cache/check-dashboard.mjs --log-level=warning && node node_modules/.cache/check-dashboard.mjs"
   },
   "dependencies": {
     "@supabase/ssr": "^0.7.0",
@@ -25,6 +27,7 @@
     "clsx": "^2.1.1",
     "drizzle-orm": "^0.44.6",
     "jose": "^6.2.5",
+    "lucide-react": "^1.31.0",
     "next": "^15.5.4",
     "node-vibrant": "^4.0.4",
     "nodemailer": "^9.0.3",
@@ -42,6 +45,7 @@
     "@types/react-dom": "^19.1.9",
     "autoprefixer": "^10.4.21",
     "drizzle-kit": "^0.31.5",
+    "esbuild": "^0.25.12",
     "eslint": "^9.39.5",
     "eslint-config-next": "^15.5.22",
     "postcss": "^8.5.6",

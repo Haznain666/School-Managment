@@ -1,9 +1,9 @@
 import type { Metadata } from 'next';
-import Link from 'next/link';
 import { notFound } from 'next/navigation';
 
 import { TransferPanel } from '@/components/admissions/TransferPanel';
 import { Card } from '@/components/ui/Card';
+import { PageHeader } from '@/components/ui/PageHeader';
 import {
   getStudentDetail,
   listAdmissionsBranches,
@@ -73,26 +73,19 @@ export default async function TransferStudentPage({
 
   return (
     <div className="max-w-4xl space-y-6">
-      <div>
-        <Link
-          href={`/dashboard/admissions/students/${studentId}`}
-          className="text-sm font-medium text-brand-primary hover:underline"
-        >
-          ← Back to {student.name}
-        </Link>
-        <h2 className="mt-2 text-xl font-semibold text-slate-900">
-          Transfer {student.name}
-        </h2>
-        <p className="mt-1 text-sm text-slate-500">
-          Moving a student between campuses closes their enrolment at one and
-          opens it at the other, and splits the month&rsquo;s fees on the date
-          they move.
-        </p>
-      </div>
+      <PageHeader
+        breadcrumbs={[
+          { label: 'All Students', href: '/dashboard/admissions/students' },
+          { label: student.name, href: `/dashboard/admissions/students/${studentId}` },
+          { label: 'Transfer' },
+        ]}
+        title={`Transfer ${student.name}`}
+        description="Moving a student between campuses closes their enrolment at one and opens it at the other, and splits the month’s fees on the date they move."
+      />
 
       {sections.length < 2 ? (
         <Card>
-          <p className="text-sm text-slate-700">
+          <p className="text-sm text-ink">
             This school has classes at only one campus, so there is nowhere to
             transfer to.
           </p>

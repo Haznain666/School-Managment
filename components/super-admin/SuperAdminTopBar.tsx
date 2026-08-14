@@ -1,15 +1,26 @@
 'use client';
 
+import { LogOut, Menu } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { useCallback, useState } from 'react';
 
 import { Button } from '@/components/ui/Button';
+import { Icon } from '@/components/ui/Icon';
 
 export interface SuperAdminTopBarProps {
   email: string;
+  /** Opens the mobile navigation drawer. Owned by `SuperAdminShell`. */
+  onOpenNav?: () => void;
 }
 
-export function SuperAdminTopBar({ email }: SuperAdminTopBarProps) {
+/**
+ * Platform top bar.
+ *
+ * On the platform's own neutral tokens rather than a school's palette — see
+ * `SuperAdminSidebar` for why this surface must look unmistakably unlike a
+ * tenant portal.
+ */
+export function SuperAdminTopBar({ email, onOpenNav }: SuperAdminTopBarProps) {
   const router = useRouter();
   const [isSigningOut, setIsSigningOut] = useState(false);
 
@@ -25,20 +36,50 @@ export function SuperAdminTopBar({ email }: SuperAdminTopBarProps) {
   }, [router]);
 
   return (
-    <header className="flex h-16 shrink-0 items-center justify-between gap-4 border-b border-slate-200 bg-white px-6">
-      <h1 className="text-lg font-semibold text-slate-900">Platform Administration</h1>
+    <header className="flex h-16 shrink-0 items-center justify-between gap-3 border-b border-line bg-surface-raised px-4 sm:px-6">
+      <div className="flex min-w-0 items-center gap-2">
+        {onOpenNav !== undefined ? (
+          <button
+            type="button"
+            onClick={onOpenNav}
+            className="-ml-1 rounded-control p-2 text-ink-muted transition-colors duration-fast hover:bg-surface-hover hover:text-ink md:hidden"
+          >
+            <Icon as={Menu} size="md" label="Open navigation" />
+          </button>
+        ) : null}
+
+        {/*
+          A `<p>`, not an `<h1>`. This is the name of the surface, and it is
+          identical on every screen — so as a heading it would compete with each
+          page's own title for the document's one `h1`, and a screen-reader user
+          jumping by heading would land on "Platform Administration" whatever
+          they had navigated to.
+
+          Shortened on a phone: the full string at 375px leaves no room for the
+          sign-out control, and an operator on a phone already knows which
+          product they signed in to.
+        */}
+        <p className="truncate text-lg font-semibold text-ink">
+          <span className="hidden sm:inline">Platform Administration</span>
+          <span className="sm:hidden">Platform</span>
+        </p>
+      </div>
 
       <div className="flex items-center gap-3">
-        <span className="hidden truncate text-sm text-slate-500 sm:inline">{email}</span>
+        <span className="hidden max-w-[16rem] truncate text-sm text-ink-muted lg:inline">
+          {email}
+        </span>
         <Button
           variant="ghost"
           size="sm"
+          icon={LogOut}
           isLoading={isSigningOut}
           onClick={() => {
             void handleSignOut();
           }}
         >
-          Sign out
+          <span className="hidden sm:inline">Sign out</span>
+          <span className="sr-only sm:hidden">Sign out</span>
         </Button>
       </div>
     </header>

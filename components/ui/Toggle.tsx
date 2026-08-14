@@ -44,13 +44,13 @@ export function Toggle({
           'focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2',
           'focus-visible:outline-brand-primary',
           'disabled:cursor-not-allowed disabled:opacity-50',
-          checked ? 'bg-brand-primary' : 'bg-slate-300',
+          checked ? 'bg-brand-primary' : 'bg-line-strong',
         )}
       >
         <span
           aria-hidden="true"
           className={cn(
-            'inline-block h-4 w-4 transform rounded-full bg-white shadow transition',
+            'inline-block h-4 w-4 transform rounded-full bg-surface-raised shadow transition',
             checked ? 'translate-x-6' : 'translate-x-1',
           )}
         />
@@ -58,9 +58,9 @@ export function Toggle({
 
       {hideLabel ? null : (
         <label htmlFor={id} className="cursor-pointer select-none">
-          <span className="block text-sm font-medium text-slate-900">{label}</span>
+          <span className="block text-sm font-medium text-ink">{label}</span>
           {description !== undefined ? (
-            <span id={descriptionId} className="block text-xs text-slate-500">
+            <span id={descriptionId} className="block text-xs text-ink-muted">
               {description}
             </span>
           ) : null}

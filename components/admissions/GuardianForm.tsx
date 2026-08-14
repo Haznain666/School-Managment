@@ -99,7 +99,7 @@ export function GuardianForm({
           key={index}
           header={
             <div className="flex items-center justify-between gap-3">
-              <h3 className="text-sm font-semibold text-slate-900">
+              <h3 className="text-sm font-semibold text-ink">
                 Guardian {index + 1}
                 {guardian.isPrimaryContact ? (
                   <span className="ml-2 rounded-full bg-brand-primary/10 px-2 py-0.5 text-xs font-medium text-brand-primary">
@@ -188,7 +188,7 @@ export function GuardianForm({
               }}
             />
 
-            <label className="flex items-center gap-2 text-sm text-slate-700 sm:col-span-2">
+            <label className="flex items-center gap-2 text-sm text-ink sm:col-span-2">
               <input
                 type="radio"
                 name="primary-guardian"
@@ -216,7 +216,7 @@ export function GuardianForm({
           Add another guardian
         </Button>
       ) : (
-        <p className="text-sm text-slate-500">
+        <p className="text-sm text-ink-muted">
           Up to {maxGuardians} guardians can be recorded per student.
         </p>
       )}

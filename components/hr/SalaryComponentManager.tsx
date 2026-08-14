@@ -10,6 +10,14 @@ import { Select } from '@/components/ui/Select';
 import { Textarea } from '@/components/ui/Textarea';
 import { Toggle } from '@/components/ui/Toggle';
 import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeaderCell,
+  TableRow,
+} from '@/components/ui/Table';
+import {
   COMPONENT_CALCULATION_LABELS,
   COMPONENT_CALCULATIONS,
   COMPONENT_KIND_LABELS,
@@ -198,7 +206,7 @@ export function SalaryComponentManager({ canEdit }: SalaryComponentManagerProps)
   if (components === null) {
     return (
       <Card>
-        <p className="text-sm text-slate-500">Loading salary components…</p>
+        <p className="text-sm text-ink-muted">Loading salary components…</p>
       </Card>
     );
   }
@@ -211,15 +219,15 @@ export function SalaryComponentManager({ canEdit }: SalaryComponentManagerProps)
   return (
     <div className="space-y-4">
       {error !== null ? (
-        <p role="alert" className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">
+        <p role="alert" className="rounded-lg bg-status-danger-subtle px-3 py-2 text-sm text-status-danger-ink">
           {error}
         </p>
       ) : null}
 
       {components.length === 0 ? (
         <Card>
-          <h3 className="text-base font-semibold text-slate-900">Setup required</h3>
-          <p className="mt-1 text-sm text-slate-600">
+          <h3 className="text-base font-semibold text-ink">Setup required</h3>
+          <p className="mt-1 text-sm text-ink-muted">
             Your school has no salary components yet, so no payslip can be
             computed. Seeding creates the seven most schools use — Basic Salary,
             House Rent (45% of basic), Medical (10%), Conveyance, and the EOBI,
@@ -243,7 +251,7 @@ export function SalaryComponentManager({ canEdit }: SalaryComponentManagerProps)
       {components.length > 0 && !hasBasic ? (
         <p
           role="alert"
-          className="rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-800"
+          className="rounded-lg bg-status-warning-subtle px-3 py-2 text-sm text-status-warning-onSubtle"
         >
           No component is marked as the basic salary. Every percentage head will
           compute to zero until one is.
@@ -400,25 +408,25 @@ export function SalaryComponentManager({ canEdit }: SalaryComponentManagerProps)
           className="p-0"
         >
           <div className="overflow-x-auto">
-            <table className="w-full text-left text-sm">
-              <thead className="border-b border-slate-200 text-xs uppercase tracking-wide text-slate-500">
-                <tr>
-                  <th scope="col" className="px-5 py-3 font-medium">Name</th>
-                  <th scope="col" className="px-5 py-3 font-medium">Type</th>
-                  <th scope="col" className="px-5 py-3 font-medium">Calculation</th>
-                  <th scope="col" className="px-5 py-3 font-medium">Status</th>
+            <Table caption="Salary components" className="rounded-none border-0">
+              <TableHead>
+                <TableRow>
+                  <TableHeaderCell>Name</TableHeaderCell>
+                  <TableHeaderCell>Type</TableHeaderCell>
+                  <TableHeaderCell>Calculation</TableHeaderCell>
+                  <TableHeaderCell>Status</TableHeaderCell>
                   {canEdit ? (
-                    <th scope="col" className="px-5 py-3 font-medium">
+                    <TableHeaderCell>
                       <span className="sr-only">Actions</span>
-                    </th>
+                    </TableHeaderCell>
                   ) : null}
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
+                </TableRow>
+              </TableHead>
+              <TableBody>
                 {components.map((row) => (
-                  <tr key={row.id}>
-                    <td className="px-5 py-3">
-                      <p className="font-medium text-slate-900">
+                  <TableRow key={row.id}>
+                    <TableCell>
+                      <p className="font-medium text-ink">
                         {row.name}
                         {row.isBasic ? (
                           <Badge className="ml-2" variant="success">
@@ -427,29 +435,29 @@ export function SalaryComponentManager({ canEdit }: SalaryComponentManagerProps)
                         ) : null}
                       </p>
                       {row.description === null || row.description === '' ? null : (
-                        <p className="text-xs text-slate-500">{row.description}</p>
+                        <p className="text-xs text-ink-muted">{row.description}</p>
                       )}
-                    </td>
-                    <td className="px-5 py-3 text-slate-600">
+                    </TableCell>
+                    <TableCell muted>
                       {COMPONENT_KIND_LABELS[row.kind]}
-                    </td>
-                    <td className="px-5 py-3 text-slate-600">
+                    </TableCell>
+                    <TableCell muted>
                       {row.calculation === 'percent_of_basic'
                         ? `${pointsToPercent(row.defaultPercentBasisPoints)}% of basic`
                         : 'Fixed amount'}
                       {row.proratedByAttendance ? null : (
-                        <span className="block text-xs text-slate-400">
+                        <span className="block text-xs text-ink-muted">
                           Not reduced by unpaid days
                         </span>
                       )}
-                    </td>
-                    <td className="px-5 py-3">
+                    </TableCell>
+                    <TableCell>
                       <Badge variant={row.isActive ? 'success' : 'neutral'}>
                         {row.isActive ? 'Active' : 'Retired'}
                       </Badge>
-                    </td>
+                    </TableCell>
                     {canEdit ? (
-                      <td className="px-5 py-3">
+                      <TableCell>
                         <div className="flex justify-end gap-2">
                           <Button
                             size="sm"
@@ -482,12 +490,12 @@ export function SalaryComponentManager({ canEdit }: SalaryComponentManagerProps)
                             {row.isActive ? 'Retire' : 'Restore'}
                           </Button>
                         </div>
-                      </td>
+                      </TableCell>
                     ) : null}
-                  </tr>
+                  </TableRow>
                 ))}
-              </tbody>
-            </table>
+              </TableBody>
+            </Table>
           </div>
         </Card>
       )}

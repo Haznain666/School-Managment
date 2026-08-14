@@ -1,5 +1,4 @@
 import type { Metadata } from 'next';
-import Link from 'next/link';
 import { notFound } from 'next/navigation';
 
 import { PayrollRunDetail } from '@/components/hr/PayrollRunDetail';
@@ -7,6 +6,7 @@ import { formatPayrollPeriod } from '@/db/schema/payroll-runs';
 import { getPayrollRun } from '@/lib/hr-queries';
 import { requireSchoolPermission } from '@/lib/school-guard';
 import { isUuid } from '@/lib/validation';
+import { PageHeader } from '@/components/ui/PageHeader';
 
 export const metadata: Metadata = {
   title: 'Payroll run',
@@ -30,17 +30,10 @@ export default async function PayrollRunPage({
 
   return (
     <div className="space-y-6">
-      <div>
-        <Link
-          href="/dashboard/payroll"
-          className="text-sm font-medium text-brand-primary hover:underline"
-        >
-          ← All runs
-        </Link>
-        <h2 className="mt-2 text-xl font-semibold text-slate-900">
-          {formatPayrollPeriod(run.payrollMonth, run.payrollYear)}
-        </h2>
-      </div>
+      <PageHeader
+        breadcrumbs={[{ label: 'Runs', href: '/dashboard/payroll' }, { label: formatPayrollPeriod(run.payrollMonth, run.payrollYear) }]}
+        title={formatPayrollPeriod(run.payrollMonth, run.payrollYear)}
+      />
 
       <PayrollRunDetail
         runId={runId}

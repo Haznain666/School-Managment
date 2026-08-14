@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 
 import { FeeSetupNav } from '@/components/fees/FeeSetupNav';
 import { FeeTypeManager } from '@/components/fees/FeeTypeManager';
+import { PageHeader } from '@/components/ui/PageHeader';
 import { requireSchoolPermission } from '@/lib/school-guard';
 
 export const metadata: Metadata = {
@@ -16,13 +17,10 @@ export default async function FeeTypesPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h2 className="text-xl font-semibold text-slate-900">Fee types</h2>
-        <p className="mt-1 text-sm text-slate-500">
-          The heads your school bills under. A head&rsquo;s category decides when
-          it is charged — only monthly heads appear on a monthly challan.
-        </p>
-      </div>
+      <PageHeader
+        title="Fee types"
+        description="The heads your school bills under. A head&rsquo;s category decides when it is charged — only monthly heads appear on a monthly challan."
+      />
 
       <FeeSetupNav />
 

@@ -247,10 +247,10 @@ export function SchoolForm({ initial, appDomain }: SchoolFormProps) {
               placeholder="beaconhouse"
             />
             {slugState.status === 'checking' ? (
-              <p className="mt-1 text-xs text-slate-500">Checking availability…</p>
+              <p className="mt-1 text-xs text-ink-muted">Checking availability…</p>
             ) : null}
             {slugState.status === 'available' && values.slug !== '' ? (
-              <p className="mt-1 text-xs text-emerald-600">Subdomain is available.</p>
+              <p className="mt-1 text-xs text-status-success-ink">Subdomain is available.</p>
             ) : null}
           </div>
 
@@ -341,7 +341,7 @@ export function SchoolForm({ initial, appDomain }: SchoolFormProps) {
       </Card>
 
       {error !== null ? (
-        <p role="alert" className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">
+        <p role="alert" className="rounded-lg bg-status-danger-subtle px-3 py-2 text-sm text-status-danger-ink">
           {error}
         </p>
       ) : null}

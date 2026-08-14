@@ -99,11 +99,11 @@ export function StudentPicker({
 
   if (selected !== null) {
     return (
-      <div className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3">
+      <div className="rounded-lg border border-line bg-surface-sunken px-4 py-3">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
-            <p className="font-medium text-slate-900">{selected.name}</p>
-            <p className="text-xs text-slate-500">
+            <p className="font-medium text-ink">{selected.name}</p>
+            <p className="text-xs text-ink-muted">
               <span className="font-mono">{selected.studentId}</span> ·{' '}
               {selected.gradeName} {selected.sectionName}
             </p>
@@ -142,31 +142,31 @@ export function StudentPicker({
       />
 
       {error !== null ? (
-        <p role="alert" className="text-sm text-red-600">
+        <p role="alert" className="text-sm text-status-danger-ink">
           {error}
         </p>
       ) : null}
 
-      {searching ? <p className="text-sm text-slate-500">Searching…</p> : null}
+      {searching ? <p className="text-sm text-ink-muted">Searching…</p> : null}
 
       {!searching && term.trim().length >= 2 && results.length === 0 ? (
-        <p className="text-sm text-slate-500">No students match that.</p>
+        <p className="text-sm text-ink-muted">No students match that.</p>
       ) : null}
 
       {results.length > 0 ? (
-        <ul className="divide-y divide-slate-100 rounded-lg border border-slate-200">
+        <ul className="divide-y divide-line rounded-lg border border-line">
           {results.map((student) => (
             <li key={student.studentProfileId}>
               <button
                 type="button"
-                className="flex w-full items-center justify-between gap-3 px-4 py-2.5 text-left hover:bg-slate-50"
+                className="flex w-full items-center justify-between gap-3 px-4 py-2.5 text-left hover:bg-surface-hover"
                 onClick={() => {
                   onSelect(student);
                   setResults([]);
                 }}
               >
-                <span className="font-medium text-slate-900">{student.name}</span>
-                <span className="text-xs text-slate-500">
+                <span className="font-medium text-ink">{student.name}</span>
+                <span className="text-xs text-ink-muted">
                   <span className="font-mono">{student.studentId}</span> ·{' '}
                   {student.gradeName} {student.sectionName}
                 </span>

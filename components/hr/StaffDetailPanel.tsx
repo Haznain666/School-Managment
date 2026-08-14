@@ -8,6 +8,14 @@ import { Card, CardTitle } from '@/components/ui/Card';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
 import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeaderCell,
+  TableRow,
+} from '@/components/ui/Table';
+import {
   EMPLOYMENT_TYPE_LABELS,
   EMPLOYMENT_TYPES,
   STAFF_STATUS_LABELS,
@@ -271,7 +279,7 @@ export function StaffDetailPanel({ staffId, canEdit }: StaffDetailPanelProps) {
   if (detail === null) {
     return (
       <Card>
-        <p className="text-sm text-slate-500">
+        <p className="text-sm text-ink-muted">
           {error ?? 'Loading staff member…'}
         </p>
       </Card>
@@ -281,13 +289,13 @@ export function StaffDetailPanel({ staffId, canEdit }: StaffDetailPanelProps) {
   return (
     <div className="space-y-6">
       {error !== null ? (
-        <p role="alert" className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">
+        <p role="alert" className="rounded-lg bg-status-danger-subtle px-3 py-2 text-sm text-status-danger-ink">
           {error}
         </p>
       ) : null}
 
       {notice !== null ? (
-        <p className="rounded-lg bg-emerald-50 px-3 py-2 text-sm text-emerald-700">
+        <p className="rounded-lg bg-status-success-subtle px-3 py-2 text-sm text-status-success-ink">
           {notice}
         </p>
       ) : null}
@@ -500,7 +508,7 @@ export function StaffDetailPanel({ staffId, canEdit }: StaffDetailPanelProps) {
       >
         {components.length === 0 ? (
           <div className="px-5 py-4">
-            <p className="text-sm text-slate-600">
+            <p className="text-sm text-ink-muted">
               Your school has no salary components yet. Set them up before
               assigning anyone a structure.
             </p>
@@ -508,16 +516,16 @@ export function StaffDetailPanel({ staffId, canEdit }: StaffDetailPanelProps) {
         ) : (
           <>
             <div className="overflow-x-auto">
-              <table className="w-full text-left text-sm">
-                <thead className="border-b border-slate-200 text-xs uppercase tracking-wide text-slate-500">
-                  <tr>
-                    <th scope="col" className="px-5 py-3 font-medium">Include</th>
-                    <th scope="col" className="px-5 py-3 font-medium">Component</th>
-                    <th scope="col" className="px-5 py-3 font-medium">Amount / rate</th>
-                    <th scope="col" className="px-5 py-3 font-medium">Value</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
+              <Table caption="Salary structure" className="rounded-none border-0">
+                <TableHead>
+                  <TableRow>
+                    <TableHeaderCell>Include</TableHeaderCell>
+                    <TableHeaderCell>Component</TableHeaderCell>
+                    <TableHeaderCell>Amount / rate</TableHeaderCell>
+                    <TableHeaderCell>Value</TableHeaderCell>
+                  </TableRow>
+                </TableHead>
+                <TableBody>
                   {components.map((component) => {
                     const entry = matrix[component.id] ?? {
                       included: false,
@@ -526,14 +534,14 @@ export function StaffDetailPanel({ staffId, canEdit }: StaffDetailPanelProps) {
                     };
 
                     return (
-                      <tr key={component.id}>
-                        <td className="px-5 py-3">
+                      <TableRow key={component.id}>
+                        <TableCell>
                           <input
                             type="checkbox"
                             aria-label={`Include ${component.name}`}
                             checked={entry.included}
                             disabled={!canEdit}
-                            className="h-4 w-4 rounded border-slate-300"
+                            className="h-4 w-4 rounded border-line-strong"
                             onChange={(event) => {
                               setMatrix({
                                 ...matrix,
@@ -544,9 +552,9 @@ export function StaffDetailPanel({ staffId, canEdit }: StaffDetailPanelProps) {
                               });
                             }}
                           />
-                        </td>
-                        <td className="px-5 py-3">
-                          <p className="font-medium text-slate-900">
+                        </TableCell>
+                        <TableCell>
+                          <p className="font-medium text-ink">
                             {component.name}
                             {component.isBasic ? (
                               <Badge className="ml-2" variant="success">
@@ -554,11 +562,11 @@ export function StaffDetailPanel({ staffId, canEdit }: StaffDetailPanelProps) {
                               </Badge>
                             ) : null}
                           </p>
-                          <p className="text-xs text-slate-500">
+                          <p className="text-xs text-ink-muted">
                             {component.kind === 'earning' ? 'Earning' : 'Deduction'}
                           </p>
-                        </td>
-                        <td className="px-5 py-3">
+                        </TableCell>
+                        <TableCell>
                           {component.calculation === 'percent_of_basic' ? (
                             <Input
                               label={`${component.name} percentage`}
@@ -601,40 +609,40 @@ export function StaffDetailPanel({ staffId, canEdit }: StaffDetailPanelProps) {
                               }}
                             />
                           )}
-                        </td>
-                        <td className="px-5 py-3 text-slate-700">
+                        </TableCell>
+                        <TableCell>
                           {entry.included ? formatPkr(rowValuePaise(component) / 100) : '—'}
-                        </td>
-                      </tr>
+                        </TableCell>
+                      </TableRow>
                     );
                   })}
-                </tbody>
-              </table>
+                </TableBody>
+              </Table>
             </div>
 
-            <div className="flex flex-wrap items-center justify-between gap-4 border-t border-slate-200 bg-slate-50 px-5 py-3">
+            <div className="flex flex-wrap items-center justify-between gap-4 border-t border-line bg-surface-sunken px-5 py-3">
               <dl className="flex flex-wrap gap-6 text-sm">
                 <div>
-                  <dt className="text-xs uppercase tracking-wide text-slate-500">
+                  <dt className="text-xs uppercase tracking-wide text-ink-muted">
                     Gross
                   </dt>
-                  <dd className="font-semibold text-slate-900">
+                  <dd className="font-semibold text-ink">
                     {formatPkr(grossPaise / 100)}
                   </dd>
                 </div>
                 <div>
-                  <dt className="text-xs uppercase tracking-wide text-slate-500">
+                  <dt className="text-xs uppercase tracking-wide text-ink-muted">
                     Deductions
                   </dt>
-                  <dd className="font-semibold text-slate-900">
+                  <dd className="font-semibold text-ink">
                     {formatPkr(deductionsPaise / 100)}
                   </dd>
                 </div>
                 <div>
-                  <dt className="text-xs uppercase tracking-wide text-slate-500">
+                  <dt className="text-xs uppercase tracking-wide text-ink-muted">
                     Net, before any unpaid days
                   </dt>
-                  <dd className="font-semibold text-slate-900">
+                  <dd className="font-semibold text-ink">
                     {formatPkr(Math.max(0, grossPaise - deductionsPaise) / 100)}
                   </dd>
                 </div>

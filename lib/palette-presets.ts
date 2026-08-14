@@ -57,6 +57,24 @@ import type { Palette } from '@/db/schema/school-branding';
  */
 export const DERIVED_PALETTE_NAMES = ['Vibrant', 'Muted', 'Auto-complementary'] as const;
 
+/**
+ * The palette a school gets before it has chosen anything, and the fallback for
+ * any slot that fails to parse.
+ *
+ * It lives here rather than in `lib/branding.ts` — where it was until Sprint
+ * 10.5 and from which it is still re-exported, so no call site changed —
+ * because `branding.ts` reaches the database and this module reaches nothing.
+ * `scripts/check-theme-contrast.ts` audits the default alongside the presets,
+ * and could not import it without opening a Postgres connection to do so.
+ */
+export const DEFAULT_PALETTE: Palette = {
+  primary: '#1d4ed8',
+  secondary: '#0f172a',
+  accent: '#0ea5e9',
+  background: '#f8fafc',
+  text: '#0f172a',
+};
+
 export interface PalettePreset {
   key: string;
   name: string;

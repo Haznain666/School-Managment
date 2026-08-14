@@ -29,11 +29,11 @@ export default async function TeacherDashboardPage() {
   return (
     <div className="space-y-6">
       <Card>
-        <h2 className="text-lg font-semibold text-slate-900">
+        <h2 className="text-lg font-semibold text-ink">
           {greeting()}
           {firstName === '' ? '' : `, ${firstName}`}. Here is your day.
         </h2>
-        <p className="mt-1 text-sm text-slate-600">
+        <p className="mt-1 text-sm text-ink-muted">
           Your classes and attendance tools appear here once the Academics
           module is enabled for your school.
         </p>
@@ -55,7 +55,7 @@ export default async function TeacherDashboardPage() {
       </div>
 
       <Card header={<CardTitle title="Announcements" />}>
-        <p className="text-sm text-slate-500">
+        <p className="text-sm text-ink-muted">
           School announcements will appear here.
         </p>
       </Card>

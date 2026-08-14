@@ -134,7 +134,7 @@ export function PayslipView({ payslipId, canEdit }: PayslipViewProps) {
   if (payslip === null) {
     return (
       <Card>
-        <p className="text-sm text-slate-500">{error ?? 'Loading payslip…'}</p>
+        <p className="text-sm text-ink-muted">{error ?? 'Loading payslip…'}</p>
       </Card>
     );
   }
@@ -145,13 +145,13 @@ export function PayslipView({ payslipId, canEdit }: PayslipViewProps) {
   return (
     <div className="space-y-4">
       {error !== null ? (
-        <p role="alert" className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">
+        <p role="alert" className="rounded-lg bg-status-danger-subtle px-3 py-2 text-sm text-status-danger-ink">
           {error}
         </p>
       ) : null}
 
       {notice !== null ? (
-        <p className="rounded-lg bg-emerald-50 px-3 py-2 text-sm text-emerald-700">
+        <p className="rounded-lg bg-status-success-subtle px-3 py-2 text-sm text-status-success-ink">
           {notice}
         </p>
       ) : null}
@@ -171,44 +171,44 @@ export function PayslipView({ payslipId, canEdit }: PayslipViewProps) {
       </div>
 
       <Card className="print:border-0 print:shadow-none">
-        <header className="border-b border-slate-200 pb-4 text-center">
-          <h2 className="text-lg font-semibold text-slate-900">{payslip.schoolName}</h2>
-          <p className="text-sm text-slate-500">
+        <header className="border-b border-line pb-4 text-center">
+          <h2 className="text-lg font-semibold text-ink">{payslip.schoolName}</h2>
+          <p className="text-sm text-ink-muted">
             {payslip.branchName ?? payslip.schoolCity}
           </p>
-          <p className="mt-2 text-sm font-medium text-slate-700">
+          <p className="mt-2 text-sm font-medium text-ink">
             Salary slip — {formatPayrollPeriod(payslip.payrollMonth, payslip.payrollYear)}
           </p>
-          <p className="font-mono text-xs text-slate-500">{payslip.payslipNumber}</p>
+          <p className="font-mono text-xs text-ink-muted">{payslip.payslipNumber}</p>
         </header>
 
-        <dl className="grid gap-3 border-b border-slate-200 py-4 text-sm sm:grid-cols-2">
+        <dl className="grid gap-3 border-b border-line py-4 text-sm sm:grid-cols-2">
           <div>
-            <dt className="text-xs uppercase tracking-wide text-slate-500">Name</dt>
-            <dd className="font-medium text-slate-900">{payslip.staffName}</dd>
+            <dt className="text-xs uppercase tracking-wide text-ink-muted">Name</dt>
+            <dd className="font-medium text-ink">{payslip.staffName}</dd>
           </div>
           <div>
-            <dt className="text-xs uppercase tracking-wide text-slate-500">
+            <dt className="text-xs uppercase tracking-wide text-ink-muted">
               Employee code
             </dt>
-            <dd className="text-slate-700">{payslip.employeeCode}</dd>
+            <dd className="text-ink">{payslip.employeeCode}</dd>
           </div>
           <div>
-            <dt className="text-xs uppercase tracking-wide text-slate-500">
+            <dt className="text-xs uppercase tracking-wide text-ink-muted">
               Designation
             </dt>
-            <dd className="text-slate-700">{payslip.designation ?? '—'}</dd>
+            <dd className="text-ink">{payslip.designation ?? '—'}</dd>
           </div>
           <div>
-            <dt className="text-xs uppercase tracking-wide text-slate-500">
+            <dt className="text-xs uppercase tracking-wide text-ink-muted">
               Working days
             </dt>
-            <dd className="text-slate-700">{payslip.workingDays}</dd>
+            <dd className="text-ink">{payslip.workingDays}</dd>
           </div>
           {payslip.bankAccountNumber === null ? null : (
             <div className="sm:col-span-2">
-              <dt className="text-xs uppercase tracking-wide text-slate-500">Bank</dt>
-              <dd className="text-slate-700">
+              <dt className="text-xs uppercase tracking-wide text-ink-muted">Bank</dt>
+              <dd className="text-ink">
                 {payslip.bankAccountTitle ?? payslip.staffName} ·{' '}
                 {payslip.bankAccountNumber}
                 {payslip.bankName === null ? '' : ` · ${payslip.bankName}`}
@@ -219,17 +219,17 @@ export function PayslipView({ payslipId, canEdit }: PayslipViewProps) {
 
         <div className="grid gap-6 py-4 sm:grid-cols-2">
           <section>
-            <h3 className="text-sm font-semibold text-slate-900">Earnings</h3>
+            <h3 className="text-sm font-semibold text-ink">Earnings</h3>
             <ul className="mt-2 space-y-1 text-sm">
               {earnings.map((item) => (
                 <li key={item.id} className="flex justify-between gap-4">
-                  <span className="text-slate-600">{item.description}</span>
-                  <span className="text-slate-900">{formatPkr(item.amount)}</span>
+                  <span className="text-ink-muted">{item.description}</span>
+                  <span className="text-ink">{formatPkr(item.amount)}</span>
                 </li>
               ))}
-              <li className="flex justify-between gap-4 border-t border-slate-200 pt-1 font-medium">
-                <span className="text-slate-700">Gross</span>
-                <span className="text-slate-900">
+              <li className="flex justify-between gap-4 border-t border-line pt-1 font-medium">
+                <span className="text-ink">Gross</span>
+                <span className="text-ink">
                   {formatPkr(payslip.grossEarnings)}
                 </span>
               </li>
@@ -237,15 +237,15 @@ export function PayslipView({ payslipId, canEdit }: PayslipViewProps) {
           </section>
 
           <section>
-            <h3 className="text-sm font-semibold text-slate-900">Deductions</h3>
+            <h3 className="text-sm font-semibold text-ink">Deductions</h3>
             {deductions.length === 0 ? (
-              <p className="mt-2 text-sm text-slate-500">None.</p>
+              <p className="mt-2 text-sm text-ink-muted">None.</p>
             ) : (
               <ul className="mt-2 space-y-1 text-sm">
                 {deductions.map((item) => (
                   <li key={item.id} className="flex justify-between gap-4">
-                    <span className="text-slate-600">{item.description}</span>
-                    <span className="text-slate-900">{formatPkr(item.amount)}</span>
+                    <span className="text-ink-muted">{item.description}</span>
+                    <span className="text-ink">{formatPkr(item.amount)}</span>
                   </li>
                 ))}
               </ul>
@@ -253,19 +253,19 @@ export function PayslipView({ payslipId, canEdit }: PayslipViewProps) {
           </section>
         </div>
 
-        <footer className="border-t border-slate-200 pt-4">
+        <footer className="border-t border-line pt-4">
           <div className="flex flex-wrap items-baseline justify-between gap-4">
-            <span className="text-sm font-medium text-slate-700">Net payable</span>
-            <span className="text-2xl font-semibold text-slate-900">
+            <span className="text-sm font-medium text-ink">Net payable</span>
+            <span className="text-2xl font-semibold text-ink">
               {formatPkr(payslip.netPayable)}
             </span>
           </div>
-          <p className="mt-1 text-sm text-slate-600">
+          <p className="mt-1 text-sm text-ink-muted">
             {amountInWords(payslip.netPayable)}
           </p>
 
           {Number.parseFloat(payslip.lossOfPayDays) > 0 ? (
-            <p className="mt-2 text-sm text-amber-800">
+            <p className="mt-2 text-sm text-status-warning-onSubtle">
               {payslip.lossOfPayDays} unpaid day
               {Number.parseFloat(payslip.lossOfPayDays) === 1 ? '' : 's'} were
               deducted, worth {formatPkr(payslip.lossOfPayAmount)}.

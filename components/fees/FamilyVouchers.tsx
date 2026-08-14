@@ -7,6 +7,14 @@ import { Button } from '@/components/ui/Button';
 import { Card, CardTitle } from '@/components/ui/Card';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeaderCell,
+  TableRow,
+} from '@/components/ui/Table';
 
 interface Member {
   challanId: string;
@@ -200,12 +208,12 @@ export function FamilyVouchers({ canWrite, defaultMonth, defaultYear }: FamilyVo
   return (
     <div className="space-y-4">
       {error !== null ? (
-        <p role="alert" className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">
+        <p role="alert" className="rounded-lg bg-status-danger-subtle px-3 py-2 text-sm text-status-danger-ink">
           {error}
         </p>
       ) : null}
       {notice !== null ? (
-        <p role="status" className="rounded-lg bg-emerald-50 px-3 py-2 text-sm text-emerald-700">
+        <p role="status" className="rounded-lg bg-status-success-subtle px-3 py-2 text-sm text-status-success-ink">
           {notice}
         </p>
       ) : null}
@@ -249,20 +257,20 @@ export function FamilyVouchers({ canWrite, defaultMonth, defaultYear }: FamilyVo
         }
       >
         {groups === null ? (
-          <p className="text-sm text-slate-500">Loading…</p>
+          <p className="text-sm text-ink-muted">Loading…</p>
         ) : groups.length === 0 ? (
-          <p className="text-sm text-slate-600">
+          <p className="text-sm text-ink-muted">
             No family has more than one open challan for this month. Nothing to
             combine.
           </p>
         ) : (
-          <ul className="divide-y divide-slate-100">
+          <ul className="divide-y divide-line">
             {groups.map((group) => (
               <li key={group.guardianId} className="flex flex-wrap items-start justify-between gap-4 py-3">
                 <div>
-                  <p className="font-medium text-slate-900">{group.guardianName}</p>
-                  <p className="font-mono text-xs text-slate-500">{group.phone}</p>
-                  <ul className="mt-1 text-sm text-slate-600">
+                  <p className="font-medium text-ink">{group.guardianName}</p>
+                  <p className="font-mono text-xs text-ink-muted">{group.phone}</p>
+                  <ul className="mt-1 text-sm text-ink-muted">
                     {group.members.map((member) => (
                       <li key={member.challanId}>
                         {member.studentName} · {member.challanNumber} · PKR{' '}
@@ -273,7 +281,7 @@ export function FamilyVouchers({ canWrite, defaultMonth, defaultYear }: FamilyVo
                 </div>
 
                 <div className="flex flex-nowrap items-center gap-3 whitespace-nowrap">
-                  <span className="font-mono text-sm text-slate-900">
+                  <span className="font-mono text-sm text-ink">
                     PKR {group.total}
                   </span>
                   {canWrite ? (
@@ -299,39 +307,39 @@ export function FamilyVouchers({ canWrite, defaultMonth, defaultYear }: FamilyVo
       {issued.length > 0 ? (
         <Card className="p-0" header={<CardTitle title="Issued vouchers" />}>
           <div className="overflow-x-auto">
-            <table className="w-full text-left text-sm">
-              <thead className="border-b border-slate-200 text-xs uppercase tracking-wide text-slate-500">
-                <tr>
-                  <th scope="col" className="px-4 py-3 font-medium">Voucher</th>
-                  <th scope="col" className="px-4 py-3 font-medium">Family</th>
-                  <th scope="col" className="px-4 py-3 font-medium">Children</th>
-                  <th scope="col" className="px-4 py-3 font-medium">Due</th>
-                  <th scope="col" className="px-4 py-3 font-medium">Status</th>
-                  <th scope="col" className="px-4 py-3 text-right font-medium">Total</th>
+            <Table caption="Family vouchers" className="rounded-none border-0">
+              <TableHead>
+                <TableRow>
+                  <TableHeaderCell>Voucher</TableHeaderCell>
+                  <TableHeaderCell>Family</TableHeaderCell>
+                  <TableHeaderCell>Children</TableHeaderCell>
+                  <TableHeaderCell>Due</TableHeaderCell>
+                  <TableHeaderCell>Status</TableHeaderCell>
+                  <TableHeaderCell align="numeric">Total</TableHeaderCell>
                   {canWrite ? (
-                    <th scope="col" className="px-4 py-3 text-right font-medium">
+                    <TableHeaderCell align="numeric">
                       Payment
-                    </th>
+                    </TableHeaderCell>
                   ) : null}
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
+                </TableRow>
+              </TableHead>
+              <TableBody>
                 {issued.map((row) => (
-                  <tr key={row.id}>
-                    <td className="px-4 py-3 font-mono text-xs text-slate-900">
+                  <TableRow key={row.id}>
+                    <TableCell className="font-mono text-xs">
                       {row.challanNumber}
-                    </td>
-                    <td className="px-4 py-3 text-slate-700">
+                    </TableCell>
+                    <TableCell>
                       {row.guardianName}
-                      <span className="block font-mono text-xs text-slate-500">
+                      <span className="block font-mono text-xs text-ink-muted">
                         {row.phone}
                       </span>
-                    </td>
-                    <td className="px-4 py-3 text-slate-600">{row.memberCount}</td>
-                    <td className="px-4 py-3 font-mono text-xs text-slate-600">
+                    </TableCell>
+                    <TableCell muted>{row.memberCount}</TableCell>
+                    <TableCell muted className="font-mono text-xs">
                       {row.dueDate}
-                    </td>
-                    <td className="px-4 py-3">
+                    </TableCell>
+                    <TableCell>
                       <Badge
                         variant={
                           row.status === 'paid'
@@ -345,16 +353,16 @@ export function FamilyVouchers({ canWrite, defaultMonth, defaultYear }: FamilyVo
                       >
                         {row.status}
                       </Badge>
-                    </td>
-                    <td className="px-4 py-3 text-right font-mono text-slate-900">
+                    </TableCell>
+                    <TableCell align="numeric" className="font-mono">
                       {row.paidAmount === '0.00'
                         ? row.totalAmount
                         : `${row.paidAmount} / ${row.totalAmount}`}
-                    </td>
+                    </TableCell>
                     {canWrite ? (
-                      <td className="px-4 py-3 text-right">
+                      <TableCell align="numeric">
                         {row.status === 'paid' || row.status === 'cancelled' ? (
-                          <span className="text-xs text-slate-400">—</span>
+                          <span className="text-xs text-ink-muted">—</span>
                         ) : payingId === row.id ? (
                           <div className="flex flex-nowrap items-center justify-end gap-2 whitespace-nowrap">
                             <input
@@ -362,7 +370,7 @@ export function FamilyVouchers({ canWrite, defaultMonth, defaultYear }: FamilyVo
                               aria-label={`Amount received for ${row.challanNumber}`}
                               placeholder="Amount"
                               value={amount}
-                              className="w-28 rounded-lg border border-slate-300 px-2 py-1 text-sm"
+                              className="w-28 rounded-lg border border-line-strong px-2 py-1 text-sm"
                               onChange={(event) => {
                                 setAmount(event.target.value);
                               }}
@@ -370,7 +378,7 @@ export function FamilyVouchers({ canWrite, defaultMonth, defaultYear }: FamilyVo
                             <select
                               aria-label="Payment method"
                               value={method}
-                              className="rounded-lg border border-slate-300 px-2 py-1 text-sm"
+                              className="rounded-lg border border-line-strong px-2 py-1 text-sm"
                               onChange={(event) => {
                                 setMethod(event.target.value);
                               }}
@@ -384,7 +392,7 @@ export function FamilyVouchers({ canWrite, defaultMonth, defaultYear }: FamilyVo
                               aria-label="Reference"
                               placeholder="Slip no."
                               value={reference}
-                              className="w-24 rounded-lg border border-slate-300 px-2 py-1 text-sm"
+                              className="w-24 rounded-lg border border-line-strong px-2 py-1 text-sm"
                               onChange={(event) => {
                                 setReference(event.target.value);
                               }}
@@ -431,12 +439,12 @@ export function FamilyVouchers({ canWrite, defaultMonth, defaultYear }: FamilyVo
                             Take payment
                           </Button>
                         )}
-                      </td>
+                      </TableCell>
                     ) : null}
-                  </tr>
+                  </TableRow>
                 ))}
-              </tbody>
-            </table>
+              </TableBody>
+            </Table>
           </div>
         </Card>
       ) : null}

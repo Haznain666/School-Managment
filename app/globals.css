@@ -27,6 +27,71 @@
     --brand-on-accent: 15 23 42;
   }
 
+  /*
+   * The derived layer — surfaces, edges, inks, statuses and chart series.
+   *
+   * A portal shell applies a school's own values inline, so these defaults are
+   * what the routes *outside* any portal use: sign-in, invitation acceptance,
+   * password setup, the public landing page. Without them a card on the login
+   * screen would have no fill and no edge.
+   *
+   * ── Generated, not hand-written ──────────────────────────────────────────
+   * These are `lib/brand-derive.ts` applied to the platform default palette. To
+   * refresh them after changing the derivation:
+   *
+   *     npm run check-theme -- --css
+   *
+   * Do not edit them by hand. A hand-tuned value here is a second source of
+   * truth that disagrees with every themed school, and the disagreement only
+   * shows up on the one screen nobody is themed on.
+   */
+  :root {
+    --surface: 248 250 252;
+    --surface-raised: 253 253 254;
+    --surface-sunken: 238 240 243;
+    --surface-hover: 240 242 245;
+    --border: 212 215 220;
+    --border-strong: 139 144 155;
+    --ink: 15 23 42;
+    --ink-muted: 97 102 114;
+    --ink-faint: 124 130 141;
+    --brand-primary-ink: 29 78 216;
+    --brand-accent-ink: 8 107 150;
+    --brand-primary-hover: 25 67 186;
+    --brand-accent-hover: 12 142 200;
+    --brand-primary-subtle: 222 229 248;
+    --brand-accent-subtle: 220 240 250;
+    --brand-on-primary-subtle: 29 78 216;
+    --brand-on-accent-subtle: 10 114 161;
+    --focus-ring: 29 78 216;
+    --status-danger: 174 30 68;
+    --status-danger-on: 248 250 252;
+    --status-danger-ink: 174 30 68;
+    --status-danger-subtle: 238 219 226;
+    --status-danger-on-subtle: 174 30 68;
+    --status-warning: 205 120 35;
+    --status-warning-on: 15 23 42;
+    --status-warning-ink: 148 87 26;
+    --status-warning-subtle: 242 232 222;
+    --status-warning-on-subtle: 153 89 26;
+    --status-success: 28 161 134;
+    --status-success-on: 15 23 42;
+    --status-success-ink: 19 112 95;
+    --status-success-subtle: 217 238 235;
+    --status-success-on-subtle: 20 117 98;
+    --status-info: 33 97 191;
+    --status-info-on: 248 250 252;
+    --status-info-ink: 33 97 191;
+    --status-info-subtle: 218 229 243;
+    --status-info-on-subtle: 33 97 191;
+    --chart-1: 35 73 179;
+    --chart-2: 105 59 216;
+    --chart-3: 157 35 179;
+    --chart-4: 216 59 153;
+    --chart-5: 179 35 41;
+    --chart-6: 204 125 41;
+  }
+
   :root {
     /*
      * System font stack. Swap in a self-hosted webfont via `next/font/local`
@@ -34,6 +99,15 @@
      */
     --font-sans: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto,
       'Helvetica Neue', Arial, 'Noto Sans', sans-serif;
+
+    /*
+     * Tabular figures for admission numbers, challan numbers, amounts and
+     * dates. A proportional font lets a column of money shift sideways as it
+     * re-renders, which reads as instability in exactly the screens where
+     * confidence matters most.
+     */
+    --font-mono: ui-monospace, 'SFMono-Regular', 'Cascadia Mono', Menlo,
+      Consolas, 'Liberation Mono', monospace;
   }
 
   html {
@@ -41,7 +115,52 @@
   }
 
   body {
-    @apply bg-white text-slate-900 antialiased;
+    /*
+     * `bg-white text-slate-900` until Sprint 10.5. Those were the two colours a
+     * themed school could never override, so the page behind every portal was
+     * white no matter what palette was chosen. `surface` and `ink` resolve to
+     * the platform default on public routes and to the school's own values
+     * wherever a portal shell has applied its palette.
+     */
+    @apply bg-surface text-ink antialiased;
+  }
+
+  /*
+   * One focus ring for the whole application, in whichever brand colour is
+   * actually visible against the school's background (see `--focus-ring` in
+   * `lib/brand-derive.ts` — a pale-gold school would otherwise get a ring
+   * nobody can see).
+   *
+   * `:focus-visible` rather than `:focus`, so it appears for keyboard users and
+   * not on every mouse click. Components may thicken or offset it; none should
+   * remove it.
+   */
+  :where(a, button, input, select, textarea, summary, [tabindex]):focus-visible {
+    @apply outline-none ring-2 ring-[rgb(var(--focus-ring))] ring-offset-2 ring-offset-surface;
+  }
+}
+
+/*
+ * Reduced motion is not optional.
+ *
+ * Everything this design system animates is a state change — a panel arriving,
+ * a row selecting, a toast appearing — so the reduced-motion form is the same
+ * state change delivered instantly. Nothing is *only* communicated by movement,
+ * which is what makes near-zero durations a safe blanket rule here rather than
+ * a loss of information.
+ *
+ * Deliberately not `animation: none`: a skeleton with its animation removed
+ * still needs to exist, and an entrance whose keyframes start at `opacity: 0`
+ * would otherwise leave the element invisible forever.
+ */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
   }
 }
 
@@ -87,6 +206,21 @@
 }
 
 @media print {
+  /*
+   * Paper is white, whatever the school's palette is.
+   *
+   * `body` carried `bg-white` until Sprint 10.5 and now carries `bg-surface`,
+   * which is the school's own background — correct on screen, and a regression
+   * on paper: `[data-print-root]` sets no background of its own, so a school
+   * with a dark palette would print a challan on a dark field on any machine
+   * with "background graphics" switched on. This restores exactly the previous
+   * behaviour and is scoped to print, where the school's colours belong in the
+   * letterhead rather than the sheet.
+   */
+  body {
+    background: #fff;
+  }
+
   body * {
     visibility: hidden;
   }

@@ -79,19 +79,19 @@ export function SchoolProfileForm({ readOnly, initial, canEdit }: SchoolProfileF
       {error !== null ? (
         <p
           role="alert"
-          className="mb-4 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700"
+          className="mb-4 rounded-lg bg-status-danger-subtle px-3 py-2 text-sm text-status-danger-ink"
         >
           {error}
         </p>
       ) : null}
 
       {notice !== null ? (
-        <p className="mb-4 rounded-lg bg-emerald-50 px-3 py-2 text-sm text-emerald-700">
+        <p className="mb-4 rounded-lg bg-status-success-subtle px-3 py-2 text-sm text-status-success-ink">
           {notice}
         </p>
       ) : null}
 
-      <dl className="mb-6 grid gap-4 rounded-lg bg-slate-50 p-4 sm:grid-cols-2 lg:grid-cols-4">
+      <dl className="mb-6 grid gap-4 rounded-lg bg-surface-sunken p-4 sm:grid-cols-2 lg:grid-cols-4">
         {[
           { label: 'Name', value: readOnly.name },
           { label: 'Subdomain', value: readOnly.slug },
@@ -99,12 +99,12 @@ export function SchoolProfileForm({ readOnly, initial, canEdit }: SchoolProfileF
           { label: 'School code', value: readOnly.schoolCode },
         ].map((field) => (
           <div key={field.label}>
-            <dt className="text-xs uppercase tracking-wide text-slate-500">
+            <dt className="text-xs uppercase tracking-wide text-ink-muted">
               {field.label}
             </dt>
-            <dd className="mt-1 break-words text-sm text-slate-900">
+            <dd className="mt-1 break-words text-sm text-ink">
               {field.value === null || field.value === '' ? (
-                <span className="text-slate-400">Not set</span>
+                <span className="text-ink-muted">Not set</span>
               ) : (
                 field.value
               )}
@@ -112,7 +112,7 @@ export function SchoolProfileForm({ readOnly, initial, canEdit }: SchoolProfileF
           </div>
         ))}
 
-        <p className="text-xs text-slate-500 sm:col-span-2 lg:col-span-4">
+        <p className="text-xs text-ink-muted sm:col-span-2 lg:col-span-4">
           These are set by the platform administrator. The school code prefixes
           every student ID, challan and payslip number already issued, so
           changing it is not something a school does to itself.

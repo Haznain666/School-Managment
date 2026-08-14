@@ -287,7 +287,7 @@ export function LogoCanvasEditor({
   if (loadError !== null) {
     return (
       <div className="space-y-3">
-        <p role="alert" className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">
+        <p role="alert" className="rounded-lg bg-status-danger-subtle px-3 py-2 text-sm text-status-danger-ink">
           {loadError}
         </p>
         <Button variant="secondary" size="sm" onClick={onCancel}>
@@ -303,7 +303,7 @@ export function LogoCanvasEditor({
         <div className="shrink-0">
           <div
             className={cn(
-              'relative overflow-hidden rounded-lg border border-slate-300',
+              'relative overflow-hidden rounded-lg border border-line-strong',
               // The chequerboard reads as "transparent" the way every image
               // editor does it, so an operator can tell an empty corner from a
               // white one before it reaches a printed page.
@@ -323,7 +323,7 @@ export function LogoCanvasEditor({
               className="touch-none cursor-grab active:cursor-grabbing"
             />
           </div>
-          <p className="mt-2 text-center text-xs text-slate-500">
+          <p className="mt-2 text-center text-xs text-ink-muted">
             Drag the logo to reposition it.
           </p>
         </div>
@@ -332,10 +332,10 @@ export function LogoCanvasEditor({
           <div>
             <label
               htmlFor="logo-zoom"
-              className="flex items-center justify-between text-sm font-medium text-slate-900"
+              className="flex items-center justify-between text-sm font-medium text-ink"
             >
               Zoom
-              <span className="text-xs font-normal tabular-nums text-slate-500">
+              <span className="text-xs font-normal tabular-nums text-ink-muted">
                 {Math.round(zoom * 100)}%
               </span>
             </label>
@@ -351,13 +351,13 @@ export function LogoCanvasEditor({
               }}
               className="mt-2 w-full accent-brand-primary"
             />
-            <p className="mt-1 text-xs text-slate-500">
+            <p className="mt-1 text-xs text-ink-muted">
               100% fits the whole image inside the square.
             </p>
           </div>
 
           <fieldset>
-            <legend className="text-sm font-medium text-slate-900">Backdrop</legend>
+            <legend className="text-sm font-medium text-ink">Backdrop</legend>
             <div className="mt-2 flex flex-wrap gap-2">
               {BACKDROPS.map((entry) => (
                 <button
@@ -372,14 +372,14 @@ export function LogoCanvasEditor({
                     'rounded-md border px-3 py-1.5 text-xs font-medium transition',
                     backdrop === entry.value
                       ? 'border-brand-primary bg-brand-primary/10 text-brand-primary'
-                      : 'border-slate-300 bg-white text-slate-700 hover:border-slate-400',
+                      : 'border-line-strong bg-surface-raised text-ink hover:border-line-strong',
                   )}
                 >
                   {entry.label}
                 </button>
               ))}
             </div>
-            <p className="mt-1.5 text-xs text-slate-500">
+            <p className="mt-1.5 text-xs text-ink-muted">
               {BACKDROPS.find((entry) => entry.value === backdrop)?.hint}
             </p>
           </fieldset>
@@ -387,21 +387,21 @@ export function LogoCanvasEditor({
           <button
             type="button"
             onClick={reset}
-            className="text-xs font-medium text-slate-600 underline underline-offset-2 hover:text-slate-900"
+            className="text-xs font-medium text-ink-muted underline underline-offset-2 hover:text-ink"
           >
             Reset framing
           </button>
         </div>
       </div>
 
-      <div className="flex flex-wrap items-center gap-2 border-t border-slate-200 pt-4">
+      <div className="flex flex-wrap items-center gap-2 border-t border-line pt-4">
         <Button size="sm" isLoading={isSaving} disabled={!isReady} onClick={confirm}>
           {isSaving ? 'Uploading…' : 'Save logo'}
         </Button>
         <Button size="sm" variant="secondary" disabled={isSaving} onClick={onCancel}>
           Cancel
         </Button>
-        <p className="text-xs text-slate-500">
+        <p className="text-xs text-ink-muted">
           Saved as a {OUTPUT_SIZE}×{OUTPUT_SIZE} PNG. Framing cannot be changed
           afterwards — choose the file again to redo it.
         </p>

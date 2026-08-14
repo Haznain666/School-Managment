@@ -35,7 +35,7 @@ export default async function EditBranchPage({
 
   return (
     <div className="max-w-3xl space-y-6">
-      <h3 className="text-lg font-semibold text-slate-900">Edit branch</h3>
+      <h3 className="text-lg font-semibold text-ink">Edit branch</h3>
 
       <BranchForm
         schoolId={schoolId}

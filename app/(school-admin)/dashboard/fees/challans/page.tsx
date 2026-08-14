@@ -3,6 +3,7 @@ import Link from 'next/link';
 
 import { ChallanTable } from '@/components/fees/ChallanTable';
 import { Button } from '@/components/ui/Button';
+import { PageHeader } from '@/components/ui/PageHeader';
 import { listAcademicYears, listGrades } from '@/lib/admissions-queries';
 import { requireSchoolPermission } from '@/lib/school-guard';
 
@@ -26,20 +27,17 @@ export default async function ChallansPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-wrap items-start justify-between gap-4">
-        <div>
-          <h2 className="text-xl font-semibold text-slate-900">Challans</h2>
-          <p className="mt-1 text-sm text-slate-500">
-            Every bill your school has raised, with what has been paid against it.
-          </p>
-        </div>
-
-        {canGenerate ? (
-          <Link href="/dashboard/fees/challans/generate">
-            <Button>Generate challans</Button>
-          </Link>
-        ) : null}
-      </div>
+      <PageHeader
+        title="Challans"
+        description="Every bill your school has raised, with what has been paid against it."
+        actions={
+          canGenerate ? (
+            <Link href="/dashboard/fees/challans/generate">
+              <Button>Generate challans</Button>
+            </Link>
+          ) : null
+        }
+      />
 
       <ChallanTable
         academicYears={academicYears}

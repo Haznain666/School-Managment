@@ -24,12 +24,12 @@ export function ModuleCard({
   return (
     <div
       className={cn(
-        'flex items-start justify-between gap-4 rounded-card border bg-white p-4 transition',
-        dirty ? 'border-brand-primary shadow-card' : 'border-slate-200',
+        'flex items-start justify-between gap-4 rounded-card border bg-surface-raised p-4 transition',
+        dirty ? 'border-brand-primary shadow-card' : 'border-line',
       )}
     >
       <div className="min-w-0">
-        <p className="truncate text-sm font-medium text-slate-900">{module.label}</p>
+        <p className="truncate text-sm font-medium text-ink">{module.label}</p>
         <div className="mt-1.5 flex items-center gap-2">
           <Badge variant="neutral">Phase {module.phase}</Badge>
           {dirty ? <Badge variant="warning">Unsaved</Badge> : null}

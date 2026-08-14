@@ -9,6 +9,14 @@ import { Button } from '@/components/ui/Button';
 import { Card, CardTitle } from '@/components/ui/Card';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeaderCell,
+  TableRow,
+} from '@/components/ui/Table';
 import { schoolErrorMessage, schoolFetch } from '@/lib/school-client';
 
 /**
@@ -125,13 +133,13 @@ export function ExamScheduler({
       }
     >
       {error !== null ? (
-        <p role="alert" className="mb-4 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">
+        <p role="alert" className="mb-4 rounded-lg bg-status-danger-subtle px-3 py-2 text-sm text-status-danger-ink">
           {error}
         </p>
       ) : null}
 
       {isOpen ? (
-        <div className="mb-5 space-y-4 rounded-lg border border-slate-200 bg-slate-50 p-4">
+        <div className="mb-5 space-y-4 rounded-lg border border-line bg-surface-sunken p-4">
           <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
             <Select
               label="Term"
@@ -186,54 +194,54 @@ export function ExamScheduler({
       ) : null}
 
       {exams.length === 0 ? (
-        <p className="text-sm text-slate-600">
+        <p className="text-sm text-ink-muted">
           Nothing scheduled yet.
           {terms.length === 0 ? ' Open a term first — every exam belongs to one.' : ''}
         </p>
       ) : (
         <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-slate-200 text-left text-xs uppercase tracking-wide text-slate-500">
-                <th className="py-2 pr-3 font-medium">Exam</th>
-                <th className="py-2 pr-3 font-medium">Class</th>
-                <th className="py-2 pr-3 font-medium">Starts</th>
-                <th className="py-2 pr-3 font-medium">Papers</th>
-                <th className="py-2 pr-3 font-medium">Datesheet</th>
-                <th className="py-2 font-medium" />
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100">
+          <Table caption="Papers in this exam" className="rounded-none border-0">
+            <TableHead>
+              <TableRow className="border-b border-line text-left text-xs uppercase tracking-wide text-ink-muted">
+                <TableHeaderCell className="pr-3">Exam</TableHeaderCell>
+                <TableHeaderCell className="pr-3">Class</TableHeaderCell>
+                <TableHeaderCell className="pr-3">Starts</TableHeaderCell>
+                <TableHeaderCell className="pr-3">Papers</TableHeaderCell>
+                <TableHeaderCell className="pr-3">Datesheet</TableHeaderCell>
+                <TableHeaderCell />
+              </TableRow>
+            </TableHead>
+            <TableBody>
               {exams.map((exam) => (
-                <tr key={exam.id}>
-                  <td className="py-2.5 pr-3">
-                    <p className="font-medium text-slate-900">{exam.title}</p>
-                    <p className="text-xs text-slate-500">{exam.termName}</p>
-                  </td>
-                  <td className="py-2.5 pr-3 text-slate-700">
+                <TableRow key={exam.id}>
+                  <TableCell className="pr-3">
+                    <p className="font-medium text-ink">{exam.title}</p>
+                    <p className="text-xs text-ink-muted">{exam.termName}</p>
+                  </TableCell>
+                  <TableCell className="pr-3">
                     {exam.gradeName} — {exam.sectionName}
-                  </td>
-                  <td className="py-2.5 pr-3 text-slate-700">{exam.examDate}</td>
-                  <td className="py-2.5 pr-3 text-slate-700">{exam.paperCount}</td>
-                  <td className="py-2.5 pr-3">
+                  </TableCell>
+                  <TableCell className="pr-3">{exam.examDate}</TableCell>
+                  <TableCell className="pr-3">{exam.paperCount}</TableCell>
+                  <TableCell className="pr-3">
                     {exam.isPublished ? (
                       <Badge variant="success">Announced</Badge>
                     ) : (
                       <Badge variant="neutral">Draft</Badge>
                     )}
-                  </td>
-                  <td className="py-2.5 text-right">
+                  </TableCell>
+                  <TableCell align="numeric">
                     <Link
                       href={`/dashboard/exams/${exam.id}`}
                       className="text-sm font-medium text-brand-primary hover:underline"
                     >
                       Open
                     </Link>
-                  </td>
-                </tr>
+                  </TableCell>
+                </TableRow>
               ))}
-            </tbody>
-          </table>
+            </TableBody>
+          </Table>
         </div>
       )}
     </Card>

@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 
 import { LateFeeSettingsForm } from '@/components/fees/LateFeeSettingsForm';
+import { PageHeader } from '@/components/ui/PageHeader';
 import { DEFAULT_DUE_DAY, getLateFeeRule } from '@/lib/fee-queries';
 import { requireSchoolPermission } from '@/lib/school-guard';
 
@@ -17,13 +18,10 @@ export default async function FeeSettingsPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h2 className="text-xl font-semibold text-slate-900">Fee settings</h2>
-        <p className="mt-1 text-sm text-slate-500">
-          When challans fall due, and how your school treats the ones that pass
-          that date. No late fee is charged until you switch it on.
-        </p>
-      </div>
+      <PageHeader
+        title="Fee settings"
+        description="When challans fall due, and how your school treats the ones that pass that date. No late fee is charged until you switch it on."
+      />
 
       <LateFeeSettingsForm
         initial={

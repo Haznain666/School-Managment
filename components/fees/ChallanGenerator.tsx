@@ -8,6 +8,15 @@ import { Button } from '@/components/ui/Button';
 import { Card, CardTitle } from '@/components/ui/Card';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableFoot,
+  TableHead,
+  TableHeaderCell,
+  TableRow,
+} from '@/components/ui/Table';
 import { MONTH_NAMES } from '@/db/schema/academic-years';
 import { formatAmount, formatPkr } from '@/lib/money';
 import { schoolErrorMessage, schoolFetch } from '@/lib/school-client';
@@ -113,8 +122,8 @@ export function ChallanGenerator({
             className={cn(
               'rounded-full px-4 py-1.5 text-sm font-medium transition',
               tab === value
-                ? 'bg-brand-primary text-white'
-                : 'bg-slate-100 text-slate-600 hover:bg-slate-200',
+                ? 'bg-brand-primary text-brand-onPrimary'
+                : 'bg-surface-sunken text-ink-muted hover:bg-line',
             )}
             onClick={() => {
               setTab(value);
@@ -309,7 +318,7 @@ function SinglePanel({
       </Card>
 
       {error !== null ? (
-        <p role="alert" className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">
+        <p role="alert" className="rounded-lg bg-status-danger-subtle px-3 py-2 text-sm text-status-danger-ink">
           {error}
         </p>
       ) : null}
@@ -324,52 +333,52 @@ function SinglePanel({
           }
         >
           {loading ? (
-            <p className="text-sm text-slate-500">Pricing…</p>
+            <p className="text-sm text-ink-muted">Pricing…</p>
           ) : items === null || totals === null ? (
-            <p className="text-sm text-slate-600">
+            <p className="text-sm text-ink-muted">
               Nothing could be priced for this student and period.
             </p>
           ) : (
             <>
               <div className="overflow-x-auto">
-                <table className="w-full text-left text-sm">
-                  <thead className="border-b border-slate-200 text-xs uppercase tracking-wide text-slate-500">
-                    <tr>
-                      <th scope="col" className="py-2 font-medium">Fee head</th>
-                      <th scope="col" className="py-2 text-right font-medium">Amount</th>
-                      <th scope="col" className="py-2 text-right font-medium">Concession</th>
-                      <th scope="col" className="py-2 text-right font-medium">Net</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100">
+                <Table caption="Students to bill" className="rounded-none border-0">
+                  <TableHead>
+                    <TableRow>
+                      <TableHeaderCell>Fee head</TableHeaderCell>
+                      <TableHeaderCell align="numeric">Amount</TableHeaderCell>
+                      <TableHeaderCell align="numeric">Concession</TableHeaderCell>
+                      <TableHeaderCell align="numeric">Net</TableHeaderCell>
+                    </TableRow>
+                  </TableHead>
+                  <TableBody>
                     {items.map((item) => (
-                      <tr key={item.description}>
-                        <td className="py-2 text-slate-900">{item.description}</td>
-                        <td className="py-2 text-right text-slate-600">
+                      <TableRow key={item.description}>
+                        <TableCell>{item.description}</TableCell>
+                        <TableCell align="numeric" muted>
                           {formatAmount(item.amount)}
-                        </td>
-                        <td className="py-2 text-right text-slate-600">
+                        </TableCell>
+                        <TableCell align="numeric" muted>
                           {Number(item.concessionAmount) === 0
                             ? '—'
                             : `−${formatAmount(item.concessionAmount)}`}
-                        </td>
-                        <td className="py-2 text-right font-medium text-slate-900">
+                        </TableCell>
+                        <TableCell rowHeader align="numeric">
                           {formatAmount(item.netAmount)}
-                        </td>
-                      </tr>
+                        </TableCell>
+                      </TableRow>
                     ))}
-                  </tbody>
-                  <tfoot className="border-t border-slate-200">
-                    <tr>
-                      <th scope="row" colSpan={3} className="py-3 text-left font-medium text-slate-600">
+                  </TableBody>
+                  <TableFoot>
+                    <TableRow>
+                      <TableCell rowHeader muted colSpan={3}>
                         Total
-                      </th>
-                      <td className="py-3 text-right text-base font-bold text-slate-900">
+                      </TableCell>
+                      <TableCell align="numeric" className="text-base font-bold">
                         {formatPkr(totals.totalAmount)}
-                      </td>
-                    </tr>
-                  </tfoot>
-                </table>
+                      </TableCell>
+                    </TableRow>
+                  </TableFoot>
+                </Table>
               </div>
 
               <Button
@@ -534,22 +543,22 @@ function BulkPanel({
       </Card>
 
       {error !== null ? (
-        <p role="alert" className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">
+        <p role="alert" className="rounded-lg bg-status-danger-subtle px-3 py-2 text-sm text-status-danger-ink">
           {error}
         </p>
       ) : null}
 
       {result !== null ? (
         <Card>
-          <h3 className="text-base font-semibold text-slate-900">Generation complete</h3>
-          <p className="mt-1 text-sm text-slate-600">
+          <h3 className="text-base font-semibold text-ink">Generation complete</h3>
+          <p className="mt-1 text-sm text-ink-muted">
             {result.generated} challan{result.generated === 1 ? '' : 's'} generated,{' '}
             {result.skipped} skipped because a challan already existed
             {result.failed > 0 ? `, ${result.failed} failed` : ''}.
           </p>
 
           {result.problems.length > 0 ? (
-            <ul className="mt-3 space-y-1 text-sm text-amber-700">
+            <ul className="mt-3 space-y-1 text-sm text-status-warning-ink">
               {result.problems.map((problem) => (
                 <li key={problem.studentName}>
                   {problem.studentName}: {problem.reason}
@@ -585,35 +594,35 @@ function BulkPanel({
           }
         >
           {alreadyBilled > 0 ? (
-            <p className="mb-3 rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-800">
+            <p className="mb-3 rounded-lg bg-status-warning-subtle px-3 py-2 text-sm text-status-warning-onSubtle">
               {alreadyBilled} student{alreadyBilled === 1 ? ' already holds' : 's already hold'}{' '}
               a challan for this month. They will be skipped, not billed twice.
             </p>
           ) : null}
 
           {candidates === null || candidates.length === 0 ? (
-            <p className="text-sm text-slate-600">
+            <p className="text-sm text-ink-muted">
               {loading
                 ? 'Loading…'
                 : 'No active students are enrolled here for the selected academic year.'}
             </p>
           ) : (
-            <ul className="max-h-80 divide-y divide-slate-100 overflow-y-auto text-sm">
+            <ul className="max-h-80 divide-y divide-line overflow-y-auto text-sm">
               {candidates.map((candidate) => (
                 <li
                   key={candidate.studentProfileId}
                   className="flex items-center justify-between gap-3 py-2"
                 >
-                  <span className="text-slate-900">
+                  <span className="text-ink">
                     {candidate.studentName}{' '}
-                    <span className="text-xs text-slate-500">
+                    <span className="text-xs text-ink-muted">
                       ({candidate.sectionName})
                     </span>
                   </span>
                   {candidate.existingChallanNumber === null ? (
-                    <span className="text-xs text-slate-500">Will be billed</span>
+                    <span className="text-xs text-ink-muted">Will be billed</span>
                   ) : (
-                    <span className="font-mono text-xs text-amber-700">
+                    <span className="font-mono text-xs text-status-warning-ink">
                       {candidate.existingChallanNumber}
                     </span>
                   )}

@@ -28,7 +28,7 @@ export default async function EditSchoolPage({
 
   return (
     <div className="max-w-3xl space-y-6">
-      <h3 className="text-lg font-semibold text-slate-900">Edit school</h3>
+      <h3 className="text-lg font-semibold text-ink">Edit school</h3>
 
       <SchoolForm
         appDomain={publicEnv.appDomain}

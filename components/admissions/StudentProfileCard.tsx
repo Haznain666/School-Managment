@@ -168,7 +168,7 @@ export function StudentProfileCard({ student, canEdit }: StudentProfileCardProps
           {student.photoUrl === null || student.photoUrl === '' ? (
             <span
               aria-hidden="true"
-              className="flex h-24 w-24 items-center justify-center rounded-xl bg-brand-primary text-2xl font-bold text-white"
+              className="flex h-24 w-24 items-center justify-center rounded-xl bg-brand-primary text-2xl font-bold text-brand-onPrimary"
             >
               {initialsOf(student.name)}
             </span>
@@ -182,7 +182,7 @@ export function StudentProfileCard({ student, canEdit }: StudentProfileCardProps
             />
           )}
 
-          <p className="mt-3 font-mono text-xs text-slate-600">{student.studentId}</p>
+          <p className="mt-3 font-mono text-xs text-ink-muted">{student.studentId}</p>
           <Badge
             className="mt-2"
             variant={student.ghlContactId === null ? 'warning' : 'success'}
@@ -192,7 +192,7 @@ export function StudentProfileCard({ student, canEdit }: StudentProfileCardProps
         </div>
 
         <div className="min-w-0 flex-1">
-          <h3 className="text-lg font-semibold text-slate-900">{student.name}</h3>
+          <h3 className="text-lg font-semibold text-ink">{student.name}</h3>
 
           {isEditing ? (
             <div className="mt-4 grid gap-4 sm:grid-cols-2">
@@ -286,7 +286,7 @@ export function StudentProfileCard({ student, canEdit }: StudentProfileCardProps
               {error !== null ? (
                 <p
                   role="alert"
-                  className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700 sm:col-span-2"
+                  className="rounded-lg bg-status-danger-subtle px-3 py-2 text-sm text-status-danger-ink sm:col-span-2"
                 >
                   {error}
                 </p>
@@ -352,10 +352,10 @@ function SecretDetail({ label, value }: { label: string; value: string | null })
 
   return (
     <div>
-      <dt className="text-xs font-medium uppercase tracking-wide text-slate-500">
+      <dt className="text-xs font-medium uppercase tracking-wide text-ink-muted">
         {label}
       </dt>
-      <dd className="mt-0.5 flex items-center gap-2 text-sm text-slate-900">
+      <dd className="mt-0.5 flex items-center gap-2 text-sm text-ink">
         <span className={revealed || empty ? undefined : 'tracking-wider'}>
           {empty ? '—' : revealed ? value : maskNationalId(value)}
         </span>
@@ -381,10 +381,10 @@ function SecretDetail({ label, value }: { label: string; value: string | null })
 function Detail({ label, value }: { label: string; value: string | null }) {
   return (
     <div>
-      <dt className="text-xs font-medium uppercase tracking-wide text-slate-500">
+      <dt className="text-xs font-medium uppercase tracking-wide text-ink-muted">
         {label}
       </dt>
-      <dd className="mt-0.5 text-sm text-slate-900">
+      <dd className="mt-0.5 text-sm text-ink">
         {value === null || value === '' ? '—' : value}
       </dd>
     </div>

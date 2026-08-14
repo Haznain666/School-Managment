@@ -6,6 +6,14 @@ import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { Card, CardTitle } from '@/components/ui/Card';
 import { Input } from '@/components/ui/Input';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeaderCell,
+  TableRow,
+} from '@/components/ui/Table';
 import { superAdminFetch, SuperAdminApiError } from '@/lib/super-admin-client';
 import { MAX_BULK_DELETE, type DeletionOutcome } from '@/lib/user-deletion';
 import { ROLE_LABELS, isUserRole } from '@/types/school-auth';
@@ -301,7 +309,7 @@ export function SchoolUsersTable({ schoolId }: SchoolUsersTableProps) {
   if (users === null) {
     return (
       <Card>
-        <p className="text-sm text-slate-500">{error ?? 'Loading users…'}</p>
+        <p className="text-sm text-ink-muted">{error ?? 'Loading users…'}</p>
       </Card>
     );
   }
@@ -373,19 +381,19 @@ export function SchoolUsersTable({ schoolId }: SchoolUsersTableProps) {
   return (
     <div className="space-y-4">
       {error !== null ? (
-        <p role="alert" className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">
+        <p role="alert" className="rounded-lg bg-status-danger-subtle px-3 py-2 text-sm text-status-danger-ink">
           {error}
         </p>
       ) : null}
 
       {notice !== null ? (
-        <p role="status" className="rounded-lg bg-emerald-50 px-3 py-2 text-sm text-emerald-700">
+        <p role="status" className="rounded-lg bg-status-success-subtle px-3 py-2 text-sm text-status-success-ink">
           {notice}
         </p>
       ) : null}
 
       {refusals.length > 0 ? (
-        <div className="rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-900">
+        <div className="rounded-lg bg-status-warning-subtle px-3 py-2 text-sm text-status-warning-onSubtle">
           <p className="font-medium">These were kept:</p>
           <ul className="mt-1 space-y-1">
             {refusals.map((outcome) => (
@@ -398,8 +406,8 @@ export function SchoolUsersTable({ schoolId }: SchoolUsersTableProps) {
       ) : null}
 
       {selected.size > 0 ? (
-        <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-slate-200 bg-white px-4 py-3">
-          <span className="text-sm text-slate-700">
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-line bg-surface-raised px-4 py-3">
+          <span className="text-sm text-ink">
             {selected.size} user{selected.size === 1 ? '' : 's'} selected
             {selected.size > MAX_BULK_DELETE
               ? ` — the limit is ${MAX_BULK_DELETE} at a time`
@@ -409,7 +417,7 @@ export function SchoolUsersTable({ schoolId }: SchoolUsersTableProps) {
           <div className="flex flex-nowrap items-center gap-2 whitespace-nowrap">
             {confirmBulk ? (
               <>
-                <span className="text-sm text-red-700">
+                <span className="text-sm text-status-danger-ink">
                   Delete {selected.size} user{selected.size === 1 ? '' : 's'} permanently?
                 </span>
                 <Button
@@ -468,12 +476,12 @@ export function SchoolUsersTable({ schoolId }: SchoolUsersTableProps) {
         <div
           role="dialog"
           aria-labelledby="emergency-link-heading"
-          className="rounded-card border border-amber-300 bg-amber-50 p-5"
+          className="rounded-card border border-status-warning bg-status-warning-subtle p-5"
         >
-          <h3 id="emergency-link-heading" className="font-semibold text-amber-900">
+          <h3 id="emergency-link-heading" className="font-semibold text-status-warning-onSubtle">
             Emergency login link generated
           </h3>
-          <p className="mt-1 text-sm text-amber-800">
+          <p className="mt-1 text-sm text-status-warning-onSubtle">
             This link expires in 15 minutes and can only be used once. It signs
             the recipient in as {issued.userName} — treat it as a password.
           </p>
@@ -486,7 +494,7 @@ export function SchoolUsersTable({ schoolId }: SchoolUsersTableProps) {
               onFocus={(event) => {
                 event.target.select();
               }}
-              className="w-full rounded-lg border border-amber-300 bg-white px-3 py-2 font-mono text-xs text-slate-800"
+              className="w-full rounded-lg border border-status-warning bg-surface-raised px-3 py-2 font-mono text-xs text-ink"
             />
             <Button
               size="sm"
@@ -498,7 +506,7 @@ export function SchoolUsersTable({ schoolId }: SchoolUsersTableProps) {
             </Button>
           </div>
 
-          <p className="mt-3 text-xs text-amber-800">
+          <p className="mt-3 text-xs text-status-warning-onSubtle">
             Send this link directly to {issued.userName} via any channel.
           </p>
 
@@ -519,7 +527,7 @@ export function SchoolUsersTable({ schoolId }: SchoolUsersTableProps) {
 
       {users.length === 0 ? (
         <Card>
-          <p className="text-sm text-slate-600">
+          <p className="text-sm text-ink-muted">
             This school has no users yet — and nobody can be invited until it has
             one, because invitations are sent from inside the school portal.
             Create the first administrator here to open it up.
@@ -561,73 +569,73 @@ export function SchoolUsersTable({ schoolId }: SchoolUsersTableProps) {
           }
         >
           <div className="overflow-x-auto">
-            <table className="w-full text-left text-sm">
-              <thead className="border-b border-slate-200 text-xs uppercase tracking-wide text-slate-500">
-                <tr>
-                  <th scope="col" className="w-10 px-4 py-3">
+            <Table caption="Users at this school" className="rounded-none border-0">
+              <TableHead>
+                <TableRow>
+                  <TableHeaderCell className="w-10">
                     <input
                       ref={headerCheckbox}
                       type="checkbox"
                       aria-label="Select every user"
-                      className="h-4 w-4 rounded border-slate-300"
+                      className="h-4 w-4 rounded border-line-strong"
                       checked={users.length > 0 && selectedCount === users.length}
                       onChange={togglePage}
                     />
-                  </th>
-                  <th scope="col" className="px-4 py-3 font-medium">Name</th>
-                  <th scope="col" className="px-4 py-3 font-medium">Role</th>
-                  <th scope="col" className="px-4 py-3 font-medium">Email</th>
-                  <th scope="col" className="px-4 py-3 font-medium">Phone</th>
-                  <th scope="col" className="px-4 py-3 font-medium">Status</th>
-                  <th scope="col" className="px-4 py-3 text-right font-medium">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
+                  </TableHeaderCell>
+                  <TableHeaderCell>Name</TableHeaderCell>
+                  <TableHeaderCell>Role</TableHeaderCell>
+                  <TableHeaderCell>Email</TableHeaderCell>
+                  <TableHeaderCell>Phone</TableHeaderCell>
+                  <TableHeaderCell>Status</TableHeaderCell>
+                  <TableHeaderCell align="numeric">Actions</TableHeaderCell>
+                </TableRow>
+              </TableHead>
+              <TableBody>
                 {users.map((user) => {
                   const busy = pendingId === user.id;
                   const confirming = confirmDelete === user.id;
                   const hasEmail = user.email !== null && user.email !== '';
 
                   return (
-                    <tr key={user.id} className={user.isActive ? undefined : 'bg-slate-50'}>
-                      <td className="px-4 py-3 align-top">
+                    <TableRow key={user.id} className={user.isActive ? undefined : 'bg-surface-sunken'}>
+                      <TableCell>
                         <input
                           type="checkbox"
                           aria-label={`Select ${user.name}`}
-                          className="h-4 w-4 rounded border-slate-300"
+                          className="h-4 w-4 rounded border-line-strong"
                           checked={selected.has(user.id)}
                           onChange={() => {
                             toggle(user.id);
                           }}
                         />
-                      </td>
-                      <td className="px-4 py-3 align-top">
-                        <span className="font-medium text-slate-900">{user.name}</span>
+                      </TableCell>
+                      <TableCell>
+                        <span className="font-medium text-ink">{user.name}</span>
                         {user.branchName !== null ? (
-                          <span className="block text-xs text-slate-500">
+                          <span className="block text-xs text-ink-muted">
                             {user.branchName}
                           </span>
                         ) : null}
-                      </td>
-                      <td className="px-4 py-3 align-top text-slate-600">
+                      </TableCell>
+                      <TableCell muted>
                         {isUserRole(user.role) ? ROLE_LABELS[user.role] : user.role}
-                      </td>
-                      <td className="px-4 py-3 align-top text-slate-600">
+                      </TableCell>
+                      <TableCell muted>
                         {hasEmail ? (
                           user.email
                         ) : (
                           <span
-                            className="text-amber-700"
+                            className="text-status-warning-ink"
                             title="Sign-in is by email, so this account cannot be used."
                           >
                             None — cannot sign in
                           </span>
                         )}
-                      </td>
-                      <td className="px-4 py-3 align-top font-mono text-xs text-slate-600">
+                      </TableCell>
+                      <TableCell muted className="font-mono text-xs">
                         {user.phone}
-                      </td>
-                      <td className="px-4 py-3 align-top">
+                      </TableCell>
+                      <TableCell>
                         {!user.isActive ? (
                           <Badge variant="danger">Deactivated</Badge>
                         ) : user.hasAuthAccount ? (
@@ -635,11 +643,11 @@ export function SchoolUsersTable({ schoolId }: SchoolUsersTableProps) {
                         ) : (
                           <Badge variant="warning">Never signed in</Badge>
                         )}
-                      </td>
-                      <td className="px-4 py-3 align-top">
+                      </TableCell>
+                      <TableCell>
                         {confirming ? (
                           <div className="flex flex-nowrap items-center justify-end gap-2 whitespace-nowrap">
-                            <span className="text-xs text-red-700">
+                            <span className="text-xs text-status-danger-ink">
                               Delete {user.name} permanently?
                             </span>
                             <Button
@@ -710,7 +718,7 @@ export function SchoolUsersTable({ schoolId }: SchoolUsersTableProps) {
                               variant="ghost"
                               size="sm"
                               disabled={busy}
-                              className="text-red-600 hover:bg-red-50"
+                              className="text-status-danger-ink hover:bg-red-50"
                               onClick={() => {
                                 setConfirmDelete(user.id);
                                 setError(null);
@@ -721,12 +729,12 @@ export function SchoolUsersTable({ schoolId }: SchoolUsersTableProps) {
                             </Button>
                           </div>
                         )}
-                      </td>
-                    </tr>
+                      </TableCell>
+                    </TableRow>
                   );
                 })}
-              </tbody>
-            </table>
+              </TableBody>
+            </Table>
           </div>
         </Card>
       )}

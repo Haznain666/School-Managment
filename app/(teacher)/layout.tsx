@@ -1,7 +1,8 @@
 import type { CSSProperties, ReactNode } from 'react';
 
+import { PortalFrame } from '@/components/school/PortalFrame';
 import { TeacherNavbar } from '@/components/teacher/TeacherNavbar';
-import { TeacherSidebar } from '@/components/teacher/TeacherSidebar';
+import { TEACHER_NAV } from '@/components/teacher/teacher-nav';
 import { paletteToCSSVars } from '@/lib/branding';
 import { requireSchoolRole } from '@/lib/school-guard';
 import { getSchoolUserByUid } from '@/lib/school-queries';
@@ -29,20 +30,26 @@ export default async function TeacherLayout({ children }: { children: ReactNode 
     branding?.palette ?? null,
   ) as unknown as CSSProperties;
 
-  return (
-    <div style={brandStyle} className="flex h-screen bg-brand-background text-brand-text">
-      <TeacherSidebar />
+  const schoolName = branding?.name ?? 'School';
 
-      <div className="flex min-w-0 flex-1 flex-col">
-        <TeacherNavbar
-          schoolName={branding?.name ?? 'School'}
-          logoUrl={branding?.logoUrl ?? null}
-          userName={profile?.name ?? ''}
-          role={claims.role}
-          schoolSlug={claims.schoolSlug}
-        />
-        <main className="flex-1 overflow-y-auto p-6">{children}</main>
-      </div>
+  return (
+    <div style={brandStyle} className="bg-brand-background text-brand-text">
+      <PortalFrame
+        items={TEACHER_NAV}
+        ariaLabel="Teacher navigation"
+        drawerTitle={schoolName}
+        header={
+          <TeacherNavbar
+            schoolName={schoolName}
+            logoUrl={branding?.logoUrl ?? null}
+            userName={profile?.name ?? ''}
+            role={claims.role}
+            schoolSlug={claims.schoolSlug}
+          />
+        }
+      >
+        {children}
+      </PortalFrame>
     </div>
   );
 }

@@ -8,6 +8,14 @@ import { Button } from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeaderCell,
+  TableRow,
+} from '@/components/ui/Table';
 import { describeSubdomainStatus } from '@/lib/subdomain-status';
 import { superAdminFetch, SuperAdminApiError } from '@/lib/super-admin-client';
 
@@ -174,30 +182,30 @@ export function SchoolTable() {
       </div>
 
       {error !== null ? (
-        <p role="alert" className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">
+        <p role="alert" className="rounded-lg bg-status-danger-subtle px-3 py-2 text-sm text-status-danger-ink">
           {error}
         </p>
       ) : null}
 
       {rows === null ? (
         <Card>
-          <p className="text-sm text-slate-500">Loading schools…</p>
+          <p className="text-sm text-ink-muted">Loading schools…</p>
         </Card>
       ) : rows.length === 0 ? (
         <Card>
-          <p className="text-sm text-slate-600">
+          <p className="text-sm text-ink-muted">
             No schools match those filters.
           </p>
         </Card>
       ) : (
         <Card className="p-0">
           <div className="overflow-x-auto">
-            <table className="w-full text-left text-sm">
-              <thead className="border-b border-slate-200 text-xs uppercase tracking-wide text-slate-500">
-                <tr>
-                  <th scope="col" className="px-4 py-3 font-medium">Name</th>
-                  <th scope="col" className="px-4 py-3 font-medium">City</th>
-                  <th scope="col" className="px-4 py-3 font-medium">Slug</th>
+            <Table caption="Schools" className="rounded-none border-0">
+              <TableHead>
+                <TableRow>
+                  <TableHeaderCell>Name</TableHeaderCell>
+                  <TableHeaderCell>City</TableHeaderCell>
+                  <TableHeaderCell>Slug</TableHeaderCell>
                   {/*
                     Named "Tenant ID", not "GHL Location ID". The column holds
                     `schools.location_id`, which stopped being a GoHighLevel
@@ -206,27 +214,27 @@ export function SchoolTable() {
                     the school's Integrations tab. The old heading labelled a
                     plain uuid as something it is not.
                   */}
-                  <th scope="col" className="px-4 py-3 font-medium">Tenant ID</th>
-                  <th scope="col" className="px-4 py-3 font-medium">Subdomain</th>
-                  <th scope="col" className="px-4 py-3 font-medium">Active</th>
-                  <th scope="col" className="px-4 py-3 text-right font-medium">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
+                  <TableHeaderCell>Tenant ID</TableHeaderCell>
+                  <TableHeaderCell>Subdomain</TableHeaderCell>
+                  <TableHeaderCell>Active</TableHeaderCell>
+                  <TableHeaderCell align="numeric">Actions</TableHeaderCell>
+                </TableRow>
+              </TableHead>
+              <TableBody>
                 {rows.map((school) => (
-                  <tr key={school.id}>
-                    <td className="px-4 py-3">
+                  <TableRow key={school.id}>
+                    <TableCell>
                       <Link
                         href={`/super-admin/schools/${school.id}`}
-                        className="font-medium text-slate-900 hover:text-brand-primary"
+                        className="font-medium text-ink hover:text-brand-primary"
                       >
                         {school.name}
                       </Link>
-                    </td>
-                    <td className="px-4 py-3 text-slate-600">{school.city}</td>
-                    <td className="px-4 py-3 font-mono text-xs text-slate-600">
+                    </TableCell>
+                    <TableCell muted>{school.city}</TableCell>
+                    <TableCell muted className="font-mono text-xs">
                       {school.slug}
-                    </td>
+                    </TableCell>
                     {/*
                       Truncated with CSS rather than by slicing the string, so
                       the full uuid is still in the DOM: selecting the cell
@@ -234,19 +242,16 @@ export function SchoolTable() {
                       hover. Slicing would have made the one thing this column
                       is for — copying the id — impossible.
                     */}
-                    <td
-                      title={school.locationId}
-                      className="max-w-[10rem] truncate px-4 py-3 font-mono text-xs text-slate-600"
-                    >
+                    <TableCell muted className="max-w-[10rem] truncate font-mono text-xs" title={school.locationId}>
                       {school.locationId}
-                    </td>
+                    </TableCell>
                     {/*
                       The error, when there is one, is shown on the row rather
                       than behind a tooltip: a failed provision is the reason
                       the school is unreachable, and an operator should not have
                       to hover to discover why.
                     */}
-                    <td className="px-4 py-3">
+                    <TableCell>
                       {(() => {
                         const state = describeSubdomainStatus(school.subdomainStatus);
                         return (
@@ -254,20 +259,20 @@ export function SchoolTable() {
                             <Badge variant={state.variant}>{state.label}</Badge>
                             {school.subdomainError != null &&
                               school.subdomainError !== '' && (
-                                <p className="max-w-[16rem] text-xs text-red-700">
+                                <p className="max-w-[16rem] text-xs text-status-danger-ink">
                                   {school.subdomainError}
                                 </p>
                               )}
                           </div>
                         );
                       })()}
-                    </td>
-                    <td className="px-4 py-3">
+                    </TableCell>
+                    <TableCell>
                       <Badge variant={school.isActive ? 'success' : 'danger'}>
                         {school.isActive ? 'Active' : 'Inactive'}
                       </Badge>
-                    </td>
-                    <td className="px-4 py-3">
+                    </TableCell>
+                    <TableCell>
                       {/*
                         All three are buttons of the same size and variant, on
                         one baseline. Two links and a button meant three
@@ -353,11 +358,11 @@ export function SchoolTable() {
                           </Button>
                         )}
                       </div>
-                    </td>
-                  </tr>
+                    </TableCell>
+                  </TableRow>
                 ))}
-              </tbody>
-            </table>
+              </TableBody>
+            </Table>
           </div>
         </Card>
       )}

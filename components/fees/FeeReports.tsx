@@ -8,6 +8,14 @@ import { Button } from '@/components/ui/Button';
 import { Card, CardTitle } from '@/components/ui/Card';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeaderCell,
+  TableRow,
+} from '@/components/ui/Table';
 import { MONTH_NAMES } from '@/db/schema/academic-years';
 import { formatAmount, formatPkr } from '@/lib/money';
 import { schoolErrorMessage, schoolFetch } from '@/lib/school-client';
@@ -116,7 +124,7 @@ function OutstandingSection({ grades }: { grades: readonly GradeOption[] }) {
       }
       className="p-0"
     >
-      <div className="grid gap-4 border-b border-slate-200 px-5 py-4 sm:grid-cols-2 lg:grid-cols-3">
+      <div className="grid gap-4 border-b border-line px-5 py-4 sm:grid-cols-2 lg:grid-cols-3">
         <Select
           label="Grade"
           options={[
@@ -137,8 +145,8 @@ function OutstandingSection({ grades }: { grades: readonly GradeOption[] }) {
           }}
         />
         <div className="flex items-end">
-          <p className="text-sm text-slate-600">
-            <span className="font-semibold text-slate-900">{formatPkr(total)}</span>{' '}
+          <p className="text-sm text-ink-muted">
+            <span className="font-semibold text-ink">{formatPkr(total)}</span>{' '}
             outstanding across {(rows ?? []).length} challan
             {(rows ?? []).length === 1 ? '' : 's'}.
           </p>
@@ -146,70 +154,70 @@ function OutstandingSection({ grades }: { grades: readonly GradeOption[] }) {
       </div>
 
       {error !== null ? (
-        <p role="alert" className="px-5 py-3 text-sm text-red-700">
+        <p role="alert" className="px-5 py-3 text-sm text-status-danger-ink">
           {error}
         </p>
       ) : null}
 
       {rows === null ? (
-        <p className="px-5 py-4 text-sm text-slate-500">Loading…</p>
+        <p className="px-5 py-4 text-sm text-ink-muted">Loading…</p>
       ) : rows.length === 0 ? (
-        <p className="px-5 py-4 text-sm text-slate-600">
+        <p className="px-5 py-4 text-sm text-ink-muted">
           Nothing is outstanding for these filters.
         </p>
       ) : (
         <div className="max-h-96 overflow-auto">
-          <table className="w-full text-left text-sm">
-            <thead className="sticky top-0 border-b border-slate-200 bg-white text-xs uppercase tracking-wide text-slate-500">
-              <tr>
-                <th scope="col" className="px-5 py-3 font-medium">Student</th>
-                <th scope="col" className="px-5 py-3 font-medium">Class</th>
-                <th scope="col" className="px-5 py-3 font-medium">Period</th>
-                <th scope="col" className="px-5 py-3 font-medium">Due</th>
-                <th scope="col" className="px-5 py-3 text-right font-medium">Overdue</th>
-                <th scope="col" className="px-5 py-3 text-right font-medium">Balance</th>
-                <th scope="col" className="px-5 py-3 font-medium">
+          <Table caption="Collection summary" className="rounded-none border-0">
+            <TableHead>
+              <TableRow>
+                <TableHeaderCell>Student</TableHeaderCell>
+                <TableHeaderCell>Class</TableHeaderCell>
+                <TableHeaderCell>Period</TableHeaderCell>
+                <TableHeaderCell>Due</TableHeaderCell>
+                <TableHeaderCell align="numeric">Overdue</TableHeaderCell>
+                <TableHeaderCell align="numeric">Balance</TableHeaderCell>
+                <TableHeaderCell>
                   <span className="sr-only">Challan</span>
-                </th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100">
+                </TableHeaderCell>
+              </TableRow>
+            </TableHead>
+            <TableBody>
               {rows.map((row) => (
-                <tr key={row.challanId}>
-                  <td className="px-5 py-2.5">
-                    <p className="font-medium text-slate-900">{row.studentName}</p>
-                    <p className="font-mono text-xs text-slate-500">{row.studentId}</p>
-                  </td>
-                  <td className="px-5 py-2.5 text-slate-600">
+                <TableRow key={row.challanId}>
+                  <TableCell>
+                    <p className="font-medium text-ink">{row.studentName}</p>
+                    <p className="font-mono text-xs text-ink-muted">{row.studentId}</p>
+                  </TableCell>
+                  <TableCell muted>
                     {row.gradeName ?? '—'}
                     {row.sectionName === null ? '' : ` ${row.sectionName}`}
-                  </td>
-                  <td className="px-5 py-2.5 text-slate-600">{periodLabel(row)}</td>
-                  <td className="px-5 py-2.5 text-slate-600">{row.dueDate}</td>
-                  <td className="px-5 py-2.5 text-right">
+                  </TableCell>
+                  <TableCell muted>{periodLabel(row)}</TableCell>
+                  <TableCell muted>{row.dueDate}</TableCell>
+                  <TableCell align="numeric">
                     {row.daysOverdue === 0 ? (
-                      <span className="text-slate-500">—</span>
+                      <span className="text-ink-muted">—</span>
                     ) : (
                       <Badge variant={row.daysOverdue >= 30 ? 'danger' : 'warning'}>
                         {row.daysOverdue}d
                       </Badge>
                     )}
-                  </td>
-                  <td className="px-5 py-2.5 text-right font-medium text-slate-900">
+                  </TableCell>
+                  <TableCell rowHeader align="numeric">
                     {formatAmount(row.balance)}
-                  </td>
-                  <td className="px-5 py-2.5 text-right">
+                  </TableCell>
+                  <TableCell align="numeric">
                     <Link
                       href={`/dashboard/fees/challans/${row.challanId}`}
                       className="text-sm font-medium text-brand-primary hover:underline"
                     >
                       View
                     </Link>
-                  </td>
-                </tr>
+                  </TableCell>
+                </TableRow>
               ))}
-            </tbody>
-          </table>
+            </TableBody>
+          </Table>
         </div>
       )}
     </Card>
@@ -267,7 +275,7 @@ function CollectionSection() {
       }
       className="p-0"
     >
-      <div className="grid gap-4 border-b border-slate-200 px-5 py-4 sm:grid-cols-3">
+      <div className="grid gap-4 border-b border-line px-5 py-4 sm:grid-cols-3">
         <Input
           label="From"
           type="date"
@@ -285,8 +293,8 @@ function CollectionSection() {
           }}
         />
         <div className="flex items-end">
-          <p className="text-sm text-slate-600">
-            <span className="font-semibold text-slate-900">
+          <p className="text-sm text-ink-muted">
+            <span className="font-semibold text-ink">
               {formatPkr(data?.total ?? 0)}
             </span>{' '}
             across {data?.paymentCount ?? 0} payment
@@ -296,34 +304,34 @@ function CollectionSection() {
       </div>
 
       {error !== null ? (
-        <p role="alert" className="px-5 py-3 text-sm text-red-700">
+        <p role="alert" className="px-5 py-3 text-sm text-status-danger-ink">
           {error}
         </p>
       ) : null}
 
       {data === null ? (
-        <p className="px-5 py-4 text-sm text-slate-500">Loading…</p>
+        <p className="px-5 py-4 text-sm text-ink-muted">Loading…</p>
       ) : data.months.length === 0 ? (
-        <p className="px-5 py-4 text-sm text-slate-600">
+        <p className="px-5 py-4 text-sm text-ink-muted">
           No payments were recorded in this range.
         </p>
       ) : (
-        <table className="w-full text-left text-sm">
-          <thead className="border-b border-slate-200 text-xs uppercase tracking-wide text-slate-500">
-            <tr>
-              <th scope="col" className="px-5 py-3 font-medium">Month</th>
-              <th scope="col" className="px-5 py-3 font-medium">Share</th>
-              <th scope="col" className="px-5 py-3 text-right font-medium">Payments</th>
-              <th scope="col" className="px-5 py-3 text-right font-medium">Collected</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-slate-100">
+        <Table caption="Outstanding by age" className="rounded-none border-0">
+          <TableHead>
+            <TableRow>
+              <TableHeaderCell>Month</TableHeaderCell>
+              <TableHeaderCell>Share</TableHeaderCell>
+              <TableHeaderCell align="numeric">Payments</TableHeaderCell>
+              <TableHeaderCell align="numeric">Collected</TableHeaderCell>
+            </TableRow>
+          </TableHead>
+          <TableBody>
             {data.months.map((month) => (
-              <tr key={`${month.year}-${month.month}`}>
-                <td className="px-5 py-2.5 text-slate-900">
+              <TableRow key={`${month.year}-${month.month}`}>
+                <TableCell>
                   {MONTH_NAMES[month.month - 1] ?? month.month} {month.year}
-                </td>
-                <td className="px-5 py-2.5">
+                </TableCell>
+                <TableCell>
                   {/* A bar rather than a chart library: one number per row,
                       compared against the best month in the range. */}
                   <span
@@ -333,17 +341,17 @@ function CollectionSection() {
                       width: `${Math.max((Number(month.collected) / peak) * 100, 2)}%`,
                     }}
                   />
-                </td>
-                <td className="px-5 py-2.5 text-right text-slate-600">
+                </TableCell>
+                <TableCell align="numeric" muted>
                   {month.paymentCount}
-                </td>
-                <td className="px-5 py-2.5 text-right font-medium text-slate-900">
+                </TableCell>
+                <TableCell rowHeader align="numeric">
                   {formatAmount(month.collected)}
-                </td>
-              </tr>
+                </TableCell>
+              </TableRow>
             ))}
-          </tbody>
-        </table>
+          </TableBody>
+        </Table>
       )}
     </Card>
   );
@@ -452,7 +460,7 @@ function DefaultersSection({
       }
       className="p-0"
     >
-      <div className="grid gap-4 border-b border-slate-200 px-5 py-4 sm:grid-cols-3">
+      <div className="grid gap-4 border-b border-line px-5 py-4 sm:grid-cols-3">
         <Input
           label="Minimum days overdue"
           type="number"
@@ -475,8 +483,8 @@ function DefaultersSection({
           }}
         />
         <div className="flex items-end">
-          <p className="text-sm text-slate-600">
-            <span className="font-semibold text-slate-900">
+          <p className="text-sm text-ink-muted">
+            <span className="font-semibold text-ink">
               {formatPkr(totalOutstanding)}
             </span>{' '}
             across {(rows ?? []).length} challan
@@ -486,69 +494,69 @@ function DefaultersSection({
       </div>
 
       {error !== null ? (
-        <p role="alert" className="px-5 py-3 text-sm text-red-700">
+        <p role="alert" className="px-5 py-3 text-sm text-status-danger-ink">
           {error}
         </p>
       ) : null}
 
       {notice !== null ? (
-        <p className="px-5 py-3 text-sm text-emerald-700">{notice}</p>
+        <p className="px-5 py-3 text-sm text-status-success-ink">{notice}</p>
       ) : null}
 
       {rows === null ? (
-        <p className="px-5 py-4 text-sm text-slate-500">Loading…</p>
+        <p className="px-5 py-4 text-sm text-ink-muted">Loading…</p>
       ) : rows.length === 0 ? (
-        <p className="px-5 py-4 text-sm text-slate-600">
+        <p className="px-5 py-4 text-sm text-ink-muted">
           Nobody is more than {minDays || '30'} days overdue. That is worth knowing.
         </p>
       ) : (
         <div className="max-h-96 overflow-auto">
-          <table className="w-full text-left text-sm">
-            <thead className="sticky top-0 border-b border-slate-200 bg-white text-xs uppercase tracking-wide text-slate-500">
-              <tr>
-                <th scope="col" className="px-5 py-3 font-medium">Student</th>
-                <th scope="col" className="px-5 py-3 font-medium">Class</th>
-                <th scope="col" className="px-5 py-3 font-medium">Guardian</th>
-                <th scope="col" className="px-5 py-3 text-right font-medium">Overdue</th>
-                <th scope="col" className="px-5 py-3 text-right font-medium">Balance</th>
-                <th scope="col" className="px-5 py-3 font-medium">
+          <Table caption="Defaulters" className="rounded-none border-0">
+            <TableHead>
+              <TableRow>
+                <TableHeaderCell>Student</TableHeaderCell>
+                <TableHeaderCell>Class</TableHeaderCell>
+                <TableHeaderCell>Guardian</TableHeaderCell>
+                <TableHeaderCell align="numeric">Overdue</TableHeaderCell>
+                <TableHeaderCell align="numeric">Balance</TableHeaderCell>
+                <TableHeaderCell>
                   <span className="sr-only">Actions</span>
-                </th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100">
+                </TableHeaderCell>
+              </TableRow>
+            </TableHead>
+            <TableBody>
               {rows.map((row) => (
-                <tr key={row.challanId}>
-                  <td className="px-5 py-2.5">
+                <TableRow key={row.challanId}>
+                  <TableCell>
                     <Link
                       href={`/dashboard/fees/challans/${row.challanId}`}
-                      className="font-medium text-slate-900 hover:underline"
+                      className="font-medium text-ink hover:underline"
                     >
                       {row.studentName}
                     </Link>
-                    <p className="font-mono text-xs text-slate-500">
+                    <p className="font-mono text-xs text-ink-muted">
                       {row.challanNumber}
                     </p>
-                  </td>
-                  <td className="px-5 py-2.5 text-slate-600">
+                  </TableCell>
+                  <TableCell muted>
                     {row.gradeName ?? '—'}
                     {row.sectionName === null ? '' : ` ${row.sectionName}`}
-                  </td>
-                  <td className="px-5 py-2.5 text-slate-600">
+                  </TableCell>
+                  <TableCell muted>
                     {row.guardianName ?? '—'}
                     {row.guardianPhone === null ? null : (
-                      <span className="block font-mono text-xs text-slate-500">
+                      <span className="block font-mono text-xs text-ink-muted">
                         {row.guardianPhone}
                       </span>
                     )}
-                  </td>
-                  <td className="px-5 py-2.5 text-right">
+                  </TableCell>
+                  <TableCell align="numeric">
                     <Badge variant="danger">{row.daysOverdue}d</Badge>
-                  </td>
-                  <td className="px-5 py-2.5 text-right font-medium text-slate-900">
+                  </TableCell>
+                  <TableCell rowHeader align="numeric">
                     {formatAmount(row.balance)}
-                  </td>
-                  <td className="px-5 py-2.5 text-right">
+                  </TableCell>
+                  <TableCell align="numeric">
                     {canSendReminders && row.guardianPhone !== null ? (
                       <Button
                         size="sm"
@@ -561,11 +569,11 @@ function DefaultersSection({
                         Send reminder
                       </Button>
                     ) : null}
-                  </td>
-                </tr>
+                  </TableCell>
+                </TableRow>
               ))}
-            </tbody>
-          </table>
+            </TableBody>
+          </Table>
         </div>
       )}
     </Card>

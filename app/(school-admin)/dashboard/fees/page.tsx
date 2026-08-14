@@ -1,8 +1,18 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 
+import { BarChart } from '@/components/charts/BarChart';
+import { DonutChart } from '@/components/charts/DonutChart';
+import { LineChart } from '@/components/charts/LineChart';
 import { Card, CardTitle } from '@/components/ui/Card';
+import { PageHeader } from '@/components/ui/PageHeader';
+import { StatTile, StatTileGrid } from '@/components/ui/StatTile';
 import { getActiveAcademicYear } from '@/lib/admissions-queries';
+import {
+  getAgingBuckets,
+  getCollectionTrend,
+  getFeeStatusSplit,
+} from '@/lib/dashboard-queries';
 import { getFeeOverview } from '@/lib/fee-queries';
 import { formatPkr } from '@/lib/money';
 import { requireSchoolPermission } from '@/lib/school-guard';
@@ -13,26 +23,6 @@ export const metadata: Metadata = {
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
-
-function StatCard({
-  label,
-  value,
-  hint,
-}: {
-  label: string;
-  value: string;
-  hint: string;
-}) {
-  return (
-    <Card>
-      <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
-        {label}
-      </p>
-      <p className="mt-2 text-2xl font-bold text-slate-900">{value}</p>
-      <p className="mt-1 text-xs text-slate-500">{hint}</p>
-    </Card>
-  );
-}
 
 function ActionTile({
   href,
@@ -46,10 +36,10 @@ function ActionTile({
   return (
     <Link
       href={href}
-      className="block rounded-card border border-slate-200 bg-white p-4 shadow-card transition hover:border-brand-primary"
+      className="block rounded-card border border-line bg-surface-raised p-4 shadow-card transition hover:border-brand-primary"
     >
-      <p className="font-medium text-slate-900">{title}</p>
-      <p className="mt-1 text-sm text-slate-500">{description}</p>
+      <p className="font-medium text-ink">{title}</p>
+      <p className="mt-1 text-sm text-ink-muted">{description}</p>
     </Link>
   );
 }
@@ -69,9 +59,12 @@ const MONTH_LABEL = new Intl.DateTimeFormat('en-GB', {
 export default async function FeesOverviewPage() {
   const { locationId, permissions } = await requireSchoolPermission('fees.read');
 
-  const [overview, activeYear] = await Promise.all([
+  const [overview, activeYear, split, aging, trend] = await Promise.all([
     getFeeOverview(locationId),
     getActiveAcademicYear(locationId),
+    getFeeStatusSplit(locationId),
+    getAgingBuckets(locationId),
+    getCollectionTrend(locationId),
   ]);
 
   const thisMonth = MONTH_LABEL.format(new Date());
@@ -79,17 +72,15 @@ export default async function FeesOverviewPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h2 className="text-xl font-semibold text-slate-900">Fee Management</h2>
-        <p className="mt-1 text-sm text-slate-500">
-          Challans, collections and what is still owed — for {thisMonth}.
-        </p>
-      </div>
+      <PageHeader
+        title="Fee Management"
+        description={`Challans, collections and what is still owed — for ${thisMonth}.`}
+      />
 
       {!overview.hasFeeTypes ? (
         <Card>
-          <h3 className="text-base font-semibold text-slate-900">Setup required</h3>
-          <p className="mt-1 text-sm text-slate-600">
+          <h3 className="text-base font-semibold text-ink">Setup required</h3>
+          <p className="mt-1 text-sm text-ink-muted">
             No fee heads exist yet, so nothing can be priced or billed. Start by
             seeding the standard set — tuition, admission, annual charges, library
             and examination — then set what each grade pays.
@@ -105,10 +96,10 @@ export default async function FeesOverviewPage() {
 
       {activeYear === null ? (
         <Card>
-          <h3 className="text-base font-semibold text-slate-900">
+          <h3 className="text-base font-semibold text-ink">
             No active academic year
           </h3>
-          <p className="mt-1 text-sm text-slate-600">
+          <p className="mt-1 text-sm text-ink-muted">
             Fees are priced per academic year, so nothing can be billed until one
             is set as active.
           </p>
@@ -121,31 +112,99 @@ export default async function FeesOverviewPage() {
         </Card>
       ) : null}
 
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <StatCard
+      <StatTileGrid>
+        <StatTile
           label="Collected this month"
           value={formatPkr(overview.collectedThisMonth)}
-          hint={`Payments received in ${thisMonth}`}
+          detail={`Payments received in ${thisMonth}`}
         />
-        <StatCard
+        <StatTile
           label="Outstanding this month"
           value={formatPkr(overview.outstandingThisMonth)}
-          hint={`Still owed on ${thisMonth} challans`}
+          detail={`Still owed on ${thisMonth} challans`}
         />
-        <StatCard
+        <StatTile
           label="Overdue challans"
-          value={String(overview.overdueCount)}
-          hint="Past their due date and unsettled"
+          value={overview.overdueCount.toLocaleString()}
+          detail="Past their due date and unsettled"
         />
-        <StatCard
+        <StatTile
           label="Students with concessions"
-          value={String(overview.studentsWithConcessions)}
-          hint="Holding a discount in force today"
+          value={overview.studentsWithConcessions.toLocaleString()}
+          detail="Holding a discount in force today"
         />
+      </StatTileGrid>
+
+      <div className="grid gap-5 lg:grid-cols-2">
+        {split === null || split.collected + split.outstanding + split.overdue === 0 ? null : (
+          <Card
+            header={
+              <CardTitle
+                title="This year's billing"
+                description={`Everything raised for ${activeYear?.name ?? 'the active year'}`}
+              />
+            }
+          >
+            <DonutChart
+              title="Billing status for the year"
+              summary={`Of everything billed this year, ${formatPkr(split.collected)} is collected, ${formatPkr(split.outstanding)} is not yet due and ${formatPkr(split.overdue)} is overdue.`}
+              centerValue={`${Math.round(
+                (100 * split.collected) /
+                  Math.max(1, split.collected + split.outstanding + split.overdue),
+              )}%`}
+              centerLabel="collected"
+              /*
+                The three slices do not overlap and sum to everything billed —
+                see `getFeeStatusSplit`. A donut whose parts double-count adds
+                up to more than the whole it claims to divide.
+              */
+              slices={[
+                { label: 'Collected', value: split.collected, fillClass: 'fill-status-success' },
+                { label: 'Not yet due', value: split.outstanding, fillClass: 'fill-status-warning' },
+                { label: 'Overdue', value: split.overdue, fillClass: 'fill-status-danger' },
+              ]}
+              format={formatPkr}
+            />
+          </Card>
+        )}
+
+        {aging.every((bucket) => bucket.value === 0) ? null : (
+          <Card
+            header={
+              <CardTitle
+                title="Outstanding by age"
+                description="How long the unpaid balance has been unpaid"
+              />
+            }
+          >
+            <BarChart
+              title="Outstanding balance by age"
+              summary={`${formatPkr(aging.reduce((sum, b) => sum + b.value, 0))} outstanding in total, of which ${formatPkr(aging[aging.length - 1]?.value ?? 0)} is more than 90 days overdue.`}
+              categories={aging.map((bucket) => bucket.label)}
+              series={[{ label: 'Outstanding', values: aging.map((bucket) => bucket.value) }]}
+            />
+          </Card>
+        )}
       </div>
 
+      {trend.every((point) => point.value === 0) ? null : (
+        <Card
+          header={
+            <CardTitle title="Collection by month" description="Payments received, last 12 months" />
+          }
+        >
+          <LineChart
+            title="Fee collection by month"
+            summary={`Collections over the last ${trend.length} months, from ${formatPkr(trend[0]?.value ?? 0)} to ${formatPkr(trend[trend.length - 1]?.value ?? 0)}.`}
+            categories={trend.map((point) => point.label)}
+            series={[{ label: 'Collected', values: trend.map((point) => point.value) }]}
+            area
+          />
+        </Card>
+      )}
+
       <section className="space-y-3">
-        <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-500">
+        <h3 className="text-sm font-semibold uppercase tracking-wide text-ink-muted">
           Quick actions
         </h3>
 
@@ -183,21 +242,21 @@ export default async function FeesOverviewPage() {
           />
         }
       >
-        <ol className="space-y-3 text-sm text-slate-600">
+        <ol className="space-y-3 text-sm text-ink-muted">
           <li>
-            <span className="font-medium text-slate-900">1. Fee types</span> — the
+            <span className="font-medium text-ink">1. Fee types</span> — the
             heads you bill under, and whether each is monthly, one-off or annual.
           </li>
           <li>
-            <span className="font-medium text-slate-900">2. Fee structure</span> —
+            <span className="font-medium text-ink">2. Fee structure</span> —
             what every grade pays under every head, for this academic year.
           </li>
           <li>
-            <span className="font-medium text-slate-900">3. Concessions</span> —
+            <span className="font-medium text-ink">3. Concessions</span> —
             sibling, staff and hardship discounts, per student.
           </li>
           <li>
-            <span className="font-medium text-slate-900">4. Challans</span> —
+            <span className="font-medium text-ink">4. Challans</span> —
             generate monthly bills, print them, and record what comes in.
           </li>
         </ol>

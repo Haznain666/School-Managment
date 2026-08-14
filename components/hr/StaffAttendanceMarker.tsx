@@ -44,12 +44,12 @@ export interface StaffAttendanceMarkerProps {
 }
 
 const STATUS_STYLES: Record<StaffAttendanceStatus, string> = {
-  present: 'bg-emerald-600 text-white',
-  absent: 'bg-red-600 text-white',
-  late: 'bg-amber-500 text-white',
-  half_day: 'bg-sky-600 text-white',
-  leave: 'bg-violet-600 text-white',
-  holiday: 'bg-slate-500 text-white',
+  present: 'bg-status-success text-status-success-on',
+  absent: 'bg-status-danger text-status-danger-on',
+  late: 'bg-status-warning text-status-warning-on',
+  half_day: 'bg-status-info text-status-info-on',
+  leave: 'bg-brand-accent text-brand-onAccent',
+  holiday: 'bg-ink-muted text-surface',
 };
 
 function todayIso(): string {
@@ -124,13 +124,13 @@ export function StaffAttendanceMarker({ canEdit }: StaffAttendanceMarkerProps) {
   return (
     <div className="space-y-4">
       {error !== null ? (
-        <p role="alert" className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">
+        <p role="alert" className="rounded-lg bg-status-danger-subtle px-3 py-2 text-sm text-status-danger-ink">
           {error}
         </p>
       ) : null}
 
       {notice !== null ? (
-        <p className="rounded-lg bg-emerald-50 px-3 py-2 text-sm text-emerald-700">
+        <p className="rounded-lg bg-status-success-subtle px-3 py-2 text-sm text-status-success-ink">
           {notice}
         </p>
       ) : null}
@@ -151,11 +151,11 @@ export function StaffAttendanceMarker({ canEdit }: StaffAttendanceMarkerProps) {
 
       {roster === null ? (
         <Card>
-          <p className="text-sm text-slate-500">Loading the register…</p>
+          <p className="text-sm text-ink-muted">Loading the register…</p>
         </Card>
       ) : roster.length === 0 ? (
         <Card>
-          <p className="text-sm text-slate-600">
+          <p className="text-sm text-ink-muted">
             No active staff to mark. Add staff before taking the register.
           </p>
         </Card>
@@ -182,15 +182,15 @@ export function StaffAttendanceMarker({ canEdit }: StaffAttendanceMarkerProps) {
           }
           className="p-0"
         >
-          <ul className="divide-y divide-slate-100">
+          <ul className="divide-y divide-line">
             {roster.map((row) => (
               <li
                 key={row.id}
                 className="flex flex-wrap items-center justify-between gap-3 px-5 py-3"
               >
                 <div>
-                  <p className="font-medium text-slate-900">{row.fullName}</p>
-                  <p className="text-xs text-slate-500">
+                  <p className="font-medium text-ink">{row.fullName}</p>
+                  <p className="text-xs text-ink-muted">
                     {row.employeeCode}
                     {row.designation === null ? '' : ` · ${row.designation}`}
                   </p>
@@ -218,7 +218,7 @@ export function StaffAttendanceMarker({ canEdit }: StaffAttendanceMarkerProps) {
                           'disabled:cursor-not-allowed disabled:opacity-60',
                           isChosen
                             ? STATUS_STYLES[status]
-                            : 'bg-slate-100 text-slate-600 hover:bg-slate-200',
+                            : 'bg-surface-sunken text-ink-muted hover:bg-line',
                         )}
                       >
                         {STAFF_ATTENDANCE_STATUS_LABELS[status]}

@@ -1,9 +1,9 @@
 import type { Metadata } from 'next';
-import Link from 'next/link';
 import { notFound } from 'next/navigation';
 
 import { RecordPaymentForm } from '@/components/fees/RecordPaymentForm';
 import { Card } from '@/components/ui/Card';
+import { PageHeader } from '@/components/ui/PageHeader';
 import { CHALLAN_STATUS_LABELS } from '@/db/schema/fee-challans';
 import { remainingBalance } from '@/lib/fee-calculator';
 import { getChallanDetail } from '@/lib/fee-queries';
@@ -34,30 +34,36 @@ export default async function RecordPaymentPage({
 
   return (
     <div className="space-y-6">
-      <div>
-        <Link
-          href={`/dashboard/fees/challans/${challanId}`}
-          className="text-sm font-medium text-brand-primary hover:underline"
-        >
-          ← Back to challan
-        </Link>
-        <h2 className="mt-1 text-xl font-semibold text-slate-900">Record payment</h2>
-        <p className="mt-1 text-sm text-slate-500">
-          For <span className="font-mono">{challan.challanNumber}</span> ·{' '}
-          {challan.studentName}
-        </p>
-      </div>
+      <PageHeader
+        breadcrumbs={[
+          { label: 'Challans', href: '/dashboard/fees/challans' },
+          { label: challan.challanNumber, href: `/dashboard/fees/challans/${challanId}` },
+          { label: 'Record payment' },
+        ]}
+        title="Record payment"
+        description={
+          <>
+            {/*
+              Mono, as the challan number is everywhere else it appears: the
+              clerk on this screen is reading it off a paper voucher, and the
+              two should be comparable glyph for glyph.
+            */}
+            For <span className="font-mono">{challan.challanNumber}</span> ·{' '}
+            {challan.studentName}
+          </>
+        }
+      />
 
       {challan.status === 'cancelled' || challan.status === 'waived' ? (
         <Card>
-          <p className="text-sm text-slate-600">
+          <p className="text-sm text-ink-muted">
             This challan is {CHALLAN_STATUS_LABELS[challan.status].toLowerCase()}, so
             no payment can be recorded against it.
           </p>
         </Card>
       ) : balance <= 0 ? (
         <Card>
-          <p className="text-sm text-slate-600">
+          <p className="text-sm text-ink-muted">
             This challan is fully paid. There is nothing left to record.
           </p>
         </Card>

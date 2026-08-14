@@ -3,6 +3,7 @@ import Link from 'next/link';
 
 import { ChallanGenerator } from '@/components/fees/ChallanGenerator';
 import { Card } from '@/components/ui/Card';
+import { PageHeader } from '@/components/ui/PageHeader';
 import { listAcademicYears, listGrades } from '@/lib/admissions-queries';
 import { getDueDay, listFeeTypes } from '@/lib/fee-queries';
 import { requireSchoolPermission } from '@/lib/school-guard';
@@ -28,17 +29,14 @@ export default async function GenerateChallansPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h2 className="text-xl font-semibold text-slate-900">Generate challans</h2>
-        <p className="mt-1 text-sm text-slate-500">
-          Raise this month&rsquo;s bills. A student who already holds a challan for
-          the period is skipped, so a run can safely be repeated.
-        </p>
-      </div>
+      <PageHeader
+        title="Generate challans"
+        description="Raise this month&rsquo;s bills. A student who already holds a challan for the period is skipped, so a run can safely be repeated."
+      />
 
       {academicYears.length === 0 ? (
         <Card>
-          <p className="text-sm text-slate-600">
+          <p className="text-sm text-ink-muted">
             No academic years exist yet, so nothing can be billed.
           </p>
           <Link
@@ -50,7 +48,7 @@ export default async function GenerateChallansPage() {
         </Card>
       ) : !hasMonthlyType ? (
         <Card>
-          <p className="text-sm text-slate-600">
+          <p className="text-sm text-ink-muted">
             No active monthly fee head exists, so a monthly challan would be empty.
             Set up your fee types first.
           </p>

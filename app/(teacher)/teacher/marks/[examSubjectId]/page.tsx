@@ -48,7 +48,7 @@ export default async function TeacherMarksEntryPage({
   if (!(await teacherOwnsPaper(locationId, profile.id, examSubjectId))) {
     return (
       <Card>
-        <p className="text-sm text-slate-600">
+        <p className="text-sm text-ink-muted">
           That paper is not one of yours. You can only enter marks for a subject
           you are timetabled to teach to that class.
         </p>

@@ -97,14 +97,14 @@ export function ChannelToggleList({ schoolId }: ChannelToggleListProps) {
           return (
             <div
               key={channel.key}
-              className="flex items-start justify-between gap-6 border-b border-slate-100 pb-4 last:border-0 last:pb-0"
+              className="flex items-start justify-between gap-6 border-b border-line pb-4 last:border-0 last:pb-0"
             >
               <div className="min-w-0">
-                <p className="text-sm font-medium text-slate-900">{channel.label}</p>
-                <p className="mt-1 text-sm text-slate-500">{channel.description}</p>
+                <p className="text-sm font-medium text-ink">{channel.label}</p>
+                <p className="mt-1 text-sm text-ink-muted">{channel.description}</p>
 
                 {enabled ? null : (
-                  <p className="mt-2 text-sm text-amber-700">
+                  <p className="mt-2 text-sm text-status-warning-ink">
                     Guardians with no email address on file will not receive fee
                     notices while this is off.
                   </p>
@@ -126,11 +126,11 @@ export function ChannelToggleList({ schoolId }: ChannelToggleListProps) {
         })}
 
         {error !== null ? (
-          <p role="alert" className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">
+          <p role="alert" className="rounded-lg bg-status-danger-subtle px-3 py-2 text-sm text-status-danger-ink">
             {error}
           </p>
         ) : notice !== null ? (
-          <p role="status" className="rounded-lg bg-slate-50 px-3 py-2 text-sm text-slate-600">
+          <p role="status" className="rounded-lg bg-surface-sunken px-3 py-2 text-sm text-ink-muted">
             {notice}
           </p>
         ) : null}

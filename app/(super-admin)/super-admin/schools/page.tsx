@@ -3,6 +3,7 @@ import Link from 'next/link';
 
 import { SchoolTable } from '@/components/super-admin/SchoolTable';
 import { Button } from '@/components/ui/Button';
+import { PageHeader } from '@/components/ui/PageHeader';
 
 export const metadata: Metadata = {
   title: 'Schools',
@@ -13,19 +14,15 @@ export const dynamic = 'force-dynamic';
 export default function SchoolsPage() {
   return (
     <div className="space-y-6">
-      <div className="flex items-start justify-between gap-4">
-        <div>
-          <h2 className="text-xl font-semibold text-slate-900">Schools</h2>
-          <p className="mt-1 text-sm text-slate-500">
-            Every tenant on the platform. GoHighLevel is optional and is
-            connected per school on its Integrations tab.
-          </p>
-        </div>
-
-        <Link href="/super-admin/schools/new">
-          <Button>Add School</Button>
-        </Link>
-      </div>
+      <PageHeader
+        title="Schools"
+        description="Every tenant on the platform. GoHighLevel is optional and is connected per school on its Integrations tab."
+        actions={
+          <Link href="/super-admin/schools/new">
+            <Button>Add School</Button>
+          </Link>
+        }
+      />
 
       <SchoolTable />
     </div>

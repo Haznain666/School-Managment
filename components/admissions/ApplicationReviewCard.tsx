@@ -126,7 +126,7 @@ export function ApplicationReviewCard({
   if (isConverted) {
     return (
       <Card header={<CardTitle title="Review" />}>
-        <p className="text-sm text-slate-600">
+        <p className="text-sm text-ink-muted">
           This application has already been converted into an enrolment, so it can
           no longer be changed.
         </p>
@@ -176,7 +176,7 @@ export function ApplicationReviewCard({
           }}
         />
 
-        <label className="flex items-center gap-2 text-sm text-slate-700">
+        <label className="flex items-center gap-2 text-sm text-ink">
           <input
             type="checkbox"
             className="h-4 w-4"
@@ -200,18 +200,18 @@ export function ApplicationReviewCard({
         </Button>
 
         {status === 'accepted' ? (
-          <div className="rounded-lg border border-slate-200 p-4">
-            <h3 className="text-sm font-semibold text-slate-900">
+          <div className="rounded-lg border border-line p-4">
+            <h3 className="text-sm font-semibold text-ink">
               Convert to enrolment
             </h3>
 
             {!hasGrade ? (
-              <p className="mt-2 text-sm text-amber-800">
+              <p className="mt-2 text-sm text-status-warning-onSubtle">
                 This application does not name a grade, so there is nowhere to
                 place the student. Enrol them manually instead.
               </p>
             ) : sections.length === 0 ? (
-              <p className="mt-2 text-sm text-amber-800">
+              <p className="mt-2 text-sm text-status-warning-onSubtle">
                 The requested grade has no sections in the active academic year.
                 Add one on the Grades &amp; Sections page first.
               </p>
@@ -229,7 +229,7 @@ export function ApplicationReviewCard({
                     setSectionId(event.target.value);
                   }}
                 />
-                <p className="text-sm text-slate-600">
+                <p className="text-sm text-ink-muted">
                   This creates the student record, the placement and the guardian,
                   and syncs both to GoHighLevel — the same as a direct enrolment.
                 </p>
@@ -248,13 +248,13 @@ export function ApplicationReviewCard({
         ) : null}
 
         {notice !== null ? (
-          <p className="rounded-lg bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
+          <p className="rounded-lg bg-status-success-subtle px-3 py-2 text-sm text-status-success-onSubtle">
             {notice}
           </p>
         ) : null}
 
         {error !== null ? (
-          <p role="alert" className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">
+          <p role="alert" className="rounded-lg bg-status-danger-subtle px-3 py-2 text-sm text-status-danger-ink">
             {error}
           </p>
         ) : null}

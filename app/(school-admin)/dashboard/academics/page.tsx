@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 
 import { Card } from '@/components/ui/Card';
+import { PageHeader } from '@/components/ui/PageHeader';
 import { listSubjects, listTimetableSlots } from '@/lib/academics-queries';
 import { getActiveAcademicYear } from '@/lib/admissions-queries';
 import { requireSchoolPermission } from '@/lib/school-guard';
@@ -16,11 +17,11 @@ export const runtime = 'nodejs';
 function StatCard({ label, value, hint }: { label: string; value: number; hint: string }) {
   return (
     <Card>
-      <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
+      <p className="text-xs font-medium uppercase tracking-wide text-ink-muted">
         {label}
       </p>
-      <p className="mt-2 text-3xl font-bold text-slate-900">{value}</p>
-      <p className="mt-1 text-xs text-slate-500">{hint}</p>
+      <p className="mt-2 text-3xl font-bold text-ink">{value}</p>
+      <p className="mt-1 text-xs text-ink-muted">{hint}</p>
     </Card>
   );
 }
@@ -37,10 +38,10 @@ function ActionTile({
   return (
     <Link
       href={href}
-      className="block rounded-card border border-slate-200 bg-white p-4 shadow-card transition hover:border-brand-primary"
+      className="block rounded-card border border-line bg-surface-raised p-4 shadow-card transition hover:border-brand-primary"
     >
-      <p className="font-medium text-slate-900">{title}</p>
-      <p className="mt-1 text-sm text-slate-500">{description}</p>
+      <p className="font-medium text-ink">{title}</p>
+      <p className="mt-1 text-sm text-ink-muted">{description}</p>
     </Link>
   );
 }
@@ -65,19 +66,17 @@ export default async function AcademicsOverviewPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h2 className="text-xl font-semibold text-slate-900">Academics</h2>
-        <p className="mt-1 text-sm text-slate-500">
-          What the school teaches, when it teaches it, and who was there.
-        </p>
-      </div>
+      <PageHeader
+        title="Academics"
+        description="What the school teaches, when it teaches it, and who was there."
+      />
 
       {activeYear === null ? (
         <Card>
-          <h3 className="text-base font-semibold text-slate-900">
+          <h3 className="text-base font-semibold text-ink">
             No active academic year
           </h3>
-          <p className="mt-1 text-sm text-slate-600">
+          <p className="mt-1 text-sm text-ink-muted">
             Timetables and registers are both filed against a year, so nothing
             here can be set up until one is active.
           </p>
@@ -109,7 +108,7 @@ export default async function AcademicsOverviewPage() {
       </div>
 
       <section className="space-y-3">
-        <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-500">
+        <h3 className="text-sm font-semibold uppercase tracking-wide text-ink-muted">
           Quick actions
         </h3>
 

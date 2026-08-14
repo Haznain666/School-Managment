@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import { notFound } from 'next/navigation';
 
 import { SubjectForm } from '@/components/academics/SubjectForm';
+import { PageHeader } from '@/components/ui/PageHeader';
 import { getSubject } from '@/lib/academics-queries';
 import { requireSchoolPermission } from '@/lib/school-guard';
 import { isUuid } from '@/lib/validation';
@@ -33,13 +34,10 @@ export default async function EditSubjectPage({
 
   return (
     <div className="max-w-3xl space-y-6">
-      <div>
-        <h2 className="text-xl font-semibold text-slate-900">Edit subject</h2>
-        <p className="mt-1 text-sm text-slate-500">
-          Renaming affects every timetable this subject appears in, past and
-          present.
-        </p>
-      </div>
+      <PageHeader
+        title="Edit subject"
+        description="Renaming affects every timetable this subject appears in, past and present."
+      />
 
       <SubjectForm subject={subject} />
     </div>

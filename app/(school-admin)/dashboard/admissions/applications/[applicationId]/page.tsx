@@ -60,7 +60,7 @@ export default async function ApplicationDetailPage({
           ← All applications
         </Link>
 
-        <span className="font-mono text-xs text-slate-500">
+        <span className="font-mono text-xs text-ink-muted">
           Ref {applicationReference(application.id)}
         </span>
       </div>
@@ -97,8 +97,8 @@ export default async function ApplicationDetailPage({
           <Detail label="Academic year" value={application.academicYearName} />
         </dl>
 
-        <div className="mt-5 border-t border-slate-200 pt-4">
-          <h3 className="text-sm font-semibold text-slate-900">Parent or guardian</h3>
+        <div className="mt-5 border-t border-line pt-4">
+          <h3 className="text-sm font-semibold text-ink">Parent or guardian</h3>
           <dl className="mt-3 grid gap-x-6 gap-y-3 sm:grid-cols-2">
             <Detail label="Name" value={application.guardianName} />
             <Detail label="Relationship" value={application.guardianRelationship} />
@@ -109,23 +109,23 @@ export default async function ApplicationDetailPage({
         </div>
 
         {application.notes === null ? null : (
-          <div className="mt-5 border-t border-slate-200 pt-4">
-            <h3 className="text-sm font-semibold text-slate-900">Notes</h3>
-            <p className="mt-2 whitespace-pre-line text-sm text-slate-600">
+          <div className="mt-5 border-t border-line pt-4">
+            <h3 className="text-sm font-semibold text-ink">Notes</h3>
+            <p className="mt-2 whitespace-pre-line text-sm text-ink-muted">
               {application.notes}
             </p>
           </div>
         )}
 
         {application.statusReason === null ? null : (
-          <div className="mt-5 border-t border-slate-200 pt-4">
-            <h3 className="text-sm font-semibold text-slate-900">Decision reason</h3>
-            <p className="mt-2 text-sm text-slate-600">{application.statusReason}</p>
+          <div className="mt-5 border-t border-line pt-4">
+            <h3 className="text-sm font-semibold text-ink">Decision reason</h3>
+            <p className="mt-2 text-sm text-ink-muted">{application.statusReason}</p>
           </div>
         )}
 
         {application.convertedToStudentProfileId === null ? null : (
-          <p className="mt-5 rounded-lg bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
+          <p className="mt-5 rounded-lg bg-status-success-subtle px-3 py-2 text-sm text-status-success-onSubtle">
             Enrolled.{' '}
             <Link
               href={`/dashboard/admissions/students/${application.convertedToStudentProfileId}`}
@@ -156,7 +156,7 @@ export default async function ApplicationDetailPage({
       ) : null}
 
       {canReview && application.convertedToStudentProfileId === null ? (
-        <p className="text-sm text-slate-500">
+        <p className="text-sm text-ink-muted">
           Prefer to adjust the details first?{' '}
           <Link
             href={`/dashboard/admissions/enroll?fromApplication=${application.id}`}
@@ -174,10 +174,10 @@ export default async function ApplicationDetailPage({
 function Detail({ label, value }: { label: string; value: string | null }) {
   return (
     <div>
-      <dt className="text-xs font-medium uppercase tracking-wide text-slate-500">
+      <dt className="text-xs font-medium uppercase tracking-wide text-ink-muted">
         {label}
       </dt>
-      <dd className="mt-0.5 text-sm text-slate-900">
+      <dd className="mt-0.5 text-sm text-ink">
         {value === null || value === '' ? '—' : value}
       </dd>
     </div>

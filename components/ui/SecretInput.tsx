@@ -61,7 +61,7 @@ export function SecretInput({
     <div className="w-full">
       <label
         htmlFor={inputId}
-        className="mb-1.5 block text-sm font-medium text-slate-700"
+        className="mb-1.5 block text-sm font-medium text-ink"
       >
         {label}
       </label>
@@ -89,13 +89,13 @@ export function SecretInput({
                 } as CSSProperties)
           }
           className={cn(
-            'block w-full rounded-lg border bg-white py-2 pl-3 pr-11 text-sm text-slate-900',
-            'placeholder:text-slate-400',
+            'block w-full rounded-lg border bg-surface-raised py-2 pl-3 pr-11 text-sm text-ink',
+            'placeholder:text-ink-muted',
             'focus:outline focus:outline-2 focus:outline-offset-0',
-            'disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-slate-500',
+            'disabled:cursor-not-allowed disabled:bg-surface-sunken disabled:text-ink-muted',
             hasError
-              ? 'border-red-400 focus:outline-red-500'
-              : 'border-slate-300 focus:outline-brand-primary',
+              ? 'border-status-danger focus:outline-status-danger'
+              : 'border-line-strong focus:outline-brand-primary',
             className,
           )}
           {...rest}
@@ -113,9 +113,9 @@ export function SecretInput({
           }}
           className={cn(
             'absolute inset-y-0 right-0 flex w-10 items-center justify-center',
-            'rounded-r-lg text-slate-500 hover:text-slate-800',
+            'rounded-r-lg text-ink-muted hover:text-ink',
             'focus:outline focus:outline-2 focus:outline-brand-primary',
-            'disabled:cursor-not-allowed disabled:text-slate-300',
+            'disabled:cursor-not-allowed disabled:text-ink-faint',
           )}
         >
           <EyeIcon crossed={revealed} />
@@ -123,11 +123,11 @@ export function SecretInput({
       </div>
 
       {hasError ? (
-        <p id={messageId} role="alert" className="mt-1.5 text-sm text-red-600">
+        <p id={messageId} role="alert" className="mt-1.5 text-sm text-status-danger-ink">
           {error}
         </p>
       ) : hint !== undefined ? (
-        <p id={messageId} className="mt-1.5 text-sm text-slate-500">
+        <p id={messageId} className="mt-1.5 text-sm text-ink-muted">
           {hint}
         </p>
       ) : null}

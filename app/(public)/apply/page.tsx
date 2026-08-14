@@ -77,7 +77,7 @@ export default async function ApplyPage() {
       : [[], []];
 
   return (
-    <main style={brandStyle} className="min-h-screen bg-slate-50 px-4 py-12">
+    <main style={brandStyle} className="min-h-screen bg-surface-sunken px-4 py-12">
       <div className="mx-auto w-full max-w-3xl">
         <header className="mb-8 flex flex-col items-center text-center">
           {school?.logoUrl != null && school.logoUrl !== '' ? (
@@ -91,39 +91,39 @@ export default async function ApplyPage() {
           ) : (
             <span
               aria-hidden="true"
-              className="mb-4 flex h-16 w-16 items-center justify-center rounded-xl bg-brand-primary text-xl font-bold text-white"
+              className="mb-4 flex h-16 w-16 items-center justify-center rounded-xl bg-brand-primary text-xl font-bold text-brand-onPrimary"
             >
               {schoolName.slice(0, 2).toUpperCase()}
             </span>
           )}
 
-          <h1 className="text-2xl font-bold text-slate-900">{schoolName}</h1>
-          <p className="mt-1 text-sm text-slate-500">{heading}</p>
+          <h1 className="text-2xl font-bold text-ink">{schoolName}</h1>
+          <p className="mt-1 text-sm text-ink-muted">{heading}</p>
         </header>
 
         {!moduleFlags.admissions ? (
           <Card>
-            <h2 className="text-base font-semibold text-slate-900">
+            <h2 className="text-base font-semibold text-ink">
               Applications are not currently open
             </h2>
-            <p className="mt-2 text-sm text-slate-600">
+            <p className="mt-2 text-sm text-ink-muted">
               {schoolName} is not accepting online applications at the moment.
               Please contact the school office directly.
             </p>
           </Card>
         ) : activeYear === null ? (
           <Card>
-            <h2 className="text-base font-semibold text-slate-900">
+            <h2 className="text-base font-semibold text-ink">
               Admissions are not open at this time
             </h2>
-            <p className="mt-2 text-sm text-slate-600">
+            <p className="mt-2 text-sm text-ink-muted">
               {schoolName} has not opened admissions for the coming academic year
               yet. Please check back, or contact the school office.
             </p>
           </Card>
         ) : (
           <>
-            <p className="mb-6 text-sm text-slate-600">
+            <p className="mb-6 text-sm text-ink-muted">
               Fill this in and our admissions team will contact you on WhatsApp
               about the next steps. Nothing here is a commitment — you can talk to
               us before deciding anything.

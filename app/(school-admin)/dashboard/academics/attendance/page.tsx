@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 
 import { AttendanceMarker } from '@/components/academics/AttendanceMarker';
+import { PageHeader } from '@/components/ui/PageHeader';
 import { listAcademicYearOptions } from '@/lib/academics-queries';
 import { listGrades, listSections } from '@/lib/admissions-queries';
 import { requireSchoolPermission } from '@/lib/school-guard';
@@ -26,13 +27,10 @@ export default async function MarkAttendancePage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h2 className="text-xl font-semibold text-slate-900">Mark attendance</h2>
-        <p className="mt-1 text-sm text-slate-500">
-          Attendance is daily, not per period — that is what boards report and
-          what a parent asks about.
-        </p>
-      </div>
+      <PageHeader
+        title="Mark attendance"
+        description="Attendance is daily, not per period — that is what boards report and what a parent asks about."
+      />
 
       <AttendanceMarker
         academicYears={academicYears}

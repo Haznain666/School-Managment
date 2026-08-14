@@ -30,10 +30,10 @@ export default async function ExamsLayout({ children }: { children: ReactNode })
   if (!moduleFlags.academics) {
     return (
       <Card>
-        <h2 className="text-lg font-semibold text-slate-900">
+        <h2 className="text-lg font-semibold text-ink">
           Academics is not enabled
         </h2>
-        <p className="mt-2 text-sm text-slate-600">
+        <p className="mt-2 text-sm text-ink-muted">
           Exams and results are part of the Academics &amp; Timetable module,
           which this school does not currently have switched on. Contact the
           platform administrator to enable it.

@@ -326,10 +326,10 @@ export function StudentEnrollForm({
               aria-current={index === step ? 'step' : undefined}
               className={
                 index === step
-                  ? 'rounded-full bg-brand-primary px-3 py-1 text-sm font-medium text-white'
+                  ? 'rounded-full bg-brand-primary px-3 py-1 text-sm font-medium text-brand-onPrimary'
                   : index < step
                     ? 'rounded-full bg-brand-primary/10 px-3 py-1 text-sm font-medium text-brand-primary'
-                    : 'rounded-full bg-slate-100 px-3 py-1 text-sm font-medium text-slate-400'
+                    : 'rounded-full bg-surface-sunken px-3 py-1 text-sm font-medium text-ink-muted'
               }
             >
               {index + 1}. {label}
@@ -437,19 +437,19 @@ export function StudentEnrollForm({
             </div>
 
             <div className="sm:col-span-2">
-              <label className="mb-1.5 block text-sm font-medium text-slate-700">
+              <label className="mb-1.5 block text-sm font-medium text-ink">
                 Photo
               </label>
               <input
                 type="file"
                 accept="image/png,image/jpeg,image/webp"
                 disabled={isSubmitting}
-                className="block w-full text-sm text-slate-600 file:mr-3 file:rounded-lg file:border-0 file:bg-slate-100 file:px-3 file:py-2 file:text-sm file:font-medium"
+                className="block w-full text-sm text-ink-muted file:mr-3 file:rounded-lg file:border-0 file:bg-surface-sunken file:px-3 file:py-2 file:text-sm file:font-medium"
                 onChange={(event) => {
                   setPhoto(event.target.files?.[0] ?? null);
                 }}
               />
-              <p className="mt-1.5 text-sm text-slate-500">
+              <p className="mt-1.5 text-sm text-ink-muted">
                 Optional. PNG, JPG or WebP, up to 2 MB. Uploaded once the student
                 record has been created.
               </p>
@@ -511,9 +511,9 @@ export function StudentEnrollForm({
             <ReviewItem label="Photo" value={photo === null ? '' : photo.name} />
           </dl>
 
-          <div className="mt-5 border-t border-slate-200 pt-4">
-            <h3 className="text-sm font-semibold text-slate-900">Guardians</h3>
-            <ul className="mt-2 space-y-1 text-sm text-slate-600">
+          <div className="mt-5 border-t border-line pt-4">
+            <h3 className="text-sm font-semibold text-ink">Guardians</h3>
+            <ul className="mt-2 space-y-1 text-sm text-ink-muted">
               {guardians.map((guardian, index) => (
                 <li key={index}>
                   {guardian.name} · {GUARDIAN_RELATIONSHIP_LABELS[guardian.relationship]}{' '}
@@ -524,7 +524,7 @@ export function StudentEnrollForm({
             </ul>
           </div>
 
-          <p className="mt-5 rounded-lg bg-slate-50 px-3 py-2 text-sm text-slate-600">
+          <p className="mt-5 rounded-lg bg-surface-sunken px-3 py-2 text-sm text-ink-muted">
             A GoHighLevel contact will be created for this student and for{' '}
             {primaryGuardian?.name === undefined || primaryGuardian.name === ''
               ? 'the primary guardian'
@@ -534,7 +534,7 @@ export function StudentEnrollForm({
             re-run the sync from the student’s profile.
           </p>
 
-          <p className="mt-2 text-xs text-slate-500">
+          <p className="mt-2 text-xs text-ink-muted">
             The student ID shown above is a preview. The final number is issued
             when you submit, so it may differ if someone else enrols a student
             first.
@@ -543,7 +543,7 @@ export function StudentEnrollForm({
       ) : null}
 
       {error !== null ? (
-        <p role="alert" className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">
+        <p role="alert" className="rounded-lg bg-status-danger-subtle px-3 py-2 text-sm text-status-danger-ink">
           {error}
         </p>
       ) : null}
@@ -583,10 +583,10 @@ export function StudentEnrollForm({
 function ReviewItem({ label, value }: { label: string; value: string }) {
   return (
     <div>
-      <dt className="text-xs font-medium uppercase tracking-wide text-slate-500">
+      <dt className="text-xs font-medium uppercase tracking-wide text-ink-muted">
         {label}
       </dt>
-      <dd className="mt-0.5 text-sm text-slate-900">{value === '' ? '—' : value}</dd>
+      <dd className="mt-0.5 text-sm text-ink">{value === '' ? '—' : value}</dd>
     </div>
   );
 }

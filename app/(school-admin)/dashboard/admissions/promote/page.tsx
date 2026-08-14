@@ -3,6 +3,7 @@ import Link from 'next/link';
 
 import { PromotionRunner } from '@/components/admissions/PromotionRunner';
 import { Card } from '@/components/ui/Card';
+import { PageHeader } from '@/components/ui/PageHeader';
 import {
   getActiveAcademicYear,
   listAcademicYears,
@@ -41,13 +42,15 @@ export default async function PromoteStudentsPage() {
   if (years.length < 2) {
     return (
       <div className="max-w-3xl space-y-4">
-        <h2 className="text-xl font-semibold text-slate-900">Promote students</h2>
+        <PageHeader
+          title="Promote students"
+        />
         <Card>
-          <p className="text-sm text-slate-700">
+          <p className="text-sm text-ink">
             A promotion moves students from one academic year into another, and
             this school has {years.length === 0 ? 'none' : 'only one'}.
           </p>
-          <p className="mt-3 text-sm text-slate-600">
+          <p className="mt-3 text-sm text-ink-muted">
             <Link
               href="/dashboard/admissions/academic-years"
               className="font-medium text-brand-primary hover:underline"
@@ -94,13 +97,10 @@ export default async function PromoteStudentsPage() {
 
   return (
     <div className="max-w-6xl space-y-6">
-      <div>
-        <h2 className="text-xl font-semibold text-slate-900">Promote students</h2>
-        <p className="mt-1 text-sm text-slate-500">
-          Move a class into the next academic year. Every student is listed for
-          review first, and last year&rsquo;s records are never edited.
-        </p>
-      </div>
+      <PageHeader
+        title="Promote students"
+        description="Move a class into the next academic year. Every student is listed for review first, and last year&rsquo;s records are never edited."
+      />
 
       <PromotionRunner
         grades={grades.map((grade) => ({

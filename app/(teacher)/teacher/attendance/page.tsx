@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 
 import { AttendanceMarker } from '@/components/academics/AttendanceMarker';
 import { Card } from '@/components/ui/Card';
+import { PageHeader } from '@/components/ui/PageHeader';
 import { listTeacherSections } from '@/lib/academics-queries';
 import { getActiveAcademicYear, listGrades, listSections } from '@/lib/admissions-queries';
 import { requireSchoolRole } from '@/lib/school-guard';
@@ -34,7 +35,7 @@ export default async function TeacherAttendancePage() {
       <div className="space-y-6">
         <Heading />
         <Card>
-          <p className="text-sm text-slate-600">
+          <p className="text-sm text-ink-muted">
             {activeYear === null
               ? 'Your school has not opened an academic year yet, so there is no register to take.'
               : 'Your staff record is still being set up.'}
@@ -55,7 +56,7 @@ export default async function TeacherAttendancePage() {
       <div className="space-y-6">
         <Heading />
         <Card>
-          <p className="text-sm text-slate-600">
+          <p className="text-sm text-ink-muted">
             You are not timetabled into any section for {activeYear.name}, so
             there is no register for you to take. Your school admin assigns
             classes on the timetable.
@@ -102,12 +103,9 @@ export default async function TeacherAttendancePage() {
 
 function Heading() {
   return (
-    <div>
-      <h2 className="text-xl font-semibold text-slate-900">Attendance</h2>
-      <p className="mt-1 text-sm text-slate-500">
-        Take the register for one of your classes. Saving again corrects the same
-        day rather than adding to it.
-      </p>
-    </div>
+    <PageHeader
+      title="Attendance"
+      description="Take the register for one of your classes. Saving again corrects the same day rather than adding to it."
+    />
   );
 }

@@ -114,19 +114,19 @@ export function PlatformLoginClient({ token, schoolSlug }: PlatformLoginClientPr
 
   if (failure !== null) {
     return (
-      <div className="rounded-card border border-slate-200 bg-white p-6 text-center shadow-card">
-        <h2 className="text-base font-semibold text-slate-900">
+      <div className="rounded-card border border-line bg-surface-raised p-6 text-center shadow-card">
+        <h2 className="text-base font-semibold text-ink">
           This sign-in link cannot be used
         </h2>
-        <p className="mt-2 text-sm text-slate-600">{failure.message}</p>
+        <p className="mt-2 text-sm text-ink-muted">{failure.message}</p>
 
         {isRetryable(failure.code) ? (
-          <p className="mt-4 text-sm text-slate-500">
+          <p className="mt-4 text-sm text-ink-muted">
             Links expire two minutes after they are issued. Open the school
             again from the Super Admin panel to get a fresh one.
           </p>
         ) : (
-          <p className="mt-4 text-sm text-slate-500">
+          <p className="mt-4 text-sm text-ink-muted">
             This is not an expired link — a fresh one will fail the same way.
             The message above names the step that failed. For the full picture,
             open{' '}
@@ -137,7 +137,7 @@ export function PlatformLoginClient({ token, schoolSlug }: PlatformLoginClientPr
           </p>
         )}
 
-        <p className="mt-3 text-xs text-slate-400">
+        <p className="mt-3 text-xs text-ink-muted">
           Reference: <span className="font-mono">{failure.code}</span>
         </p>
       </div>
@@ -145,12 +145,12 @@ export function PlatformLoginClient({ token, schoolSlug }: PlatformLoginClientPr
   }
 
   return (
-    <div className="rounded-card border border-slate-200 bg-white p-6 text-center shadow-card">
+    <div className="rounded-card border border-line bg-surface-raised p-6 text-center shadow-card">
       <span
         aria-hidden="true"
         className="mx-auto mb-4 block h-8 w-8 animate-spin rounded-full border-2 border-brand-primary border-t-transparent"
       />
-      <p role="status" className="text-sm text-slate-600">
+      <p role="status" className="text-sm text-ink-muted">
         Signing you in as platform administrator…
       </p>
     </div>

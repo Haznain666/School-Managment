@@ -81,14 +81,14 @@ export function EmergencyLoginClient({ token, schoolSlug }: EmergencyLoginClient
 
   if (error !== null) {
     return (
-      <div className="rounded-card border border-slate-200 bg-white p-6 text-center shadow-card">
-        <h2 className="text-base font-semibold text-slate-900">
+      <div className="rounded-card border border-line bg-surface-raised p-6 text-center shadow-card">
+        <h2 className="text-base font-semibold text-ink">
           This emergency link cannot be used
         </h2>
-        <p className="mt-2 text-sm text-slate-600">
+        <p className="mt-2 text-sm text-ink-muted">
           It is invalid, expired, or has already been used.
         </p>
-        <p className="mt-4 text-sm text-slate-500">
+        <p className="mt-4 text-sm text-ink-muted">
           Contact your platform administrator to generate a new one.
         </p>
       </div>
@@ -96,12 +96,12 @@ export function EmergencyLoginClient({ token, schoolSlug }: EmergencyLoginClient
   }
 
   return (
-    <div className="rounded-card border border-slate-200 bg-white p-6 text-center shadow-card">
+    <div className="rounded-card border border-line bg-surface-raised p-6 text-center shadow-card">
       <span
         aria-hidden="true"
         className="mx-auto mb-4 block h-8 w-8 animate-spin rounded-full border-2 border-brand-primary border-t-transparent"
       />
-      <p role="status" className="text-sm text-slate-600">
+      <p role="status" className="text-sm text-ink-muted">
         Verifying emergency access…
       </p>
     </div>

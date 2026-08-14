@@ -9,6 +9,14 @@ import { Card, CardTitle } from '@/components/ui/Card';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
 import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeaderCell,
+  TableRow,
+} from '@/components/ui/Table';
+import {
   EMPLOYMENT_TYPE_LABELS,
   EMPLOYMENT_TYPES,
   STAFF_STATUS_LABELS,
@@ -161,7 +169,7 @@ export function StaffManager({ canEdit }: StaffManagerProps) {
   return (
     <div className="space-y-4">
       {error !== null ? (
-        <p role="alert" className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">
+        <p role="alert" className="rounded-lg bg-status-danger-subtle px-3 py-2 text-sm text-status-danger-ink">
           {error}
         </p>
       ) : null}
@@ -305,11 +313,11 @@ export function StaffManager({ canEdit }: StaffManagerProps) {
 
       {rows === null ? (
         <Card>
-          <p className="text-sm text-slate-500">Loading staff…</p>
+          <p className="text-sm text-ink-muted">Loading staff…</p>
         </Card>
       ) : rows.length === 0 ? (
         <Card>
-          <p className="text-sm text-slate-600">
+          <p className="text-sm text-ink-muted">
             No staff match this filter. Add your staff before setting up payroll —
             a run pays whoever is active and has a salary structure.
           </p>
@@ -325,52 +333,52 @@ export function StaffManager({ canEdit }: StaffManagerProps) {
           className="p-0"
         >
           <div className="overflow-x-auto">
-            <table className="w-full text-left text-sm">
-              <thead className="border-b border-slate-200 text-xs uppercase tracking-wide text-slate-500">
-                <tr>
-                  <th scope="col" className="px-5 py-3 font-medium">Name</th>
-                  <th scope="col" className="px-5 py-3 font-medium">Code</th>
-                  <th scope="col" className="px-5 py-3 font-medium">Designation</th>
-                  <th scope="col" className="px-5 py-3 font-medium">Branch</th>
-                  <th scope="col" className="px-5 py-3 font-medium">Status</th>
-                  <th scope="col" className="px-5 py-3 font-medium">
+            <Table caption="Staff" className="rounded-none border-0">
+              <TableHead>
+                <TableRow>
+                  <TableHeaderCell>Name</TableHeaderCell>
+                  <TableHeaderCell>Code</TableHeaderCell>
+                  <TableHeaderCell>Designation</TableHeaderCell>
+                  <TableHeaderCell>Branch</TableHeaderCell>
+                  <TableHeaderCell>Status</TableHeaderCell>
+                  <TableHeaderCell>
                     <span className="sr-only">Open</span>
-                  </th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
+                  </TableHeaderCell>
+                </TableRow>
+              </TableHead>
+              <TableBody>
                 {rows.map((row) => (
-                  <tr key={row.id}>
-                    <td className="px-5 py-3">
-                      <p className="font-medium text-slate-900">{row.fullName}</p>
+                  <TableRow key={row.id}>
+                    <TableCell>
+                      <p className="font-medium text-ink">{row.fullName}</p>
                       {row.department === null ? null : (
-                        <p className="text-xs text-slate-500">{row.department}</p>
+                        <p className="text-xs text-ink-muted">{row.department}</p>
                       )}
-                    </td>
-                    <td className="px-5 py-3 text-slate-600">{row.employeeCode}</td>
-                    <td className="px-5 py-3 text-slate-600">
+                    </TableCell>
+                    <TableCell muted>{row.employeeCode}</TableCell>
+                    <TableCell muted>
                       {row.designation ?? '—'}
-                    </td>
-                    <td className="px-5 py-3 text-slate-600">
+                    </TableCell>
+                    <TableCell muted>
                       {row.branchName ?? 'All branches'}
-                    </td>
-                    <td className="px-5 py-3">
+                    </TableCell>
+                    <TableCell>
                       <Badge variant={STATUS_VARIANT[row.status]}>
                         {STAFF_STATUS_LABELS[row.status]}
                       </Badge>
-                    </td>
-                    <td className="px-5 py-3 text-right">
+                    </TableCell>
+                    <TableCell align="numeric">
                       <Link
                         href={`/dashboard/hr/staff/${row.id}`}
                         className="text-sm font-medium text-brand-primary hover:underline"
                       >
                         Open
                       </Link>
-                    </td>
-                  </tr>
+                    </TableCell>
+                  </TableRow>
                 ))}
-              </tbody>
-            </table>
+              </TableBody>
+            </Table>
           </div>
         </Card>
       )}

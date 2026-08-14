@@ -22,8 +22,8 @@ export default async function SchoolIntegrationsPage({
   return (
     <div className="space-y-4">
       <div>
-        <h3 className="text-lg font-semibold text-slate-900">Integrations</h3>
-        <p className="mt-1 text-sm text-slate-500">
+        <h3 className="text-lg font-semibold text-ink">Integrations</h3>
+        <p className="mt-1 text-sm text-ink-muted">
           Third-party accounts this school is connected to. All optional — a
           school runs fully without any of them. To switch modules or channels
           for several schools at once, use{' '}

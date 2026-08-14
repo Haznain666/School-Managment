@@ -1,8 +1,8 @@
 import type { Metadata } from 'next';
-import Link from 'next/link';
 import { notFound } from 'next/navigation';
 
 import { UserDetailPanel } from '@/components/school/UserDetailPanel';
+import { PageHeader } from '@/components/ui/PageHeader';
 import { requireSchoolPermission } from '@/lib/school-guard';
 import { getSchoolUserById, listBranchOptions } from '@/lib/school-queries';
 import { isUuid } from '@/lib/validation';
@@ -39,19 +39,16 @@ export default async function UserDetailPage({
 
   return (
     <div className="max-w-4xl space-y-6">
-      <div>
-        <Link
-          href="/dashboard/users"
-          className="text-sm font-medium text-brand-primary hover:underline"
-        >
-          ← Back to users
-        </Link>
-        <h2 className="mt-2 text-xl font-semibold text-slate-900">{user.name}</h2>
-        <p className="mt-1 text-sm text-slate-500">
-          {isUserRole(user.role) ? ROLE_LABELS[user.role] : user.role}
-          {user.branchName === null ? '' : ` · ${user.branchName}`}
-        </p>
-      </div>
+      <PageHeader
+        breadcrumbs={[
+          { label: 'Users & Staff', href: '/dashboard/users' },
+          { label: user.name },
+        ]}
+        title={user.name}
+        description={`${isUserRole(user.role) ? ROLE_LABELS[user.role] : user.role}${
+          user.branchName === null ? '' : ` · ${user.branchName}`
+        }`}
+      />
 
       <UserDetailPanel
         canEdit={canEdit}

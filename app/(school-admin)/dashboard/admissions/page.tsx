@@ -3,6 +3,14 @@ import Link from 'next/link';
 
 import { Badge } from '@/components/ui/Badge';
 import { Card, CardTitle } from '@/components/ui/Card';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeaderCell,
+  TableRow,
+} from '@/components/ui/Table';
 import { getAdmissionsOverview } from '@/lib/admissions-queries';
 import { requireSchoolPermission } from '@/lib/school-guard';
 
@@ -16,11 +24,11 @@ export const runtime = 'nodejs';
 function StatCard({ label, value, hint }: { label: string; value: number; hint: string }) {
   return (
     <Card>
-      <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
+      <p className="text-xs font-medium uppercase tracking-wide text-ink-muted">
         {label}
       </p>
-      <p className="mt-2 text-3xl font-bold text-slate-900">{value}</p>
-      <p className="mt-1 text-xs text-slate-500">{hint}</p>
+      <p className="mt-2 text-3xl font-bold text-ink">{value}</p>
+      <p className="mt-1 text-xs text-ink-muted">{hint}</p>
     </Card>
   );
 }
@@ -37,10 +45,10 @@ function ActionTile({
   return (
     <Link
       href={href}
-      className="block rounded-card border border-slate-200 bg-white p-4 shadow-card transition hover:border-brand-primary"
+      className="block rounded-card border border-line bg-surface-raised p-4 shadow-card transition hover:border-brand-primary"
     >
-      <p className="font-medium text-slate-900">{title}</p>
-      <p className="mt-1 text-sm text-slate-500">{description}</p>
+      <p className="font-medium text-ink">{title}</p>
+      <p className="mt-1 text-sm text-ink-muted">{description}</p>
     </Link>
   );
 }
@@ -60,10 +68,10 @@ export default async function AdmissionsOverviewPage() {
     <div className="space-y-6">
       {overview.activeYear === null ? (
         <Card>
-          <h2 className="text-base font-semibold text-slate-900">
+          <h2 className="text-base font-semibold text-ink">
             No active academic year
           </h2>
-          <p className="mt-1 text-sm text-slate-600">
+          <p className="mt-1 text-sm text-ink-muted">
             Students are enrolled into a year, and student IDs are numbered per
             year — so nothing can be admitted until one is set. This also keeps
             the public application form closed.
@@ -105,7 +113,7 @@ export default async function AdmissionsOverviewPage() {
       </div>
 
       <section className="space-y-3">
-        <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">
+        <h2 className="text-sm font-semibold uppercase tracking-wide text-ink-muted">
           Quick actions
         </h2>
 
@@ -146,43 +154,41 @@ export default async function AdmissionsOverviewPage() {
         className="p-0"
       >
         {overview.recentEnrollments.length === 0 ? (
-          <p className="px-5 py-4 text-sm text-slate-600">
+          <p className="px-5 py-4 text-sm text-ink-muted">
             No students have been enrolled yet.
           </p>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-sm">
-              <thead className="border-b border-slate-200 text-xs uppercase tracking-wide text-slate-500">
-                <tr>
-                  <th scope="col" className="px-5 py-3 font-medium">Name</th>
-                  <th scope="col" className="px-5 py-3 font-medium">Student ID</th>
-                  <th scope="col" className="px-5 py-3 font-medium">Grade</th>
-                  <th scope="col" className="px-5 py-3 font-medium">Section</th>
-                  <th scope="col" className="px-5 py-3 font-medium">Enrolled</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
+          <Table caption="Admissions by grade">
+              <TableHead>
+                <TableRow>
+                  <TableHeaderCell>Name</TableHeaderCell>
+                  <TableHeaderCell>Student ID</TableHeaderCell>
+                  <TableHeaderCell>Grade</TableHeaderCell>
+                  <TableHeaderCell>Section</TableHeaderCell>
+                  <TableHeaderCell>Enrolled</TableHeaderCell>
+                </TableRow>
+              </TableHead>
+              <TableBody>
                 {overview.recentEnrollments.map((student) => (
-                  <tr key={student.studentProfileId}>
-                    <td className="px-5 py-3 font-medium text-slate-900">
+                  <TableRow key={student.studentProfileId}>
+                    <TableCell rowHeader>
                       <Link
                         href={`/dashboard/admissions/students/${student.studentProfileId}`}
                         className="hover:underline"
                       >
                         {student.name}
                       </Link>
-                    </td>
-                    <td className="px-5 py-3 font-mono text-xs text-slate-600">
+                    </TableCell>
+                    <TableCell muted className="font-mono text-xs">
                       {student.studentId}
-                    </td>
-                    <td className="px-5 py-3 text-slate-600">{student.gradeName}</td>
-                    <td className="px-5 py-3 text-slate-600">{student.sectionName}</td>
-                    <td className="px-5 py-3 text-slate-600">{student.enrollmentDate}</td>
-                  </tr>
+                    </TableCell>
+                    <TableCell muted>{student.gradeName}</TableCell>
+                    <TableCell muted>{student.sectionName}</TableCell>
+                    <TableCell muted>{student.enrollmentDate}</TableCell>
+                  </TableRow>
                 ))}
-              </tbody>
-            </table>
-          </div>
+              </TableBody>
+          </Table>
         )}
       </Card>
 
@@ -203,17 +209,17 @@ export default async function AdmissionsOverviewPage() {
         }
       >
         {overview.pendingPreview.length === 0 ? (
-          <p className="text-sm text-slate-600">Nothing is waiting for review.</p>
+          <p className="text-sm text-ink-muted">Nothing is waiting for review.</p>
         ) : (
-          <ul className="divide-y divide-slate-100">
+          <ul className="divide-y divide-line">
             {overview.pendingPreview.map((application) => (
               <li
                 key={application.id}
                 className="flex flex-wrap items-center justify-between gap-3 py-3"
               >
                 <div className="min-w-0">
-                  <p className="font-medium text-slate-900">{application.studentName}</p>
-                  <p className="text-xs text-slate-500">
+                  <p className="font-medium text-ink">{application.studentName}</p>
+                  <p className="text-xs text-ink-muted">
                     {application.guardianName} ·{' '}
                     <span className="font-mono">{application.guardianPhone}</span> ·{' '}
                     {application.gradeName ?? 'Grade not specified'}

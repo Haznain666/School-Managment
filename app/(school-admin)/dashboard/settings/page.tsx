@@ -6,6 +6,7 @@ import { schools } from '@/db/schema';
 import { SchoolBrandingForm } from '@/components/school/SchoolBrandingForm';
 import { SchoolProfileForm } from '@/components/school/SchoolProfileForm';
 import { Card, CardTitle } from '@/components/ui/Card';
+import { PageHeader } from '@/components/ui/PageHeader';
 import { db } from '@/lib/drizzle';
 import { requireSchoolPermission } from '@/lib/school-guard';
 
@@ -52,7 +53,7 @@ export default async function SchoolSettingsPage() {
   if (school === undefined) {
     return (
       <Card>
-        <p className="text-sm text-slate-600">This school could not be loaded.</p>
+        <p className="text-sm text-ink-muted">This school could not be loaded.</p>
       </Card>
     );
   }
@@ -61,14 +62,10 @@ export default async function SchoolSettingsPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h2 className="text-xl font-semibold text-slate-900">Settings</h2>
-        <p className="mt-1 text-sm text-slate-500">
-          {canEdit
-            ? 'Your school profile and branding. Changes here apply to everyone at your school straight away.'
-            : 'Your school profile and branding. Your role can see these but not change them.'}
-        </p>
-      </div>
+      <PageHeader
+        title="Settings"
+        description={canEdit ? 'Your school profile and branding. Changes here apply to everyone at your school straight away.' : 'Your school profile and branding. Your role can see these but not change them.'}
+      />
 
       <SchoolProfileForm
         readOnly={{
@@ -90,7 +87,7 @@ export default async function SchoolSettingsPage() {
 
       {permissions.includes('permissions.manage') ? (
         <Card header={<CardTitle title="Roles and permissions" />}>
-          <p className="text-sm text-slate-600">
+          <p className="text-sm text-ink-muted">
             Decide what each role at your school may do — who can take a payment,
             who can approve payroll, who can see a personnel file.
           </p>
@@ -104,7 +101,7 @@ export default async function SchoolSettingsPage() {
       ) : null}
 
       <Card header={<CardTitle title="Notification preferences" />}>
-        <p className="text-sm text-slate-500">Coming soon.</p>
+        <p className="text-sm text-ink-muted">Coming soon.</p>
       </Card>
     </div>
   );

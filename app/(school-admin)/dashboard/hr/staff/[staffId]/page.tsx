@@ -1,11 +1,11 @@
 import type { Metadata } from 'next';
-import Link from 'next/link';
 import { notFound } from 'next/navigation';
 
 import { StaffDetailPanel } from '@/components/hr/StaffDetailPanel';
 import { getStaff } from '@/lib/hr-queries';
 import { requireSchoolPermission } from '@/lib/school-guard';
 import { isUuid } from '@/lib/validation';
+import { PageHeader } from '@/components/ui/PageHeader';
 
 export const metadata: Metadata = {
   title: 'Staff member',
@@ -31,20 +31,11 @@ export default async function StaffDetailPage({
 
   return (
     <div className="space-y-6">
-      <div>
-        <Link
-          href="/dashboard/hr/staff"
-          className="text-sm font-medium text-brand-primary hover:underline"
-        >
-          ← All staff
-        </Link>
-        <h2 className="mt-2 text-xl font-semibold text-slate-900">
-          {member.fullName}
-        </h2>
-        <p className="mt-1 text-sm text-slate-500">
-          Their file, and the salary structure every payslip is computed from.
-        </p>
-      </div>
+      <PageHeader
+        breadcrumbs={[{ label: 'Staff', href: '/dashboard/hr/staff' }, { label: member.fullName }]}
+        title={member.fullName}
+        description="Their file, and the salary structure every payslip is computed from."
+      />
 
       <StaffDetailPanel
         staffId={staffId}

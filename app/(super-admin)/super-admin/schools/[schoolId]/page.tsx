@@ -29,10 +29,10 @@ function Field({
 }) {
   return (
     <div>
-      <dt className="text-xs uppercase tracking-wide text-slate-500">{label}</dt>
-      <dd className="mt-1 break-words text-sm text-slate-900">
+      <dt className="text-xs uppercase tracking-wide text-ink-muted">{label}</dt>
+      <dd className="mt-1 break-words text-sm text-ink">
         {value === null || value === '' ? (
-          <span className="text-slate-400">{hint ?? 'Not set'}</span>
+          <span className="text-ink-muted">{hint ?? 'Not set'}</span>
         ) : (
           value
         )}
@@ -122,7 +122,7 @@ export default async function SchoolOverviewPage({
             hint={school.ghlLocationId === null ? 'Not connected' : undefined}
           />
           <div>
-            <dt className="text-xs uppercase tracking-wide text-slate-500">Status</dt>
+            <dt className="text-xs uppercase tracking-wide text-ink-muted">Status</dt>
             <dd className="mt-1">
               <Badge variant={school.isActive ? 'success' : 'danger'}>
                 {school.isActive ? 'Active' : 'Inactive'}
@@ -144,7 +144,7 @@ export default async function SchoolOverviewPage({
             </Link>
           }
         >
-          <p className="text-3xl font-bold text-slate-900">
+          <p className="text-3xl font-bold text-ink">
             {branchRows[0]?.value ?? 0}
           </p>
         </Card>
@@ -160,7 +160,7 @@ export default async function SchoolOverviewPage({
             </Link>
           }
         >
-          <p className="text-3xl font-bold text-slate-900">
+          <p className="text-3xl font-bold text-ink">
             {moduleRows[0]?.value ?? 0}
           </p>
         </Card>

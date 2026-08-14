@@ -151,25 +151,25 @@ export function SchoolBrandingForm({ schoolName, canEdit }: SchoolBrandingFormPr
       {error !== null ? (
         <p
           role="alert"
-          className="mb-4 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700"
+          className="mb-4 rounded-lg bg-status-danger-subtle px-3 py-2 text-sm text-status-danger-ink"
         >
           {error}
         </p>
       ) : null}
 
       {notice !== null ? (
-        <p className="mb-4 rounded-lg bg-emerald-50 px-3 py-2 text-sm text-emerald-700">
+        <p className="mb-4 rounded-lg bg-status-success-subtle px-3 py-2 text-sm text-status-success-ink">
           {notice}
         </p>
       ) : null}
 
       {branding === null ? (
-        <p className="text-sm text-slate-500">Loading branding…</p>
+        <p className="text-sm text-ink-muted">Loading branding…</p>
       ) : (
         <>
           <div className="flex flex-wrap items-start gap-6">
             {branding.logoUrl === null || branding.logoUrl === '' ? (
-              <div className="flex h-24 w-24 items-center justify-center rounded-lg border border-dashed border-slate-300 text-xs text-slate-400">
+              <div className="flex h-24 w-24 items-center justify-center rounded-lg border border-dashed border-line-strong text-xs text-ink-muted">
                 No logo
               </div>
             ) : (
@@ -177,12 +177,12 @@ export function SchoolBrandingForm({ schoolName, canEdit }: SchoolBrandingFormPr
               <img
                 src={branding.logoUrl}
                 alt={`${schoolName} logo`}
-                className="h-24 w-24 rounded-lg border border-slate-200 bg-white object-contain p-1"
+                className="h-24 w-24 rounded-lg border border-line bg-surface-raised object-contain p-1"
               />
             )}
 
             <div className="flex-1">
-              <p className="text-sm text-slate-600">
+              <p className="text-sm text-ink-muted">
                 PNG, JPG, SVG or WebP, up to 2 MB. A new logo replaces the old
                 one and regenerates the three palettes below, which resets your
                 colour choice.
@@ -192,7 +192,7 @@ export function SchoolBrandingForm({ schoolName, canEdit }: SchoolBrandingFormPr
                 <div className="mt-3">
                   <label
                     htmlFor="school-logo"
-                    className="mb-1.5 block text-sm font-medium text-slate-700"
+                    className="mb-1.5 block text-sm font-medium text-ink"
                   >
                     Upload a logo
                   </label>
@@ -203,9 +203,9 @@ export function SchoolBrandingForm({ schoolName, canEdit }: SchoolBrandingFormPr
                     accept="image/png,image/jpeg,image/svg+xml,image/webp"
                     disabled={busy !== null}
                     className={cn(
-                      'block w-full text-sm text-slate-600',
+                      'block w-full text-sm text-ink-muted',
                       'file:mr-3 file:rounded-lg file:border-0 file:bg-brand-primary',
-                      'file:px-4 file:py-2 file:text-sm file:font-medium file:text-white',
+                      'file:px-4 file:py-2 file:text-sm file:font-medium file:text-brand-onPrimary',
                       'hover:file:opacity-90 disabled:cursor-not-allowed disabled:opacity-60',
                     )}
                     onChange={(event) => {
@@ -214,7 +214,7 @@ export function SchoolBrandingForm({ schoolName, canEdit }: SchoolBrandingFormPr
                     }}
                   />
                   {busy === 'upload' ? (
-                    <p className="mt-2 text-sm text-slate-500">
+                    <p className="mt-2 text-sm text-ink-muted">
                       Uploading and reading the colours out of your logo…
                     </p>
                   ) : null}
@@ -224,8 +224,8 @@ export function SchoolBrandingForm({ schoolName, canEdit }: SchoolBrandingFormPr
           </div>
 
           <div className="mt-6">
-            <h3 className="text-sm font-semibold text-slate-900">Preset palettes</h3>
-            <p className="mt-1 text-sm text-slate-500">
+            <h3 className="text-sm font-semibold text-ink">Preset palettes</h3>
+            <p className="mt-1 text-sm text-ink-muted">
               Curated, and available whether or not you have uploaded a logo. A
               preset overrides the palettes taken from your logo.
             </p>
@@ -256,10 +256,10 @@ export function SchoolBrandingForm({ schoolName, canEdit }: SchoolBrandingFormPr
           </div>
 
           <div className="mt-6">
-            <h3 className="text-sm font-semibold text-slate-900">From your logo</h3>
+            <h3 className="text-sm font-semibold text-ink">From your logo</h3>
 
             {branding.palettes.every((palette) => palette === null) ? (
-              <p className="mt-1 text-sm text-slate-500">
+              <p className="mt-1 text-sm text-ink-muted">
                 Upload a logo and three palettes will be generated from it.
               </p>
             ) : (

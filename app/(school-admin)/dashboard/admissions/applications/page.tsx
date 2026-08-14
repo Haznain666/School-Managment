@@ -16,8 +16,8 @@ export default async function ApplicationsPage() {
   return (
     <div className="space-y-6">
       <div>
-        <h2 className="text-xl font-semibold text-slate-900">Applications</h2>
-        <p className="mt-1 text-sm text-slate-500">
+        <h2 className="text-xl font-semibold text-ink">Applications</h2>
+        <p className="mt-1 text-sm text-ink-muted">
           Submissions from your public application form at{' '}
           <span className="font-mono">
             {claims.schoolSlug === '' ? '/apply' : `${claims.schoolSlug}…/apply`}

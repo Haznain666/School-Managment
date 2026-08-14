@@ -7,6 +7,14 @@ import { StudentProfileCard } from '@/components/admissions/StudentProfileCard';
 import { Badge } from '@/components/ui/Badge';
 import { Card, CardTitle } from '@/components/ui/Card';
 import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeaderCell,
+  TableRow,
+} from '@/components/ui/Table';
+import {
   getStudentDetail,
   listEnrollmentHistory,
   listGuardians,
@@ -91,7 +99,7 @@ export default async function StudentProfilePage({
 
       <Card header={<CardTitle title="Current enrolment" />}>
         {current === null ? (
-          <p className="text-sm text-slate-600">
+          <p className="text-sm text-ink-muted">
             This student has no placement in the active academic year.
           </p>
         ) : (
@@ -108,42 +116,40 @@ export default async function StudentProfilePage({
 
       <Card header={<CardTitle title="Enrolment history" />} className="p-0">
         {history.length === 0 ? (
-          <p className="px-5 py-4 text-sm text-slate-600">
+          <p className="px-5 py-4 text-sm text-ink-muted">
             No earlier academic years on record.
           </p>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-sm">
-              <thead className="border-b border-slate-200 text-xs uppercase tracking-wide text-slate-500">
-                <tr>
-                  <th scope="col" className="px-5 py-3 font-medium">Year</th>
-                  <th scope="col" className="px-5 py-3 font-medium">Grade</th>
-                  <th scope="col" className="px-5 py-3 font-medium">Section</th>
-                  <th scope="col" className="px-5 py-3 font-medium">Roll no.</th>
-                  <th scope="col" className="px-5 py-3 font-medium">Enrolled</th>
-                  <th scope="col" className="px-5 py-3 font-medium">Status</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
+          <Table caption="Enrolment history">
+              <TableHead>
+                <TableRow>
+                  <TableHeaderCell>Year</TableHeaderCell>
+                  <TableHeaderCell>Grade</TableHeaderCell>
+                  <TableHeaderCell>Section</TableHeaderCell>
+                  <TableHeaderCell>Roll no.</TableHeaderCell>
+                  <TableHeaderCell>Enrolled</TableHeaderCell>
+                  <TableHeaderCell>Status</TableHeaderCell>
+                </TableRow>
+              </TableHead>
+              <TableBody>
                 {history.map((enrollment) => (
-                  <tr key={enrollment.id}>
-                    <td className="px-5 py-3 font-medium text-slate-900">
+                  <TableRow key={enrollment.id}>
+                    <TableCell rowHeader>
                       {enrollment.academicYearName}
-                    </td>
-                    <td className="px-5 py-3 text-slate-600">{enrollment.gradeName}</td>
-                    <td className="px-5 py-3 text-slate-600">{enrollment.sectionName}</td>
-                    <td className="px-5 py-3 text-slate-600">
+                    </TableCell>
+                    <TableCell muted>{enrollment.gradeName}</TableCell>
+                    <TableCell muted>{enrollment.sectionName}</TableCell>
+                    <TableCell muted>
                       {enrollment.rollNumber ?? '—'}
-                    </td>
-                    <td className="px-5 py-3 text-slate-600">
+                    </TableCell>
+                    <TableCell muted>
                       {enrollment.enrollmentDate}
-                    </td>
-                    <td className="px-5 py-3 text-slate-600">{enrollment.status}</td>
-                  </tr>
+                    </TableCell>
+                    <TableCell muted>{enrollment.status}</TableCell>
+                  </TableRow>
                 ))}
-              </tbody>
-            </table>
-          </div>
+              </TableBody>
+          </Table>
         )}
       </Card>
 
@@ -161,10 +167,10 @@ export default async function StudentProfilePage({
 function Detail({ label, value }: { label: string; value: string }) {
   return (
     <div>
-      <dt className="text-xs font-medium uppercase tracking-wide text-slate-500">
+      <dt className="text-xs font-medium uppercase tracking-wide text-ink-muted">
         {label}
       </dt>
-      <dd className="mt-0.5 text-sm text-slate-900">{value}</dd>
+      <dd className="mt-0.5 text-sm text-ink">{value}</dd>
     </div>
   );
 }

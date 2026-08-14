@@ -110,7 +110,7 @@ export function SchoolLoginAsForm({ schoolId, schoolName }: SchoolLoginAsFormPro
         {error !== null ? (
           <p
             role="alert"
-            className="mt-4 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700"
+            className="mt-4 rounded-lg bg-status-danger-subtle px-3 py-2 text-sm text-status-danger-ink"
           >
             {error}
           </p>
@@ -122,7 +122,7 @@ export function SchoolLoginAsForm({ schoolId, schoolName }: SchoolLoginAsFormPro
           </Button>
           <Link
             href="/super-admin/schools"
-            className="text-sm font-medium text-slate-500 hover:text-slate-700"
+            className="text-sm font-medium text-ink-muted hover:text-ink"
           >
             Cancel
           </Link>

@@ -41,7 +41,7 @@ export default async function LoginPage() {
   return (
     <BrandedLoginLayout subtitle="Sign in with your email address">
       <EmailLoginForm schoolName={school?.name ?? 'your school'} schoolSlug={slug} />
-      <p className="mt-6 text-center text-xs text-slate-400">
+      <p className="mt-6 text-center text-xs text-ink-muted">
         Not been invited yet? Your school administrator sends the invitation.
       </p>
     </BrandedLoginLayout>

@@ -6,6 +6,14 @@ import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { Card, CardTitle } from '@/components/ui/Card';
 import { Select } from '@/components/ui/Select';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeaderCell,
+  TableRow,
+} from '@/components/ui/Table';
 import { CsvError, MAX_CSV_ROWS, parseCsv } from '@/lib/csv';
 import { IMPORT_FIELDS, suggestColumnMap, validateRow } from '@/lib/student-import';
 
@@ -232,7 +240,7 @@ export function StudentImporter({ sections }: StudentImporterProps) {
 
   const banner =
     error === null ? null : (
-      <p role="alert" className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">
+      <p role="alert" className="rounded-lg bg-status-danger-subtle px-3 py-2 text-sm text-status-danger-ink">
         {error}
       </p>
     );
@@ -253,19 +261,19 @@ export function StudentImporter({ sections }: StudentImporterProps) {
             type="file"
             accept=".csv,.tsv,.txt,text/csv,text/tab-separated-values"
             disabled={busy}
-            className="block w-full text-sm text-slate-600 file:mr-4 file:rounded-lg file:border-0 file:bg-brand-primary file:px-4 file:py-2 file:text-sm file:font-medium file:text-brand-onPrimary"
+            className="block w-full text-sm text-ink-muted file:mr-4 file:rounded-lg file:border-0 file:bg-brand-primary file:px-4 file:py-2 file:text-sm file:font-medium file:text-brand-onPrimary"
             onChange={(event) => {
               const file = event.target.files?.[0];
               if (file !== undefined) void readFile(file);
             }}
           />
 
-          <p className="mt-4 text-sm text-slate-600">
+          <p className="mt-4 text-sm text-ink-muted">
             Exporting from Excel? Use <strong>Save as → CSV</strong>. An{' '}
             <code>.xlsx</code> file cannot be read directly. Tab-separated files
             work too.
           </p>
-          <p className="mt-2 text-sm text-slate-600">
+          <p className="mt-2 text-sm text-ink-muted">
             You will map your columns and see exactly what will happen before
             anything is saved.
           </p>
@@ -329,36 +337,36 @@ export function StudentImporter({ sections }: StudentImporterProps) {
           className="p-0"
         >
           <div className="overflow-x-auto">
-            <table className="w-full text-left text-sm">
-              <thead className="border-b border-slate-200 text-xs uppercase tracking-wide text-slate-500">
-                <tr>
+            <Table caption="Rows to import" className="rounded-none border-0">
+              <TableHead>
+                <TableRow>
                   {IMPORT_FIELDS.filter((field) => columnMap[field.key] !== undefined && columnMap[field.key] !== '').map(
                     (field) => (
-                      <th key={field.key} scope="col" className="px-4 py-3 font-medium">
+                      <TableHeaderCell key={field.key}>
                         {field.label}
-                      </th>
+                      </TableHeaderCell>
                     ),
                   )}
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
+                </TableRow>
+              </TableHead>
+              <TableBody>
                 {preview.map((row, index) => (
-                  <tr key={index}>
+                  <TableRow key={index}>
                     {IMPORT_FIELDS.filter(
                       (field) => columnMap[field.key] !== undefined && columnMap[field.key] !== '',
                     ).map((field) => (
-                      <td key={field.key} className="px-4 py-3 text-slate-700">
+                      <TableCell key={field.key}>
                         {row[columnMap[field.key]!] ?? ''}
-                      </td>
+                      </TableCell>
                     ))}
-                  </tr>
+                  </TableRow>
                 ))}
-              </tbody>
-            </table>
+              </TableBody>
+            </Table>
           </div>
 
           {previewProblems.length > 0 ? (
-            <div className="border-t border-slate-200 bg-amber-50 px-5 py-3 text-sm text-amber-900">
+            <div className="border-t border-line bg-status-warning-subtle px-5 py-3 text-sm text-status-warning-onSubtle">
               <p className="font-medium">
                 Problems in these first {preview.length} rows:
               </p>
@@ -446,7 +454,7 @@ export function StudentImporter({ sections }: StudentImporterProps) {
                 className={
                   shown === key
                     ? 'rounded-lg border border-brand-primary px-3 py-1.5'
-                    : 'rounded-lg border border-transparent px-3 py-1.5 hover:border-slate-300'
+                    : 'rounded-lg border border-transparent px-3 py-1.5 hover:border-line-strong'
                 }
               >
                 <Badge variant={variant}>
@@ -457,7 +465,7 @@ export function StudentImporter({ sections }: StudentImporterProps) {
         </div>
 
         {(counts?.invalid ?? 0) > 0 && !isDone ? (
-          <p className="mt-4 text-sm text-slate-600">
+          <p className="mt-4 text-sm text-ink-muted">
             Rows that need fixing are <strong>not</strong> imported and nothing
             else is held up by them. Import the rest now and fix those in a
             second file, or start over with a corrected one — importing the same
@@ -468,42 +476,42 @@ export function StudentImporter({ sections }: StudentImporterProps) {
 
       <Card className="p-0" header={<CardTitle title={OUTCOME_LABELS[shown] ?? 'Rows'} />}>
         <div className="overflow-x-auto">
-          <table className="w-full text-left text-sm">
-            <thead className="border-b border-slate-200 text-xs uppercase tracking-wide text-slate-500">
-              <tr>
-                <th scope="col" className="px-4 py-3 font-medium">Row</th>
-                <th scope="col" className="px-4 py-3 font-medium">Student</th>
-                <th scope="col" className="px-4 py-3 font-medium">Guardian</th>
-                <th scope="col" className="px-4 py-3 font-medium">What we found</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100">
+          <Table caption="Rows with problems" className="rounded-none border-0">
+            <TableHead>
+              <TableRow>
+                <TableHeaderCell>Row</TableHeaderCell>
+                <TableHeaderCell>Student</TableHeaderCell>
+                <TableHeaderCell>Guardian</TableHeaderCell>
+                <TableHeaderCell>What we found</TableHeaderCell>
+              </TableRow>
+            </TableHead>
+            <TableBody>
               {rows.length === 0 ? (
-                <tr>
-                  <td colSpan={4} className="px-4 py-6 text-sm text-slate-500">
+                <TableRow>
+                  <TableCell muted className="text-sm" colSpan={4}>
                     Nothing in this group.
-                  </td>
-                </tr>
+                  </TableCell>
+                </TableRow>
               ) : (
                 rows.map((row) => (
-                  <tr key={row.id}>
-                    <td className="px-4 py-3 font-mono text-xs text-slate-500">
+                  <TableRow key={row.id}>
+                    <TableCell muted className="font-mono text-xs">
                       {row.rowNumber}
-                    </td>
-                    <td className="px-4 py-3 text-slate-900">
+                    </TableCell>
+                    <TableCell>
                       {row.raw[columnMap['name'] ?? ''] ?? '—'}
-                    </td>
-                    <td className="px-4 py-3 text-slate-600">
+                    </TableCell>
+                    <TableCell muted>
                       {row.raw[columnMap['guardianName'] ?? ''] ?? '—'}
-                    </td>
-                    <td className="px-4 py-3 text-slate-600">
+                    </TableCell>
+                    <TableCell muted>
                       {row.errors.length === 0 ? '—' : row.errors.join(' ')}
-                    </td>
-                  </tr>
+                    </TableCell>
+                  </TableRow>
                 ))
               )}
-            </tbody>
-          </table>
+            </TableBody>
+          </Table>
         </div>
       </Card>
 

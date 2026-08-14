@@ -33,7 +33,7 @@ export default async function EmergencyLoginPage({
   return (
     <BrandedLoginLayout subtitle="Emergency access">
       <EmergencyLoginClient token={token} schoolSlug={slug} />
-      <p className="mt-6 text-center text-xs text-slate-400">
+      <p className="mt-6 text-center text-xs text-ink-muted">
         This link works once and expires 15 minutes after it was issued.
       </p>
     </BrandedLoginLayout>

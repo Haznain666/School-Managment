@@ -8,6 +8,14 @@ import { Card } from '@/components/ui/Card';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
 import { Button } from '@/components/ui/Button';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeaderCell,
+  TableRow,
+} from '@/components/ui/Table';
 import { MAX_BULK_DELETE, type DeletionOutcome } from '@/lib/user-deletion';
 import { ROLE_LABELS, isUserRole } from '@/types/school-auth';
 
@@ -345,7 +353,7 @@ export function UserTable({ branches, lockedBranchId, canManage }: UserTableProp
       </div>
 
       {error !== null ? (
-        <p role="alert" className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">
+        <p role="alert" className="rounded-lg bg-status-danger-subtle px-3 py-2 text-sm text-status-danger-ink">
           {error}
         </p>
       ) : null}
@@ -353,14 +361,14 @@ export function UserTable({ branches, lockedBranchId, canManage }: UserTableProp
       {notice !== null ? (
         <p
           role="status"
-          className="rounded-lg bg-emerald-50 px-3 py-2 text-sm text-emerald-700"
+          className="rounded-lg bg-status-success-subtle px-3 py-2 text-sm text-status-success-ink"
         >
           {notice}
         </p>
       ) : null}
 
       {refusals.length > 0 ? (
-        <div className="rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-900">
+        <div className="rounded-lg bg-status-warning-subtle px-3 py-2 text-sm text-status-warning-onSubtle">
           <p className="font-medium">These were kept:</p>
           <ul className="mt-1 space-y-1">
             {refusals.map((outcome) => (
@@ -373,8 +381,8 @@ export function UserTable({ branches, lockedBranchId, canManage }: UserTableProp
       ) : null}
 
       {canManage && selected.size > 0 ? (
-        <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-slate-200 bg-white px-4 py-3">
-          <span className="text-sm text-slate-700">
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-line bg-surface-raised px-4 py-3">
+          <span className="text-sm text-ink">
             {selected.size} user{selected.size === 1 ? '' : 's'} selected
             {overCap ? ` — the limit is ${MAX_BULK_DELETE} at a time` : ''}
           </span>
@@ -382,7 +390,7 @@ export function UserTable({ branches, lockedBranchId, canManage }: UserTableProp
           <div className="flex flex-nowrap items-center gap-2 whitespace-nowrap">
             {confirming ? (
               <>
-                <span className="text-sm text-red-700">
+                <span className="text-sm text-status-danger-ink">
                   Delete {selected.size} user{selected.size === 1 ? '' : 's'} permanently?
                 </span>
                 <Button
@@ -435,66 +443,70 @@ export function UserTable({ branches, lockedBranchId, canManage }: UserTableProp
 
       {data === null || data === undefined ? (
         <Card>
-          <p className="text-sm text-slate-500">Loading users…</p>
+          <p className="text-sm text-ink-muted">Loading users…</p>
         </Card>
       ) : users.length === 0 ? (
         <Card>
-          <p className="text-sm text-slate-600">No users match those filters.</p>
+          <p className="text-sm text-ink-muted">No users match those filters.</p>
         </Card>
       ) : (
         <>
           <Card className="p-0">
             <div className="overflow-x-auto">
-              <table className="w-full text-left text-sm">
-                <thead className="border-b border-slate-200 text-xs uppercase tracking-wide text-slate-500">
-                  <tr>
+              <Table
+                caption="School users and staff"
+                className="rounded-none border-0"
+                maxHeight="34rem"
+              >
+                <TableHead>
+                  <TableRow>
                     {canManage ? (
-                      <th scope="col" className="w-10 px-4 py-3">
+                      <TableHeaderCell className="w-10">
                         <input
                           ref={headerCheckbox}
                           type="checkbox"
                           aria-label="Select every user on this page"
-                          className="h-4 w-4 rounded border-slate-300"
+                          className="h-4 w-4 rounded border-line-strong"
                           checked={pageIds.length > 0 && selectedOnPage === pageIds.length}
                           onChange={togglePage}
                         />
-                      </th>
+                      </TableHeaderCell>
                     ) : null}
-                    <th scope="col" className="px-4 py-3 font-medium">Name</th>
-                    <th scope="col" className="px-4 py-3 font-medium">Role</th>
-                    <th scope="col" className="px-4 py-3 font-medium">Branch</th>
-                    <th scope="col" className="px-4 py-3 font-medium">Phone</th>
-                    <th scope="col" className="px-4 py-3 font-medium">Status</th>
-                    <th scope="col" className="px-4 py-3 font-medium">Actions</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
+                    <TableHeaderCell>Name</TableHeaderCell>
+                    <TableHeaderCell>Role</TableHeaderCell>
+                    <TableHeaderCell>Branch</TableHeaderCell>
+                    <TableHeaderCell>Phone</TableHeaderCell>
+                    <TableHeaderCell>Status</TableHeaderCell>
+                    <TableHeaderCell>Actions</TableHeaderCell>
+                  </TableRow>
+                </TableHead>
+                <TableBody>
                   {users.map((user) => (
-                    <tr key={user.id} className={selected.has(user.id) ? 'bg-slate-50' : undefined}>
+                    <TableRow key={user.id} selected={selected.has(user.id)}>
                       {canManage ? (
-                        <td className="px-4 py-3">
+                        <TableCell>
                           <input
                             type="checkbox"
                             aria-label={`Select ${user.name}`}
-                            className="h-4 w-4 rounded border-slate-300"
+                            className="h-4 w-4 rounded border-line-strong"
                             checked={selected.has(user.id)}
                             onChange={() => {
                               toggle(user.id);
                             }}
                           />
-                        </td>
+                        </TableCell>
                       ) : null}
-                      <td className="px-4 py-3 font-medium text-slate-900">{user.name}</td>
-                      <td className="px-4 py-3 text-slate-600">
+                      <TableCell rowHeader>{user.name}</TableCell>
+                      <TableCell muted>
                         {isUserRole(user.role) ? ROLE_LABELS[user.role] : user.role}
-                      </td>
-                      <td className="px-4 py-3 text-slate-600">
+                      </TableCell>
+                      <TableCell muted>
                         {user.branchName ?? 'All branches'}
-                      </td>
-                      <td className="px-4 py-3 font-mono text-xs text-slate-600">
+                      </TableCell>
+                      <TableCell muted className="font-mono text-xs">
                         {user.phone}
-                      </td>
-                      <td className="px-4 py-3">
+                      </TableCell>
+                      <TableCell>
                         {/*
                           Read from `authUserId`, not `joinedAt` — having a
                           Supabase identity is what "has signed in" means, and
@@ -508,23 +520,23 @@ export function UserTable({ branches, lockedBranchId, canManage }: UserTableProp
                         ) : (
                           <Badge variant="success">Active</Badge>
                         )}
-                      </td>
-                      <td className="px-4 py-3">
+                      </TableCell>
+                      <TableCell>
                         <Link
                           href={`/dashboard/users/${user.id}`}
                           className="text-sm font-medium text-brand-primary hover:underline"
                         >
                           View
                         </Link>
-                      </td>
-                    </tr>
+                      </TableCell>
+                    </TableRow>
                   ))}
-                </tbody>
-              </table>
+                </TableBody>
+              </Table>
             </div>
           </Card>
 
-          <div className="flex items-center justify-between text-sm text-slate-600">
+          <div className="flex items-center justify-between text-sm text-ink-muted">
             <span>
               {data.total} user{data.total === 1 ? '' : 's'} · page {data.page} of{' '}
               {totalPages}

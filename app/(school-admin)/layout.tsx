@@ -1,7 +1,8 @@
 import type { CSSProperties, ReactNode } from 'react';
 
+import { PortalFrame } from '@/components/school/PortalFrame';
 import { SchoolNavbar } from '@/components/school/SchoolNavbar';
-import { SchoolSidebar } from '@/components/school/SchoolSidebar';
+import { schoolNav } from '@/components/school/school-nav';
 import { paletteToCSSVars } from '@/lib/branding';
 import { requireSchoolRole } from '@/lib/school-guard';
 import { getSchoolBranding } from '@/lib/school-tenant';
@@ -39,31 +40,40 @@ export default async function SchoolAdminLayout({ children }: { children: ReactN
 
   const brandStyle = paletteToCSSVars(branding?.palette ?? null) as unknown as CSSProperties;
 
+  const { items, sections } = schoolNav({
+    role: claims.role,
+    permissions,
+    moduleFlags: moduleFlags ?? emptyModuleFlags(),
+  });
+
+  const schoolName = branding?.name ?? 'School';
+
   return (
     // `bg-brand-background`, not `bg-slate-50`: the page itself is one of the
     // five colours a school chooses, and painting it slate was most of why a
     // selected palette barely showed. See `lib/branding.ts`.
-    <div style={brandStyle} className="flex h-screen bg-brand-background text-brand-text">
-      <SchoolSidebar
-        role={claims.role}
-        permissions={permissions}
-        moduleFlags={moduleFlags ?? emptyModuleFlags()}
-      />
-
-      <div className="flex min-w-0 flex-1 flex-col">
-        <SchoolNavbar
-          schoolName={branding?.name ?? 'School'}
-          logoUrl={branding?.logoUrl ?? null}
-          // The platform operator has no `school_users` row here on purpose —
-          // they are not a member of this school — so their address stands in
-          // for the name the directory would otherwise supply.
-          userName={profile?.name ?? ''}
-          role={claims.role}
-          schoolSlug={claims.schoolSlug}
-          platformAdminEmail={claims.platformAdminEmail}
-        />
-        <main className="flex-1 overflow-y-auto p-6">{children}</main>
-      </div>
+    <div style={brandStyle} className="bg-brand-background text-brand-text">
+      <PortalFrame
+        items={items}
+        sections={sections}
+        ariaLabel="School administration navigation"
+        drawerTitle={schoolName}
+        header={
+          <SchoolNavbar
+            schoolName={schoolName}
+            logoUrl={branding?.logoUrl ?? null}
+            // The platform operator has no `school_users` row here on purpose —
+            // they are not a member of this school — so their address stands in
+            // for the name the directory would otherwise supply.
+            userName={profile?.name ?? ''}
+            role={claims.role}
+            schoolSlug={claims.schoolSlug}
+            platformAdminEmail={claims.platformAdminEmail}
+          />
+        }
+      >
+        {children}
+      </PortalFrame>
     </div>
   );
 }

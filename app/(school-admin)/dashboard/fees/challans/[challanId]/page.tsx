@@ -6,6 +6,15 @@ import { ChallanActions } from '@/components/fees/ChallanActions';
 import { ChallanPrintView } from '@/components/fees/ChallanPrintView';
 import { Badge, type BadgeVariant } from '@/components/ui/Badge';
 import { Card, CardTitle } from '@/components/ui/Card';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableFoot,
+  TableHead,
+  TableHeaderCell,
+  TableRow,
+} from '@/components/ui/Table';
 import { MONTH_NAMES } from '@/db/schema/academic-years';
 import {
   CHALLAN_STATUS_LABELS,
@@ -79,7 +88,7 @@ export default async function ChallanDetailPage({
             >
               ← All challans
             </Link>
-            <h2 className="mt-1 flex flex-wrap items-center gap-3 text-xl font-semibold text-slate-900">
+            <h2 className="mt-1 flex flex-wrap items-center gap-3 text-xl font-semibold text-ink">
               <span className="font-mono">{challan.challanNumber}</span>
               <Badge variant={STATUS_VARIANTS[challan.status]}>
                 {CHALLAN_STATUS_LABELS[challan.status]}
@@ -88,7 +97,7 @@ export default async function ChallanDetailPage({
                 <Badge variant="danger">{overdueDays} days overdue</Badge>
               ) : null}
             </h2>
-            <p className="mt-1 text-sm text-slate-500">
+            <p className="mt-1 text-sm text-ink-muted">
               {challan.studentName} ·{' '}
               <span className="font-mono">{challan.studentId}</span> ·{' '}
               {challan.gradeName ?? 'No class recorded'}
@@ -97,10 +106,10 @@ export default async function ChallanDetailPage({
           </div>
 
           <div className="text-right">
-            <p className="text-xs font-medium uppercase tracking-wide text-slate-500">
+            <p className="text-xs font-medium uppercase tracking-wide text-ink-muted">
               Balance
             </p>
-            <p className="text-2xl font-bold text-slate-900">
+            <p className="text-2xl font-bold text-ink">
               {formatPkr(balancePaise / 100)}
             </p>
           </div>
@@ -119,60 +128,60 @@ export default async function ChallanDetailPage({
         <div className="grid gap-4 lg:grid-cols-3">
           <Card className="lg:col-span-2 p-0" header={<CardTitle title="Line items" />}>
             <div className="overflow-x-auto">
-              <table className="w-full text-left text-sm">
-                <thead className="border-b border-slate-200 text-xs uppercase tracking-wide text-slate-500">
-                  <tr>
-                    <th scope="col" className="px-5 py-3 font-medium">Fee head</th>
-                    <th scope="col" className="px-5 py-3 text-right font-medium">Amount</th>
-                    <th scope="col" className="px-5 py-3 text-right font-medium">Concession</th>
-                    <th scope="col" className="px-5 py-3 text-right font-medium">Net</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
+              <Table caption="Challan lines" className="rounded-none border-0">
+                <TableHead>
+                  <TableRow>
+                    <TableHeaderCell>Fee head</TableHeaderCell>
+                    <TableHeaderCell align="numeric">Amount</TableHeaderCell>
+                    <TableHeaderCell align="numeric">Concession</TableHeaderCell>
+                    <TableHeaderCell align="numeric">Net</TableHeaderCell>
+                  </TableRow>
+                </TableHead>
+                <TableBody>
                   {challan.items.map((item) => (
-                    <tr key={item.id}>
-                      <td className="px-5 py-3 text-slate-900">{item.description}</td>
-                      <td className="px-5 py-3 text-right text-slate-600">
+                    <TableRow key={item.id}>
+                      <TableCell>{item.description}</TableCell>
+                      <TableCell align="numeric" muted>
                         {formatAmount(item.amount)}
-                      </td>
-                      <td className="px-5 py-3 text-right text-slate-600">
+                      </TableCell>
+                      <TableCell align="numeric" muted>
                         {Number(item.concessionAmount) === 0
                           ? '—'
                           : `−${formatAmount(item.concessionAmount)}`}
-                      </td>
-                      <td className="px-5 py-3 text-right font-medium text-slate-900">
+                      </TableCell>
+                      <TableCell rowHeader align="numeric">
                         {formatAmount(item.netAmount)}
-                      </td>
-                    </tr>
+                      </TableCell>
+                    </TableRow>
                   ))}
 
                   {Number(challan.lateFeeAmount) === 0 ? null : (
-                    <tr>
-                      <td className="px-5 py-3 text-slate-900">Late fee</td>
-                      <td className="px-5 py-3 text-right text-slate-600">
+                    <TableRow>
+                      <TableCell>Late fee</TableCell>
+                      <TableCell align="numeric" muted>
                         {formatAmount(challan.lateFeeAmount)}
-                      </td>
-                      <td className="px-5 py-3 text-right text-slate-600">—</td>
-                      <td className="px-5 py-3 text-right font-medium text-slate-900">
+                      </TableCell>
+                      <TableCell align="numeric" muted>—</TableCell>
+                      <TableCell rowHeader align="numeric">
                         {formatAmount(challan.lateFeeAmount)}
-                      </td>
-                    </tr>
+                      </TableCell>
+                    </TableRow>
                   )}
-                </tbody>
-                <tfoot className="border-t border-slate-200 bg-slate-50">
-                  <tr>
-                    <th scope="row" colSpan={3} className="px-5 py-3 text-left font-medium text-slate-600">
+                </TableBody>
+                <TableFoot>
+                  <TableRow>
+                    <TableCell rowHeader muted colSpan={3}>
                       Total payable
-                    </th>
-                    <td className="px-5 py-3 text-right text-base font-bold text-slate-900">
+                    </TableCell>
+                    <TableCell align="numeric" className="text-base font-bold">
                       {formatAmount(challan.totalAmount)}
-                    </td>
-                  </tr>
-                </tfoot>
-              </table>
+                    </TableCell>
+                  </TableRow>
+                </TableFoot>
+              </Table>
             </div>
 
-            <p className="border-t border-slate-200 px-5 py-3 text-xs text-slate-500">
+            <p className="border-t border-line px-5 py-3 text-xs text-ink-muted">
               {amountInWords(challan.totalAmount)}
             </p>
           </Card>
@@ -211,41 +220,41 @@ export default async function ChallanDetailPage({
           className="p-0"
         >
           {challan.payments.length === 0 ? (
-            <p className="px-5 py-4 text-sm text-slate-600">
+            <p className="px-5 py-4 text-sm text-ink-muted">
               Nothing has been received against this challan yet.
             </p>
           ) : (
             <div className="overflow-x-auto">
-              <table className="w-full text-left text-sm">
-                <thead className="border-b border-slate-200 text-xs uppercase tracking-wide text-slate-500">
-                  <tr>
-                    <th scope="col" className="px-5 py-3 font-medium">Date</th>
-                    <th scope="col" className="px-5 py-3 text-right font-medium">Amount</th>
-                    <th scope="col" className="px-5 py-3 font-medium">Method</th>
-                    <th scope="col" className="px-5 py-3 font-medium">Reference</th>
-                    <th scope="col" className="px-5 py-3 font-medium">Recorded by</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
+              <Table caption="Payments against this challan" className="rounded-none border-0">
+                <TableHead>
+                  <TableRow>
+                    <TableHeaderCell>Date</TableHeaderCell>
+                    <TableHeaderCell align="numeric">Amount</TableHeaderCell>
+                    <TableHeaderCell>Method</TableHeaderCell>
+                    <TableHeaderCell>Reference</TableHeaderCell>
+                    <TableHeaderCell>Recorded by</TableHeaderCell>
+                  </TableRow>
+                </TableHead>
+                <TableBody>
                   {challan.payments.map((payment) => (
-                    <tr key={payment.id}>
-                      <td className="px-5 py-3 text-slate-600">{payment.paymentDate}</td>
-                      <td className="px-5 py-3 text-right font-medium text-slate-900">
+                    <TableRow key={payment.id}>
+                      <TableCell muted>{payment.paymentDate}</TableCell>
+                      <TableCell rowHeader align="numeric">
                         {formatAmount(payment.amount)}
-                      </td>
-                      <td className="px-5 py-3 text-slate-600">
+                      </TableCell>
+                      <TableCell muted>
                         {PAYMENT_METHOD_LABELS[payment.paymentMethod]}
-                      </td>
-                      <td className="px-5 py-3 font-mono text-xs text-slate-600">
+                      </TableCell>
+                      <TableCell muted className="font-mono text-xs">
                         {payment.referenceNumber ?? '—'}
-                      </td>
-                      <td className="px-5 py-3 text-slate-600">
+                      </TableCell>
+                      <TableCell muted>
                         {payment.collectedByName ?? '—'}
-                      </td>
-                    </tr>
+                      </TableCell>
+                    </TableRow>
                   ))}
-                </tbody>
-              </table>
+                </TableBody>
+              </Table>
             </div>
           )}
         </Card>
@@ -283,10 +292,10 @@ export default async function ChallanDetailPage({
 function Detail({ label, value }: { label: string; value: string }) {
   return (
     <div>
-      <dt className="text-xs font-medium uppercase tracking-wide text-slate-500">
+      <dt className="text-xs font-medium uppercase tracking-wide text-ink-muted">
         {label}
       </dt>
-      <dd className="mt-0.5 text-sm text-slate-900">{value}</dd>
+      <dd className="mt-0.5 text-sm text-ink">{value}</dd>
     </div>
   );
 }

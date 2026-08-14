@@ -1,7 +1,19 @@
 import { Card } from '@/components/ui/Card';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeaderCell,
+  TableRow,
+} from '@/components/ui/Table';
 import { subjectShortLabel } from '@/db/schema/subjects';
 import { formatTimeOfDay } from '@/db/schema/timetable-slots';
 import { WEEKDAY_SHORT_NAMES } from '@/db/schema/timetable-entries';
+import { readableForeground } from '@/lib/color-contrast';
+
+/** Used when a subject has no colour of its own. */
+const SUBJECT_FALLBACK = '#475569';
 
 /**
  * A read-only week.
@@ -43,7 +55,7 @@ export function TimetableGrid({ slots, entries, emptyMessage }: TimetableGridPro
   if (slots.length === 0 || entries.length === 0) {
     return (
       <Card>
-        <p className="text-sm text-slate-600">{emptyMessage}</p>
+        <p className="text-sm text-ink-muted">{emptyMessage}</p>
       </Card>
     );
   }
@@ -56,46 +68,54 @@ export function TimetableGrid({ slots, entries, emptyMessage }: TimetableGridPro
   return (
     <Card className="p-0">
       <div className="overflow-x-auto">
-        <table className="w-full min-w-[46rem] border-collapse text-left text-sm">
-          <thead className="border-b border-slate-200 text-xs uppercase tracking-wide text-slate-500">
-            <tr>
-              <th scope="col" className="w-40 px-4 py-3 font-medium">Period</th>
+        <Table caption="Weekly timetable" className="rounded-none border-0">
+          <TableHead>
+            <TableRow>
+              <TableHeaderCell className="w-40">Period</TableHeaderCell>
               {WEEKDAY_SHORT_NAMES.map((day) => (
-                <th key={day} scope="col" className="px-3 py-3 font-medium">
+                <TableHeaderCell key={day}>
                   {day}
-                </th>
+                </TableHeaderCell>
               ))}
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-slate-100">
+            </TableRow>
+          </TableHead>
+          <TableBody>
             {slots.map((slot) => (
-              <tr key={slot.id}>
-                <th scope="row" className="px-4 py-2 text-left align-top">
-                  <span className="block font-medium text-slate-900">{slot.name}</span>
-                  <span className="block text-xs font-normal text-slate-500">
+              <TableRow key={slot.id}>
+                <TableCell rowHeader>
+                  <span className="block font-medium text-ink">{slot.name}</span>
+                  <span className="block text-xs font-normal text-ink-muted">
                     {formatTimeOfDay(slot.startTime)} – {formatTimeOfDay(slot.endTime)}
                   </span>
-                </th>
+                </TableCell>
 
                 {slot.isBreak ? (
-                  <td
-                    colSpan={WEEKDAY_SHORT_NAMES.length}
-                    className="bg-slate-50 px-3 py-3 text-center text-xs font-medium uppercase tracking-wide text-slate-500"
-                  >
+                  <TableCell align="center" muted className="bg-surface-sunken text-center text-xs uppercase tracking-wide" colSpan={WEEKDAY_SHORT_NAMES.length}>
                     {slot.name}
-                  </td>
+                  </TableCell>
                 ) : (
                   WEEKDAY_SHORT_NAMES.map((day, dayIndex) => {
                     const entry = byCell.get(`${slot.id}:${dayIndex}`);
 
                     return (
-                      <td key={`${slot.id}-${day}`} className="px-1.5 py-1.5 align-top">
+                      <TableCell key={`${slot.id}-${day}`}>
                         {entry === undefined ? (
-                          <div className="h-[4.5rem] w-full rounded-lg border border-dashed border-slate-200" />
+                          <div className="h-[4.5rem] w-full rounded-lg border border-dashed border-line" />
                         ) : (
                           <div
-                            className="flex h-[4.5rem] w-full flex-col justify-center gap-0.5 rounded-lg px-2 py-1.5 text-white"
-                            style={{ backgroundColor: entry.subjectColor ?? '#475569' }}
+                            className="flex h-[4.5rem] w-full flex-col justify-center gap-0.5 rounded-lg px-2 py-1.5"
+                            /*
+                             * The lettering is computed from the subject's own
+                             * colour, not assumed white. Subject colours are
+                             * picked by the school and can be anything: a pale
+                             * yellow "Chemistry" rendered white-on-yellow was
+                             * the same defect §5p records for the palette, one
+                             * level down.
+                             */
+                            style={{
+                              backgroundColor: entry.subjectColor ?? SUBJECT_FALLBACK,
+                              color: readableForeground(entry.subjectColor ?? SUBJECT_FALLBACK),
+                            }}
                           >
                             <span className="truncate text-xs font-semibold">
                               {subjectShortLabel({
@@ -115,14 +135,14 @@ export function TimetableGrid({ slots, entries, emptyMessage }: TimetableGridPro
                             )}
                           </div>
                         )}
-                      </td>
+                      </TableCell>
                     );
                   })
                 )}
-              </tr>
+              </TableRow>
             ))}
-          </tbody>
-        </table>
+          </TableBody>
+        </Table>
       </div>
     </Card>
   );

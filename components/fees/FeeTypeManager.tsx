@@ -9,6 +9,14 @@ import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
 import { Textarea } from '@/components/ui/Textarea';
 import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeaderCell,
+  TableRow,
+} from '@/components/ui/Table';
+import {
   FEE_CATEGORIES,
   FEE_CATEGORY_LABELS,
   type FeeCategory,
@@ -161,7 +169,7 @@ export function FeeTypeManager({ canEdit }: FeeTypeManagerProps) {
   if (feeTypes === null) {
     return (
       <Card>
-        <p className="text-sm text-slate-500">Loading fee types…</p>
+        <p className="text-sm text-ink-muted">Loading fee types…</p>
       </Card>
     );
   }
@@ -174,7 +182,7 @@ export function FeeTypeManager({ canEdit }: FeeTypeManagerProps) {
       {error !== null ? (
         <p
           role="alert"
-          className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700"
+          className="rounded-lg bg-status-danger-subtle px-3 py-2 text-sm text-status-danger-ink"
         >
           {error}
         </p>
@@ -182,8 +190,8 @@ export function FeeTypeManager({ canEdit }: FeeTypeManagerProps) {
 
       {feeTypes.length === 0 ? (
         <Card>
-          <h3 className="text-base font-semibold text-slate-900">Setup required</h3>
-          <p className="mt-1 text-sm text-slate-600">
+          <h3 className="text-base font-semibold text-ink">Setup required</h3>
+          <p className="mt-1 text-sm text-ink-muted">
             Your school has no fee heads yet, so nothing can be priced or billed.
             Seeding creates the five most schools use — Tuition Fee (monthly),
             Admission Fee (one time), and Annual Charges, Library Fee and
@@ -304,40 +312,40 @@ export function FeeTypeManager({ canEdit }: FeeTypeManagerProps) {
           className="p-0"
         >
           <div className="overflow-x-auto">
-            <table className="w-full text-left text-sm">
-              <thead className="border-b border-slate-200 text-xs uppercase tracking-wide text-slate-500">
-                <tr>
-                  <th scope="col" className="px-5 py-3 font-medium">Name</th>
-                  <th scope="col" className="px-5 py-3 font-medium">Category</th>
-                  <th scope="col" className="px-5 py-3 font-medium">Order</th>
-                  <th scope="col" className="px-5 py-3 font-medium">Status</th>
+            <Table caption="Fee types" className="rounded-none border-0">
+              <TableHead>
+                <TableRow>
+                  <TableHeaderCell>Name</TableHeaderCell>
+                  <TableHeaderCell>Category</TableHeaderCell>
+                  <TableHeaderCell>Order</TableHeaderCell>
+                  <TableHeaderCell>Status</TableHeaderCell>
                   {canEdit ? (
-                    <th scope="col" className="px-5 py-3 font-medium">
+                    <TableHeaderCell>
                       <span className="sr-only">Actions</span>
-                    </th>
+                    </TableHeaderCell>
                   ) : null}
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
+                </TableRow>
+              </TableHead>
+              <TableBody>
                 {feeTypes.map((row) => (
-                  <tr key={row.id}>
-                    <td className="px-5 py-3">
-                      <p className="font-medium text-slate-900">{row.name}</p>
+                  <TableRow key={row.id}>
+                    <TableCell>
+                      <p className="font-medium text-ink">{row.name}</p>
                       {row.description === null || row.description === '' ? null : (
-                        <p className="text-xs text-slate-500">{row.description}</p>
+                        <p className="text-xs text-ink-muted">{row.description}</p>
                       )}
-                    </td>
-                    <td className="px-5 py-3 text-slate-600">
+                    </TableCell>
+                    <TableCell muted>
                       {FEE_CATEGORY_LABELS[row.feeCategory]}
-                    </td>
-                    <td className="px-5 py-3 text-slate-600">{row.sortOrder}</td>
-                    <td className="px-5 py-3">
+                    </TableCell>
+                    <TableCell muted>{row.sortOrder}</TableCell>
+                    <TableCell>
                       <Badge variant={row.isActive ? 'success' : 'neutral'}>
                         {row.isActive ? 'Active' : 'Retired'}
                       </Badge>
-                    </td>
+                    </TableCell>
                     {canEdit ? (
-                      <td className="px-5 py-3">
+                      <TableCell>
                         <div className="flex justify-end gap-2">
                           <Button
                             size="sm"
@@ -366,12 +374,12 @@ export function FeeTypeManager({ canEdit }: FeeTypeManagerProps) {
                             {row.isActive ? 'Retire' : 'Restore'}
                           </Button>
                         </div>
-                      </td>
+                      </TableCell>
                     ) : null}
-                  </tr>
+                  </TableRow>
                 ))}
-              </tbody>
-            </table>
+              </TableBody>
+            </Table>
           </div>
         </Card>
       )}

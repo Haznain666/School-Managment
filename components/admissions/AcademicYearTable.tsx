@@ -1,12 +1,21 @@
 'use client';
 
+import { CalendarDays, Plus } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
-import { Card } from '@/components/ui/Card';
+import { EmptyState } from '@/components/ui/EmptyState';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeaderCell,
+  TableRow,
+} from '@/components/ui/Table';
 import { formatMonthYear } from '@/db/schema/academic-years';
 import { schoolErrorMessage, schoolFetch } from '@/lib/school-client';
 
@@ -70,58 +79,58 @@ export function AcademicYearTable({ years, canEdit }: AcademicYearTableProps) {
 
   if (years.length === 0) {
     return (
-      <Card>
-        <p className="text-sm text-slate-600">
-          No academic years yet. Create one before enrolling students — every
-          placement, section and student ID is filed under a year.
-        </p>
-        {canEdit ? (
-          <Link href="/dashboard/admissions/academic-years/new" className="mt-4 inline-block">
-            <Button>Create academic year</Button>
-          </Link>
-        ) : null}
-      </Card>
+      <EmptyState
+        icon={CalendarDays}
+        title="No academic years yet"
+        description="Create one before enrolling students — every placement, section and student ID is filed under a year."
+        action={
+          canEdit ? (
+            <Link href="/dashboard/admissions/academic-years/new">
+              <Button icon={Plus}>Create academic year</Button>
+            </Link>
+          ) : null
+        }
+      />
     );
   }
 
   return (
     <div className="space-y-4">
       {error !== null ? (
-        <p role="alert" className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">
+        <p role="alert" className="rounded-lg bg-status-danger-subtle px-3 py-2 text-sm text-status-danger-ink">
           {error}
         </p>
       ) : null}
 
-      <Card className="p-0">
-        <div className="overflow-x-auto">
-          <table className="w-full text-left text-sm">
-            <thead className="border-b border-slate-200 text-xs uppercase tracking-wide text-slate-500">
-              <tr>
-                <th scope="col" className="px-4 py-3 font-medium">Name</th>
-                <th scope="col" className="px-4 py-3 font-medium">Starts</th>
-                <th scope="col" className="px-4 py-3 font-medium">Ends</th>
-                <th scope="col" className="px-4 py-3 font-medium">Status</th>
-                <th scope="col" className="px-4 py-3 font-medium">Students</th>
-                <th scope="col" className="px-4 py-3 font-medium">Actions</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100">
+      <Table caption="Academic years">
+        <TableHead>
+          <TableRow>
+            <TableHeaderCell>Name</TableHeaderCell>
+            <TableHeaderCell>Starts</TableHeaderCell>
+            <TableHeaderCell>Ends</TableHeaderCell>
+            <TableHeaderCell>Status</TableHeaderCell>
+            {/* A count is a quantity, so it aligns and sets like one. */}
+            <TableHeaderCell align="numeric">Students</TableHeaderCell>
+            <TableHeaderCell>Actions</TableHeaderCell>
+          </TableRow>
+        </TableHead>
+        <TableBody>
               {years.map((year) => (
-                <tr key={year.id}>
-                  <td className="px-4 py-3 font-medium text-slate-900">{year.name}</td>
-                  <td className="px-4 py-3 text-slate-600">
+                <TableRow key={year.id}>
+                  <TableCell rowHeader>{year.name}</TableCell>
+                  <TableCell muted>
                     {formatMonthYear(year.startMonth, year.startYear)}
-                  </td>
-                  <td className="px-4 py-3 text-slate-600">
+                  </TableCell>
+                  <TableCell muted>
                     {formatMonthYear(year.endMonth, year.endYear)}
-                  </td>
-                  <td className="px-4 py-3">
+                  </TableCell>
+                  <TableCell>
                     <Badge variant={year.isActive ? 'success' : 'neutral'}>
                       {year.isActive ? 'Active' : 'Inactive'}
                     </Badge>
-                  </td>
-                  <td className="px-4 py-3 text-slate-600">{year.studentCount}</td>
-                  <td className="px-4 py-3">
+                  </TableCell>
+                  <TableCell align="numeric" muted>{year.studentCount}</TableCell>
+                  <TableCell>
                     {canEdit ? (
                       <div className="flex flex-wrap gap-2">
                         {year.isActive ? null : (
@@ -153,15 +162,13 @@ export function AcademicYearTable({ years, canEdit }: AcademicYearTableProps) {
                         ) : null}
                       </div>
                     ) : (
-                      <span className="text-xs text-slate-400">View only</span>
+                      <span className="text-xs text-ink-muted">View only</span>
                     )}
-                  </td>
-                </tr>
+                  </TableCell>
+                </TableRow>
               ))}
-            </tbody>
-          </table>
-        </div>
-      </Card>
+        </TableBody>
+      </Table>
     </div>
   );
 }

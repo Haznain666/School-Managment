@@ -91,7 +91,7 @@ export function BranchList({ schoolId }: BranchListProps) {
   if (branches === null) {
     return (
       <Card>
-        <p className="text-sm text-slate-500">{error ?? 'Loading branches…'}</p>
+        <p className="text-sm text-ink-muted">{error ?? 'Loading branches…'}</p>
       </Card>
     );
   }
@@ -99,14 +99,14 @@ export function BranchList({ schoolId }: BranchListProps) {
   return (
     <div className="space-y-4">
       {error !== null ? (
-        <p role="alert" className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">
+        <p role="alert" className="rounded-lg bg-status-danger-subtle px-3 py-2 text-sm text-status-danger-ink">
           {error}
         </p>
       ) : null}
 
       {branches.length === 0 ? (
         <Card>
-          <p className="text-sm text-slate-600">
+          <p className="text-sm text-ink-muted">
             No branches yet. Add the first campus for this school.
           </p>
         </Card>
@@ -119,8 +119,8 @@ export function BranchList({ schoolId }: BranchListProps) {
             >
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
-                  <p className="truncate font-medium text-slate-900">{branch.name}</p>
-                  <p className="mt-0.5 font-mono text-xs text-slate-500">
+                  <p className="truncate font-medium text-ink">{branch.name}</p>
+                  <p className="mt-0.5 font-mono text-xs text-ink-muted">
                     {branch.code}
                   </p>
                 </div>
@@ -135,19 +135,19 @@ export function BranchList({ schoolId }: BranchListProps) {
 
               <dl className="mt-3 space-y-1 text-sm">
                 <div className="flex gap-2">
-                  <dt className="text-slate-500">City</dt>
-                  <dd className="text-slate-900">{branch.city}</dd>
+                  <dt className="text-ink-muted">City</dt>
+                  <dd className="text-ink">{branch.city}</dd>
                 </div>
                 <div className="flex gap-2">
-                  <dt className="text-slate-500">Curriculum</dt>
-                  <dd className="text-slate-900">
+                  <dt className="text-ink-muted">Curriculum</dt>
+                  <dd className="text-ink">
                     {CURRICULUM_LEVEL_LABELS[branch.curriculumLevel]}
                   </dd>
                 </div>
                 {branch.maxGrade !== null && branch.maxGrade !== '' ? (
                   <div className="flex gap-2">
-                    <dt className="text-slate-500">Up to</dt>
-                    <dd className="text-slate-900">{branch.maxGrade}</dd>
+                    <dt className="text-ink-muted">Up to</dt>
+                    <dd className="text-ink">{branch.maxGrade}</dd>
                   </div>
                 ) : null}
               </dl>
