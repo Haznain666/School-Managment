@@ -1,6 +1,6 @@
 import 'server-only';
 
-import { and, eq, gte, inArray, lt, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, gte, inArray, lt, sql } from 'drizzle-orm';
 
 import {
   APPLICATION_STATUSES,
@@ -9,8 +9,12 @@ import {
 import {
   attendanceRecords,
   admissionApplications,
+  examResults,
+  examSubjects,
+  exams,
   feeChallans,
   feePayments,
+  gradeLabel,
   grades,
   sections,
   studentEnrollments,
@@ -18,7 +22,14 @@ import {
 
 import { getActiveAcademicYear } from './admissions-queries';
 import { db } from './drizzle';
+import {
+  bandsForTerm,
+  getExamDetail,
+  resultPicker,
+  type CountingPaper,
+} from './exam-queries';
 import { toDateOnly } from './fee-queries';
+import { percentageOf, resolveBand, toMark, type ResolvedBand } from './grading';
 
 /**
  * The aggregate reads behind the dashboard charts.
@@ -352,6 +363,433 @@ export async function getAdmissionsFunnel(locationId: string): Promise<NamedCoun
     label: APPLICATION_STATUS_LABELS[status],
     value: byStatus.get(status) ?? 0,
   }));
+}
+
+/* -----------------------------------------------------------------------------
+ * Exams.
+ *
+ * ── Why these are not shaped like the other aggregates ───────────────────
+ * The seven above are answered by Postgres and read once. These cannot be: a
+ * grade band is *the school's*, resolved through `lib/grading.ts` against the
+ * scheme the term names, so two schools with identical marks must produce
+ * different distributions. Bucketing by fixed percentages in SQL would be
+ * faster and would contradict the report card printed from the same marks,
+ * which is the one thing a chart beside it must never do.
+ *
+ * So the marks are fetched scoped and narrow — one section's published papers —
+ * and folded here, through the same `resolveBand` the report card calls and the
+ * same `resultPicker` that decides which sitting counts. The volume is a class:
+ * a few hundred rows for one exam, a couple of thousand for the overview's most
+ * recent few.
+ *
+ * ── Absence ──────────────────────────────────────────────────────────────
+ * An absent student is in no grade band and in no pass-rate denominator, the
+ * same way `holiday` is in neither side of the attendance rate. They sat
+ * nothing to be graded on, and folding them in as a zero would report a school
+ * as failing children who were at home with flu. They are *counted* and
+ * returned separately, so every chart can say who it left out rather than
+ * quietly showing a smaller class.
+ *
+ * ── Only published papers ────────────────────────────────────────────────
+ * The tabulation sheet deliberately shows unpublished marks, flagged, because
+ * reviewing them is its purpose. A chart cannot flag a bar. These read what the
+ * report card reads, and the pages say how many papers that leaves out.
+ * -------------------------------------------------------------------------- */
+
+/** A paper as the fold needs it: its marks, its pass mark, and which sitting counts. */
+export interface FoldablePaper extends CountingPaper {
+  maxMarks: number;
+  passingMarks: number;
+}
+
+/** A result row as the fold needs it. */
+export interface FoldableResult {
+  examSubjectId: string;
+  studentProfileId: string;
+  attempt: number;
+  marksObtained: string | null;
+  isAbsent: boolean;
+}
+
+/**
+ * Every mark on a set of papers, tenant-scoped.
+ *
+ * Its own function so both aggregates issue the same read, and so
+ * `scripts/check-dashboard-queries.ts` can execute it against the real schema —
+ * both callers guard on an empty paper list, which is correct (an `in ()` is a
+ * round trip that can only return nothing) and would otherwise mean the one
+ * query that touches `exam_results` was the one the check never ran.
+ */
+export async function readExamMarks(
+  locationId: string,
+  paperIds: readonly string[],
+): Promise<FoldableResult[]> {
+  if (paperIds.length === 0) return [];
+
+  return db
+    .select({
+      examSubjectId: examResults.examSubjectId,
+      studentProfileId: examResults.studentProfileId,
+      attempt: examResults.attempt,
+      marksObtained: examResults.marksObtained,
+      isAbsent: examResults.isAbsent,
+    })
+    .from(examResults)
+    .where(
+      and(
+        eq(examResults.locationId, locationId),
+        inArray(examResults.examSubjectId, [...paperIds]),
+      ),
+    );
+}
+
+export interface StudentTotals {
+  /** Students with a mark on every published paper — the only ones graded. */
+  graded: number;
+  /** Excluded: absent from at least one paper. */
+  absent: number;
+  /** Excluded: a published paper with no mark entered for them. */
+  unmarked: number;
+  /** Of `graded`, those who reached the pass mark on every paper. */
+  passed: number;
+  /** One overall percentage per graded student, in no particular order. */
+  percentages: number[];
+}
+
+/**
+ * Folds one exam's marks into per-student totals.
+ *
+ * The students considered are those with at least one result row: a child
+ * enrolled after the exam has no row anywhere and is not a failure, they are
+ * absent from the data. Marks available is the sum over every published paper,
+ * never over the papers a particular student happened to sit — a denominator
+ * that shrank itself would let missing your weakest paper improve your
+ * percentage, which is the rule `lib/exam-queries.ts` already states.
+ */
+export function foldStudentTotals(
+  papers: readonly FoldablePaper[],
+  results: readonly FoldableResult[],
+): StudentTotals {
+  const pick = resultPicker(results);
+  const students = new Set(results.map((row) => row.studentProfileId));
+  const available = papers.reduce((sum, paper) => sum + paper.maxMarks, 0);
+
+  const totals: StudentTotals = {
+    graded: 0,
+    absent: 0,
+    unmarked: 0,
+    passed: 0,
+    percentages: [],
+  };
+
+  for (const studentProfileId of students) {
+    let obtained = 0;
+    let failed = 0;
+    let absent = false;
+    let unmarked = false;
+
+    for (const paper of papers) {
+      const row = pick(paper, studentProfileId);
+      const marks = toMark(row?.marksObtained);
+
+      if (row?.isAbsent === true) {
+        absent = true;
+      } else if (marks === null) {
+        // No row at all, or one the marks screen has not filled in yet.
+        unmarked = true;
+      } else {
+        obtained += marks;
+        if (marks < paper.passingMarks) failed += 1;
+      }
+    }
+
+    // Absence is reported first: a child who missed a paper is a different
+    // story from one whose teacher has not typed the marks in, and a school
+    // asked "who is not in this chart" wants the first answer.
+    if (absent) {
+      totals.absent += 1;
+    } else if (unmarked || available <= 0) {
+      totals.unmarked += 1;
+    } else {
+      totals.graded += 1;
+      totals.percentages.push(percentageOf(obtained, available));
+      if (failed === 0) totals.passed += 1;
+    }
+  }
+
+  return totals;
+}
+
+/** The mean of a set of percentages, to one decimal. Null when the set is empty. */
+function meanPercentage(values: readonly number[]): number | null {
+  if (values.length === 0) return null;
+  return Math.round((10 * values.reduce((sum, value) => sum + value, 0)) / values.length) / 10;
+}
+
+/** Counts per band, highest band first, zeroes kept. */
+export function distribute(
+  percentages: readonly number[],
+  // `ResolvedBand`, not the row type: this needs a label and a minimum, and
+  // nothing about where the band was stored.
+  bands: readonly ResolvedBand[],
+): { distribution: NamedCount[]; ungraded: number } {
+  const counts = new Map<string, number>(bands.map((band) => [band.label, 0]));
+  let ungraded = 0;
+
+  for (const percentage of percentages) {
+    const band = resolveBand(percentage, bands);
+    if (band === null) {
+      // Below every band the school defined. The report card prints a dash
+      // here rather than inventing an F, so the chart does not invent one
+      // either — it says how many, beside the chart, in the school's own words.
+      ungraded += 1;
+      continue;
+    }
+    counts.set(band.label, (counts.get(band.label) ?? 0) + 1);
+  }
+
+  // `bandsForTerm` returns them highest first, and empty bands stay in: a band
+  // nobody reached is a fact about the exam, and dropping it would redraw the
+  // axis every time a cohort happened to miss one.
+  return {
+    distribution: bands.map((band) => ({ label: band.label, value: counts.get(band.label) ?? 0 })),
+    ungraded,
+  };
+}
+
+/** Average of one paper's percentages, and how many passed it. */
+export interface SubjectAverage {
+  label: string;
+  /** Mean percentage of the students who sat it. */
+  value: number;
+  /** Students with a mark — absentees are in neither this nor the average. */
+  sat: number;
+  passed: number;
+}
+
+export interface ExamPerformance {
+  title: string;
+  className: string;
+  termName: string;
+  /** Papers whose marks are published, of every paper scheduled. */
+  publishedPapers: number;
+  totalPapers: number;
+  /** Counts per grade band, highest first. Empty when the school grades in no scheme. */
+  distribution: NamedCount[];
+  /** Graded students below every band the school defined. */
+  ungraded: number;
+  subjects: SubjectAverage[];
+  graded: number;
+  absent: number;
+  unmarked: number;
+  passed: number;
+  /** `passed / graded` as a percentage. Null when nobody is graded yet. */
+  passRate: number | null;
+  /** Mean overall percentage across graded students. Null when there are none. */
+  average: number | null;
+}
+
+/**
+ * One exam, charted: grade distribution, subject averages and pass rate.
+ *
+ * "Passed" is passing *every* published paper, which is what a school means by
+ * it and what the tabulation sheet's failed-paper count already implies. A rate
+ * built from per-paper passes would be a different and much kinder number
+ * wearing the same label.
+ */
+export async function getExamPerformance(
+  locationId: string,
+  examId: string,
+): Promise<ExamPerformance | null> {
+  const exam = await getExamDetail(locationId, examId);
+  if (exam === null) return null;
+
+  const published = exam.papers.filter((paper) => paper.resultsStatus === 'published');
+
+  const empty: ExamPerformance = {
+    title: exam.title,
+    className: `${exam.gradeName} — ${exam.sectionName}`,
+    termName: exam.termName,
+    publishedPapers: published.length,
+    totalPapers: exam.papers.length,
+    distribution: [],
+    ungraded: 0,
+    subjects: [],
+    graded: 0,
+    absent: 0,
+    unmarked: 0,
+    passed: 0,
+    passRate: null,
+    average: null,
+  };
+
+  if (published.length === 0) return empty;
+
+  const [bands, results] = await Promise.all([
+    bandsForTerm(locationId, exam.termId),
+    readExamMarks(
+      locationId,
+      published.map((paper) => paper.id),
+    ),
+  ]);
+
+  const totals = foldStudentTotals(published, results);
+  const { distribution, ungraded } = distribute(totals.percentages, bands);
+
+  const pick = resultPicker(results);
+  const students = new Set(results.map((row) => row.studentProfileId));
+
+  const subjects: SubjectAverage[] = published.map((paper) => {
+    let sat = 0;
+    let passed = 0;
+    let sum = 0;
+
+    for (const studentProfileId of students) {
+      const row = pick(paper, studentProfileId);
+      const marks = toMark(row?.marksObtained);
+      // Absent from *this* paper only. A child who missed Physics still belongs
+      // in the Mathematics average, so this is decided per paper rather than
+      // per student.
+      if (row === undefined || row.isAbsent || marks === null) continue;
+
+      sat += 1;
+      sum += percentageOf(marks, paper.maxMarks);
+      if (marks >= paper.passingMarks) passed += 1;
+    }
+
+    return {
+      label: paper.subjectName,
+      value: sat === 0 ? 0 : Math.round((10 * sum) / sat) / 10,
+      sat,
+      passed,
+    };
+  });
+
+  return {
+    ...empty,
+    distribution,
+    ungraded,
+    subjects,
+    graded: totals.graded,
+    absent: totals.absent,
+    unmarked: totals.unmarked,
+    passed: totals.passed,
+    passRate:
+      totals.graded === 0 ? null : Math.round((1000 * totals.passed) / totals.graded) / 10,
+    average: meanPercentage(totals.percentages),
+  };
+}
+
+export interface ExamOutcome {
+  examId: string;
+  title: string;
+  className: string;
+  examDate: string;
+  graded: number;
+  absent: number;
+  passRate: number | null;
+  average: number | null;
+}
+
+/** How many exams the overview compares. */
+const OUTCOME_EXAMS = 6;
+
+/**
+ * The most recent exams that have published marks, each as one pass rate and
+ * one average.
+ *
+ * **No grade distribution here, deliberately.** Each exam is graded against its
+ * own term's scheme, and a school that changed schemes between terms would get
+ * an "A" column stacking two different meanings of A. Percentages survive that
+ * comparison; letters do not.
+ */
+export async function getRecentExamOutcomes(
+  locationId: string,
+  limit: number = OUTCOME_EXAMS,
+): Promise<ExamOutcome[]> {
+  const examRows = await db
+    .select({
+      id: exams.id,
+      title: exams.title,
+      examDate: exams.examDate,
+      gradeName: grades.name,
+      gradeDisplayName: grades.displayName,
+      sectionName: sections.name,
+    })
+    .from(exams)
+    .innerJoin(grades, and(eq(grades.id, exams.gradeId), eq(grades.locationId, locationId)))
+    .innerJoin(
+      sections,
+      and(eq(sections.id, exams.sectionId), eq(sections.locationId, locationId)),
+    )
+    // Only exams with something published to read. The join is the filter, so
+    // an exam still being marked never appears as a school with no results.
+    .innerJoin(
+      examSubjects,
+      and(
+        eq(examSubjects.examId, exams.id),
+        eq(examSubjects.locationId, locationId),
+        eq(examSubjects.resultsStatus, 'published'),
+      ),
+    )
+    .where(eq(exams.locationId, locationId))
+    .groupBy(exams.id, grades.id, sections.id)
+    .orderBy(desc(exams.examDate), asc(exams.title))
+    .limit(limit);
+
+  if (examRows.length === 0) return [];
+
+  const examIds = examRows.map((row) => row.id);
+
+  const paperRows = await db
+    .select({
+      id: examSubjects.id,
+      examId: examSubjects.examId,
+      maxMarks: examSubjects.maxMarks,
+      passingMarks: examSubjects.passingMarks,
+      resitStatus: examSubjects.resitStatus,
+    })
+    .from(examSubjects)
+    .where(
+      and(
+        eq(examSubjects.locationId, locationId),
+        inArray(examSubjects.examId, examIds),
+        eq(examSubjects.resultsStatus, 'published'),
+      ),
+    );
+
+  const results = await readExamMarks(
+    locationId,
+    paperRows.map((paper) => paper.id),
+  );
+
+  // Oldest first: this is read left to right as a sequence of terms.
+  return [...examRows].reverse().map((exam) => {
+    const papers: FoldablePaper[] = paperRows
+      .filter((paper) => paper.examId === exam.id)
+      .map((paper) => ({
+        id: paper.id,
+        resitStatus: paper.resitStatus,
+        maxMarks: toMark(paper.maxMarks) ?? 0,
+        passingMarks: toMark(paper.passingMarks) ?? 0,
+      }));
+
+    const paperIds = new Set(papers.map((paper) => paper.id));
+    const mine = results.filter((row) => paperIds.has(row.examSubjectId));
+    const totals = foldStudentTotals(papers, mine);
+
+    return {
+      examId: exam.id,
+      title: exam.title,
+      className: `${gradeLabel({ name: exam.gradeName, displayName: exam.gradeDisplayName })} — ${exam.sectionName}`,
+      examDate: exam.examDate,
+      graded: totals.graded,
+      absent: totals.absent,
+      passRate:
+        totals.graded === 0 ? null : Math.round((1000 * totals.passed) / totals.graded) / 10,
+      average: meanPercentage(totals.percentages),
+    };
+  });
 }
 
 /* -----------------------------------------------------------------------------

@@ -606,6 +606,55 @@ export async function getMarksSheet(
 }
 
 // -----------------------------------------------------------------------------
+// Which sitting counts
+// -----------------------------------------------------------------------------
+
+/** The columns every aggregate needs off a result row, whatever fetched it. */
+export interface CountingResultRow {
+  examSubjectId: string;
+  studentProfileId: string;
+  attempt: number;
+}
+
+/** The paper's identity and the only field that decides which sitting counts. */
+export interface CountingPaper {
+  id: string;
+  resitStatus: ResitStatus;
+}
+
+/**
+ * Given every result row for a set of papers, the row that *counts* for one
+ * student on one paper.
+ *
+ * A published re-sit replaces the original. Anything else — no re-sit, or one
+ * still being marked — falls back to the original sitting, so marks a teacher
+ * is midway through typing never reach a report card or a chart.
+ *
+ * One implementation because three readers have to agree: the tabulation sheet,
+ * the report card and the exam charts are three views of the same marks, and a
+ * chart that counted a different attempt than the document printed beside it
+ * would be a defect nobody could explain to a parent. Indexed rather than
+ * scanned so the exams overview, which folds several exams at once, stays
+ * linear in the number of marks.
+ */
+export function resultPicker<T extends CountingResultRow>(
+  rows: readonly T[],
+): (paper: CountingPaper, studentProfileId: string) => T | undefined {
+  const byKey = new Map<string, T>();
+  for (const row of rows) {
+    byKey.set(`${row.examSubjectId}:${row.studentProfileId}:${row.attempt}`, row);
+  }
+
+  const at = (paperId: string, studentProfileId: string, attempt: number): T | undefined =>
+    byKey.get(`${paperId}:${studentProfileId}:${attempt}`);
+
+  return (paper, studentProfileId) =>
+    (paper.resitStatus === 'published'
+      ? at(paper.id, studentProfileId, ATTEMPT_RESIT)
+      : undefined) ?? at(paper.id, studentProfileId, ATTEMPT_ORIGINAL);
+}
+
+// -----------------------------------------------------------------------------
 // Tabulation — the class-wide grid
 // -----------------------------------------------------------------------------
 
@@ -679,26 +728,11 @@ export async function getTabulation(
           ),
   ]);
 
+  const pick = resultPicker(results);
+
   const rows: TabulationRow[] = roster.map((student) => {
     const cells: TabulationCell[] = exam.papers.map((paper) => {
-      const resitCounts = paper.resitStatus === 'published';
-
-      const candidate =
-        (resitCounts
-          ? results.find(
-              (row) =>
-                row.examSubjectId === paper.id &&
-                row.studentProfileId === student.studentProfileId &&
-                row.attempt === ATTEMPT_RESIT,
-            )
-          : undefined) ??
-        results.find(
-          (row) =>
-            row.examSubjectId === paper.id &&
-            row.studentProfileId === student.studentProfileId &&
-            row.attempt === ATTEMPT_ORIGINAL,
-        );
-
+      const candidate = pick(paper, student.studentProfileId);
       const marks = toMark(candidate?.marksObtained);
 
       return {
@@ -888,28 +922,14 @@ export async function getSectionReportCards(
     getTermAttendance(locationId, sectionId, term.startDate, term.endDate),
   ]);
 
+  const pick = resultPicker(results);
+
   const cards: ReportCard[] = roster.map((student) => {
     const subjectRows: ReportCardSubject[] = papers.map((paper) => {
       const maxMarks = toMark(paper.maxMarks) ?? 0;
       const passingMarks = toMark(paper.passingMarks) ?? 0;
-      const resitCounts = paper.resitStatus === 'published';
 
-      const candidate =
-        (resitCounts
-          ? results.find(
-              (row) =>
-                row.examSubjectId === paper.id &&
-                row.studentProfileId === student.studentProfileId &&
-                row.attempt === ATTEMPT_RESIT,
-            )
-          : undefined) ??
-        results.find(
-          (row) =>
-            row.examSubjectId === paper.id &&
-            row.studentProfileId === student.studentProfileId &&
-            row.attempt === ATTEMPT_ORIGINAL,
-        );
-
+      const candidate = pick(paper, student.studentProfileId);
       const marks = toMark(candidate?.marksObtained);
       const percentage = marks === null ? null : percentageOf(marks, maxMarks);
 
