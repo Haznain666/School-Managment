@@ -5,7 +5,7 @@ resume without re-deriving context. Updated at the end of every development
 step, before the session ends.
 
 **Last updated:** 2026-08-15 (**Sprint 11 built and applied (§5aa); Sprint 12
-built (§5ab) — no migration**)
+built, merged and live (§5ab) — no migration**)
 
 > ✅ **`0022_sprint11_comms.sql` applied to the live database, 2026-08-15.**
 > Verified: 23 of 23 migrations applied, all three tables present, 12 indexes,
@@ -3553,6 +3553,33 @@ aging report's total are both PKR 2,105,531, and monthly revenue's billed total
 matches fee collection's while its cash + bank split sums exactly to its
 collected. Those are separately written SQL statements arriving at the same
 figure, which is the strongest check available without a browser.
+
+### Deployed and confirmed live 2026-08-15 — and how, without credentials
+
+Pushed to `main` (`dc58d37`), Hostinger auto-built it, and the new build was
+**confirmed serving within ~2 minutes**. The smoke test then passed against it:
+401 `invalid_credentials` on a deliberately wrong password, which proves the
+environment reached the process and bcrypt ran.
+
+**The confirmation technique is worth reusing, because the two obvious ways are
+both closed.** `HOSTINGER_API_TOKEN` is still unset, so the MCP deployment API
+answers 401; and the apex domain has no tenant, so middleware rewrites *every*
+path — including one that matches no route at all — to `/school-not-found` with
+a 200. Neither a route probe nor a 404 can tell one build from another there.
+
+What does: **the hashed CSS filename in the page source.**
+
+```bash
+curl -s https://schoolhub.codexmill.com/super-admin/login \
+  | grep -o '/_next/static/css/[a-f0-9]*\.css' | head -1
+```
+
+Compare it against `ls .next/static/css/` from a local build of the same commit.
+Here the live hash went `9d443579706594ae` → `00cc342637c5a6ae`, and `00cc…` is
+what this commit builds locally — so the running build is *this* commit, not
+merely a newer one. The hash digests the generated Tailwind output, so any
+change to the classes used anywhere in the app moves it. It will **not** move
+for a change that alters no styling, which is the one case this cannot detect.
 
 ### What Sprint 12 does *not* cover
 
