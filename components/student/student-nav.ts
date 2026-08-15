@@ -11,10 +11,19 @@ import type { PortalNavItem } from '@/components/school/PortalSidebar';
  * students are the audience least likely to own a desktop, and this portal had
  * no navigation at all below 768px.
  */
-export const STUDENT_NAV: readonly PortalNavItem[] = [
-  { label: 'My Dashboard', href: '/student', icon: 'dashboard' },
-  { label: 'My Timetable', href: '/student/timetable', icon: 'timetable' },
-  { label: 'My Classes', href: '/student/classes', icon: 'academics', placeholder: true },
-  { label: 'My Grades', href: '/student/grades', icon: 'marks', placeholder: true },
-  { label: 'Fee Status', href: '/student/fees', icon: 'fees', placeholder: true },
-];
+/** Built per request: the announcements entry carries an unread count. */
+export function studentNav(unreadNotices = 0): PortalNavItem[] {
+  return [
+    { label: 'My Dashboard', href: '/student', icon: 'dashboard' },
+    { label: 'My Timetable', href: '/student/timetable', icon: 'timetable' },
+    { label: 'My Classes', href: '/student/classes', icon: 'academics', placeholder: true },
+    { label: 'My Grades', href: '/student/grades', icon: 'marks', placeholder: true },
+    { label: 'Fee Status', href: '/student/fees', icon: 'fees', placeholder: true },
+    {
+      label: 'Announcements',
+      href: '/student/announcements',
+      icon: 'announcements',
+      ...(unreadNotices > 0 ? { badge: unreadNotices } : {}),
+    },
+  ];
+}

@@ -3,10 +3,12 @@
  * anything. It is the only place this application can start background work.
  *
  * ── What runs here, and what must not ────────────────────────────────────
- * Only the email outbox drainer. Anything started here runs forever in a
- * process that also serves every request, so the bar is high: it must be
- * idempotent, it must not hold the process open, and it must never throw into
- * the runtime.
+ * The email outbox drainer, and since Sprint 11 the announcement scheduler.
+ * Anything started here runs forever in a process that also serves every
+ * request, so the bar is high: it must be idempotent, it must not hold the
+ * process open, and it must never throw into the runtime. Both of these meet
+ * it, and both are here for the same reason — Hostinger's shared plan has no
+ * cron this application can rely on.
  *
  * ── Why the guard is written exactly this way ────────────────────────────
  * `middleware.ts` exists, so Next compiles this file for the Edge runtime as
@@ -30,6 +32,11 @@ export async function register(): Promise<void> {
 
     const { startOutboxDrainer } = await import('./lib/email-outbox');
     startOutboxDrainer();
+
+    // Same positive `=== 'nodejs'` block, for the same reason: the import must
+    // not be recorded in the Edge compilation. See the docblock above.
+    const { startAnnouncementScheduler } = await import('./lib/announcement-scheduler');
+    startAnnouncementScheduler();
   }
 }
 

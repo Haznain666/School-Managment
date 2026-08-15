@@ -87,6 +87,19 @@ export function schoolNav({ role, permissions, moduleFlags }: SchoolNavProps): {
     }
   }
 
+  // Communications is a single destination rather than a section: one screen
+  // writes, sends and reports, and a section with one child is a folder.
+  //
+  // Not module-gated. Every school tells people things, and there is no
+  // `school_modules` flag that means "does not communicate".
+  if (can('comms.read')) {
+    items.push({
+      label: 'Communications',
+      href: '/dashboard/communications',
+      icon: 'announcements',
+    });
+  }
+
   items.push({ label: 'Settings', href: '/dashboard/settings', icon: 'settings' });
 
   // Modules with real screens of their own get a section rather than a single

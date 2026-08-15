@@ -10,9 +10,18 @@ import type { PortalNavItem } from '@/components/school/PortalSidebar';
  * Data rather than a component since Sprint 10.5 — `PortalFrame` renders the
  * same list on desktop and inside the mobile drawer.
  */
-export const TEACHER_NAV: readonly PortalNavItem[] = [
-  { label: 'My Dashboard', href: '/teacher', icon: 'dashboard' },
-  { label: 'My Timetable', href: '/teacher/timetable', icon: 'timetable' },
-  { label: 'Attendance', href: '/teacher/attendance', icon: 'attendance' },
-  { label: 'Marks', href: '/teacher/marks', icon: 'marks' },
-];
+/** Built per request: the announcements entry carries an unread count. */
+export function teacherNav(unreadNotices = 0): PortalNavItem[] {
+  return [
+    { label: 'My Dashboard', href: '/teacher', icon: 'dashboard' },
+    { label: 'My Timetable', href: '/teacher/timetable', icon: 'timetable' },
+    { label: 'Attendance', href: '/teacher/attendance', icon: 'attendance' },
+    { label: 'Marks', href: '/teacher/marks', icon: 'marks' },
+    {
+      label: 'Announcements',
+      href: '/teacher/announcements',
+      icon: 'announcements',
+      ...(unreadNotices > 0 ? { badge: unreadNotices } : {}),
+    },
+  ];
+}

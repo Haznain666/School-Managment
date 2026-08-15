@@ -4,7 +4,11 @@
 resume without re-deriving context. Updated at the end of every development
 step, before the session ends.
 
-**Last updated:** 2026-08-15 (**Sprint 10.5 Task 1 — the exams charts — done, §5z**)
+**Last updated:** 2026-08-15 (**Sprint 10.5 Task 1 done (§5z); Sprint 11 built (§5aa)**)
+
+> ⚠️ **`db/migrations/0022_sprint11_comms.sql` has not been applied.** Sprint 11
+> is code-complete and green, and none of its three tables exist in the live
+> database yet. Every communications screen 500s until it is run. See §5aa.
 
 > ▶ **NEXT: print one of each document on real A4.** It is the last thing
 > blocking a printed-document sign-off *and* the report-card chart (Task 2),
@@ -3339,6 +3343,81 @@ different claims, and only the first one has been tested.
 
 ---
 
+## 5aa. Sprint 11 — Communications, built 2026-08-15
+
+Built on `claude/sprint-11-communications`. `typecheck`, `lint`, `build`,
+`check-theme` and `check-dashboard` all green.
+
+### ⚠️ The migration has NOT been applied
+
+`db/migrations/0022_sprint11_comms.sql` is generated and committed. **Nothing
+in it has run against the live Supabase database.** Until it does, every screen
+below 500s on its first query. Applying it is a production change — the same
+database serves every tenant — so it was deliberately left for a deliberate
+act, not folded into a build session.
+
+### What is built
+
+| Piece | Where |
+| --- | --- |
+| Three tables | `db/schema/announcements.ts`, migration `0022` |
+| Three permissions | `comms.read` / `comms.write` / `comms.send` |
+| The audience rule | `lib/announcement-audience.ts` |
+| Reads, writes, the send, the board | `lib/announcement-queries.ts` |
+| Four API routes | `app/api/school/announcements/**`, `app/api/school/notices/read` |
+| The composer | `/dashboard/communications` |
+| The notice board | parent, student and teacher portals, with an unread badge |
+| The scheduler | `lib/announcement-scheduler.ts`, started in `instrumentation.ts` |
+
+### The decisions that are load-bearing
+
+- **The default delivery path is ours.** The original plan built this entirely
+  on GHL Conversations; GHL is opt-in per school now. The notice board always
+  happens, email over the Sprint 0 outbox happens when the sender asks, and
+  WhatsApp is reached only where the paid add-on is on — through
+  `lib/channels.ts`, so this and the fee reminders cannot reach different
+  conclusions about the same school.
+- **The audience is one tagged jsonb object**, not three nullable id columns.
+  Three columns would make every combination representable, including the ones
+  that mean nothing, and every query would have to invent a reading for a row
+  carrying both a grade and a role.
+- **A class audience means the children *and* their guardians.** A Class 5 trip
+  notice that reached only the ten-year-olds is a defect nobody reports as one:
+  it went out, it simply did not work. Staff are reached by addressing a role.
+- **The delivery log is written once, at send, and never recomputed.** It holds
+  the audience as it was at that moment. **The notice board reads from it**, so
+  a child who changed section in May still sees April's notice and never sees
+  one addressed to a class they were not in. Recomputing would make a board
+  that rewrites its own history.
+- **`unreachable` is not `failed`.** A failure is the platform's to retry; a
+  parent with no email address is the school's to fix. Collapsing them buries
+  the one number an office can act on inside one it cannot.
+- **A sent announcement cannot be edited or deleted.** People have read it, some
+  in an email with no recall, and the log is what answers "did we tell the
+  parents". Send a follow-up.
+- **Every screen says "queued", never "sent"**, for email. §5k.
+- **The scheduler reads "due at or before now"**, never a window, so a process
+  that was down for an hour sends the backlog rather than silently dropping
+  exactly what was scheduled while it restarted.
+
+### What Sprint 11 does *not* cover
+
+- **The delivery report has a query and no screen.** `getDeliveryReport` is
+  written and tenant-scoped; nothing renders it yet. The composer shows a
+  recipient count, which is the headline, but "which twelve parents have no
+  email address" — the thing an office acts on — is one screen away.
+- **Editing from the UI.** `PATCH` exists and is tested by nothing; the composer
+  only creates, sends and discards.
+- **WhatsApp delivery.** The channel is modelled in `delivery_channels` and
+  gated, and nothing writes a `whatsapp` row yet. Deliberate: §3.3 and the chat
+  decision mean email plus the board is the path, and the add-on can be wired
+  when a school actually buys it.
+- **GHL Social Planner** — already deferred to Sprint 22 by `SPRINTS.md`.
+- **Not seen in a browser.** Same standing reason as everything else: sign-in
+  has never worked from a development machine (§5d item 2).
+
+---
+
 ## 6. Open items for the user
 
 1. ~~Install GitHub CLI~~ — **partly regressed.** Git has a stored credential
@@ -3371,6 +3450,7 @@ different claims, and only the first one has been tested.
 
 | Date | Session did | Next |
 | --- | --- | --- |
+| 2026-08-15 | **Sprint 11 — Communications** (§5aa), same session, after Task 1 merged. Three tables, three permissions, the audience rule, four API routes, the composer at `/dashboard/communications`, the notice board on the parent, student and teacher portals with a live unread badge, and the scheduler that releases a scheduled announcement — a second interval in `instrumentation.ts`, because the shared plan has no cron. The default delivery path is ours now that GHL is opt-in: the board always happens, email over the Sprint 0 outbox happens when asked, WhatsApp only where the paid add-on is on. The delivery log is written once at send and is what the notice board reads, so a child who changed section still sees the notice their old class was sent and never one addressed to a class they were not in. `unreachable` is kept separate from `failed` because one is the platform's to retry and the other is the school's to fix. All five gates green. | **Apply `0022_sprint11_comms.sql` to the live database** — nothing works until it runs, and it was left for a deliberate act rather than folded into a build session. Then the delivery-report screen, which is a written query with no page. |
 | 2026-08-15 | **Sprint 10.5 Task 1 — the exams charts** (§5z). Grade distribution, subject averages and pass rate on the exam detail page; pass rate against average across the last six exams on the overview. Two aggregates in `lib/dashboard-queries.ts`, both registered in `check-dashboard`, taking deliverable C from five surfaces to seven. **The distribution is bucketed by the school's own bands** through the same `resolveBand` the report card calls, never fixed percentages — two schools with identical marks must draw different charts, and anything else would contradict the document printed from the same marks. Absent students are in no band and no pass-rate denominator, and every chart says who it left out. Extracted `resultPicker` so which sitting counts is written once rather than three times. **`check-dashboard` now also asserts the fold with no database** — eleven assertions, the pivotal one running the same marks through two schemes and requiring the results to differ, because that regression compiles and executes perfectly. Also **corrected a false claim in §5z**: the §5f worktree build hazard is not dead; the stub `node_modules` reappeared and broke the second build. | **Print one of each document on real A4.** It needs a person and a printer, gates Task 2 (the report card's per-subject bar), and is the only thing left in Sprint 10.5. |
 | 2026-08-13 | **Sprint 10.5 foundation, run with `/impeccable`** (§5z). The palette a school picks now reaches the bottom of the interface instead of the top inch: `lib/brand-derive.ts` computes ~44 tokens from the five stored colours, and every travelling one is pushed until it clears contrast against *every* surface it can land on. Two user decisions taken — `lucide-react` for icons, and fully brand-derived status colours, implemented as a banded rotation so a school's hue moves them without letting "paid" and "overdue" swap appearances. Eleven missing primitives built, the eight existing ones retrofitted off `slate-*`, five SVG chart components (no library: a report-card chart must survive `PrintSheet`, and shared first-load JS is 102 kB against a 200 kB budget). Built `/design-system`, which renders everything once per palette across four real and three hostile ones and 404s outside development — **it immediately found 18 real contrast failures the audit script had passed**, all of them text on a surface the token had never been checked against. Fixed at source, and the script now checks the same list. Also caught a print regression this sprint introduced: `body` moved to `bg-surface`, which would have printed dark sheets for a dark-palette school. Final state: 994 rendered text elements across 7 palettes, 0 contrast failures; no sideways scroll at 375px; typecheck, lint, build, check-theme green. | **Deliverable B — the application shell.** Nothing the user looks at has changed yet; the foundation is built but no screen is rebuilt on it. Sidebar icons and grouping, page headers with breadcrumbs, then empty/loading/error states everywhere. |
 | 2026-08-11 | **Super Admin login fixed and working live** (§5v). Inspected the Hostinger deployment over MCP: build completed, env present (a wrong password returned `401 invalid_credentials`, not `500`, which proves the variables reached the process and bcrypt ran), redirects relative so the `HOSTNAME` bug was absent, Supabase Edge tenant lookup working, `NEXT_PUBLIC_APP_DOMAIN` correctly inlined. That left only the hash. **Both log-based diagnostics turned out to be unreadable on this host** — hPanel shows no runtime logs and the deployment log ends at the build output — so the shape could not be observed at all. Rather than guess the escaping for a sixth session, removed the ambiguity: `normalizeBcryptHash()` strips wrapping quotes and `$`-escaping backslashes, which is a repair and not a guess because a bcrypt hash cannot contain either. Verified against real bcrypt across seven damaged forms; the one case that must not be repaired (shell-expanded, 53 chars) still fails. typecheck + lint + build green, pushed to `main`, Hostinger auto-built it, **and the user signed in.** Two platform facts learned expensively: the Environment panel and `.env` are one store (deleting the file wiped the panel — my recommendation caused that), and pushing to `main` deploys automatically. | **Rotate the password**, then set `SUPER_ADMIN_DIAGNOSTICS_SECRET` and call the endpoint: `repairedOnRead` says whether the host escapes `$` (which would also corrupt `SUPABASE_SERVICE_ROLE_KEY`, `SMTP_PASS`, `DATABASE_URL`), and a changing `process.pid` settles the double-start. Then Node 20 → 22. Then browser-verify the school portals. |
