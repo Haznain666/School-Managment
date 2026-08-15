@@ -79,3 +79,8 @@ export * from './student-imports';
 export * from './student-promotions';
 export * from './student-transfers';
 export * from './family-challans';
+
+// Sprint 11 — communications. One message, who it was delivered to, and who has
+// read it. The notice board is the delivery that always happens; email over the
+// Sprint 0 outbox is the push that happens when the sender asks for it.
+export * from './announcements';

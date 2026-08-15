@@ -45,6 +45,9 @@ export const PERMISSIONS = [
   'hr.write',
   'payroll.read',
   'payroll.write',
+  'comms.read',
+  'comms.write',
+  'comms.send',
   'settings.read',
   'settings.write',
   'permissions.manage',
@@ -92,6 +95,11 @@ export const PERMISSION_GROUPS: readonly PermissionGroup[] = [
       'results.publish',
     ],
   },
+  {
+    key: 'comms',
+    label: 'Communications',
+    permissions: ['comms.read', 'comms.write', 'comms.send'],
+  },
   { key: 'hr', label: 'HR', permissions: ['hr.read', 'hr.write'] },
   { key: 'payroll', label: 'Payroll', permissions: ['payroll.read', 'payroll.write'] },
   {
@@ -119,6 +127,9 @@ export const PERMISSION_LABELS: Record<Permission, string> = {
   'exams.publish': 'Announce a datesheet and publish a term’s report cards',
   'results.enter': 'Enter and correct marks for a paper',
   'results.publish': 'Publish marks, unpublish them, and open a re-sit',
+  'comms.read': 'See announcements and who they reached',
+  'comms.write': 'Write and schedule announcements',
+  'comms.send': 'Send an announcement, and email it to its audience',
   'hr.read': 'See staff records and leave',
   'hr.write': 'Add staff, set salaries and decide leave',
   'payroll.read': 'See payroll runs and payslips',
@@ -136,6 +147,9 @@ export const PERMISSION_DESCRIPTIONS: Partial<Record<Permission, string>> = {
   'permissions.manage':
     'Whoever holds this can grant themselves anything else. School Administrator always keeps it.',
   'attendance.mark': 'A teacher needs this for their own classes.',
+  'comms.send':
+    'Sending puts a notice in front of every parent it is addressed to, and ' +
+    'an email cannot be recalled. Separate from comms.write on purpose.',
   'results.enter':
     'A teacher needs this for their own papers. It does not let them publish.',
   'results.publish':
@@ -218,6 +232,12 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<UserRole, readonly Permission[]> =
     // the school that disagrees.
     'exams.read',
     'exams.write',
+    // A campus has to be able to tell its own parents something. Withholding
+    // the send would leave a branch drafting notices for somebody else to
+    // release, which in practice means they are never released.
+    'comms.read',
+    'comms.write',
+    'comms.send',
     'hr.read',
     'settings.read',
   ],
@@ -236,6 +256,9 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<UserRole, readonly Permission[]> =
     'exams.write',
     'exams.publish',
     'results.publish',
+    'comms.read',
+    'comms.write',
+    'comms.send',
     'hr.read',
     'payroll.read',
     'settings.read',
@@ -253,6 +276,9 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<UserRole, readonly Permission[]> =
     'exams.write',
     'exams.publish',
     'results.publish',
+    'comms.read',
+    'comms.write',
+    'comms.send',
     'hr.read',
     'settings.read',
   ],
@@ -267,6 +293,9 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<UserRole, readonly Permission[]> =
     'exams.read',
     'exams.write',
     'results.enter',
+    // Drafts a notice; the head releases it.
+    'comms.read',
+    'comms.write',
     'settings.read',
   ],
 
@@ -309,7 +338,13 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<UserRole, readonly Permission[]> =
     'settings.read',
   ],
 
-  marketing: ['admissions.read', 'admissions.write', 'settings.read'],
+  marketing: [
+    'admissions.read',
+    'admissions.write',
+    'comms.read',
+    'comms.write',
+    'settings.read',
+  ],
 
   // Students and parents reach their own portals, which query by uid rather
   // than by permission. They hold nothing here, and granting them something
