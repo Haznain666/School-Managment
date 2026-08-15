@@ -1,7 +1,7 @@
 # Release notes — Sprint 11: Communications
 
-**Status:** merged to `main`. **Not yet live — one database migration must be
-applied first.** See *Before this can be used*, below.
+**Status:** merged to `main`, and its database migration is **applied**
+(2026-08-15). Ready to use.
 
 Schools can now tell people things. An announcement goes to a notice board on
 every portal it is addressed to, and — when the sender asks for it — to those
@@ -10,19 +10,24 @@ could not.
 
 ---
 
-## Before this can be used
+## Deployment
 
-**`db/migrations/0022_sprint11_comms.sql` has not been applied to the live
-database.** The three tables it creates do not exist yet, so every screen in
-this release will fail until it runs.
+`db/migrations/0022_sprint11_comms.sql` has been applied and verified: all 23
+migrations present, the three new tables created, and the per-school permission
+constraint widened to accept the three `comms.*` keys.
 
-```bash
-npm run db:migrate
+Nothing else in this release needs any configuration.
+
+**If you are applying this to another environment**, note that
+`npm run db:migrate` will not work on its own: Drizzle Kit does not read
+`.env.local`, and migrations need the session-mode port **5432** rather than the
+**6543** the application uses. From the repository root, in PowerShell:
+
+```powershell
+$raw = (Select-String -Path .env.local -Pattern '^DATABASE_URL=' | Select-Object -First 1).Line
+$env:DATABASE_URL = ($raw -replace '^DATABASE_URL=','' -replace '"','' -replace ":6543/", ":5432/").Trim()
+npx drizzle-kit migrate
 ```
-
-This is a production change: one Supabase project serves every school, so
-applying it affects all of them at once. Nothing else in this release needs any
-configuration.
 
 ---
 
@@ -143,7 +148,8 @@ Needs no migration and no configuration.
 
 ## Verification
 
-`typecheck`, `lint`, `build`, `check-theme` and `check-dashboard` are all green.
+`typecheck`, `lint`, `build`, `check-theme` and `check-dashboard` are all green,
+and the migration is confirmed applied against the live database.
 
 **Nothing in this release has been seen in a browser with a real school's data.**
 Signing in has never worked from a development machine, which is a standing

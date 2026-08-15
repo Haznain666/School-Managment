@@ -6,9 +6,9 @@ step, before the session ends.
 
 **Last updated:** 2026-08-15 (**Sprint 10.5 Task 1 done (§5z); Sprint 11 built (§5aa)**)
 
-> ⚠️ **`db/migrations/0022_sprint11_comms.sql` has not been applied.** Sprint 11
-> is code-complete and green, and none of its three tables exist in the live
-> database yet. Every communications screen 500s until it is run. See §5aa.
+> ✅ **`0022_sprint11_comms.sql` applied to the live database, 2026-08-15.**
+> Verified: 23 of 23 migrations applied, all three tables present, 12 indexes,
+> and `role_permissions_permission_check` now accepts the `comms.*` keys.
 
 > ▶ **NEXT: print one of each document on real A4.** It is the last thing
 > blocking a printed-document sign-off *and* the report-card chart (Task 2),
@@ -3348,13 +3348,43 @@ different claims, and only the first one has been tested.
 Built on `claude/sprint-11-communications`. `typecheck`, `lint`, `build`,
 `check-theme` and `check-dashboard` all green.
 
-### ⚠️ The migration has NOT been applied
+### The migration — applied 2026-08-15, and the two traps in doing it
 
-`db/migrations/0022_sprint11_comms.sql` is generated and committed. **Nothing
-in it has run against the live Supabase database.** Until it does, every screen
-below 500s on its first query. Applying it is a production change — the same
-database serves every tenant — so it was deliberately left for a deliberate
-act, not folded into a build session.
+`db/migrations/0022_sprint11_comms.sql` is applied and verified: 23 of 23,
+three tables, 12 indexes, and the permission CHECK widened to accept
+`comms.read`, `comms.write` and `comms.send`. Note that last part — the
+migration is **not purely additive**. It drops and recreates
+`role_permissions_permission_check`, because that constraint is generated from
+the `PERMISSIONS` array in `lib/permissions.ts`. Any future sprint that adds a
+permission key will do the same, and a school could not be granted the new
+permission without it.
+
+**Applying it took three attempts, all of them avoidable, and both traps are
+already written down in `drizzle.config.ts` — read that file before running a
+migration:**
+
+1. **`npm run db:migrate` does not load `.env.local`.** Drizzle Kit reads
+   `DATABASE_URL` straight from the environment. From a worktree *or* from the
+   main checkout, the script fails with "DATABASE_URL is not set" — which reads
+   like a missing file and is not one.
+2. **Migrations need port 5432, not the 6543 the application uses.** `.env.local`
+   holds the transaction-pooler URL, which is correct for the app and cannot
+   serve DDL and advisory locks. Same host, different port. The direct
+   `db.<ref>.supabase.co` endpoint is *not* the answer either — it is IPv6-only
+   without a paid add-on (§5c).
+
+What works, from the main checkout, in PowerShell:
+
+```powershell
+$raw = (Select-String -Path .env.local -Pattern '^DATABASE_URL=' | Select-Object -First 1).Line
+$env:DATABASE_URL = ($raw -replace '^DATABASE_URL=','' -replace '"','' -replace ":6543/", ":5432/").Trim()
+npx drizzle-kit migrate
+```
+
+**To check whether a migration is really applied**, count `drizzle.__drizzle_migrations`
+against `db/migrations/meta/_journal.json` and then look for the tables
+themselves — the bookkeeping row and the schema can disagree, and only the
+second question is the one that matters.
 
 ### What is built
 
