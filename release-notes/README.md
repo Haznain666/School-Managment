@@ -6,6 +6,7 @@ what is not there yet. They are not the engineering handover — that is
 
 | Sprint | Theme | Migration | Notes |
 | --- | --- | --- | --- |
+| **12** | Reports & analytics — nine printable, exportable reports | none | [read](RELEASE-NOTES-SPRINT-12.md) |
 | **11** | Communications — announcements, notice board, delivery log | `0022` | [read](RELEASE-NOTES-SPRINT-11.md) |
 | **10.5** | Design system, application shell & dashboard charts | none | [read](RELEASE-NOTES-SPRINT-10.5.md) |
 | **10** | Onboarding — import, promotion, transfer, family fees | `0018`–`0020` | [read](RELEASE-NOTES-SPRINT-10.md) |
