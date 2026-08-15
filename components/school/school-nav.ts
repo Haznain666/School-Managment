@@ -3,6 +3,7 @@ import type {
   PortalNavSection,
 } from '@/components/school/PortalSidebar';
 import type { Permission } from '@/lib/permissions';
+import { REPORTS } from '@/lib/report-catalogue';
 import type { SchoolModuleFlags } from '@/lib/platform-modules';
 import type { UserRole } from '@/types/school-auth';
 
@@ -98,6 +99,19 @@ export function schoolNav({ role, permissions, moduleFlags }: SchoolNavProps): {
       href: '/dashboard/communications',
       icon: 'announcements',
     });
+  }
+
+  // Reports is a single destination for the same reason Communications is: one
+  // index leads to all nine, and a section holding one link is a folder.
+  //
+  // Gated on holding *any* of the nine report permissions rather than on one
+  // key — each report carries the permission of the screen its data comes from
+  // (see `lib/report-catalogue.ts`), so an accountant reaches the financial
+  // ones and a coordinator the academic ones. Somebody with none of them never
+  // sees the link, which is what makes the index's empty state rare rather
+  // than routine.
+  if (REPORTS.some((report) => can(report.permission))) {
+    items.push({ label: 'Reports', href: '/dashboard/reports', icon: 'reports' });
   }
 
   items.push({ label: 'Settings', href: '/dashboard/settings', icon: 'settings' });

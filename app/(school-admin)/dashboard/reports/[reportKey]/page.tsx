@@ -1,0 +1,137 @@
+import type { Metadata } from 'next';
+import Link from 'next/link';
+import { notFound, redirect } from 'next/navigation';
+
+import { ReportFilterBar } from '@/components/reports/ReportFilterBar';
+import { ReportTable } from '@/components/reports/ReportTable';
+import { Card } from '@/components/ui/Card';
+import { PageHeader } from '@/components/ui/PageHeader';
+import { permissionsForRole } from '@/lib/permission-queries';
+import {
+  isReportKey,
+  parseReportParams,
+  reportFor,
+  toReportQuery,
+} from '@/lib/report-catalogue';
+import { loadReportOptions } from '@/lib/report-options';
+import { runReport } from '@/lib/report-queries';
+import { requireSchoolRole } from '@/lib/school-guard';
+import { ADMIN_PORTAL_ROLES, ROLE_HOME_ROUTES } from '@/types/school-auth';
+
+export const dynamic = 'force-dynamic';
+export const runtime = 'nodejs';
+
+export const metadata: Metadata = {
+  title: 'Report',
+};
+
+type Search = Record<string, string | string[] | undefined>;
+
+/** The query string as flat strings — a repeated parameter takes its first value. */
+function flatten(search: Search): Record<string, string | undefined> {
+  const flat: Record<string, string | undefined> = {};
+  for (const [key, value] of Object.entries(search)) {
+    flat[key] = Array.isArray(value) ? value[0] : value;
+  }
+  return flat;
+}
+
+/**
+ * One report: filters, the table, and the two ways off the screen.
+ *
+ * Server-rendered with the filters in the URL, like `/dashboard/fees/defaulters`
+ * and for the same reasons — it is a read, colleagues link each other to
+ * filtered views of it, and it is printed. Print and Export are plain links
+ * carrying the current query string, so the sheet and the file cannot be of a
+ * different selection from the table above them.
+ *
+ * The permission is the report's own, checked here rather than by the layout:
+ * the layout gates the portal, and which of the nine permissions this page
+ * needs is not known until the path parameter is read.
+ */
+export default async function ReportPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ reportKey: string }>;
+  searchParams: Promise<Search>;
+}) {
+  const { reportKey } = await params;
+  if (!isReportKey(reportKey)) notFound();
+
+  const definition = reportFor(reportKey);
+
+  const { claims, locationId } = await requireSchoolRole(ADMIN_PORTAL_ROLES);
+  const permissions = await permissionsForRole(locationId, claims.role);
+
+  if (!permissions.includes(definition.permission)) {
+    redirect(ROLE_HOME_ROUTES[claims.role]);
+  }
+
+  const search = flatten(await searchParams);
+  const reportParams = parseReportParams(definition, search);
+
+  const [options, result] = await Promise.all([
+    loadReportOptions(definition, locationId, claims.branchId),
+    runReport(
+      definition.key,
+      { locationId, sessionBranchId: claims.branchId },
+      reportParams,
+    ),
+  ]);
+
+  const query = toReportQuery(reportParams);
+  const suffix = query === '' ? '' : `?${query}`;
+
+  return (
+    <div className="space-y-6">
+      <PageHeader
+        title={definition.title}
+        description={definition.blurb}
+        breadcrumbs={[
+          { label: 'Dashboard', href: '/dashboard' },
+          { label: 'Reports', href: '/dashboard/reports' },
+          { label: definition.title },
+        ]}
+        actions={
+          <div className="flex flex-wrap gap-2">
+            <Link
+              href={`/dashboard/reports/${definition.key}/print${suffix}`}
+              target="_blank"
+              className="inline-flex h-10 items-center rounded-lg border border-line px-4 text-sm font-medium text-ink hover:border-line-strong"
+            >
+              Print
+            </Link>
+            <Link
+              href={`/api/school/reports/${definition.key}${suffix}`}
+              className="inline-flex h-10 items-center rounded-lg border border-line px-4 text-sm font-medium text-ink hover:border-line-strong"
+            >
+              Export CSV
+            </Link>
+          </div>
+        }
+      />
+
+      <ReportFilterBar
+        definition={definition}
+        params={reportParams}
+        options={options}
+        action={`/dashboard/reports/${definition.key}`}
+      />
+
+      {definition.caveat === undefined ? null : (
+        <p className="rounded-lg border border-line bg-surface-sunken px-4 py-3 text-sm text-ink-muted">
+          {definition.caveat}
+        </p>
+      )}
+
+      <Card className="p-0">
+        <ReportTable
+          definition={definition}
+          rows={result.rows}
+          totals={result.totals}
+        />
+      </Card>
+    </div>
+  );
+}

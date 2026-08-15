@@ -4,11 +4,17 @@
 resume without re-deriving context. Updated at the end of every development
 step, before the session ends.
 
-**Last updated:** 2026-08-15 (**Sprint 10.5 Task 1 done (§5z); Sprint 11 built (§5aa)**)
+**Last updated:** 2026-08-15 (**Sprint 11 built and applied (§5aa); Sprint 12
+built (§5ab) — no migration**)
 
 > ✅ **`0022_sprint11_comms.sql` applied to the live database, 2026-08-15.**
 > Verified: 23 of 23 migrations applied, all three tables present, 12 indexes,
 > and `role_permissions_permission_check` now accepts the `comms.*` keys.
+
+> ✅ **Sprint 12 needs no migration.** Nine reports, and not one new table or
+> permission key — see §5ab for why that was a decision rather than an
+> accident. The next sprint that *does* need one is Sprint 13; next free
+> number is **`0023`**.
 
 > ▶ **NEXT: print one of each document on real A4.** It is the last thing
 > blocking a printed-document sign-off *and* the report-card chart (Task 2),
@@ -3448,6 +3454,131 @@ second question is the one that matters.
 
 ---
 
+## 5ab. Sprint 12 — Reports & analytics, built 2026-08-15
+
+Built on `claude/next-sprint-completion-47250e`. `typecheck`, `lint`, `build`,
+`check-theme`, `check-dashboard` and a new `check-reports` all green.
+
+**No migration, and that was a decision rather than luck.** `SPRINTS.md` says
+Sprint 12 has none, and the obvious way to break that would be a `reports.read`
+permission key — which would mean dropping and recreating
+`role_permissions_permission_check` (§5aa). It would also be the wrong shape:
+one key would let anybody who may read the register read the salary bill.
+**Each report is gated on the permission that already governs the screen its
+data comes from**, so an accountant is offered the four financial reports and a
+coordinator the academic ones, with nothing for a school to configure.
+
+### One definition, three renderers
+
+This is the whole architecture and it is worth keeping.
+
+| Piece | Where |
+| --- | --- |
+| The declaration — title, permission, filters, columns, caveat | `lib/report-catalogue.ts` |
+| The nine runners | `lib/report-queries.ts`, one entry point `runReport()` |
+| Filter dropdown contents, and the names the sheet prints | `lib/report-options.ts` |
+| The table, screen and paper | `components/reports/ReportTable.tsx` |
+| The filters, as a plain `GET` form with no JS | `components/reports/ReportFilterBar.tsx` |
+| The screen | `/dashboard/reports`, `/dashboard/reports/[reportKey]` |
+| The sheet | `…/[reportKey]/print`, inside `PrintSheet` |
+| The file | `GET /api/school/reports/[reportKey]`, `text/csv` |
+
+The screen, the sheet and the file all read the same declaration, call the same
+runner with the same parsed parameters, and render the same column list.
+Whoever adds a tenth report writes a definition and a runner and gets all three.
+The defect this prevents is one already made twice here — a cap that drifted
+between a list and its print page, a strength meter that drifted from the check
+that accepted the password. A column added to the screen and forgotten in the
+export is the same defect, found by an accountant reconciling a printout
+against a spreadsheet.
+
+### `lib/csv-export.ts` is new, and two things in it look like bugs
+
+`lib/csv.ts` only ever read. Nothing in the repo could write a delimited file.
+The writer is dependency-free for the same reason the reader is (`SPRINTS.md`
+§0.1 pins the dependency list), and it does two non-obvious things:
+
+1. **It writes a UTF-8 BOM.** Excel on Windows — which is what a school office
+   runs — reads a BOM-less UTF-8 CSV in the system ANSI codepage, and "Ayesha
+   Khān" arrives as "Ayesha KhÄn". The reader strips a BOM on the way in for
+   exactly the same reason.
+2. **It prefixes an apostrophe to any cell starting `=`, `+`, `-`, `@`, tab or
+   CR.** Spreadsheets execute those as formulas. A student's name is user input
+   and reaches every export the office opens;
+   `=HYPERLINK("http://…"&A1)` typed into a name field is otherwise a live
+   exfiltration link. The apostrophe is the spreadsheet's own "this is text"
+   marker, so the cell still reads correctly.
+
+Both are asserted in `scripts/check-reports.ts` **because both look like litter
+to whoever next tidies the file.** Numbers are written bare, never formatted —
+`12,500` is text to a spreadsheet and will not sum, which is the first thing an
+accountant does to an exported fee report.
+
+### Subject-wise attendance is derived, and the report says so
+
+`SPRINTS.md` asks for a subject-wise attendance report. **There is no
+per-subject attendance to read**: `attendance_records` is one row per student
+per day, deliberately (a per-period register multiplies a teacher's work by
+seven for a number no board asks for), and inventing a table for it would be a
+migration in a sprint with none.
+
+What exists is the timetable. So a day a child was away is charged against
+whichever subjects their section had on the timetable that weekday —
+`day_of_week = extract(isodow from date)::int - 1`, verified against real
+attendance dates (`0` = Monday, matching the schema). It measures **teaching
+time lost per subject**, which is a real number, and it is not the number a
+per-period register would give. The report states that on screen and prints it
+on the sheet, because a head comparing it against a teacher's own count needs
+to know why they differ.
+
+**A section with no timetable contributes nothing to it**, and no school in the
+database has a timetable — so this is the one report whose join has never seen
+a row. See below.
+
+### Verified against real data, and the reports cross-check
+
+`npm run check-reports` runs the writer, the rate helper and the parameter
+parser with no database (30 assertions), then executes all nine runners against
+the real schema with a location id belonging to nobody. Then, separately, every
+runner was executed against the seeded Rehearsal Academy:
+
+- attendance summary — 10 sections, 410 students, 94.1%
+- fee collection — 1,227 challans, PKR 6,629,100 billed, 68.2% collected
+- aged debt — 319 students, PKR 2,105,531 owed
+- academic results — 10 exams, 365 graded, 70.4% pass, 44 not graded
+- monthly revenue — PKR 4,523,569 collected over 909 receipts
+
+**Three independent queries agree**: fee collection's outstanding total and the
+aging report's total are both PKR 2,105,531, and monthly revenue's billed total
+matches fee collection's while its cash + bank split sums exactly to its
+collected. Those are separately written SQL statements arriving at the same
+figure, which is the strongest check available without a browser.
+
+### What Sprint 12 does *not* cover
+
+- **Not seen in a browser.** Standing reason: sign-in has never worked from a
+  development machine (§5d item 2). No screen and no printed sheet has been
+  looked at — only the data behind them.
+- **Subject-wise attendance has never run against real rows** (no school has a
+  timetable). Payroll, leave and enrollment-funnel likewise return correctly
+  empty because the seeded school has no staff and no applications. All four
+  queries parse and execute; three of them have had nothing to count.
+- **No charts.** Deliberate, and `SPRINTS.md` is explicit: reports are
+  documents, dashboards are visualisation, and 10.5 owns the second.
+- **No scheduled or emailed reports, and no saved presets.** The URL is the
+  preset.
+- **Nothing rebuilt.** The three report screens that predate this —
+  `/dashboard/fees/reports`, `/dashboard/fees/defaulters`,
+  `/dashboard/academics/attendance/reports` — are untouched and still reachable
+  from their own sections. They answer narrower operational questions (the
+  chase list feeds the reminder sender; the aged-debt page puts a student in
+  one bucket). Folding them in would have been a rewrite of working screens in
+  a sprint that had nine new ones to build; the new Outstanding & aging report
+  splits each student across all five buckets, which is the question those two
+  cannot answer.
+
+---
+
 ## 6. Open items for the user
 
 1. ~~Install GitHub CLI~~ — **partly regressed.** Git has a stored credential
@@ -3480,6 +3611,7 @@ second question is the one that matters.
 
 | Date | Session did | Next |
 | --- | --- | --- |
+| 2026-08-15 | **Sprint 12 — Reports & analytics** (§5ab). Nine reports — attendance summary, subject-wise attendance, fee collection, outstanding/aging, academic results, payroll summary, leave summary, enrollment funnel, monthly revenue — each with filters in the URL, a printed sheet on the school's letterhead and a CSV export. **One definition, three renderers**: `lib/report-catalogue.ts` declares a report once and the screen, the sheet and the file all read it, so a column cannot exist on one and not another. **No migration, deliberately** — a `reports.read` key would have needed the permission CHECK dropped and recreated, and would have let anyone who may read the register read the salary bill; each report is gated on the permission that already governs the screen its data comes from. `lib/csv-export.ts` is new because `lib/csv.ts` only read: it writes an Excel BOM and neutralises formula injection, both asserted in the new `npm run check-reports` **because both look like litter to whoever next tidies the file**. Subject-wise attendance is derived from the daily register plus the timetable and says so on screen and on paper — there is no per-period register to read, and the report measures teaching time lost rather than pretending otherwise. Verified against the seeded school: three independently written queries agree on PKR 2,105,531 outstanding, and the cash/bank split sums exactly to the collected total. All six gates green. | **Print one of each document on real A4** — still outstanding, still needs a person and a printer, and Sprint 12 has just added a tenth thing to print. Then Sprint 13 (portals + PWA shell + multiple principals), which does need a migration. |
 | 2026-08-15 | **Sprint 11 — Communications** (§5aa), same session, after Task 1 merged. Three tables, three permissions, the audience rule, four API routes, the composer at `/dashboard/communications`, the notice board on the parent, student and teacher portals with a live unread badge, and the scheduler that releases a scheduled announcement — a second interval in `instrumentation.ts`, because the shared plan has no cron. The default delivery path is ours now that GHL is opt-in: the board always happens, email over the Sprint 0 outbox happens when asked, WhatsApp only where the paid add-on is on. The delivery log is written once at send and is what the notice board reads, so a child who changed section still sees the notice their old class was sent and never one addressed to a class they were not in. `unreachable` is kept separate from `failed` because one is the platform's to retry and the other is the school's to fix. All five gates green. | **Apply `0022_sprint11_comms.sql` to the live database** — nothing works until it runs, and it was left for a deliberate act rather than folded into a build session. Then the delivery-report screen, which is a written query with no page. |
 | 2026-08-15 | **Sprint 10.5 Task 1 — the exams charts** (§5z). Grade distribution, subject averages and pass rate on the exam detail page; pass rate against average across the last six exams on the overview. Two aggregates in `lib/dashboard-queries.ts`, both registered in `check-dashboard`, taking deliverable C from five surfaces to seven. **The distribution is bucketed by the school's own bands** through the same `resolveBand` the report card calls, never fixed percentages — two schools with identical marks must draw different charts, and anything else would contradict the document printed from the same marks. Absent students are in no band and no pass-rate denominator, and every chart says who it left out. Extracted `resultPicker` so which sitting counts is written once rather than three times. **`check-dashboard` now also asserts the fold with no database** — eleven assertions, the pivotal one running the same marks through two schemes and requiring the results to differ, because that regression compiles and executes perfectly. Also **corrected a false claim in §5z**: the §5f worktree build hazard is not dead; the stub `node_modules` reappeared and broke the second build. | **Print one of each document on real A4.** It needs a person and a printer, gates Task 2 (the report card's per-subject bar), and is the only thing left in Sprint 10.5. |
 | 2026-08-13 | **Sprint 10.5 foundation, run with `/impeccable`** (§5z). The palette a school picks now reaches the bottom of the interface instead of the top inch: `lib/brand-derive.ts` computes ~44 tokens from the five stored colours, and every travelling one is pushed until it clears contrast against *every* surface it can land on. Two user decisions taken — `lucide-react` for icons, and fully brand-derived status colours, implemented as a banded rotation so a school's hue moves them without letting "paid" and "overdue" swap appearances. Eleven missing primitives built, the eight existing ones retrofitted off `slate-*`, five SVG chart components (no library: a report-card chart must survive `PrintSheet`, and shared first-load JS is 102 kB against a 200 kB budget). Built `/design-system`, which renders everything once per palette across four real and three hostile ones and 404s outside development — **it immediately found 18 real contrast failures the audit script had passed**, all of them text on a surface the token had never been checked against. Fixed at source, and the script now checks the same list. Also caught a print regression this sprint introduced: `body` moved to `bg-surface`, which would have printed dark sheets for a dark-palette school. Final state: 994 rendered text elements across 7 palettes, 0 contrast failures; no sideways scroll at 375px; typecheck, lint, build, check-theme green. | **Deliverable B — the application shell.** Nothing the user looks at has changed yet; the foundation is built but no screen is rebuilt on it. Sidebar icons and grouping, page headers with breadcrumbs, then empty/loading/error states everywhere. |
