@@ -2,9 +2,10 @@ import type { CSSProperties, ReactNode } from 'react';
 
 import { PortalFrame } from '@/components/school/PortalFrame';
 import { ParentNavbar } from '@/components/parent/ParentNavbar';
-import { PARENT_NAV } from '@/components/parent/parent-nav';
+import { parentNav } from '@/components/parent/parent-nav';
 import { paletteToCSSVars } from '@/lib/branding';
 import { requireSchoolRole } from '@/lib/school-guard';
+import { countUnreadNotices } from '@/lib/announcement-queries';
 import { getSchoolUserByUid } from '@/lib/school-queries';
 import { getSchoolBranding } from '@/lib/school-tenant';
 
@@ -26,6 +27,11 @@ export default async function ParentLayout({ children }: { children: ReactNode }
     getSchoolUserByUid(locationId, claims.uid),
   ]);
 
+  // The badge is read after the profile, because it needs the school-user id
+  // the profile carries. One indexed count against the delivery log.
+  const unreadNotices =
+    profile === null ? 0 : await countUnreadNotices(locationId, profile.id);
+
   const brandStyle = paletteToCSSVars(
     branding?.palette ?? null,
   ) as unknown as CSSProperties;
@@ -35,7 +41,7 @@ export default async function ParentLayout({ children }: { children: ReactNode }
   return (
     <div style={brandStyle} className="bg-brand-background text-brand-text">
       <PortalFrame
-        items={PARENT_NAV}
+        items={parentNav(unreadNotices)}
         ariaLabel="Parent navigation"
         drawerTitle={schoolName}
         header={

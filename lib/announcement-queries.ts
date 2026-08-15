@@ -14,11 +14,16 @@ import {
   type DeliveryStatus,
 } from '@/db/schema';
 
-import { resolveAudience, type AudienceMember } from './announcement-audience';
+import {
+  parseAudience,
+  resolveAudience,
+  type AudienceMember,
+} from './announcement-audience';
 import { isWhatsAppEnabled } from './channels';
 import { db } from './drizzle';
 import { enqueueEmail } from './email-outbox';
 import { getSchoolByLocationId } from './schools';
+import { isUuid, readString } from './validation';
 
 /**
  * Tenant-scoped reads and writes for announcements.
@@ -136,6 +141,56 @@ export interface AnnouncementInput {
   branchId: string | null;
   sendEmail: boolean;
   scheduledAt: Date | null;
+}
+
+/**
+ * Validates a request body into an `AnnouncementInput`, or the message to show.
+ *
+ * Here rather than in the route because both the create and the edit path need
+ * it, and a Next route module may only export its handlers — an exported helper
+ * there is a build error, not a style question.
+ */
+export function parseAnnouncementInput(raw: unknown): AnnouncementInput | string {
+  if (typeof raw !== 'object' || raw === null) return 'Expected a JSON body.';
+  const body = raw as Record<string, unknown>;
+
+  const title = readString(body['title']);
+  if (title === '' || title.length > 140) {
+    return 'Enter a title of 140 characters or fewer.';
+  }
+
+  const text = readString(body['body']);
+  if (text === '' || text.length > 5000) {
+    return 'Enter a message of 5,000 characters or fewer.';
+  }
+
+  const audience = parseAudience(body['audience']);
+  if (typeof audience === 'string') return audience;
+
+  const rawBranch = body['branchId'];
+  const branchId =
+    rawBranch === undefined || rawBranch === null || rawBranch === '' ? null : rawBranch;
+  if (branchId !== null && !isUuid(branchId)) {
+    return 'Choose a campus, or all of them.';
+  }
+
+  let scheduledAt: Date | null = null;
+  const rawWhen = body['scheduledAt'];
+  if (rawWhen !== undefined && rawWhen !== null && rawWhen !== '') {
+    if (typeof rawWhen !== 'string') return 'Choose when to send it.';
+    const when = new Date(rawWhen);
+    if (Number.isNaN(when.getTime())) return 'Choose when to send it.';
+    scheduledAt = when;
+  }
+
+  return {
+    title,
+    body: text,
+    audience,
+    branchId,
+    sendEmail: body['sendEmail'] === true,
+    scheduledAt,
+  };
 }
 
 export async function createAnnouncement(
