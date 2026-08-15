@@ -3530,6 +3530,13 @@ this way and had to be restored with `git checkout`. Use the editing tools.
 
 - **Update this file at the end of every development step.** It is the contract
   that makes running out of context safe.
+- **Write release notes at the end of every sprint** — `release-notes/`, one
+  file per sprint, named `RELEASE-NOTES-SPRINT-NN.md`, and add the row to
+  `release-notes/README.md`. The user asked for this on 2026-08-15. It is a
+  different document for a different reader than this file: what a school gets,
+  stated as outcomes. Say plainly what is not usable yet — an unapplied
+  migration, a screen with no page — because a release note that omits that is
+  the kind of claim this file exists to prevent.
 - Keep §3 (state), §6 (blockers) and §7 (log) truthful — a stale STATE.md is
   worse than none.
 - `README.md` is out of date (still describes Sprint 1, Firebase Storage, Neon,
