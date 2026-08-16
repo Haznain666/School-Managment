@@ -3,6 +3,7 @@ import Link from 'next/link';
 
 import { ChallanPrintView } from '@/components/fees/ChallanPrintView';
 import { PrintButton } from '@/components/fees/PrintButton';
+import { ChildSelector } from '@/components/parent/ChildSelector';
 import { Badge, type BadgeVariant } from '@/components/ui/Badge';
 import { Card, CardTitle } from '@/components/ui/Card';
 import { PageHeader } from '@/components/ui/PageHeader';
@@ -134,26 +135,16 @@ export default async function ParentFeesPage({
     <div className="space-y-6">
       <Heading />
 
-      {children.length > 1 ? (
-        <nav aria-label="Children" className="flex flex-wrap gap-2">
-          {children.map((child) => (
-            <Link
-              key={child.studentProfileId}
-              href={`/parent/fees?child=${child.studentProfileId}`}
-              aria-current={
-                child.studentProfileId === selected.studentProfileId ? 'page' : undefined
-              }
-              className={
-                child.studentProfileId === selected.studentProfileId
-                  ? 'rounded-full bg-brand-primary px-3 py-1.5 text-sm font-medium text-brand-onPrimary'
-                  : 'rounded-full bg-surface-sunken px-3 py-1.5 text-sm font-medium text-ink-muted hover:bg-line'
-              }
-            >
-              {child.name}
-            </Link>
-          ))}
-        </nav>
-      ) : null}
+      {/* The open challan is deliberately not carried across a child switch:
+          a voucher belongs to one child, and keeping the id would open
+          somebody else's — or, more likely, nothing at all. */}
+      <div className="print:hidden">
+        <ChildSelector
+          students={children}
+          selectedId={selected.studentProfileId}
+          basePath="/parent/fees"
+        />
+      </div>
 
       <div className="grid gap-4 sm:grid-cols-3">
         <SummaryCard label="Total billed" value={formatPkr(summary.billed)} />

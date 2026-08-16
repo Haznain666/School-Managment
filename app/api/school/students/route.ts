@@ -10,6 +10,8 @@ import {
   parseStudentInput,
   syncEnrollmentToGhl,
 } from '@/lib/enrollment';
+import { resolvePrincipalScope } from '@/lib/principal-resolver';
+import { getSchoolUserByUid } from '@/lib/school-queries';
 import { StudentIdError } from '@/lib/student-id';
 
 /**
@@ -44,8 +46,20 @@ export const GET = withSchoolAuth(
       // A branch-scoped admin is confined to their branch regardless of input.
       const branchId = auth.branchId ?? (url.searchParams.get('branchId') ?? undefined);
 
+      // BR4 — a head at a school running several is confined to their own
+      // campuses and classes, resolved from the session rather than the query.
+      const me = await getSchoolUserByUid(auth.locationId, auth.uid);
+      const scope = await resolvePrincipalScope(
+        auth.locationId,
+        auth.role,
+        me?.id ?? null,
+      );
+
       const result = await listStudents(auth.locationId, {
         branchId: branchId ?? undefined,
+        ...(scope.scoped
+          ? { scope: { branchIds: scope.branchIds, gradeIds: scope.gradeIds } }
+          : {}),
         gradeId: url.searchParams.get('gradeId') ?? undefined,
         sectionId: url.searchParams.get('sectionId') ?? undefined,
         academicYearId: url.searchParams.get('academicYearId') ?? undefined,

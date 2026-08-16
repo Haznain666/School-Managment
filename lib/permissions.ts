@@ -50,6 +50,7 @@ export const PERMISSIONS = [
   'comms.send',
   'settings.read',
   'settings.write',
+  'principals.manage',
   'permissions.manage',
 ] as const;
 
@@ -105,7 +106,12 @@ export const PERMISSION_GROUPS: readonly PermissionGroup[] = [
   {
     key: 'school',
     label: 'School',
-    permissions: ['settings.read', 'settings.write', 'permissions.manage'],
+    permissions: [
+      'settings.read',
+      'settings.write',
+      'principals.manage',
+      'permissions.manage',
+    ],
   },
 ];
 
@@ -136,6 +142,7 @@ export const PERMISSION_LABELS: Record<Permission, string> = {
   'payroll.write': 'Run, approve and pay payroll',
   'settings.read': 'See the school profile and branding',
   'settings.write': 'Edit the school profile, logo and colours',
+  'principals.manage': 'Decide which principal runs which campus or division',
   'permissions.manage': 'Change what every role may do',
 };
 
@@ -167,6 +174,9 @@ export const PERMISSION_DESCRIPTIONS: Partial<Record<Permission, string>> = {
   'students.transfer':
     'Moving a student between branches also moves their fees. A branch ' +
     'administrator does not hold this — the receiving branch has to agree.',
+  'principals.manage':
+    'An assignment decides which students, staff and results a head can see. ' +
+    'Whoever holds this can widen their own principal’s view of the school.',
 };
 
 /**
@@ -216,6 +226,12 @@ export const UNREVOKABLE: { role: UserRole; permission: Permission } = {
  *                       their fees between two branches, and a branch
  *                       administrator holding it could move a student out of a
  *                       branch they do not run — or, worse, into one.
+ *
+ * Sprint 13 added `principals.manage`, and `principal` deliberately does not
+ * hold it. An assignment is what narrows a head to their own campus or
+ * division; a head who could edit assignments could widen that narrowing, which
+ * would make BR4 a suggestion rather than a boundary. It sits with
+ * `school_admin` — the same reasoning that keeps `students.transfer` there.
  */
 export const DEFAULT_ROLE_PERMISSIONS: Record<UserRole, readonly Permission[]> = {
   school_admin: [...PERMISSIONS],

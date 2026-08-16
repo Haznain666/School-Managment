@@ -365,10 +365,19 @@ export function AttendanceMarker({
                           }));
                           setSavedAt(null);
                         }}
+                        /*
+                          44px on a phone, 36 from `sm` up. Sprint 13: a
+                          teacher takes the register standing in front of the
+                          class holding a handset, and 36px is below every
+                          published minimum for a touch target — the failure
+                          mode is marking the child above or below the one you
+                          meant, which is silent and lands in a parent's
+                          attendance report.
+                        */
                         className={
                           status === option
-                            ? `h-9 w-9 rounded-lg text-sm font-semibold ${SELECTED_CLASSES[option]}`
-                            : 'h-9 w-9 rounded-lg border border-line-strong text-sm font-semibold text-ink-muted transition hover:border-line-strong hover:text-ink'
+                            ? `h-11 w-11 rounded-lg text-base font-semibold sm:h-9 sm:w-9 sm:text-sm ${SELECTED_CLASSES[option]}`
+                            : 'h-11 w-11 rounded-lg border border-line-strong text-base font-semibold text-ink-muted transition hover:border-line-strong hover:text-ink sm:h-9 sm:w-9 sm:text-sm'
                         }
                       >
                         {STATUS_INITIALS[option]}
@@ -380,7 +389,13 @@ export function AttendanceMarker({
             })}
           </ul>
 
-          <div className="flex flex-wrap items-center gap-3 border-t border-line bg-surface-sunken px-5 py-3">
+          {/*
+            Sticky on a phone, ordinary from `sm` up. Forty students is a long
+            scroll, and a Save button that lives at the bottom of it is one a
+            teacher reaches by scrolling past everything they have just marked
+            — which is where a register gets left unsaved.
+          */}
+          <div className="sticky bottom-0 z-10 flex flex-wrap items-center gap-3 border-t border-line bg-surface-sunken px-5 py-3 sm:static">
             <Button
               isLoading={isSaving}
               onClick={() => {

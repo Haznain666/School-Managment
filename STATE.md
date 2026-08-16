@@ -4,8 +4,16 @@
 resume without re-deriving context. Updated at the end of every development
 step, before the session ends.
 
-**Last updated:** 2026-08-15 (**Sprint 11 built and applied (§5aa); Sprint 12
-built, merged and live (§5ab) — no migration**)
+**Last updated:** 2026-08-16 (**Sprint 13 built, applied, merged and live
+(§5ac) — migration `0023`**)
+
+> ✅ **`0023_sprint13_portals.sql` applied to the live database, 2026-08-16.**
+> Verified against the real schema, not the exit code: 24 of 24 migrations
+> recorded, all three tables present, 11 indexes, `schools.principal_model`
+> defaulting to `'single'` on all 6 schools, and
+> `role_permissions_permission_check` now accepting `principals.manage`.
+> **Next free migration number is `0024`.** Sprint 13.5 (accounting) is the
+> next sprint, and it needs one.
 
 > ✅ **`0022_sprint11_comms.sql` applied to the live database, 2026-08-15.**
 > Verified: 23 of 23 migrations applied, all three tables present, 12 indexes,
@@ -13,8 +21,13 @@ built, merged and live (§5ab) — no migration**)
 
 > ✅ **Sprint 12 needs no migration.** Nine reports, and not one new table or
 > permission key — see §5ab for why that was a decision rather than an
-> accident. The next sprint that *does* need one is Sprint 13; next free
-> number is **`0023`**.
+> accident.
+
+> ⚠️ **The §5f worktree build hazard is alive and was hit again on 2026-08-16.**
+> `.claude/worktrees/node_modules` reappeared after the first `next build` and
+> broke the second, exactly as §5f describes — a stub holding only `next` and
+> `styled-jsx`. Delete it before every build; do not conclude the install is
+> broken. This is the third session to rediscover it.
 
 > ▶ **NEXT: print one of each document on real A4.** It is the last thing
 > blocking a printed-document sign-off *and* the report-card chart (Task 2),
@@ -3606,6 +3619,141 @@ for a change that alters no styling, which is the one case this cannot detect.
 
 ---
 
+## 5ac. Sprint 13 — Portals, the PWA shell, and BR4, built 2026-08-16
+
+Built on `claude/next-sprint-completion-cbc8ca`. `typecheck`, `lint`, `build`,
+`check-theme`, `check-reports`, `check-dashboard` and a new `check-portals` all
+green. **Migration `0023` written, applied and verified** — see the header.
+
+### What the sprint actually was
+
+Three thin portals sharing one data model, plus two things that are not screens
+at all. `SPRINTS.md` merges the document's Sprints 13/14/15 into one for that
+reason: splitting parent, teacher and student polish triples the review overhead
+for no benefit, and this sprint is the evidence — nine of the fourteen new
+screens are the same four queries pointed at a different reader.
+
+| Piece | Where |
+| --- | --- |
+| BR4's resolver | `lib/principal-resolver.ts` |
+| Assignments CRUD | `app/api/school/principals/**`, `components/school/PrincipalAssignments.tsx` |
+| The calendar arithmetic | `lib/attendance-calendar.ts` (pure) |
+| A student's own results | `lib/portal-results.ts` |
+| A teacher's own record | `lib/staff-self-queries.ts` |
+| Lesson plans | `lib/lesson-plan-queries.ts`, `app/api/school/lesson-plans/**` |
+| Email preferences | `lib/notification-preferences.ts` |
+| The app shell | `app/manifest.webmanifest/`, `app/icon/[size]/`, `app/sw.js/`, `app/offline/` |
+| The gate | `scripts/check-portals.ts` — `npm run check-portals` |
+
+### The decisions that are load-bearing
+
+- **BR4 adds no role.** The source document proposed a dynamic
+  `principal_${divisionSlug}` role; `SPRINTS.md` refuses it and this
+  implementation honours that. `school_users.role` is a CHECK-constrained text
+  column, and every permission default, `allowedRoles` list and the whole Sprint
+  8 matrix is keyed on a *closed* set — a role invented per division would make
+  `DEFAULT_ROLE_PERMISSIONS` unable to name its own keys. The role stays
+  `principal`; a `principal_assignments` row scopes what they see.
+- **The scope narrows sight, never permission — and that distinction has a
+  consequence worth stating.** It is a *visibility* boundary applied by the
+  queries that read it, not an authorization one. A route that forgets to read
+  it shows a head the whole school, which is what they saw before Sprint 13 and
+  is **not** a cross-tenant leak: `location_id` still comes from the verified
+  session. Treat a missed narrowing as a defect, not a breach. Wired into the
+  students list today (`lib/admissions-queries.ts` `scope` filter, applied in
+  `app/api/school/students/route.ts`); everything else is unnarrowed and
+  correctly so until somebody decides otherwise.
+- **`null` means everything, `[]` means nothing, and they are different.** An
+  unassigned head at a `multiple` school gets empty arrays and sees an empty
+  school — with `describeScope()` telling them to ask their administrator.
+  Several assignments **union**: adding one must widen, never narrow, or a
+  second assignment would quietly halve a head's school. `check-portals`
+  asserts this specifically, because that regression compiles and executes
+  perfectly and produces a merely shorter list.
+- **Nothing authenticated is ever put in the service-worker cache.** This is the
+  single most consequential decision in the sprint. Navigations are
+  network-only with a static `/offline` fallback; only build-hashed
+  `/_next/static/*` is cached. A cached `/parent/fees` is one family's bill in a
+  store that outlives the session, on a handset that in this market is
+  frequently shared, and signing out does not clear it. Anything better needs a
+  cache keyed on the session and purged on sign-out — a Sprint 15 conversation
+  alongside Web Push, not something to bolt on. `/offline` itself carries no
+  school name, no colours and no user, for the same reason; it looks
+  unbranded because it must be.
+- **The manifest and the icons are per-tenant, generated, and need no operator
+  step.** Next's static `app/manifest.ts` would have installed every school's
+  parents an app called "SMS Platform" in somebody else's colours. The manifest
+  is a route that reads the tenant middleware already stamped; the icon is drawn
+  as an SVG from the school's own palette and rasterised by `sharp`, which is
+  already a dependency. A missing icon is one of the few things that makes a
+  PWA **silently** non-installable — no error, the prompt simply never appears —
+  so generating one means every school is installable the day it is created.
+  `/icon/[size]` validates against a fixed `{192, 512}` set rather than parsing
+  a number: `/icon/100000` would otherwise be an unauthenticated request to
+  allocate a ten-gigapixel raster.
+- **Notification preferences are opt-*out*, with no back-fill.** An absent row
+  means every category is on — exactly the rule `role_permissions` follows, and
+  for the same reason: every account that exists today has no row, and a table
+  that had to be back-filled would silently mute whoever it missed. They govern
+  **email only**; the notice board is never suppressed, because letting a parent
+  switch off the board would give a school a way to have told somebody something
+  they had no way of seeing. The screen says that in those words.
+- **`optedOut` is kept apart from `unreachable`**, which is kept apart from
+  `failed` — the same reasoning Sprint 11 recorded, extended by one. A failure
+  is the platform's to retry, a missing address is the school's to fix, and a
+  preference is nobody's problem at all. Collapsing them would put a parent who
+  chose not to be emailed onto an office's chase list.
+- **A parent's report card is the school's report card.** `ReportCardSummary`
+  (screen) and `ReportCardDocument` (A4) both take the same `ReportCard` from
+  the same query. No total is re-added and no grade re-resolved anywhere — that
+  is the Sprint 12 "one definition, several renderers" rule, and what it
+  prevents here is a percentage on a phone disagreeing with the one on the paper.
+- **A blank school day on the calendar means the register was not taken.**
+  Never "absent". Schools miss registers, and drawing a missing one as an
+  absence would put a mark against a child who was in class — the worst thing
+  this screen could get wrong.
+- **A teacher's own record has no id in it.** `lib/staff-self-queries.ts` is
+  deliberately *not* `lib/hr-queries.ts`: every function there takes a `staffId`
+  an administrator is entitled to choose, and one shared helper would be a
+  single forgotten check away from letting a teacher read a colleague's salary.
+  Here the staff record is derived from the session and there is no id to check.
+  Payslips come only from **paid** runs.
+
+### One found defect, fixed in passing
+
+`AnnouncementManager` **discarded the send outcome**. Sprint 11 computed
+`recipients`, `queued` and `unreachable`, stored them, and returned them to a
+client that threw them away — so the one number an office can act on ("twelve
+parents have no email address") was never shown to anybody. It is now reported
+after every send, with `optedOut` alongside.
+
+### What Sprint 13 does *not* cover
+
+- **No assignment tracker for students.** `SPRINTS.md` gives the homework diary
+  to Sprint 19.5, there is no assignments table, and inventing one here would
+  mean building it twice. Deliberately absent from the student nav rather than
+  left as a placeholder.
+- **No leave *application*** from the teacher portal, only the record. Who
+  approves a head's leave, and what happens to an application for a day already
+  marked on the register, are product questions — a form that half-answered them
+  would fill a queue nobody had agreed how to work.
+- **No Web Push.** The shell is the substrate Sprint 15 needs. Shipping it now
+  means parents are installed before push arrives, which is the whole reason
+  `SPRINTS.md` puts it here.
+- **The principal scope reaches one list.** Students. Fees, exams, HR and the
+  dashboards are unnarrowed; see the second bullet above for why that is safe
+  and what it costs.
+- **The lesson-plan school-wide read has no screen.** `listSharedPlans` is
+  written, tenant-scoped and reachable at
+  `GET /api/school/lesson-plans?scope=school`; nothing renders it. The same
+  shape as Sprint 11's delivery report, and it should be built with that one.
+- **Not seen in a browser.** Standing reason: sign-in has never worked from a
+  development machine (§5d item 2). Every query was executed against the real
+  schema and the two pure modules are asserted with no database, but no page and
+  no printed sheet has been looked at.
+
+---
+
 ## 6. Open items for the user
 
 1. ~~Install GitHub CLI~~ — **partly regressed.** Git has a stored credential
@@ -3638,6 +3786,7 @@ for a change that alters no styling, which is the one case this cannot detect.
 
 | Date | Session did | Next |
 | --- | --- | --- |
+| 2026-08-16 | **Sprint 13 — Portals, the PWA shell and BR4** (§5ac). Fourteen new screens across the three portals a school does not log into, plus two things that are not screens: an installable per-tenant app, and multiple principals. **Migration `0023` written, applied and verified against the real schema** — 24 recorded, three tables, 11 indexes, `principal_model` defaulting to `single` on all six schools, and the permission CHECK accepting `principals.manage`. **BR4 adds no role**: the document's dynamic `principal_${division}` role is refused, because `school_users.role` is CHECK-constrained and every permission default is keyed on a closed set — the assignment scopes what a head *sees*, which is a visibility boundary and not an authorization one, and §5ac says plainly what that costs. **The service worker caches nothing authenticated**, deliberately and permanently until a session-keyed cache exists: a cached fee page outlives its session on a handset that is frequently shared, and signing out does not clear it. Notification preferences are opt-out with no back-fill and govern email only — the notice board is never suppressed, because a school must not be able to have told somebody something they had no way of seeing. Found and fixed a Sprint 11 defect in passing: the composer **discarded the send outcome**, so the unreachable count was computed, stored and never shown to anybody. New `npm run check-portals` asserts the calendar arithmetic and the principal-scope union with no database, then executes all 14 new queries against the live schema. All seven gates green. | **Print one of each document on real A4** — still outstanding, still needs a person and a printer, and Sprint 13 has just added the parent's own report-card sheet to the pile. Then Sprint 13.5 (accounting), which needs migration **`0024`**. Two smaller things this sprint left written but unrendered: the shared-lesson-plan read for coordinators, and Sprint 11's delivery report — build them together. |
 | 2026-08-15 | **Sprint 12 — Reports & analytics** (§5ab). Nine reports — attendance summary, subject-wise attendance, fee collection, outstanding/aging, academic results, payroll summary, leave summary, enrollment funnel, monthly revenue — each with filters in the URL, a printed sheet on the school's letterhead and a CSV export. **One definition, three renderers**: `lib/report-catalogue.ts` declares a report once and the screen, the sheet and the file all read it, so a column cannot exist on one and not another. **No migration, deliberately** — a `reports.read` key would have needed the permission CHECK dropped and recreated, and would have let anyone who may read the register read the salary bill; each report is gated on the permission that already governs the screen its data comes from. `lib/csv-export.ts` is new because `lib/csv.ts` only read: it writes an Excel BOM and neutralises formula injection, both asserted in the new `npm run check-reports` **because both look like litter to whoever next tidies the file**. Subject-wise attendance is derived from the daily register plus the timetable and says so on screen and on paper — there is no per-period register to read, and the report measures teaching time lost rather than pretending otherwise. Verified against the seeded school: three independently written queries agree on PKR 2,105,531 outstanding, and the cash/bank split sums exactly to the collected total. All six gates green. | **Print one of each document on real A4** — still outstanding, still needs a person and a printer, and Sprint 12 has just added a tenth thing to print. Then Sprint 13 (portals + PWA shell + multiple principals), which does need a migration. |
 | 2026-08-15 | **Sprint 11 — Communications** (§5aa), same session, after Task 1 merged. Three tables, three permissions, the audience rule, four API routes, the composer at `/dashboard/communications`, the notice board on the parent, student and teacher portals with a live unread badge, and the scheduler that releases a scheduled announcement — a second interval in `instrumentation.ts`, because the shared plan has no cron. The default delivery path is ours now that GHL is opt-in: the board always happens, email over the Sprint 0 outbox happens when asked, WhatsApp only where the paid add-on is on. The delivery log is written once at send and is what the notice board reads, so a child who changed section still sees the notice their old class was sent and never one addressed to a class they were not in. `unreachable` is kept separate from `failed` because one is the platform's to retry and the other is the school's to fix. All five gates green. | **Apply `0022_sprint11_comms.sql` to the live database** — nothing works until it runs, and it was left for a deliberate act rather than folded into a build session. Then the delivery-report screen, which is a written query with no page. |
 | 2026-08-15 | **Sprint 10.5 Task 1 — the exams charts** (§5z). Grade distribution, subject averages and pass rate on the exam detail page; pass rate against average across the last six exams on the overview. Two aggregates in `lib/dashboard-queries.ts`, both registered in `check-dashboard`, taking deliverable C from five surfaces to seven. **The distribution is bucketed by the school's own bands** through the same `resolveBand` the report card calls, never fixed percentages — two schools with identical marks must draw different charts, and anything else would contradict the document printed from the same marks. Absent students are in no band and no pass-rate denominator, and every chart says who it left out. Extracted `resultPicker` so which sitting counts is written once rather than three times. **`check-dashboard` now also asserts the fold with no database** — eleven assertions, the pivotal one running the same marks through two schemes and requiring the results to differ, because that regression compiles and executes perfectly. Also **corrected a false claim in §5z**: the §5f worktree build hazard is not dead; the stub `node_modules` reappeared and broke the second build. | **Print one of each document on real A4.** It needs a person and a printer, gates Task 2 (the report card's per-subject bar), and is the only thing left in Sprint 10.5. |

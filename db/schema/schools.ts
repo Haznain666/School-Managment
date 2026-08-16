@@ -1,11 +1,15 @@
+import { sql } from 'drizzle-orm';
 import {
   boolean,
+  check,
   index,
   pgTable,
   text,
   timestamp,
   uuid,
 } from 'drizzle-orm/pg-core';
+
+import type { PrincipalModel } from './principal-assignments';
 
 /**
  * schools — the tenant directory, and the anchor for every other table.
@@ -63,6 +67,26 @@ export const schools = pgTable(
     phone: text('phone'),
     email: text('email'),
     principalName: text('principal_name'),
+    /**
+     * Whether this school runs one head or several (BR4, Sprint 13).
+     *
+     * `single` for every school until somebody changes it, which keeps the
+     * behaviour of every existing row exactly as it was: the resolver returns
+     * an unnarrowed scope and no assignment screen appears. `multiple` turns on
+     * `principal_assignments`, where each head is scoped to a campus, a
+     * division, or both.
+     *
+     * A `text` + CHECK column rather than a boolean because the two states are
+     * a named choice a school makes on a settings screen, and a third
+     * arrangement is easy to imagine; `is_multi_principal` would have to be
+     * migrated to say anything else. Constrained rather than free text for the
+     * same reason `principal_${division}` roles were refused — see
+     * `db/schema/principal-assignments.ts`.
+     */
+    principalModel: text('principal_model')
+      .notNull()
+      .default('single')
+      .$type<PrincipalModel>(),
     /** Convenience mirror of `school_branding.logo_url`. */
     logoUrl: text('logo_url'),
     /** Soft delete: deactivated schools keep their data but cannot be reached. */
@@ -109,6 +133,10 @@ export const schools = pgTable(
     index('schools_slug_idx').on(table.slug),
     index('schools_is_active_idx').on(table.isActive),
     index('schools_city_idx').on(table.city),
+    check(
+      'schools_principal_model_check',
+      sql`${table.principalModel} IN ('single', 'multiple')`,
+    ),
   ],
 );
 

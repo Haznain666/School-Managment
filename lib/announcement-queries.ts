@@ -22,6 +22,7 @@ import {
 import { isWhatsAppEnabled } from './channels';
 import { db } from './drizzle';
 import { enqueueEmail } from './email-outbox';
+import { filterByEmailPreference } from './notification-preferences';
 import { getSchoolByLocationId } from './schools';
 import { isUuid, readString } from './validation';
 
@@ -285,6 +286,15 @@ export interface SendOutcome {
   queued: number;
   /** People with no address, when email was asked for. */
   unreachable: number;
+  /**
+   * People who have asked not to receive these by email (Sprint 13).
+   *
+   * Kept apart from `unreachable` for the same reason `unreachable` is kept
+   * apart from `failed`: they have different owners. A missing address is the
+   * school's to fix; a preference is the parent's, and is not a problem at all.
+   * Their notice is on the board either way.
+   */
+  optedOut: number;
 }
 
 /**
@@ -325,6 +335,7 @@ export async function sendAnnouncement(
   const sentAt = new Date();
   let queued = 0;
   let unreachable = 0;
+  let optedOut = 0;
 
   if (members.length > 0) {
     await db
@@ -347,6 +358,7 @@ export async function sendAnnouncement(
     const outcome = await queueEmailRun(locationId, announcement, members);
     queued = outcome.queued;
     unreachable = outcome.unreachable;
+    optedOut = outcome.optedOut;
   }
 
   await db
@@ -354,7 +366,7 @@ export async function sendAnnouncement(
     .set({ status: 'sent', sentAt, updatedAt: sentAt })
     .where(and(eq(announcements.locationId, locationId), eq(announcements.id, announcementId)));
 
-  return { recipients: members.length, queued, unreachable };
+  return { recipients: members.length, queued, unreachable, optedOut };
 }
 
 /**
@@ -369,9 +381,23 @@ async function queueEmailRun(
   locationId: string,
   announcement: AnnouncementRow,
   members: readonly AudienceMember[],
-): Promise<{ queued: number; unreachable: number }> {
+): Promise<{ queued: number; unreachable: number; optedOut: number }> {
   const school = await getSchoolByLocationId(locationId).catch(() => null);
   const schoolName = school?.schoolName ?? null;
+
+  // Sprint 13 — whoever has switched off announcement email gets no email row.
+  //
+  // Skipped rather than logged as `unreachable`: that status means "the school
+  // has no way to reach this person and should fix it", and an office chasing
+  // a parent who deliberately opted out would be chasing the wrong thing. One
+  // indexed read for the whole audience, never one per member.
+  const wantsEmail = await filterByEmailPreference(
+    locationId,
+    members.map((member) => member.schoolUserId),
+    'announcements',
+  );
+
+  let optedOut = 0;
 
   const rows: Array<{
     locationId: string;
@@ -384,6 +410,11 @@ async function queueEmailRun(
   }> = [];
 
   for (const member of members) {
+    if (!wantsEmail.has(member.schoolUserId)) {
+      optedOut += 1;
+      continue;
+    }
+
     const address = member.email?.trim() ?? '';
 
     if (address === '') {
@@ -437,6 +468,7 @@ async function queueEmailRun(
   return {
     queued: rows.filter((row) => row.status === 'queued').length,
     unreachable: rows.filter((row) => row.status === 'unreachable').length,
+    optedOut,
   };
 }
 

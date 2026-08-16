@@ -84,3 +84,11 @@ export * from './family-challans';
 // read it. The notice board is the delivery that always happens; email over the
 // Sprint 0 outbox is the push that happens when the sender asks for it.
 export * from './announcements';
+
+// Sprint 13 — portal completion, the PWA shell and BR4 multiple principals.
+// `principal-assignments` is exported before `schools` needs it only as a type,
+// so the cycle is erased at compile time; the tables themselves do not
+// reference each other.
+export * from './principal-assignments';
+export * from './lesson-plans';
+export * from './notification-preferences';

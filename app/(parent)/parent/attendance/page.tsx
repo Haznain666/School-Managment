@@ -1,16 +1,17 @@
 import type { Metadata } from 'next';
-import Link from 'next/link';
 
-import { Badge, type BadgeVariant } from '@/components/ui/Badge';
+import { AttendanceCalendar } from '@/components/parent/AttendanceCalendar';
+import { ChildSelector } from '@/components/parent/ChildSelector';
+import { DonutChart } from '@/components/charts/DonutChart';
 import { Card, CardTitle } from '@/components/ui/Card';
 import { PageHeader } from '@/components/ui/PageHeader';
-import {
-  ATTENDANCE_STATUS_LABELS,
-  type AttendanceStatus,
-} from '@/db/schema/attendance-records';
-import { DonutChart } from '@/components/charts/DonutChart';
 import { listStudentAttendance, summariseAttendance } from '@/lib/academics-queries';
 import { getActiveAcademicYear, listChildrenForGuardian } from '@/lib/admissions-queries';
+import {
+  buildCalendarMonth,
+  monthBounds,
+  parseMonthParam,
+} from '@/lib/attendance-calendar';
 import { requireSchoolRole } from '@/lib/school-guard';
 import { getSchoolUserByUid } from '@/lib/school-queries';
 
@@ -21,26 +22,19 @@ export const metadata: Metadata = {
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 
-const STATUS_VARIANTS: Record<AttendanceStatus, BadgeVariant> = {
-  present: 'success',
-  absent: 'danger',
-  late: 'warning',
-  excused: 'neutral',
-  holiday: 'neutral',
-};
-
-/** The window this page reports on: the last 30 days, ending today. */
-function lastThirtyDays(): { from: string; to: string } {
-  const today = new Date();
-  const start = new Date(today);
-  start.setDate(start.getDate() - 29);
-
-  const iso = (value: Date): string => value.toISOString().slice(0, 10);
-  return { from: iso(start), to: iso(today) };
-}
-
 /**
- * A parent's view of their children's attendance.
+ * A parent's view of their children's attendance — Sprint 13.
+ *
+ * ── What changed, and why ────────────────────────────────────────────────
+ * This was a list of the last thirty days. A list answers "which days was my
+ * child away"; it cannot answer "is there a pattern", which is the question a
+ * parent actually has and the one a school wants them to have. A month grid
+ * puts every Monday in one column, so "off sick every Monday" is visible
+ * without anybody counting.
+ *
+ * The month is a URL parameter, so this page has no client JavaScript at all
+ * and a particular month is shareable — the same reasoning the report filters
+ * follow.
  *
  * ── On authorisation ─────────────────────────────────────────────────────
  * The child list comes from `student_guardians.school_user_id` — the link
@@ -51,7 +45,7 @@ function lastThirtyDays(): { from: string; to: string } {
 export default async function ParentAttendancePage({
   searchParams,
 }: {
-  searchParams: Promise<{ child?: string }>;
+  searchParams: Promise<{ child?: string; month?: string }>;
 }) {
   const { claims, locationId } = await requireSchoolRole(['parent']);
   const profile = await getSchoolUserByUid(locationId, claims.uid);
@@ -62,7 +56,7 @@ export default async function ParentAttendancePage({
       ? []
       : await listChildrenForGuardian(locationId, profile.id, activeYear?.id ?? null);
 
-  const { child: requestedChild } = await searchParams;
+  const { child: requestedChild, month: requestedMonth } = await searchParams;
 
   const selected =
     children.find((entry) => entry.studentProfileId === requestedChild) ??
@@ -84,43 +78,39 @@ export default async function ParentAttendancePage({
     );
   }
 
-  const range = lastThirtyDays();
+  const today = new Date().toISOString().slice(0, 10);
+  const { year, month } = parseMonthParam(requestedMonth, {
+    year: Number.parseInt(today.slice(0, 4), 10),
+    month: Number.parseInt(today.slice(5, 7), 10),
+  });
+
   const records = await listStudentAttendance(
     locationId,
     selected.studentProfileId,
-    range,
+    monthBounds(year, month),
   );
   const summary = summariseAttendance(records);
+  const calendar = buildCalendarMonth(year, month, records, today);
 
   return (
     <div className="space-y-6">
       <Heading />
 
-      {children.length > 1 ? (
-        <nav aria-label="Children" className="flex flex-wrap gap-2">
-          {children.map((child) => (
-            <Link
-              key={child.studentProfileId}
-              href={`/parent/attendance?child=${child.studentProfileId}`}
-              aria-current={
-                child.studentProfileId === selected.studentProfileId ? 'page' : undefined
-              }
-              className={
-                child.studentProfileId === selected.studentProfileId
-                  ? 'rounded-full bg-brand-primary px-3 py-1.5 text-sm font-medium text-brand-onPrimary'
-                  : 'rounded-full bg-surface-sunken px-3 py-1.5 text-sm font-medium text-ink-muted hover:bg-line'
-              }
-            >
-              {child.name}
-            </Link>
-          ))}
-        </nav>
-      ) : null}
+      <ChildSelector
+        students={children}
+        selectedId={selected.studentProfileId}
+        basePath="/parent/attendance"
+        extraParams={{ month: `${year}-${String(month).padStart(2, '0')}` }}
+      />
 
       <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_18rem]">
         <div className="grid gap-4 sm:grid-cols-2">
           <SummaryCard label="Present" value={String(summary.present)} />
-          <SummaryCard label="Absent" value={String(summary.absent)} emphasis={summary.absent > 0} />
+          <SummaryCard
+            label="Absent"
+            value={String(summary.absent)}
+            emphasis={summary.absent > 0}
+          />
           <SummaryCard label="Late" value={String(summary.late)} />
           <SummaryCard
             label="Attendance"
@@ -133,19 +123,17 @@ export default async function ParentAttendancePage({
           The ring repeats the four figures beside it rather than adding new
           ones, and that is the point: a parent opening this on a phone wants
           "is my child's attendance all right", and one shape answers that
-          faster than four numbers do. The percentage sits in the hole because
-          it is the figure they came for; the ring is its context.
+          faster than four numbers do.
 
           Holidays are excluded from the slices for the same reason they are
           excluded from the percentage — a term break is not a day anybody
-          failed to attend, and drawing it would make every holiday look like a
-          gap in the child's record.
+          failed to attend.
         */}
         {records.length === 0 ? null : (
           <Card>
             <DonutChart
               title={`${selected.name}'s attendance`}
-              summary={`${summary.percentage.toFixed(1)}% attendance over the last 30 days: present ${summary.present}, late ${summary.late}, absent ${summary.absent}, excused ${summary.excused}.`}
+              summary={`${summary.percentage.toFixed(1)}% attendance in ${calendar.label}: present ${summary.present}, late ${summary.late}, absent ${summary.absent}, excused ${summary.excused}.`}
               centerValue={`${Math.round(summary.percentage)}%`}
               centerLabel="attendance"
               slices={[
@@ -160,40 +148,35 @@ export default async function ParentAttendancePage({
         )}
       </div>
 
-      <Card
-        header={
-          <CardTitle
-            title="Last 30 days"
-            description={`${selected.name} · ${range.from} to ${range.to}. Late counts as present; school holidays are excluded from the percentage.`}
-          />
-        }
-        className="p-0"
-      >
-        {records.length === 0 ? (
-          <p className="px-5 py-4 text-sm text-ink-muted">
-            No attendance has been recorded in the last 30 days.
-          </p>
-        ) : (
+      <AttendanceCalendar
+        calendar={calendar}
+        basePath="/parent/attendance"
+        childId={children.length > 1 ? selected.studentProfileId : null}
+        childName={selected.name}
+      />
+
+      {records.some((record) => record.notes !== null && record.notes !== '') ? (
+        <Card
+          header={
+            <CardTitle
+              title="Notes from the register"
+              description="What the teacher wrote against a day. Only days carrying a note appear here."
+            />
+          }
+          className="p-0"
+        >
           <ul className="divide-y divide-line">
-            {records.map((record) => (
-              <li
-                key={record.date}
-                className="flex flex-wrap items-center justify-between gap-3 px-5 py-3"
-              >
-                <div className="min-w-0">
-                  <p className="font-medium text-ink">{record.date}</p>
-                  {record.notes === null || record.notes === '' ? null : (
-                    <p className="text-xs text-ink-muted">{record.notes}</p>
-                  )}
-                </div>
-                <Badge variant={STATUS_VARIANTS[record.status]}>
-                  {ATTENDANCE_STATUS_LABELS[record.status]}
-                </Badge>
-              </li>
-            ))}
+            {records
+              .filter((record) => record.notes !== null && record.notes !== '')
+              .map((record) => (
+                <li key={record.date} className="px-5 py-3">
+                  <p className="text-sm font-medium text-ink">{record.date}</p>
+                  <p className="text-sm text-ink-muted">{record.notes}</p>
+                </li>
+              ))}
           </ul>
-        )}
-      </Card>
+        </Card>
+      ) : null}
     </div>
   );
 }
@@ -202,7 +185,7 @@ function Heading() {
   return (
     <PageHeader
       title="Attendance"
-      description="Your children&rsquo;s attendance over the last month, as recorded by their teachers."
+      description="Your children&rsquo;s attendance month by month, as recorded by their teachers. Late counts as present; school holidays are excluded from the percentage."
     />
   );
 }
