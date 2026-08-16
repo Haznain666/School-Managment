@@ -1,6 +1,7 @@
 import type { CSSProperties, ReactNode } from 'react';
 
 import { PortalFrame } from '@/components/school/PortalFrame';
+import { ServiceWorkerRegistrar } from '@/components/pwa/ServiceWorkerRegistrar';
 import { ParentNavbar } from '@/components/parent/ParentNavbar';
 import { parentNav } from '@/components/parent/parent-nav';
 import { paletteToCSSVars } from '@/lib/branding';
@@ -56,6 +57,10 @@ export default async function ParentLayout({ children }: { children: ReactNode }
       >
         {children}
       </PortalFrame>
+
+      {/* Registers the app shell. Renders nothing and fails silently — see
+          `components/pwa/ServiceWorkerRegistrar.tsx`. */}
+      <ServiceWorkerRegistrar />
     </div>
   );
 }

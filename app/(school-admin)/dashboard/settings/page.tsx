@@ -3,12 +3,14 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 
 import { schools } from '@/db/schema';
+import { PrincipalAssignments } from '@/components/school/PrincipalAssignments';
 import { SchoolBrandingForm } from '@/components/school/SchoolBrandingForm';
 import { SchoolProfileForm } from '@/components/school/SchoolProfileForm';
 import { Card, CardTitle } from '@/components/ui/Card';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { db } from '@/lib/drizzle';
 import { requireSchoolPermission } from '@/lib/school-guard';
+import { listBranchOptions } from '@/lib/school-queries';
 
 export const metadata: Metadata = {
   title: 'Settings',
@@ -59,6 +61,9 @@ export default async function SchoolSettingsPage() {
   }
 
   const canEdit = permissions.includes('settings.write');
+  const branchOptions = permissions.includes('principals.manage')
+    ? await listBranchOptions(locationId)
+    : [];
 
   return (
     <div className="space-y-6">
@@ -100,8 +105,16 @@ export default async function SchoolSettingsPage() {
         </Card>
       ) : null}
 
+      {permissions.includes('principals.manage') ? (
+        <PrincipalAssignments branches={branchOptions} canEdit />
+      ) : null}
+
       <Card header={<CardTitle title="Notification preferences" />}>
-        <p className="text-sm text-ink-muted">Coming soon.</p>
+        <p className="text-sm text-ink-muted">
+          Parents choose for themselves which emails they receive, from their own
+          portal. Nothing a school sends to a notice board can be switched off —
+          only the email copy of it.
+        </p>
       </Card>
     </div>
   );

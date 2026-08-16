@@ -104,6 +104,8 @@ export function AnnouncementManager({
   const [sendEmail, setSendEmail] = useState(false);
   const [scheduledAt, setScheduledAt] = useState('');
   const [error, setError] = useState<string | null>(null);
+  /** What the last send reached. Cleared by the next action, not by a timer. */
+  const [sendNotice, setSendNotice] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
 
@@ -169,9 +171,35 @@ export function AnnouncementManager({
 
     setBusyId(row.id);
     setError(null);
+    setSendNotice(null);
 
     try {
-      await schoolFetch(`/api/school/announcements/${row.id}/send`, { method: 'POST' });
+      // The outcome was discarded until Sprint 13, which meant the one number
+      // an office can act on — who could not be reached — was computed, stored
+      // and never shown. Reported here in the words the delivery log uses.
+      const outcome = await schoolFetch<{
+        recipients: number;
+        queued: number;
+        unreachable: number;
+        optedOut: number;
+      }>(`/api/school/announcements/${row.id}/send`, { method: 'POST' });
+
+      const parts = [
+        `On the notice board for ${outcome.recipients} ${
+          outcome.recipients === 1 ? 'person' : 'people'
+        }`,
+      ];
+      if (row.sendEmail) {
+        parts.push(`${outcome.queued} email${outcome.queued === 1 ? '' : 's'} queued`);
+        if (outcome.unreachable > 0) {
+          parts.push(`${outcome.unreachable} with no email address`);
+        }
+        if (outcome.optedOut > 0) {
+          parts.push(`${outcome.optedOut} who asked not to be emailed`);
+        }
+      }
+
+      setSendNotice(`${parts.join(' · ')}.`);
       router.refresh();
     } catch (caught) {
       setError(schoolErrorMessage(caught, 'It could not be sent.'));
@@ -221,6 +249,12 @@ export function AnnouncementManager({
       {error === null ? null : (
         <p className="mb-4 rounded-control border border-status-danger-line bg-status-danger-surface px-3 py-2 text-sm text-status-danger-ink">
           {error}
+        </p>
+      )}
+
+      {sendNotice === null ? null : (
+        <p className="mb-4 rounded-control bg-status-success-subtle px-3 py-2 text-sm text-status-success-ink">
+          {sendNotice}
         </p>
       )}
 

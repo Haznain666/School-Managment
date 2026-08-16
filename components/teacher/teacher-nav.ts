@@ -15,13 +15,20 @@ export function teacherNav(unreadNotices = 0): PortalNavItem[] {
   return [
     { label: 'My Dashboard', href: '/teacher', icon: 'dashboard' },
     { label: 'My Timetable', href: '/teacher/timetable', icon: 'timetable' },
+    { label: 'My Classes', href: '/teacher/classes', icon: 'students' },
     { label: 'Attendance', href: '/teacher/attendance', icon: 'attendance' },
     { label: 'Marks', href: '/teacher/marks', icon: 'marks' },
+    { label: 'Gradebook', href: '/teacher/gradebook', icon: 'grading' },
+    { label: 'Lesson Plans', href: '/teacher/lesson-plans', icon: 'academics' },
     {
       label: 'Announcements',
       href: '/teacher/announcements',
       icon: 'announcements',
       ...(unreadNotices > 0 ? { badge: unreadNotices } : {}),
     },
+    // Their own record, at the bottom because it is not the job — it is the
+    // two things a teacher previously had to walk to the office to ask for.
+    { label: 'My Payslips', href: '/teacher/payslips', icon: 'payroll' },
+    { label: 'My Leave', href: '/teacher/leave', icon: 'leave' },
   ];
 }

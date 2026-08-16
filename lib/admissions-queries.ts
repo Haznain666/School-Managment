@@ -330,6 +330,16 @@ export interface ListStudentsFilters {
   limit?: number | undefined;
   /** `name` for the directory, `recent` for "who joined last". */
   orderBy?: 'name' | 'recent' | undefined;
+  /**
+   * BR4 — narrows a scoped principal to their own campuses and classes.
+   *
+   * Applied *in addition to* whatever the caller filtered on, never instead of
+   * it: a head who filters to Class 5 outside their division must get nothing,
+   * not Class 5. An empty array is therefore honoured as "matches nothing"
+   * rather than treated as absent — an unassigned head sees an empty list, and
+   * `describeScope()` is what tells them why.
+   */
+  scope?: { branchIds: string[] | null; gradeIds: string[] | null } | undefined;
 }
 
 export interface ListStudentsResult {
@@ -371,6 +381,14 @@ export async function listStudents(
   // from a query string, and a stale bookmark should show everything, not 400.
   if (isEnrollmentStatus(filters.status)) {
     conditions.push(eq(studentEnrollments.status, filters.status));
+  }
+  // BR4. `inArray` with an empty list is `false` in Drizzle, which is exactly
+  // the reading wanted: an unassigned head matches no row.
+  if (filters.scope?.branchIds != null) {
+    conditions.push(inArray(grades.branchId, filters.scope.branchIds));
+  }
+  if (filters.scope?.gradeIds != null) {
+    conditions.push(inArray(sections.gradeId, filters.scope.gradeIds));
   }
 
   const search = (filters.search ?? '').trim();

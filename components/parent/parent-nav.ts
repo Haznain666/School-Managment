@@ -20,8 +20,9 @@ import type { PortalNavItem } from '@/components/school/PortalSidebar';
 export function parentNav(unreadNotices = 0): PortalNavItem[] {
   return [
     { label: 'My Dashboard', href: '/parent', icon: 'dashboard' },
-    { label: 'My Children', href: '/parent/children', icon: 'children', placeholder: true },
+    { label: 'My Children', href: '/parent/children', icon: 'children' },
     { label: 'Attendance', href: '/parent/attendance', icon: 'attendance' },
+    { label: 'Results', href: '/parent/results', icon: 'marks' },
     { label: 'Fees', href: '/parent/fees', icon: 'fees' },
     {
       label: 'Announcements',
@@ -31,5 +32,6 @@ export function parentNav(unreadNotices = 0): PortalNavItem[] {
       // reading "0" is a notification that there is nothing to notify about.
       ...(unreadNotices > 0 ? { badge: unreadNotices } : {}),
     },
+    { label: 'Settings', href: '/parent/settings', icon: 'settings' },
   ];
 }

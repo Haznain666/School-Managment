@@ -6,7 +6,9 @@ import { Button } from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { listAcademicYears, listAdmissionsBranches } from '@/lib/admissions-queries';
+import { describeScope, resolvePrincipalScope } from '@/lib/principal-resolver';
 import { requireSchoolPermission } from '@/lib/school-guard';
+import { getSchoolUserByUid } from '@/lib/school-queries';
 
 export const metadata: Metadata = {
   title: 'Students',
@@ -18,12 +20,19 @@ export const runtime = 'nodejs';
 export default async function StudentsPage() {
   const { claims, locationId } = await requireSchoolPermission('admissions.read');
 
-  const [branches, academicYears] = await Promise.all([
+  const me = await getSchoolUserByUid(locationId, claims.uid);
+
+  const [branches, academicYears, scope] = await Promise.all([
     listAdmissionsBranches(locationId),
     listAcademicYears(locationId),
+    resolvePrincipalScope(locationId, claims.role, me?.id ?? null),
   ]);
 
   const canEnroll = claims.role === 'school_admin' || claims.role === 'branch_admin';
+
+  // BR4. The list itself is narrowed by the API; this is the sentence that
+  // stops a narrowed head reading a short list as a broken page.
+  const scopeNote = describeScope(scope);
 
   return (
     <div className="space-y-6">
@@ -46,6 +55,12 @@ export default async function StudentsPage() {
           </div>
         }
       />
+
+      {scopeNote === null ? null : (
+        <Card>
+          <p className="text-sm text-ink-muted">{scopeNote}</p>
+        </Card>
+      )}
 
       {academicYears.length === 0 ? (
         <Card>
