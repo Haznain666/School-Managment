@@ -4,8 +4,14 @@
 resume without re-deriving context. Updated at the end of every development
 step, before the session ends.
 
-**Last updated:** 2026-08-16 (**Sprint 13 built, applied, merged and live
-(§5ac) — migration `0023`**)
+**Last updated:** 2026-08-16 (**Sprint 13 built, applied, merged and confirmed
+live (§5ac) — migration `0023`**)
+
+> ✅ **Sprint 13 is live at `schoolhub.codexmill.com`**, confirmed 2026-08-16 by
+> the CSS-hash technique (§5ab) plus a healthy smoke test, and the four new
+> unauthenticated routes probed directly — `/sw.js` serves
+> `Service-Worker-Allowed: /`, the manifest and icons serve, and `/icon/100000`
+> correctly 404s. See the end of §5ac.
 
 > ✅ **`0023_sprint13_portals.sql` applied to the live database, 2026-08-16.**
 > Verified against the real schema, not the exit code: 24 of 24 migrations
@@ -3726,6 +3732,32 @@ screens are the same four queries pointed at a different reader.
 client that threw them away — so the one number an office can act on ("twelve
 parents have no email address") was never shown to anybody. It is now reported
 after every send, with `optedOut` alongside.
+
+### Deployed and confirmed live 2026-08-16
+
+Merged to `main` (`562065a`), pushed, and Hostinger auto-built it. Confirmed by
+the §5ab CSS-hash technique: the live hash went `00cc342637c5a6ae` →
+`5d866dad442f04f4`, and `5d86…` is what this commit builds locally — so the
+running build is *this* commit, not merely a newer one. It took about three
+minutes, five polls at thirty seconds.
+
+`node scripts/smoke-test-live.mjs https://schoolhub.codexmill.com` reports
+**DEPLOYMENT HEALTHY**: 401 `invalid_credentials` on a deliberately wrong
+password, which proves the environment reached the process and bcrypt ran.
+
+The four new unauthenticated routes were checked directly, because they are the
+ones a mistake would make silently useless rather than broken:
+
+| Probe | Result |
+| --- | --- |
+| `GET /sw.js` | 200, `text/javascript`, **`Service-Worker-Allowed: /`** present |
+| `GET /manifest.webmanifest` | 200, `application/manifest+json` |
+| `GET /icon/192` | 200, `image/png`, 2,888 bytes |
+| `GET /icon/100000` | **404** — the fixed-size allowlist holds |
+
+The `Service-Worker-Allowed` header is the one worth re-checking after any
+hosting change: without it the worker may only control `/sw.js`, and the app
+would be non-installable with nothing in any log to say why.
 
 ### What Sprint 13 does *not* cover
 
