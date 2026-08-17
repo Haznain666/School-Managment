@@ -54,6 +54,14 @@ live (§5ac) — migration `0023`**)
 > until then), and switch the Node version to 22 in hPanel — `engines` says
 > `>=22` but the git deployment pins 20 and ignores package.json. §5w.
 
+> 🔴 **The first of those two is now the thing blocking every new school.**
+> A school created today saves fine, is handed a URL, and that URL does not
+> resolve — nothing creates its parked domain. **§5ad is the full diagnosis**,
+> including the measurement proving a wildcard DNS record cannot substitute for
+> it on this hosting: hostname matching and TLS are per-host, so an unparked
+> name fails the handshake before the request reaches Node. The application side
+> is complete and was never the fault.
+
 > **✅ The deployment is up and Super Admin sign-in works** at
 > `schoolhub.codexmill.com`. Fixed by repairing the hash on read (§5v), not by
 > finding the right escaping. Read §5v before §5u — §5u is the investigation,
@@ -3783,6 +3791,112 @@ would be non-installable with nothing in any log to say why.
   development machine (§5d item 2). Every query was executed against the real
   schema and the two pure modules are asserted with no database, but no page and
   no printed sheet has been looked at.
+
+---
+
+## 5ad. Why new schools are unreachable — diagnosed 2026-08-16
+
+The user added a wildcard DNS record (`*.schoolhub` → `195.35.33.221`,
+TTL 14400) and reported that a new school's subdomain still does not work.
+
+**The application is not at fault, and no application change can fix this.**
+That is the conclusion, and the evidence is below because it is the kind of
+thing that gets re-litigated.
+
+### What was measured
+
+**1. The wildcard record is not in the zone.** Asked the authoritative
+nameservers directly (`pixel.dns-parking.com`), so no cache is involved:
+
+| Name | Answer |
+| --- | --- |
+| `anything-random-1234.schoolhub.codexmill.com` | **NXDOMAIN** |
+| `usman-public.schoolhub.codexmill.com` | **NXDOMAIN** |
+| `credo.schoolhub.codexmill.com` | `195.35.33.221` |
+| `schoolhub.codexmill.com` | `145.79.29.64`, `145.79.24.147` |
+
+A wildcard answers *every* label by definition. A random one returning NXDOMAIN
+from the authoritative server proves the record is not there — saved in the
+wrong zone, not saved, or entered under a different name. Note also that the
+apex resolves to a **different pair of addresses** than the wildcard's target,
+and that public resolvers returned a third pair (`2.57.91.141`,
+`88.222.222.246`) — the account's addresses rotate, so a hand-typed A record is
+guesswork even when it is entered correctly.
+
+**2. A wildcard record would not have been enough anyway.** This is the part
+worth keeping. Pinning the *same* IP with `curl --resolve`, so DNS is removed
+from the experiment entirely:
+
+```bash
+# parked domain exists  -> 200, and it is the Next app
+curl -sk --resolve credo.schoolhub.codexmill.com:443:195.35.33.221 \
+  https://credo.schoolhub.codexmill.com/
+
+# never parked          -> curl (35), TLS handshake fails
+curl -sk --resolve zzz-not-provisioned.schoolhub.codexmill.com:443:195.35.33.221 \
+  https://zzz-not-provisioned.schoolhub.codexmill.com/
+```
+
+Same address, same request, opposite outcomes. **Hostname matching and
+certificate issuance are per-host on this hosting**, so a name that was never
+parked is refused at the TLS layer before any request reaches Node. Pointing
+DNS at the server is necessary and nowhere near sufficient. §3 already recorded
+"per-subdomain issuance, not a wildcard cert"; this is that caveat biting.
+
+**3. The application resolves tenants correctly, end to end.** On a subdomain
+that *was* provisioned:
+
+- `credo.schoolhub.codexmill.com/login` → the school's sign-in page
+- `schoolhub.codexmill.com/login` → "School not found" (correct — the apex has
+  no tenant)
+
+So `subdomainFromHost`, the Edge lookup and the middleware rewrite all work.
+
+**4. The provisioning code was already written and already correct.**
+`app/api/super-admin/schools/route.ts` calls `provisionSchoolSubdomain()` on
+every create, `lib/hostinger.ts` creates a **parked domain** (not a subdomain —
+its docblock explains why that distinction is load-bearing), and
+`…/[schoolId]/provision-subdomain` exists for retries. It returns `unmanaged`
+and does nothing solely because `HOSTINGER_API_TOKEN` and `HOSTINGER_USERNAME`
+are unset — outstanding since 2026-08-11 and still the only blocker.
+
+### The one real defect this found, now fixed
+
+`lib/subdomain-status.ts` marked `unmanaged` as **`retryable: false`**, so the
+Super Admin table hid the Provision button for it. The reasoning was sound about
+a single request — with no token, a retry returns `unmanaged` again — and wrong
+about the lifetime of a deployment: `unmanaged` records the state at the *last
+attempt*, not a property of the platform. The moment the token is set, the four
+schools already sitting at `unmanaged` (`credo`, `check`, `usman-public`,
+`rehearsal-academy`) had **no control on any screen** that could provision them;
+the only ways out were hPanel or a hand-edited row. Now retryable, with a hint
+naming the two variables.
+
+Also added `components/super-admin/SubdomainProvisioningNotice.tsx` above the
+schools table: it says whether provisioning is on, and when it is off it names
+the two variables and states that a wildcard record does not replace them. The
+old signal was a "Manual" badge in a table column, which reads as a category
+rather than as a warning — and that is exactly how a session was lost to
+"the platform is broken" when nothing was broken.
+
+### What the user has to do — none of it is code
+
+1. **Set `HOSTINGER_API_TOKEN` and `HOSTINGER_USERNAME`** in the hosting panel's
+   Environment section and restart. This alone makes every *new* school
+   provision itself on creation.
+2. **Press Provision** on each existing school that is not Ready. Idempotent and
+   never deletes.
+3. **The wildcard A record can be deleted.** It is not doing anything, its
+   target address is not one the apex resolves to, and leaving it invites the
+   belief that subdomains are handled.
+
+**Untested and worth one attempt before accepting per-school provisioning
+forever:** whether hPanel accepts `*.schoolhub.codexmill.com` as a *parked
+domain*. If it does, and if a wildcard certificate is issued with it, one entry
+would cover every school. This could not be tested from here — the Hostinger MCP
+tools answer `Unauthenticated`, so there is no API access in this environment
+either. Do not assume it works; a parked wildcard that resolves without a
+matching certificate fails exactly the way §5ad's second measurement did.
 
 ---
 
