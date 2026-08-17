@@ -1,5 +1,7 @@
 import 'server-only';
 
+import { resolve4, resolveCname } from 'node:dns/promises';
+
 import { serverEnv } from './env';
 
 /**
@@ -353,6 +355,29 @@ export async function ensureDnsRecord(
   config: HostingerConfig,
   fqdn: string,
 ): Promise<DnsResult> {
+  /*
+   * Ask DNS before asking the API.
+   *
+   * The API's opinion of whether a record exists arrives as a JSON shape this
+   * code has to parse, and getting that parse wrong is not hypothetical: it
+   * happened. `abc-demo` had been created correctly, the existence check did
+   * not recognise it in the zone response, the write went ahead, and Hostinger
+   * refused the duplicate with a 422 that the UI reported as **Failed** — for a
+   * subdomain that was working.
+   *
+   * A resolver cannot be wrong about this in the same way. The question is
+   * literally "does this name resolve", which is the outcome being provisioned
+   * in the first place, so the authority on it is DNS and not an API response
+   * body. Cheap, needs no token, and short-circuits every retry after the first
+   * success.
+   */
+  if (await nameResolves(fqdn)) {
+    return {
+      outcome: 'already-present',
+      message: `${fqdn} already resolves, so its DNS record is in place.`,
+    };
+  }
+
   const resolved = await resolveDnsZone(config);
 
   if (resolved.zone === null) {
@@ -424,6 +449,20 @@ export async function ensureDnsRecord(
       };
     }
 
+    /*
+     * A refusal is not proof of failure. "Conflicts with another resource
+     * record" is exactly what a *successful earlier run* looks like on a
+     * retry, so DNS gets the casting vote before this is called a failure.
+     */
+    if (await nameResolves(fqdn)) {
+      return {
+        outcome: 'already-present',
+        message:
+          `${fqdn} already resolves. Hostinger declined to write the record again ` +
+          '(it is already there), which is not a problem.',
+      };
+    }
+
     return {
       outcome: 'failed',
       message:
@@ -433,6 +472,30 @@ export async function ensureDnsRecord(
     };
   } catch (error) {
     return { outcome: 'failed', message: describeNetworkError(error) };
+  }
+}
+
+/**
+ * Does this name resolve at all, by A record or CNAME?
+ *
+ * Built-in `node:dns` — no dependency, and it asks the same question a browser
+ * asks. Either record type counts: the platform writes CNAMEs by default and A
+ * records when `HOSTINGER_DNS_TARGET_IP` forces them, and both mean the name
+ * exists.
+ */
+async function nameResolves(fqdn: string): Promise<boolean> {
+  try {
+    const cnames = await resolveCname(fqdn);
+    if (cnames.length > 0) return true;
+  } catch {
+    // No CNAME. An A record is still possible.
+  }
+
+  try {
+    const addresses = await resolve4(fqdn);
+    return addresses.length > 0;
+  } catch {
+    return false;
   }
 }
 
@@ -712,6 +775,53 @@ async function ensureParkedDomain(
  * measured. Only a real HTTPS request can move a school to `ready`, so this is
  * what the retry control calls after ensuring the alias exists.
  */
+export type SubdomainReadiness =
+  /** Answering over HTTPS. Nothing left to do. */
+  | 'live'
+  /** DNS resolves and the alias serves, but no certificate has been issued. */
+  | 'tls-pending'
+  /** The name does not resolve. */
+  | 'no-dns';
+
+/**
+ * Which of the three states a subdomain is actually in.
+ *
+ * ── Why this is worth more than a boolean ────────────────────────────────
+ * `checkSubdomainReachable` answers "is it live", and both ways of not being
+ * live were reported identically — which is how `abc-demo` came to look broken
+ * while being three-quarters working. Its DNS was correct, its alias served the
+ * right tenant over HTTP, and the only thing missing was a certificate. "Not
+ * ready" covered that and "the name does not exist" equally, and those have
+ * completely different next steps: one is a wait, the other is a fix.
+ *
+ * **Hostinger issues certificates for parked domains automatically and it takes
+ * up to a couple of hours**, and there is no API to trigger it — the published
+ * SDK exposes no SSL endpoint at all. So `tls-pending` is a state the platform
+ * can only report, never resolve, and saying so precisely is the whole value.
+ */
+export async function diagnoseSubdomain(fqdn: string): Promise<SubdomainReadiness> {
+  if (await checkSubdomainReachable(fqdn)) return 'live';
+  return (await nameResolves(fqdn)) ? 'tls-pending' : 'no-dns';
+}
+
+/** One line an operator can act on, for each state. */
+export function describeReadiness(state: SubdomainReadiness, fqdn: string): string {
+  switch (state) {
+    case 'live':
+      return `${fqdn} resolves and is serving over HTTPS.`;
+    case 'tls-pending':
+      return (
+        `${fqdn} resolves and is already serving the right school over HTTP — ` +
+        'only its HTTPS certificate is missing. Hostinger issues these ' +
+        'automatically for parked domains, usually within a couple of hours, ' +
+        'and there is no API to hurry it. If it has not appeared by then, ' +
+        'install it in hPanel under the site’s Security → SSL.'
+      );
+    case 'no-dns':
+      return `${fqdn} does not resolve yet. DNS changes can take a few minutes to spread.`;
+  }
+}
+
 export async function checkSubdomainReachable(fqdn: string): Promise<boolean> {
   const controller = new AbortController();
   const timer = setTimeout(() => {

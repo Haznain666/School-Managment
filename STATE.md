@@ -54,8 +54,13 @@ live (§5ac) — migration `0023`**)
 > until then), and switch the Node version to 22 in hPanel — `engines` says
 > `>=22` but the git deployment pins 20 and ignores package.json. §5w.
 
-> 🔴 **Subdomain provisioning: read §5ad → §5ae → §5af in order.** Each corrects
-> the one before it, and the last is current. In short: a parked domain is only
+> ✅ **Subdomain provisioning works. Read §5ad → §5ae → §5af → §5ag in order;**
+> each corrects the one before it and **§5ag is current**. A provisioned school
+> now gets its alias and its DNS record automatically and serves the right
+> tenant; the **only** remaining step is the TLS certificate, which Hostinger
+> issues on its own schedule (1–2 hours) and which **no API can trigger** — so
+> the platform reports `tls-pending` and cannot resolve it. Earlier summary,
+> still accurate as history: In short: a parked domain is only
 > a vhost alias and creates **no DNS record** (§5ae), and the record must go
 > into `schoolhub.codexmill.com`, which is **its own delegated zone** — not into
 > `codexmill.com` (§5af). That single fact also explains why the operator's
@@ -4086,6 +4091,77 @@ auth and request shape are all confirmed accepted by the real service. **The
 corrected write itself has still not run from here** — there is no token in this
 environment. The remaining unknown is much smaller than §5ae carried, but it is
 not zero.
+
+---
+
+## 5ag. It works, except the certificate — 2026-08-16
+
+The zone fix (§5af) **succeeded**. `abc-demo` was provisioned and its record
+written correctly. The `Failed` the panel then showed was this platform's own
+bug, not Hostinger's.
+
+### Measured state of `abc-demo.schoolhub.codexmill.com`
+
+| Layer | State |
+| --- | --- |
+| DNS | ✅ `CNAME → schoolhub.codexmill.com` → `145.79.24.36`, written by our automation |
+| Parked domain (vhost alias) | ✅ HTTP 200 |
+| Tenant resolution | ✅ serves **"Sign in"**, not "School not found" |
+| **TLS certificate** | ❌ `no peer certificate available`, handshake alert 80 |
+
+Everything the application controls is done and correct. The only missing piece
+is a certificate, and **`openssl s_client` is what proves it** — Windows
+`schannel` reports this as `SEC_E_INTERNAL_ERROR / The Local Security Authority
+cannot be contacted`, which reads like a broken local machine and is not.
+`Verification: OK` in the same output is meaningless when the line above says
+`no peer certificate available`: there was nothing to verify. Use `openssl`, and
+read the whole handshake rather than a grep of it.
+
+### Two defects this exposed, both fixed
+
+**1. A working subdomain was reported `Failed`.** `zoneAlreadyHasName` did not
+recognise the record in Hostinger's zone response, so a retry wrote it again and
+the duplicate was refused with the 4008 conflict — reported as failure for a
+subdomain that was serving. **DNS is now asked first, and gets the casting
+vote**: `ensureDnsRecord` short-circuits when the name already resolves, and a
+write conflict re-checks DNS before being called a failure. An API response body
+has a shape that can be misparsed; "does this name resolve" cannot be wrong in
+the same way, and it is the outcome being provisioned in the first place.
+
+**2. "No DNS" and "no certificate" were indistinguishable.** Both were `false`
+from `checkSubdomainReachable`, which is how a three-quarters-working subdomain
+looked identical to one that did not exist. `diagnoseSubdomain()` now returns
+`live` / `tls-pending` / `no-dns`, and the row says which — one is a wait, the
+other is a fix.
+
+### The hard limit: SSL cannot be automated
+
+**Hostinger's public API exposes no SSL endpoint.** The published PHP SDK has
+models for certificates and no methods to create or install one. So the platform
+can report `tls-pending` and can never resolve it.
+
+What is true of the certificate:
+
+- It is issued **automatically** for a parked domain once the name resolves —
+  which for these schools only became true after §5af landed.
+- Hostinger's own documentation puts it at **up to 1–2 hours**.
+- If it has not appeared by then it is one manual action: hPanel → the site's
+  **Security → SSL → Install SSL**.
+- `credo` carries a real Let's Encrypt certificate (`CN=credo.schoolhub.…`,
+  issuer `Let's Encrypt YE2`), so issuance does happen on this account.
+
+**Do not build a retry loop against this.** There is nothing to call.
+
+### Where this leaves automatic provisioning
+
+Creating a school now does everything that can be done from code: the alias, the
+DNS record, and an honest status. The certificate is the one step that is
+Hostinger's to perform on its own schedule, and the row says so in words instead
+of reporting a failure.
+
+Still not executed from this environment: nothing, now — the DNS write was
+confirmed by the record it produced, which is the strongest evidence available
+without a token.
 
 ---
 
