@@ -146,9 +146,9 @@ function readConfig(): HostingerConfig | null {
     .trim()
     .toLowerCase();
 
-  const dnsZone =
-    serverEnv('HOSTINGER_DNS_ZONE', '').trim().toLowerCase() ||
-    registrableDomain(baseDomain);
+  // Empty means "work it out" — see `resolveDnsZone`. An explicit value skips
+  // the probing entirely and is the escape hatch for an unusual topology.
+  const dnsZone = serverEnv('HOSTINGER_DNS_ZONE', '').trim().toLowerCase();
 
   const targetIp = serverEnv('HOSTINGER_DNS_TARGET_IP', '').trim();
 
@@ -194,8 +194,83 @@ export function subdomainFor(slug: string): string | null {
  * Two APIs, two resources, both required. This half was missing.
  * -------------------------------------------------------------------------- */
 
-function dnsZoneUrl(config: HostingerConfig): string {
-  return `${API_BASE}/api/dns/v1/zones/${encodeURIComponent(config.dnsZone)}`;
+function dnsZoneUrl(zone: string): string {
+  return `${API_BASE}/api/dns/v1/zones/${encodeURIComponent(zone)}`;
+}
+
+/**
+ * Which zone a tenant's record belongs in — and the answer that cost a
+ * deployment.
+ *
+ * ── What went wrong, measured 2026-08-16 ─────────────────────────────────
+ * The first version computed the zone as the *registrable domain*:
+ * `schoolhub.codexmill.com` → `codexmill.com`, writing the name
+ * `abc-demo.schoolhub`. Hostinger rejected it:
+ *
+ *     HTTP 422 [DNS:4008] DNS resource record is not valid or conflicts
+ *                         with another resource record
+ *
+ * The reason is a DNS rule rather than anything Hostinger-specific.
+ * `schoolhub.codexmill.com` is **its own zone**: it has its own SOA
+ * (`pixel.dns-parking.com`, `dns.hostinger.com`) and its own NS records,
+ * delegated out of `codexmill.com`. Records below a delegation point may not
+ * live in the parent zone — a resolver follows the delegation and never looks
+ * at them.
+ *
+ * That one fact explains every symptom seen, including the ones that predate
+ * this code: the wildcard `*.schoolhub` the operator added to the **parent**
+ * zone was accepted by the panel and is invisible to every resolver, which is
+ * why `random-probe.schoolhub.codexmill.com` returned NXDOMAIN while the record
+ * sat there looking correct. And `credo` worked because its record was made in
+ * the right zone.
+ *
+ * ── The rule that is correct in both topologies ──────────────────────────
+ * Try the base domain as a zone first, and fall back to its registrable domain:
+ *
+ *   base `schoolhub.codexmill.com` is a zone → zone it, name `abc-demo`
+ *   base `platform.com` is a zone           → zone it, name `abc-demo`
+ *   base `app.example.com`, only `example.com` is a zone
+ *                                           → fall back, name `abc-demo.app`
+ *
+ * The first two are the same rule, which is the point: when the platform's own
+ * domain is a managed zone — the normal case, and the case here — the record
+ * name is simply the slug and no suffix arithmetic happens at all. The fallback
+ * exists for a platform hosted on a subdomain of a zone it does not own.
+ *
+ * Probed rather than assumed, because only the API knows which zones exist.
+ * Not memoised: it is two cheap GETs on an operation that already creates a
+ * domain, and a cached wrong answer here is a school that never resolves.
+ */
+async function resolveDnsZone(
+  config: HostingerConfig,
+): Promise<{ zone: string; message: string } | { zone: null; message: string }> {
+  if (config.dnsZone !== '') {
+    return { zone: config.dnsZone, message: `zone ${config.dnsZone} (from HOSTINGER_DNS_ZONE)` };
+  }
+
+  const candidates = [config.baseDomain, registrableDomain(config.baseDomain)].filter(
+    (value, index, all) => value !== '' && all.indexOf(value) === index,
+  );
+
+  const rejections: string[] = [];
+
+  for (const candidate of candidates) {
+    try {
+      const probe = await request(dnsZoneUrl(candidate), { method: 'GET' }, config.token);
+      if (probe.ok) return { zone: candidate, message: `zone ${candidate}` };
+      rejections.push(`${candidate} → HTTP ${String(probe.status)}`);
+    } catch (error) {
+      rejections.push(`${candidate} → ${describeNetworkError(error)}`);
+    }
+  }
+
+  return {
+    zone: null,
+    message:
+      `None of the candidate DNS zones could be read (${rejections.join('; ')}). ` +
+      'Set HOSTINGER_DNS_ZONE to the zone that holds tenant records, and check ' +
+      'that the API token carries DNS scope as well as hosting scope.',
+  };
 }
 
 /** What the record for a tenant hostname should be. */
@@ -227,8 +302,12 @@ interface DesiredRecord {
  * alias. It is an escape hatch, not the recommended path, and `.env.example`
  * says so.
  */
-function desiredRecordFor(config: HostingerConfig, fqdn: string): DesiredRecord | null {
-  const name = recordNameWithinZone(fqdn, config.dnsZone);
+function desiredRecordFor(
+  config: HostingerConfig,
+  zone: string,
+  fqdn: string,
+): DesiredRecord | null {
+  const name = recordNameWithinZone(fqdn, zone);
   if (name === null) return null;
 
   if (config.targetIp !== null) {
@@ -274,18 +353,25 @@ export async function ensureDnsRecord(
   config: HostingerConfig,
   fqdn: string,
 ): Promise<DnsResult> {
-  const desired = desiredRecordFor(config, fqdn);
+  const resolved = await resolveDnsZone(config);
+
+  if (resolved.zone === null) {
+    return { outcome: 'failed', message: resolved.message };
+  }
+
+  const zone = resolved.zone;
+  const desired = desiredRecordFor(config, zone, fqdn);
 
   if (desired === null) {
     return {
       outcome: 'failed',
       message:
-        `${fqdn} is not inside the DNS zone ${config.dnsZone}, so no record can be ` +
-        'written. Set HOSTINGER_DNS_ZONE to the zone that actually holds it.',
+        `${fqdn} is not inside the DNS zone ${zone}, so no record can be written. ` +
+        'Set HOSTINGER_DNS_ZONE to the zone that actually holds it.',
     };
   }
 
-  const url = dnsZoneUrl(config);
+  const url = dnsZoneUrl(zone);
 
   // -- 1. Does the name already exist? --------------------------------------
   try {
@@ -294,7 +380,7 @@ export async function ensureDnsRecord(
     if (existing.ok && zoneAlreadyHasName(existing.body, desired.name)) {
       return {
         outcome: 'already-present',
-        message: `A DNS record for ${desired.name}.${config.dnsZone} already exists; it was left untouched.`,
+        message: `A DNS record for ${desired.name}.${zone} already exists; it was left untouched.`,
       };
     }
 
@@ -302,7 +388,7 @@ export async function ensureDnsRecord(
       return {
         outcome: 'failed',
         message:
-          `Could not read the DNS zone ${config.dnsZone} (HTTP ${String(existing.status)}). ` +
+          `Could not read the DNS zone ${zone} (HTTP ${String(existing.status)}). ` +
           `${summarise(existing.body)} The API token needs DNS scope as well as hosting scope.`,
       };
     }
@@ -334,18 +420,54 @@ export async function ensureDnsRecord(
     if (written.ok) {
       return {
         outcome: 'created',
-        message: `DNS ${desired.type} ${desired.name}.${config.dnsZone} → ${desired.content} created.`,
+        message: `DNS ${desired.type} ${desired.name}.${zone} → ${desired.content} created in ${resolved.message}.`,
       };
     }
 
     return {
       outcome: 'failed',
       message:
-        `Hostinger refused the DNS record (HTTP ${String(written.status)}). ${summarise(written.body)}`,
+        `Hostinger refused the DNS record for "${desired.name}" in zone ${zone} ` +
+        `(HTTP ${String(written.status)}). ${summarise(written.body)}` +
+        explainDnsRejection(written.body, zone, desired),
     };
   } catch (error) {
     return { outcome: 'failed', message: describeNetworkError(error) };
   }
+}
+
+/**
+ * Turns Hostinger's DNS rejections into the next thing to try.
+ *
+ * ── Why this is worth writing out ────────────────────────────────────────
+ * `[DNS:4008] DNS resource record is not valid or conflicts with another
+ * resource record` was the error that stalled this deployment, and on its own
+ * it points nowhere. Its actual cause was that the record was being written
+ * into the **parent** zone for a name that lives under a delegation — which is
+ * invalid DNS, and which the message above describes accurately and unhelpfully.
+ *
+ * Appending the likely cause costs nothing and is the difference between an
+ * operator reading a code and an operator knowing which zone to look at.
+ */
+function explainDnsRejection(body: string, zone: string, desired: DesiredRecord): string {
+  const text = body.toLowerCase();
+
+  if (text.includes('4008') || text.includes('conflict')) {
+    return (
+      ` — most often this means "${desired.name}" already has a record of a` +
+      ` different type in ${zone}, or that part of the name is delegated to` +
+      ` another zone (a CNAME cannot sit beside other records, and no record` +
+      ` may sit below a delegation). Check which zone actually holds` +
+      ` ${desired.name}.${zone}, and set HOSTINGER_DNS_ZONE to it if it is not` +
+      ` this one.`
+    );
+  }
+
+  if (text.includes('not found') || text.includes('404')) {
+    return ` — the zone ${zone} could not be found on this account.`;
+  }
+
+  return '';
 }
 
 /**
@@ -358,9 +480,27 @@ export async function ensureDnsRecord(
 function zoneAlreadyHasName(body: string, name: string): boolean {
   try {
     const parsed: unknown = JSON.parse(body);
-    if (!Array.isArray(parsed)) return false;
 
-    return parsed.some((entry) => {
+    /*
+     * Both shapes are accepted. The SDK documents the response as a bare
+     * `DNSV1ZoneRecordResource[]`, but Hostinger's other endpoints wrap their
+     * payload in `{ "data": [...] }` and this one has never been observed from
+     * here. Guessing wrong in the strict direction would be the expensive
+     * mistake: an unrecognised shape reads as "no records", every name looks
+     * absent, and the write goes ahead and collides — which is exactly the 422
+     * this function is meant to avoid.
+     */
+    const records = Array.isArray(parsed)
+      ? parsed
+      : typeof parsed === 'object' &&
+          parsed !== null &&
+          Array.isArray((parsed as { data?: unknown }).data)
+        ? ((parsed as { data: unknown[] }).data)
+        : null;
+
+    if (records === null) return false;
+
+    return records.some((entry) => {
       if (typeof entry !== 'object' || entry === null) return false;
       const recordName = (entry as { name?: unknown }).name;
       if (typeof recordName !== 'string') return false;

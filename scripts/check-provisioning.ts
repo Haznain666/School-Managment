@@ -40,7 +40,15 @@ function assert(label: string, actual: unknown, expected: unknown): void {
   console.log(`       expected ${JSON.stringify(expected)}, got ${JSON.stringify(actual)}`);
 }
 
-console.log('\nregistrableDomain — which zone a record is written into:');
+/*
+ * registrableDomain is now the FALLBACK zone, not the primary one.
+ *
+ * `resolveDnsZone()` probes the base domain first, because on this deployment
+ * the base domain *is* its own zone. These assertions still matter: the
+ * fallback is what a platform hosted on a subdomain of a zone it does not own
+ * relies on.
+ */
+console.log('\nregistrableDomain — the fallback zone:');
 assert(
   'the live platform host',
   registrableDomain('schoolhub.codexmill.com'),
@@ -74,15 +82,36 @@ assert(
 );
 
 console.log('\nrecordNameWithinZone — the name written into that zone:');
+
+/*
+ * THE CASE THIS PLATFORM ACTUALLY CREATES, and the one that was wrong.
+ *
+ * `schoolhub.codexmill.com` is its own DNS zone — measured 2026-08-16: it has
+ * its own SOA and its own NS records, delegated out of `codexmill.com`. So the
+ * record goes into that zone under the bare slug. Writing it into the parent
+ * zone as `abc-demo.schoolhub` is what produced
+ * `HTTP 422 [DNS:4008] ... conflicts with another resource record`: no record
+ * may live below a delegation point in the parent.
+ *
+ * `resolveDnsZone()` now probes the base domain first for exactly this reason.
+ */
 assert(
-  'the case this platform actually creates',
+  'the live platform: zone is the base domain, name is the bare slug',
+  recordNameWithinZone('abc-demo.schoolhub.codexmill.com', 'schoolhub.codexmill.com'),
+  'abc-demo',
+);
+assert(
+  'the fallback shape, when only the parent is a zone',
   recordNameWithinZone('abc-demo.schoolhub.codexmill.com', 'codexmill.com'),
   'abc-demo.schoolhub',
 );
 assert(
   'a hyphenated slug survives intact',
-  recordNameWithinZone('my-second-home-school.schoolhub.codexmill.com', 'codexmill.com'),
-  'my-second-home-school.schoolhub',
+  recordNameWithinZone(
+    'my-second-home-school.schoolhub.codexmill.com',
+    'schoolhub.codexmill.com',
+  ),
+  'my-second-home-school',
 );
 assert(
   'a single-label zone-child',
