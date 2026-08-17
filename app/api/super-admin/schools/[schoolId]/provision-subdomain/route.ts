@@ -4,7 +4,11 @@ import type { NextRequest } from 'next/server';
 import { schools } from '@/db/schema';
 import { apiFailure, apiSuccess, handleApiError } from '@/lib/api-response';
 import { db } from '@/lib/drizzle';
-import { checkSubdomainReachable, provisionSchoolSubdomain } from '@/lib/hostinger';
+import {
+  describeReadiness,
+  diagnoseSubdomain,
+  provisionSchoolSubdomain,
+} from '@/lib/hostinger';
 import { requireSuperAdmin } from '@/lib/super-admin-guard';
 
 /**
@@ -49,14 +53,22 @@ export async function POST(
 
     const provision = await provisionSchoolSubdomain(school.slug);
 
-    // Only ask whether it is live once the alias is known to exist. Probing a
-    // hostname that was never created just times out and tells us nothing we
-    // did not already know from the failure above.
-    const reachable =
+    /*
+     * Only ask how it is doing once the alias is known to exist. Probing a
+     * hostname that was never created just times out.
+     *
+     * Three states, not two. `tls-pending` — DNS correct, alias serving, no
+     * certificate yet — used to be reported exactly like "does not exist",
+     * which is how a subdomain that was three-quarters working looked broken.
+     * It stays `provisioning` because it genuinely is still in progress, and
+     * the message now says which part.
+     */
+    const readiness =
       provision.status === 'provisioning'
-        ? await checkSubdomainReachable(provision.fqdn)
-        : false;
+        ? await diagnoseSubdomain(provision.fqdn)
+        : 'no-dns';
 
+    const reachable = readiness === 'live';
     const status = reachable ? 'ready' : provision.status;
 
     const [updated] = await db
@@ -77,9 +89,11 @@ export async function POST(
         status,
         reachable,
         alreadyExisted: provision.alreadyExisted,
-        message: reachable
-          ? `${provision.fqdn} is live and serving.`
-          : provision.message,
+        readiness,
+        message:
+          provision.status === 'provisioning'
+            ? `${provision.message} ${describeReadiness(readiness, provision.fqdn)}`
+            : provision.message,
       },
     });
   } catch (error) {
