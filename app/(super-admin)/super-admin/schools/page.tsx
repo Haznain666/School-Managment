@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 
 import { SchoolTable } from '@/components/super-admin/SchoolTable';
+import { SubdomainProvisioningNotice } from '@/components/super-admin/SubdomainProvisioningNotice';
 import { Button } from '@/components/ui/Button';
 import { PageHeader } from '@/components/ui/PageHeader';
 
@@ -23,6 +24,13 @@ export default function SchoolsPage() {
           </Link>
         }
       />
+
+      {/*
+        Above the table on purpose. Whether a new school will be reachable is
+        the thing to know *before* pressing "Add School", not after discovering
+        that the URL it hands you does not resolve.
+      */}
+      <SubdomainProvisioningNotice />
 
       <SchoolTable />
     </div>

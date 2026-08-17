@@ -57,11 +57,25 @@ const DESCRIPTORS: Record<SubdomainStatus, SubdomainStatusDescriptor> = {
   unmanaged: {
     label: 'Manual',
     variant: 'neutral',
-    hint: 'No hosting API token is configured on this deployment, so subdomains are created by hand in the hosting panel.',
-    // Nothing is broken and nothing would change: retrying without a token
-    // returns `unmanaged` again. Offering the button would only teach the
-    // operator that it does nothing.
-    retryable: false,
+    hint: 'No hosting API token was configured when this was last attempted. Set HOSTINGER_API_TOKEN and HOSTINGER_USERNAME, then press Provision — otherwise this subdomain has to be created by hand in the hosting panel.',
+    /*
+     * Retryable, and this reversed on 2026-08-16.
+     *
+     * It was `false`, on the reasoning that retrying without a token returns
+     * `unmanaged` again and the button would only teach an operator that it
+     * does nothing. That was right about a single request and wrong about the
+     * lifetime of a deployment: `unmanaged` records the state at the *last
+     * attempt*, not a permanent property of the platform. The moment somebody
+     * sets the token — which is the entire reason those variables are in
+     * `.env.example` — every school already sitting at `unmanaged` had no
+     * control on any screen that could provision it, and the only ways out
+     * were the hosting panel or a hand-edited row.
+     *
+     * Four schools were in exactly that state when this was found. Provisioning
+     * is idempotent and never deletes, so a press with no token still costs
+     * nothing but one round trip and leaves the row as it was.
+     */
+    retryable: true,
   },
 };
 

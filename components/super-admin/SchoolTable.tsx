@@ -299,11 +299,13 @@ export function SchoolTable() {
                         </Link>
 
                         {/*
-                          Hidden only for `unmanaged`, where no token is
-                          configured and the request could not change anything.
-                          Every other state is retryable, including `ready` —
-                          re-checking a school that has since broken is exactly
-                          when an operator reaches for this.
+                          Offered in every state, including `ready` — re-checking
+                          a school that has since broken is exactly when an
+                          operator reaches for this — and, since 2026-08-16,
+                          including `unmanaged` too. That one used to be hidden;
+                          `lib/subdomain-status.ts` records why hiding it
+                          stranded every school created before the hosting token
+                          was set.
                         */}
                         {describeSubdomainStatus(school.subdomainStatus).retryable ? (
                           <Button
