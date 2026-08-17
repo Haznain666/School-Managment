@@ -54,14 +54,15 @@ live (§5ac) — migration `0023`**)
 > until then), and switch the Node version to 22 in hPanel — `engines` says
 > `>=22` but the git deployment pins 20 and ignores package.json. §5w.
 
-> 🔴 **New schools still do not resolve, and the cause is now understood.**
-> The hosting token is set and parked domains *are* being created — but a parked
-> domain is only a vhost alias and creates **no DNS record**, which is what
-> hPanel's "Not connected" means and why the browser says NXDOMAIN.
-> **§5ae is the correction and the fix**; §5ad reached the wrong conclusion from
-> one hand-made subdomain that happened to work. The DNS half is now written but
-> **has never been executed against the real API** — read §5ae's warning before
-> trusting it.
+> 🔴 **Subdomain provisioning: read §5ad → §5ae → §5af in order.** Each corrects
+> the one before it, and the last is current. In short: a parked domain is only
+> a vhost alias and creates **no DNS record** (§5ae), and the record must go
+> into `schoolhub.codexmill.com`, which is **its own delegated zone** — not into
+> `codexmill.com` (§5af). That single fact also explains why the operator's
+> wildcard record in the parent zone was accepted by hPanel and is invisible to
+> every resolver. The endpoint, auth and request shape are confirmed working
+> against the real API; only the zone was wrong, and it is now probed rather
+> than computed.
 
 > **✅ The deployment is up and Super Admin sign-in works** at
 > `schoolhub.codexmill.com`. Fixed by repairing the hash on read (§5v), not by
@@ -4004,6 +4005,87 @@ school's row.
    `schoolhub.codexmill.com` within ~5 minutes (TTL is deliberately 300s).
 4. The wildcard A record can be deleted — it is not in the zone anyway, and its
    target is not an address the platform answers on.
+
+> ⚠️ Step 1 was run and **failed with HTTP 422**. The token's DNS scope was
+> fine — this section's prime suspect was wrong. The *zone* was wrong.
+> **§5af is the resolution.**
+
+---
+
+## 5af. The zone was wrong: `schoolhub.codexmill.com` is its own zone — 2026-08-16
+
+§5ae added the DNS half and wrote it into the **parent** zone. Provisioning
+`abc-demo` returned, from the real API at last:
+
+```
+HTTP 422 {"message":"[DNS:4008] DNS resource record is not valid or
+                     conflicts with another resource record"}
+```
+
+That reply is also the good news: a 422 means the request was authenticated,
+authorised and *validated*. The token's DNS scope — §5ae's prime suspect — was
+never the problem, and neither was the request shape.
+
+### The measurement that settles it
+
+```
+SOA schoolhub.codexmill.com → pixel.dns-parking.com / dns.hostinger.com
+NS  schoolhub.codexmill.com → pixel.dns-parking.com, byte.dns-parking.com
+```
+
+**`schoolhub.codexmill.com` is its own DNS zone**, delegated out of
+`codexmill.com`. So `abc-demo.schoolhub.codexmill.com` is a *direct child* of
+that zone and its record belongs there under the bare name `abc-demo`.
+
+Writing it into `codexmill.com` as `abc-demo.schoolhub` is invalid DNS:
+**nothing may live below a delegation point in the parent zone.** A resolver
+follows the NS delegation and never looks at the parent's records. Hostinger's
+validator is correct; "conflicts with another resource record" is the delegation.
+
+### One fact, three symptoms
+
+This also explains the original complaint, retroactively. The operator's
+wildcard `*.schoolhub` was added to the **parent** zone: accepted by the panel,
+still listed there, and invisible to every resolver — which is why
+`random-probe.schoolhub.codexmill.com` returned NXDOMAIN throughout while the
+record sat there looking correct. §5ad spent its effort proving the record "was
+not in the zone". It was in *a* zone, just not the one that answers. And `credo`
+worked because its record was made in the right one.
+
+**Before assuming a panel entry is live, check which zone actually holds the
+name.** That is the reusable lesson.
+
+### The fix
+
+`resolveDnsZone()` probes rather than computes — only the API knows which zones
+exist. `PLATFORM_BASE_DOMAIN` first, then its registrable domain:
+
+| Topology | Zone | Record name |
+| --- | --- | --- |
+| base `schoolhub.codexmill.com` is a zone *(here)* | `schoolhub.codexmill.com` | `abc-demo` |
+| base `platform.com` is a zone | `platform.com` | `abc-demo` |
+| base `app.example.com`, only `example.com` is a zone | `example.com` | `abc-demo.app` |
+
+The first two collapse to one rule, which is the point: when the platform's own
+domain is a managed zone — the normal case — the record name is just the slug
+and no suffix arithmetic happens at all. Two cheap GETs on an operation that
+already creates a domain, deliberately not memoised: a cached wrong answer here
+is a school that never resolves.
+
+A 4008/conflict reply now appends the likely cause and names the zone it tried,
+so the next reader is pointed at the delegation rather than at an error code.
+And `zoneAlreadyHasName` accepts both a bare array and a `{ data: [...] }`
+wrapper — the SDK documents the former, Hostinger's other endpoints use the
+latter, and an unrecognised shape would read as "no records", send the write
+anyway, and collide: the very 422 this is meant to avoid.
+
+### Still not executed end to end
+
+The zone is now probed from the live API rather than guessed, and the endpoint,
+auth and request shape are all confirmed accepted by the real service. **The
+corrected write itself has still not run from here** — there is no token in this
+environment. The remaining unknown is much smaller than §5ae carried, but it is
+not zero.
 
 ---
 
