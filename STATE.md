@@ -54,13 +54,14 @@ live (§5ac) — migration `0023`**)
 > until then), and switch the Node version to 22 in hPanel — `engines` says
 > `>=22` but the git deployment pins 20 and ignores package.json. §5w.
 
-> 🔴 **The first of those two is now the thing blocking every new school.**
-> A school created today saves fine, is handed a URL, and that URL does not
-> resolve — nothing creates its parked domain. **§5ad is the full diagnosis**,
-> including the measurement proving a wildcard DNS record cannot substitute for
-> it on this hosting: hostname matching and TLS are per-host, so an unparked
-> name fails the handshake before the request reaches Node. The application side
-> is complete and was never the fault.
+> 🔴 **New schools still do not resolve, and the cause is now understood.**
+> The hosting token is set and parked domains *are* being created — but a parked
+> domain is only a vhost alias and creates **no DNS record**, which is what
+> hPanel's "Not connected" means and why the browser says NXDOMAIN.
+> **§5ae is the correction and the fix**; §5ad reached the wrong conclusion from
+> one hand-made subdomain that happened to work. The DNS half is now written but
+> **has never been executed against the real API** — read §5ae's warning before
+> trusting it.
 
 > **✅ The deployment is up and Super Admin sign-in works** at
 > `schoolhub.codexmill.com`. Fixed by repairing the hash on read (§5v), not by
@@ -3897,6 +3898,112 @@ would cover every school. This could not be tested from here — the Hostinger M
 tools answer `Unauthenticated`, so there is no API access in this environment
 either. Do not assume it works; a parked wildcard that resolves without a
 matching certificate fails exactly the way §5ad's second measurement did.
+
+> ⚠️ **§5ad's conclusion — "the application is complete" — was wrong.** It was
+> reached from one misleading data point. Read §5ae, which corrects it. hPanel
+> has since also confirmed that a wildcard **cannot** be added as a parked
+> domain ("Value must be a valid domain or IP address"), closing that route at
+> both ends.
+
+---
+
+## 5ae. The missing half: a parked domain is not a DNS record — 2026-08-16
+
+§5ad said the application side was complete and only needed the hosting token.
+**That was wrong, and this is the correction.** The token was set, provisioning
+ran, the parked domains appeared in hPanel — and every one read **"Not
+connected"**, with the browser returning `DNS_PROBE_FINISHED_NXDOMAIN`.
+
+### The root cause
+
+**A parked domain is a vhost alias. It creates no DNS whatsoever.** It tells
+LiteSpeed "serve this hostname from this site"; it does not put the name in any
+zone. Hostinger's "Not connected" label means exactly "this name's DNS does not
+point at us" — a statement about DNS, not a failed alias.
+
+`lib/hostinger.ts` was doing half the job and reporting success for it. The two
+halves live behind two different APIs:
+
+| Half | API | Was it done? |
+| --- | --- | --- |
+| vhost alias | `POST /api/hosting/v1/accounts/{u}/websites/{d}/parked-domains` | ✅ since §5w |
+| DNS record | `PUT /api/dns/v1/zones/{zone}` | ❌ **never written** |
+
+`credo` was the one working subdomain and looked like proof the mechanism
+worked. It was not — its DNS record had been made by hand. **That single
+misleading data point is why §5ad concluded the app was complete**, and it is a
+good argument for distrusting a lone positive case.
+
+The wildcard record also still does not exist: re-measured against the
+authoritative nameservers, `random-probe-9911.schoolhub…` returns NXDOMAIN, and
+a wildcard answers every label by definition.
+
+### What was built
+
+`ensureDnsRecord()`, called by `provisionSchoolSubdomain()` once the alias
+succeeds. Contract taken from Hostinger's own PHP SDK models
+(`DNSV1ZoneUpdateRequest` → `zone[].{name,type,ttl,records[].content}`).
+
+- **A CNAME to the parent website, not an A record.** The account's addresses
+  move: within one session this deployment served `145.79.29.64`/`145.79.24.147`,
+  then `145.79.24.95`/`145.79.29.210`, while public resolvers gave
+  `2.57.91.141`/`88.222.222.246`, and the hand-made `credo` record pointed at
+  `195.35.33.221`. **Any A record this code wrote would be a snapshot of a
+  rotating set** — right on the day, silently wrong later, surfacing as one
+  school being unreachable long after anybody would connect it with
+  provisioning. A CNAME delegates that forever. The target carries a **trailing
+  dot**; a relative target would resolve against the zone to `<website>.<zone>`,
+  which is the classic silent break. `HOSTINGER_DNS_TARGET_IP` forces an A
+  record for a host that refuses CNAMEs, and is an escape hatch.
+- **`overwrite: false`, and an existing record is never edited.** The flag's
+  documented meaning is that matching records are "deleted and new RRs created",
+  and how wide "matching" reaches is not stated precisely. If it means the zone,
+  the blast radius is every record on `codexmill.com` — the apex, mail, every
+  other school. So the zone is read first, an existing name is reported and left
+  **untouched whatever its content**, and only a genuinely absent name is
+  appended. Anyone tempted to set this `true` should establish its scope against
+  a throwaway zone first.
+- **A failed DNS half now fails the whole provision**, naming both halves. Alias
+  succeeded + DNS failed is precisely the state that looks fine in the panel and
+  NXDOMAINs in a browser, and it previously had no representation at all.
+
+`SchoolTable` also **discarded the provision response** — the same defect found
+in the announcement composer during Sprint 13. Pressing Provision reported
+itself only as a badge changing colour, so "a record was created" and "a record
+already existed" were indistinguishable. Shown verbatim now.
+
+New gate: **`npm run check-provisioning`** — 14 assertions, no network, no
+database, on the two pure functions that decide *where* a record is written.
+`registrableDomain()` picks the zone, `recordNameWithinZone()` the name inside
+it; an off-by-one-label writes `abc-demo` instead of `abc-demo.schoolhub`, which
+is a valid record for a hostname nobody will visit, and the API, the panel and
+the code all report success. It pins the known `.co.uk` limitation deliberately,
+so fixing it properly will fail that line and point at the reasoning.
+
+### ⚠ Not verified against the real API, and that matters
+
+**No Hostinger call in this section has ever been executed.** There is no token
+in this environment — `.env.local` has none, the Hostinger MCP tools answer
+`Unauthenticated` — so the DNS request shape is taken from the published SDK
+models and reasoned about, not observed. The pure arithmetic is asserted; the
+network half is not. Do not read the green gates as proof that provisioning
+works end to end.
+
+**Likeliest failure, and the first thing to check: the API token needs DNS scope
+as well as hosting scope.** Generated with hosting scope only, the zone read
+returns 403 and the message says so in those words. Next likeliest is the
+request shape, in which case the exact HTTP status and body now appear on the
+school's row.
+
+### What to do next
+
+1. Press **Provision** on `abc-demo` and read the blue notice — it states what
+   happened to both halves.
+2. If it names a DNS failure, regenerate the token with **DNS scope**, then retry.
+3. `nslookup abc-demo.schoolhub.codexmill.com` should return a CNAME to
+   `schoolhub.codexmill.com` within ~5 minutes (TTL is deliberately 300s).
+4. The wildcard A record can be deleted — it is not in the zone anyway, and its
+   target is not an address the platform answers on.
 
 ---
 

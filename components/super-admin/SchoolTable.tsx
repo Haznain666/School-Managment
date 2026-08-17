@@ -47,6 +47,8 @@ export function SchoolTable() {
   const [status, setStatus] = useState('all');
   const [rows, setRows] = useState<SchoolRow[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  /** What the last provision attempt actually did, in the server's own words. */
+  const [provisionNotice, setProvisionNotice] = useState<string | null>(null);
   const [pendingId, setPendingId] = useState<string | null>(null);
 
   const load = useCallback(
@@ -137,11 +139,27 @@ export function SchoolTable() {
   const handleProvision = useCallback(
     async (school: SchoolRow) => {
       setPendingId(school.id);
+      setProvisionNotice(null);
       try {
-        await superAdminFetch(
-          `/api/super-admin/schools/${school.id}/provision-subdomain`,
-          { method: 'POST' },
-        );
+        /*
+          The response was discarded until 2026-08-16, which meant provisioning
+          reported itself only as a badge changing colour. That is not enough to
+          act on: "parked, and a DNS record was created" and "parked, and a DNS
+          record already existed" are different situations with different next
+          steps, and the difference between them is the whole reason a school
+          resolves or does not. It is shown verbatim now.
+        */
+        const result = await superAdminFetch<{
+          subdomain?: { host?: string; message?: string; status?: string };
+        }>(`/api/super-admin/schools/${school.id}/provision-subdomain`, {
+          method: 'POST',
+        });
+
+        const message = result.subdomain?.message;
+        if (typeof message === 'string' && message !== '') {
+          setProvisionNotice(`${school.slug}: ${message}`);
+        }
+
         await load();
       } catch (caught) {
         setError(
@@ -184,6 +202,12 @@ export function SchoolTable() {
       {error !== null ? (
         <p role="alert" className="rounded-lg bg-status-danger-subtle px-3 py-2 text-sm text-status-danger-ink">
           {error}
+        </p>
+      ) : null}
+
+      {provisionNotice !== null ? (
+        <p className="rounded-lg bg-status-info-subtle px-3 py-2 text-sm text-status-info-onSubtle">
+          {provisionNotice}
         </p>
       ) : null}
 
