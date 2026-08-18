@@ -4332,10 +4332,35 @@ id would leave behind exactly the accounts most likely to need clearing.
 ### The location picker degrades, and is currently degraded
 
 `cyphercodes/location-picker` over the Google Maps JS API, wrapped in
-`components/ui/LocationPicker.tsx`. **No `NEXT_PUBLIC_GOOGLE_MAPS_API_KEY` is
-set in any environment**, so the address is presently the plain text field it
-always was, with one line saying why. That is designed behaviour, not a bug to
-chase — see §6.
+`components/ui/LocationPicker.tsx`. **No working `NEXT_PUBLIC_GOOGLE_MAPS_API_KEY`
+exists**, so the address is presently the plain text field it always was, with
+one line saying why. That is designed behaviour, not a bug to chase — see §6.
+
+A key was supplied on 2026-08-18 and tested. It is a valid key on a project that
+is **not billed**, and whose API restrictions **exclude Maps JavaScript API**.
+Both were confirmed directly: the Geocoding REST call returns `REQUEST_DENIED`
+with "You must enable Billing", and the browser logs `ApiTargetBlockedMapError`
+while Google paints its own error panel into the map. It was **not** wired into
+any environment, because a configured-but-broken key is worse than none — the
+operator gets "the map could not be loaded" instead of "map picking is off".
+
+**Three things this exposed, all now fixed, all measured rather than assumed:**
+
+1. **A script that loads is not a map that works.** `maps/api/js` returns 200
+   and a valid loader for *any* key. The rejection happens later, inside the
+   library, and is never thrown — so the `catch` never fired and the component
+   sat at `ready` showing a grey error box with two dead buttons.
+2. **`gm_authFailure` only fires if registered before the first map is
+   constructed.** It does not replay. Registered afterwards it is never called,
+   which is a difference the documentation does not mention and which the first
+   version of this fix got wrong.
+3. **`Geocoder.geocode` never calls its callback when the API is blocked.** No
+   error, no rejection, nothing — so the spinner ran forever and both buttons
+   stayed disabled. There is now a ten-second ceiling.
+
+Only the **first** map on a page receives Google's error panel; a second renders
+an empty container. That is why `gm_authFailure` is the primary signal and the
+panel check is the fallback, not the other way round.
 
 ### `npm run check-forms`
 
@@ -4387,12 +4412,17 @@ to a free-text box. Ask before guessing.
    supports push/ADMS — needed before Sprint 19.6 (§5x).
 10. ~~Decide the video vendor~~ — **self-hosted Jitsi, confirmed 2026-08-12.**
     A VPS is now platform infrastructure to provision and operate (§5x).
-11. **A Google Maps API key**, if the address picker is wanted. Enable *Maps
-    JavaScript API* and *Geocoding API*, restrict it by HTTP referrer to the
-    platform's own domains, and set `NEXT_PUBLIC_GOOGLE_MAPS_API_KEY`. It is a
-    billed Google Cloud account, which is why nothing depends on it: with no key
-    the address on both creation forms is the plain text field it has always
-    been, and says so in one line. Nothing is broken until this is done (§5ai).
+11. **A *working* Google Maps API key**, if the address picker is wanted. One
+    was supplied on 2026-08-18 and **does not work yet** — the project is not
+    billed, and the key's API restrictions exclude Maps JavaScript API. Three
+    steps, all in the Google Cloud console: **enable billing** on the project;
+    add **Maps JavaScript API** and **Geocoding API** under the key's *API
+    restrictions*; set *Application restrictions* to HTTP referrers covering
+    `https://schoolhub.codexmill.com/*`, `https://*.schoolhub.codexmill.com/*`
+    and `http://localhost:3000/*`. Then set
+    `NEXT_PUBLIC_GOOGLE_MAPS_API_KEY` in `.env.local` **and** the Hostinger
+    panel. Until then nothing is broken: the address on both creation forms is
+    the plain text field it has always been and says so in one line (§5ai).
 12. **Drive the school and branch forms by hand, once.** No plaintext Super
     Admin password exists — only `SUPER_ADMIN_PASSWORD_HASH` — so the 2026-08-18
     batch was verified by 60 scripted assertions and a rendered chart rather
