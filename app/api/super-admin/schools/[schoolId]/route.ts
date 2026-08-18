@@ -5,6 +5,7 @@ import { schools } from '@/db/schema';
 import { apiFailure, apiSuccess, handleApiError, readJsonBody } from '@/lib/api-response';
 import { isPakistaniCity } from '@/lib/cities';
 import { db } from '@/lib/drizzle';
+import { releaseSchoolAuthAccounts } from '@/lib/school-queries';
 import {
   readCoordinate,
   readEmailField,
@@ -201,7 +202,47 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
   }
 }
 
-export async function DELETE(_request: NextRequest, context: RouteContext) {
+/**
+ * DELETE /api/super-admin/schools/[schoolId]
+ *
+ * Deactivates by default. Erases the tenant outright with `?permanent=true`.
+ *
+ * ── Why two behaviours behind one verb ───────────────────────────────────
+ * Deactivating is what an operator wants almost every time: a school that has
+ * stopped paying, or is between sessions, or was set up wrongly and is being
+ * rebuilt. Its portal closes, its data stays, and it comes back with one press.
+ * That stays the default precisely so nobody reaches the destructive one by
+ * accident or by habit.
+ *
+ * Permanent deletion is for the cases deactivation cannot serve: a tenant
+ * created by mistake, a duplicate, a test school on a live estate, or a school
+ * that has left and has asked for its records to be erased. Before this
+ * existed the only way to do any of those was SQL against production, which is
+ * strictly worse — unlogged, unreviewed, and with no cascade guarantees anyone
+ * had checked.
+ *
+ * ── What "permanent" actually removes ────────────────────────────────────
+ * Every one of the 61 foreign keys pointing at `schools.location_id` is
+ * `ON DELETE CASCADE`, so a single DELETE takes the branches, students, staff,
+ * enrolments, fee challans, payments, exams, results, payroll, announcements
+ * and everything else with it. That was verified against the schema, not
+ * assumed. There is no soft-delete residue and no orphan.
+ *
+ * The Supabase accounts are removed too, but only for members who belong to no
+ * other school — one Supabase account is one human, and a parent with children
+ * at two schools must not be locked out of the second because the first was
+ * deleted. Same rule as `deleteSchoolMember`, and the reason it is applied
+ * here explicitly is that a cascade deletes `school_users` rows without any
+ * application code running.
+ *
+ * ── The confirmation is the school's own name ────────────────────────────
+ * `confirmName` must match exactly. A yes/no dialog is muscle memory by the
+ * third time an operator sees it; typing the name cannot be done absent-mindedly
+ * and cannot be done at all on the wrong row, which is the mistake actually
+ * worth preventing. It is checked here rather than only in the UI because the
+ * UI is not the only caller this route will ever have.
+ */
+export async function DELETE(request: NextRequest, context: RouteContext) {
   try {
     await requireSuperAdmin();
 
@@ -210,18 +251,68 @@ export async function DELETE(_request: NextRequest, context: RouteContext) {
       return apiFailure('not_found', 'School not found.', 404);
     }
 
-    const updated = await db
-      .update(schools)
-      .set({ isActive: false, updatedAt: new Date() })
-      .where(eq(schools.id, schoolId))
-      .returning({ id: schools.id, isActive: schools.isActive });
+    const permanent =
+      new URL(request.url).searchParams.get('permanent') === 'true';
 
-    const school = updated[0];
+    if (!permanent) {
+      const updated = await db
+        .update(schools)
+        .set({ isActive: false, updatedAt: new Date() })
+        .where(eq(schools.id, schoolId))
+        .returning({ id: schools.id, isActive: schools.isActive });
+
+      const school = updated[0];
+      if (school === undefined) {
+        return apiFailure('not_found', 'School not found.', 404);
+      }
+
+      return apiSuccess({ school, deactivated: true });
+    }
+
+    const existing = await db
+      .select({
+        id: schools.id,
+        name: schools.name,
+        slug: schools.slug,
+        locationId: schools.locationId,
+      })
+      .from(schools)
+      .where(eq(schools.id, schoolId))
+      .limit(1);
+
+    const school = existing[0];
     if (school === undefined) {
       return apiFailure('not_found', 'School not found.', 404);
     }
 
-    return apiSuccess({ school, deactivated: true });
+    const body = await readJsonBody<{ confirmName?: unknown }>(request);
+    const confirmName = readString(body?.confirmName);
+
+    if (confirmName !== school.name) {
+      return apiFailure(
+        'confirmation_required',
+        `To delete this school permanently, send its exact name as confirmName. Expected “${school.name}”.`,
+        400,
+      );
+    }
+
+    // Collected before the cascade, because afterwards there is no row left to
+    // say which addresses belonged to this tenant.
+    const released = await releaseSchoolAuthAccounts(school.locationId);
+
+    await db.delete(schools).where(eq(schools.id, schoolId));
+
+    console.warn(
+      `[super-admin] school "${school.name}" (${school.slug}) was permanently ` +
+        `deleted along with all of its data; ${released} Supabase account(s) released`,
+    );
+
+    return apiSuccess({
+      deleted: true,
+      name: school.name,
+      slug: school.slug,
+      authAccountsReleased: released,
+    });
   } catch (error) {
     return handleApiError(error);
   }

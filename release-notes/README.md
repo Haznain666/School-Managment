@@ -7,6 +7,7 @@ what is not there yet. They are not the engineering handover — that is
 | Sprint | Theme | Migration | Notes |
 | --- | --- | --- | --- |
 | — | School & branch creation, fixed (not a sprint) | `0024` | [read](RELEASE-NOTES-SCHOOL-BRANCH-CREATION-FIXES.md) |
+| — | Panel chooser, school deletion, address autocomplete (not a sprint) | — | [read](RELEASE-NOTES-PANEL-CHOOSER-AND-SCHOOL-DELETION.md) |
 | **13** | Portals completed, the installable app, and two principals | `0023` | [read](RELEASE-NOTES-SPRINT-13.md) |
 | **12** | Reports & analytics — nine printable, exportable reports | none | [read](RELEASE-NOTES-SPRINT-12.md) |
 | **11** | Communications — announcements, notice board, delivery log | `0022` | [read](RELEASE-NOTES-SPRINT-11.md) |

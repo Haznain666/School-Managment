@@ -1,12 +1,25 @@
 import type { Metadata } from 'next';
 
+import { PanelChooser } from '@/components/public/PanelChooser';
+import { publicEnv } from '@/lib/env';
+
 export const metadata: Metadata = {
   title: 'SMS Platform',
 };
 
 /**
  * Public landing page, served on the apex domain.
- * Schools reach their own portal at `<school>.<NEXT_PUBLIC_APP_DOMAIN>`.
+ *
+ * ── What it used to do, and why that was not enough ──────────────────────
+ * It explained that schools live on subdomains and left it there. Anyone who
+ * arrived at the apex — which is what people type, and what a search engine
+ * returns — reached a dead end with no way forward: no sign-in, and no route to
+ * the Super Admin panel unless they already knew the `/super-admin/login` path.
+ *
+ * It now offers the two things that can actually be done from here: go to a
+ * school's portal, or sign in as the platform operator. See
+ * `components/public/PanelChooser.tsx` for why the school side asks which
+ * school rather than which role.
  */
 export default function LandingPage() {
   return (
@@ -22,18 +35,7 @@ export default function LandingPage() {
         own subdomain.
       </p>
 
-      <div className="mt-10 rounded-card border border-line bg-surface-sunken p-6">
-        <h2 className="text-base font-semibold text-ink">
-          Looking for your school portal?
-        </h2>
-        <p className="mt-2 text-sm text-ink-muted">
-          Each school has its own address, for example{' '}
-          <code className="rounded bg-surface-raised px-1.5 py-0.5 text-ink">
-            yourschool.{process.env.NEXT_PUBLIC_APP_DOMAIN ?? 'platform.com'}
-          </code>
-          . Use the link your school gave you to sign in.
-        </p>
-      </div>
+      <PanelChooser appDomain={publicEnv.appDomain} />
     </main>
   );
 }

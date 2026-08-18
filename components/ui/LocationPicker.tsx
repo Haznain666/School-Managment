@@ -1,51 +1,51 @@
 'use client';
 
-import { useCallback, useEffect, useId, useRef, useState } from 'react';
-
-// The pin overlay's styles. Opt-in since the library's v2 — without it the
-// marker renders as an unpositioned block in the corner of the map.
-import 'location-picker/style.css';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { Input } from '@/components/ui/Input';
 import { publicEnv } from '@/lib/env';
 import { cn } from '@/lib/utils';
 
 /**
- * An address field with a map beside it.
+ * An address field with Google Place Autocomplete.
  *
- * ── What this wraps, and what it adds ────────────────────────────────────
- * `location-picker` (cyphercodes, MIT) does one job: it puts a draggable pin on
- * a Google map and tells you where the pin is. Everything an *address field*
- * needs beyond that is here — loading the Maps script once per page, turning a
- * pin into a postal address and back, keeping the typed text and the pin in
- * step, and behaving sensibly when there is no map at all.
+ * ── What replaced what, and why ──────────────────────────────────────────
+ * This was a draggable pin on a Google map (`cyphercodes/location-picker`).
+ * It is now `<gmpx-place-picker>` from Google's own Extended Component
+ * Library, which is a text input that completes against the Places database.
  *
- * ── Absent-key behaviour is the important part ───────────────────────────
- * The Maps JavaScript API needs a key attached to a billed Google Cloud
- * account. This deployment may not have one, and a school profile form must not
- * stop working because of that. With no `NEXT_PUBLIC_GOOGLE_MAPS_API_KEY` this
- * renders exactly the plain text input the form had before, plus one line
- * saying why there is no map. Same for a key that is present but rejected: the
- * script's failure is caught and degrades to the same input rather than leaving
- * an empty grey box the operator will report as a bug.
+ * The map was the wrong instrument for this field. Entering a school's address
+ * is a *naming* task, not a *pointing* task — the operator knows the address
+ * and wants to write it down, and a map made them find a rooftop on a tile
+ * they had to pan and zoom to reach. Autocomplete matches what they are
+ * actually doing: they type "Beaconhouse Johar Town", pick it from four
+ * suggestions, and the address and its coordinates arrive together. Coordinates
+ * are still captured — they come from the selected place rather than from
+ * wherever a pin happened to be dropped, which makes them more accurate, not
+ * less.
  *
- * A key that is *present and rejected* is the harder case and is handled
- * explicitly further down: the script still loads, so nothing throws, and
- * Google paints its own error panel into the map. See the block around
- * `gm-err-container`.
+ * It also removes the reverse-geocode round trip, the "use the pin's address"
+ * button, and the geocode-never-answers hang those required a guard against.
  *
- * That is also why the address stays a free-text field that is merely
- * *assisted* by the map, rather than being derived from it. Plenty of Pakistani
- * school addresses — a block and a sector, a landmark, a lane with no name —
- * are not what a geocoder returns, and an operator must always be able to
- * overrule the machine. The pin is the enrichment; the text is the record.
+ * ── Absent-key behaviour is still the important part ─────────────────────
+ * The component needs a key on a billed Google Cloud project with the Places
+ * API enabled. This deployment may not have one, and a school profile form must
+ * not stop working because of that. With no `NEXT_PUBLIC_GOOGLE_MAPS_API_KEY`
+ * this renders the plain text input the form has always had, plus one line
+ * saying why there is no autocomplete.
  *
- * ── The two directions ───────────────────────────────────────────────────
- * Dropping the pin reverse-geocodes and offers to overwrite the text (it asks
- * rather than assuming, because the operator may have typed something better).
- * Pressing Find on typed text forward-geocodes and moves the pin. Neither is
- * automatic on every keystroke: geocoding is billed per call, and firing one
- * per character is how a maps bill arrives.
+ * A key that is present and *rejected* is the harder case, and it is why
+ * `gmpx-requesterror` is listened for: the element renders and accepts typing
+ * whether or not the key works, so without that listener a blocked key would
+ * look like a search that simply never finds anything. See STATE.md §5ai for
+ * the three ways this failed when it was a map.
+ *
+ * ── The address stays free text ──────────────────────────────────────────
+ * Autocomplete fills the field; it does not own it. Plenty of Pakistani school
+ * addresses — a block and a sector, a landmark, a lane with no name — are not
+ * what Places returns, and an operator must always be able to type over the
+ * suggestion or ignore it entirely. The place is the assistance; the text is
+ * the record.
  */
 
 export interface LocationValue {
@@ -64,53 +64,43 @@ export interface LocationPickerProps {
   className?: string;
 }
 
-/** Karachi. Where the map opens when nothing has been picked yet. */
-const DEFAULT_CENTER = { lat: 24.8607, lng: 67.0011 };
-
-type ScriptState = 'absent' | 'loading' | 'ready' | 'failed';
+type PickerState = 'absent' | 'loading' | 'ready' | 'failed';
 
 /**
- * Loads the Maps JS API once per document.
+ * The custom elements, registered once per document.
  *
- * Module-level rather than per-component because two pickers on one page — or
- * one picker remounted by a re-render — must not each append a `<script>`.
- * Google's loader throws loudly when its script is included twice, and the
- * second copy would clobber the first's `google.maps` namespace mid-use.
+ * Module-level rather than per-component because `customElements.define` throws
+ * on a second registration of the same tag, and two address fields on one page —
+ * or one remounted by a re-render — would each try.
+ *
+ * Imported dynamically because these are browser-only: the modules touch
+ * `window` and `customElements` at import time, which crashes a server render.
  */
-let mapsScript: Promise<void> | null = null;
+let elementsRegistered: Promise<void> | null = null;
 
-function loadMapsScript(apiKey: string): Promise<void> {
-  if (mapsScript !== null) return mapsScript;
+function registerElements(): Promise<void> {
+  if (elementsRegistered !== null) return elementsRegistered;
 
-  mapsScript = new Promise<void>((resolve, reject) => {
-    if (typeof window === 'undefined') {
-      reject(new Error('The Maps API can only be loaded in a browser.'));
-      return;
-    }
-
-    if (window.google?.maps !== undefined) {
-      resolve();
-      return;
-    }
-
-    const script = document.createElement('script');
-    script.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(apiKey)}&libraries=places&loading=async`;
-    script.async = true;
-    script.defer = true;
-    script.addEventListener('load', () => {
-      resolve();
-    });
-    script.addEventListener('error', () => {
-      // Cleared so a later mount may retry — a failed load is usually a network
-      // blip or a referrer restriction being fixed, both of which resolve.
-      mapsScript = null;
-      reject(new Error('The Google Maps script could not be loaded.'));
-    });
-
-    document.head.append(script);
+  elementsRegistered = (async () => {
+    await Promise.all([
+      import('@googlemaps/extended-component-library/api_loader.js'),
+      import('@googlemaps/extended-component-library/place_picker.js'),
+    ]);
+  })().catch((error: unknown) => {
+    // Cleared so a later mount may retry: the usual cause is a chunk that
+    // failed to download, which the next attempt resolves.
+    elementsRegistered = null;
+    throw error;
   });
 
-  return mapsScript;
+  return elementsRegistered;
+}
+
+/** The `Place` fields this component reads. Narrower than what Places returns. */
+interface SelectedPlace {
+  formattedAddress?: string | null;
+  displayName?: string | null;
+  location?: { lat: () => number; lng: () => number } | null;
 }
 
 export function LocationPicker({
@@ -123,25 +113,20 @@ export function LocationPicker({
   className,
 }: LocationPickerProps) {
   const apiKey = publicEnv.googleMapsApiKey;
-  const mapId = useId();
-  const mapRef = useRef<HTMLDivElement | null>(null);
-  const pickerRef = useRef<{ setLocation: (lat: number, lng: number) => void; destroy: () => void } | null>(null);
 
-  const [scriptState, setScriptState] = useState<ScriptState>(
-    apiKey === '' ? 'absent' : 'loading',
-  );
+  const loaderRef = useRef<HTMLElement | null>(null);
+  const pickerRef = useRef<HTMLElement | null>(null);
+
+  const [state, setState] = useState<PickerState>(apiKey === '' ? 'absent' : 'loading');
   const [notice, setNotice] = useState<string | null>(null);
-  const [isGeocoding, setIsGeocoding] = useState(false);
 
   /**
-   * `onChange` in a ref, read by the map's idle callback.
+   * `onChange` and the current value behind a ref.
    *
-   * The picker is constructed once and holds whatever callback it was given
-   * forever. Passing `onChange` directly would freeze the first render's
-   * closure, so the pin would write its coordinates onto a stale `value` and
-   * silently wipe whatever the operator typed afterwards. Listing it as an
-   * effect dependency instead would tear down and rebuild the whole map on
-   * every keystroke in the address field.
+   * The place-change listener is attached once. Closing over `onChange`
+   * directly would freeze the first render's copy, so a selection would write
+   * onto a stale value and wipe whatever had been typed since. Re-attaching on
+   * every render instead would rebind the listener on each keystroke.
    */
   const latest = useRef({ value, onChange });
   latest.current = { value, onChange };
@@ -150,223 +135,120 @@ export function LocationPicker({
     if (apiKey === '') return;
 
     let cancelled = false;
+    // Captured here rather than read again in the cleanup: by teardown time the
+    // ref may already point at a different node (or none), and the listeners
+    // would be removed from the wrong element or not at all.
+    let picker: HTMLElement | null = null;
+
+    const handlePlaceChange = (event: Event) => {
+      const place = (event.target as { value?: SelectedPlace | null } | null)?.value;
+
+      // `undefined` means the operator cleared the input, `null` means Places
+      // found nothing. Neither should wipe an address that was typed by hand,
+      // so both are left alone — clearing the text is what clears the text.
+      if (place === undefined || place === null) return;
+
+      const current = latest.current;
+      const address = place.formattedAddress ?? place.displayName ?? '';
+
+      current.onChange({
+        address: address === '' ? current.value.address : address,
+        latitude: place.location?.lat() ?? null,
+        longitude: place.location?.lng() ?? null,
+      });
+      setNotice(null);
+    };
+
+    const handleRequestError = () => {
+      // The element renders and accepts typing whether or not the key works, so
+      // a blocked key is otherwise indistinguishable from "no matches".
+      if (!cancelled) setState('failed');
+    };
 
     void (async () => {
       try {
-        await loadMapsScript(apiKey);
-        const { LocationPicker: Picker } = await import('location-picker');
-
-        if (cancelled || mapRef.current === null) return;
-
-        /**
-         * Registered *before* the first map is constructed, which is the only
-         * time it works.
-         *
-         * Google calls this hook at the moment it rejects the key, and it does
-         * not replay: a handler installed after that moment is never called.
-         * Measured both ways — registered first it fires, registered after the
-         * map it does not, which is a difference invisible from the docs.
-         */
-        window.gm_authFailure = () => {
-          setScriptState('failed');
-        };
-
-        const start =
-          value.latitude !== null && value.longitude !== null
-            ? { lat: value.latitude, lng: value.longitude }
-            : DEFAULT_CENTER;
-
-        pickerRef.current = new Picker(
-          mapRef.current,
-          {
-            lat: start.lat,
-            lng: start.lng,
-            // Off deliberately. Asking for the browser's location throws a
-            // permission prompt at an operator who is entering *a school's*
-            // address, not their own, and the answer is never useful.
-            setCurrentPosition: false,
-            onLocationChange: (position) => {
-              const current = latest.current;
-              if (
-                current.value.latitude === position.lat &&
-                current.value.longitude === position.lng
-              ) {
-                return;
-              }
-              current.onChange({
-                ...current.value,
-                latitude: position.lat,
-                longitude: position.lng,
-              });
-            },
-          },
-          { zoom: value.latitude === null ? 11 : 16, streetViewControl: false },
-        ) as unknown as { setLocation: (lat: number, lng: number) => void; destroy: () => void };
-
-        /**
-         * A map that loaded and still does not work.
-         *
-         * ── Why the script loading is not the same as the map working ──────
-         * `https://maps.googleapis.com/maps/api/js` returns 200 and a valid
-         * loader for *any* key, valid or not. The rejection happens later,
-         * inside the library, and it is not thrown — Google paints its own
-         * "Oops! Something went wrong" panel into the container and logs to the
-         * console. So the `catch` below never fires and `scriptState` would sit
-         * at `ready` forever, showing the operator a grey error box where a map
-         * should be, with no explanation and two buttons that silently do
-         * nothing.
-         *
-         * This was found with a real key: billing was not enabled on the
-         * project and the key's API restrictions did not include Maps
-         * JavaScript API, which produces `ApiTargetBlockedMapError`.
-         *
-         * ── Why `gm_authFailure` is not enough on its own ─────────────────
-         * Google documents that hook for auth failures, and it is registered
-         * below because it does cover the common ones — an invalid key, a
-         * referrer that is not on the allow-list, billing switched off. It was
-         * measured *not* to fire for `ApiTargetBlockedMapError`. Hence also
-         * looking for the error panel Google injects, which is the one signal
-         * present in every one of these cases.
-         *
-         * A frame is allowed to pass first: the panel is painted during the
-         * map's own initialisation, not synchronously in the constructor.
-         *
-         * One caveat, also measured: only the **first** map on a page gets the
-         * panel — a second one renders an empty container. That is fine here
-         * because a form has one address field, but it is why this is the
-         * second signal and `gm_authFailure` above is the first.
-         */
-        await new Promise((resolve) => {
-          setTimeout(resolve, 1200);
-        });
-
+        await registerElements();
         if (cancelled) return;
 
-        if (mapRef.current?.querySelector('.gm-err-container') != null) {
-          setScriptState('failed');
-          return;
+        // `key` is reserved in React and cannot be passed as a prop, so the API
+        // key is assigned as a property on the element itself. This is the
+        // arrangement Google documents for React.
+        if (loaderRef.current !== null) {
+          (loaderRef.current as unknown as { apiKey: string }).apiKey = apiKey;
         }
 
-        setScriptState('ready');
+        picker = pickerRef.current;
+        if (picker !== null) {
+          // Pakistan only. An unrestricted autocomplete offers "Model Town,
+          // Lahore" alongside identically named places in three other
+          // countries, ordered by global traffic rather than by relevance to
+          // anyone using this product.
+          (picker as unknown as { country: string[] }).country = ['pk'];
+
+          picker.addEventListener('gmpx-placechange', handlePlaceChange);
+          picker.addEventListener('gmpx-requesterror', handleRequestError);
+        }
+
+        setState('ready');
       } catch {
-        if (!cancelled) setScriptState('failed');
+        if (!cancelled) setState('failed');
       }
     })();
 
     return () => {
       cancelled = true;
-      pickerRef.current?.destroy();
-      pickerRef.current = null;
+      if (picker !== null) {
+        picker.removeEventListener('gmpx-placechange', handlePlaceChange);
+        picker.removeEventListener('gmpx-requesterror', handleRequestError);
+      }
     };
-    // Constructed once. `value` is read through `latest` for the reason above,
-    // and re-running this would rebuild the map under the operator's cursor.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // Bound once, keyed only on the API key. `value` and `onChange` are read
+    // through `latest` for the reason given there, so they are correctly absent
+    // from the dependencies rather than suppressed.
   }, [apiKey]);
 
-  /**
-   * Stops a geocode that will never answer.
-   *
-   * `Geocoder.geocode` takes a callback and, when the API is blocked or the
-   * project is unbilled, simply never calls it — no error, no rejection. That
-   * was measured, not assumed. Without a ceiling the buttons stay disabled and
-   * the operator is left with a form that has quietly stopped responding, which
-   * reads as a broken page rather than a misconfigured key.
-   *
-   * Ten seconds is far longer than a healthy geocode, which answers in well
-   * under one.
-   */
-  const geocodeGuard = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  const startGeocode = useCallback(() => {
-    setIsGeocoding(true);
-    setNotice(null);
-
-    if (geocodeGuard.current !== null) clearTimeout(geocodeGuard.current);
-    geocodeGuard.current = setTimeout(() => {
-      setIsGeocoding(false);
-      setNotice(
-        'The map service did not answer. The address you typed is still saved — ' +
-          'check the Google Maps key’s billing and API restrictions.',
-      );
-    }, 10_000);
+  const clearLocation = useCallback(() => {
+    const current = latest.current;
+    current.onChange({ ...current.value, latitude: null, longitude: null });
   }, []);
 
-  const endGeocode = useCallback(() => {
-    if (geocodeGuard.current !== null) {
-      clearTimeout(geocodeGuard.current);
-      geocodeGuard.current = null;
-    }
-    setIsGeocoding(false);
-  }, []);
-
-  useEffect(
-    () => () => {
-      if (geocodeGuard.current !== null) clearTimeout(geocodeGuard.current);
-    },
-    [],
-  );
-
-  /** Typed address → pin. */
-  const findOnMap = useCallback(() => {
-    const address = latest.current.value.address.trim();
-    if (address === '' || window.google?.maps === undefined) return;
-
-    startGeocode();
-
-    new window.google.maps.Geocoder().geocode(
-      // Biased to Pakistan: "Model Town" and "Gulberg" exist in several
-      // countries, and an unbiased geocoder picks whichever has more traffic.
-      { address, componentRestrictions: { country: 'PK' } },
-      (results, status) => {
-        endGeocode();
-
-        const first = results?.[0];
-        if (status !== 'OK' || first === undefined) {
-          setNotice('That address could not be found on the map. Drop the pin by hand instead.');
-          return;
-        }
-
-        const location = first.geometry.location;
-        pickerRef.current?.setLocation(location.lat(), location.lng());
-        latest.current.onChange({
-          ...latest.current.value,
-          latitude: location.lat(),
-          longitude: location.lng(),
-        });
-      },
-    );
-  }, [startGeocode, endGeocode]);
-
-  /** Pin → typed address, on request. */
-  const useMapAddress = useCallback(() => {
-    const { latitude, longitude } = latest.current.value;
-    if (latitude === null || longitude === null || window.google?.maps === undefined) return;
-
-    startGeocode();
-
-    new window.google.maps.Geocoder().geocode(
-      { location: { lat: latitude, lng: longitude } },
-      (results, status) => {
-        endGeocode();
-
-        const first = results?.[0];
-        if (status !== 'OK' || first === undefined) {
-          setNotice('No street address is known for that point. Type it in instead.');
-          return;
-        }
-
-        latest.current.onChange({
-          ...latest.current.value,
-          address: first.formatted_address,
-        });
-      },
-    );
-  }, [startGeocode, endGeocode]);
-
-  const hasPin = value.latitude !== null && value.longitude !== null;
+  const hasCoordinates = value.latitude !== null && value.longitude !== null;
+  const degraded = state === 'absent' || state === 'failed';
 
   return (
     <div className={cn('w-full space-y-2', className)}>
+      {/*
+        The plain field is not a fallback rendered instead of the autocomplete —
+        it is the field, always. The autocomplete sits above it and writes into
+        it, so an operator can accept a suggestion and then edit the result, and
+        so the form behaves identically when there is no key at all.
+      */}
+      {!degraded ? (
+        <div className="w-full">
+          <p className="mb-1.5 block text-sm font-medium text-ink">Search for the address</p>
+          <gmpx-api-loader ref={loaderRef} solution-channel="GMP_QB_addressselection_v1" />
+          <gmpx-place-picker
+            ref={pickerRef}
+            placeholder="Start typing a school, street or area…"
+            className="block w-full"
+            style={{
+              // The element's own tokens, pointed at this product's. Left
+              // unstyled it renders in Google's default blue-and-Roboto, which
+              // is visibly not part of this form.
+              '--gmpx-color-surface': 'rgb(var(--surface-raised))',
+              '--gmpx-color-on-surface': 'rgb(var(--ink))',
+              '--gmpx-color-primary': 'rgb(var(--brand-primary))',
+              '--gmpx-font-family-base': 'inherit',
+              width: '100%',
+            } as React.CSSProperties}
+          />
+          <p className="mt-1.5 text-sm text-ink-muted">
+            Pick a result to fill the address below and record its exact location.
+            You can edit the address afterwards.
+          </p>
+        </div>
+      ) : null}
+
       <Input
         label={label}
         value={value.address}
@@ -375,62 +257,35 @@ export function LocationPicker({
         }}
         disabled={disabled}
         error={error}
-        hint={
-          hint ??
-          (scriptState === 'ready'
-            ? 'Type the address, or drag the pin to the exact spot.'
-            : undefined)
-        }
-        placeholder="Plot 12, Block 6, PECHS"
+        hint={hint}
+        placeholder="Plot 12, Block 6, PECHS, Karachi"
       />
 
-      {scriptState === 'absent' || scriptState === 'failed' ? (
+      {degraded ? (
         <p className="text-xs text-ink-muted">
-          {scriptState === 'absent'
-            ? 'Map picking is off — no Google Maps key is configured for this deployment. The address above is still saved.'
-            : 'The map could not be loaded, so the address above is being saved as typed.'}
+          {state === 'absent'
+            ? 'Address search is off — no Google Maps key is configured for this deployment. The address above is still saved.'
+            : 'Address search is unavailable, so the address above is being saved as typed. Check the Maps key’s billing and that the Places API is enabled.'}
         </p>
-      ) : (
-        <>
-          <div className="flex flex-wrap items-center gap-2">
-            <button
-              type="button"
-              onClick={findOnMap}
-              disabled={disabled || isGeocoding || value.address.trim() === '' || scriptState !== 'ready'}
-              className="rounded-lg border border-line-strong px-2.5 py-1 text-xs font-medium text-ink hover:bg-surface-sunken disabled:cursor-not-allowed disabled:text-ink-muted"
-            >
-              Find on map
-            </button>
+      ) : null}
 
-            <button
-              type="button"
-              onClick={useMapAddress}
-              disabled={disabled || isGeocoding || !hasPin || scriptState !== 'ready'}
-              className="rounded-lg border border-line-strong px-2.5 py-1 text-xs font-medium text-ink hover:bg-surface-sunken disabled:cursor-not-allowed disabled:text-ink-muted"
-            >
-              Use the pin&rsquo;s address
-            </button>
+      {hasCoordinates ? (
+        <p className="flex flex-wrap items-center gap-2 text-xs text-ink-muted">
+          <span className="font-mono tabular-nums">
+            {value.latitude?.toFixed(5)}, {value.longitude?.toFixed(5)}
+          </span>
+          <button
+            type="button"
+            onClick={clearLocation}
+            disabled={disabled}
+            className="font-medium text-brand-primary hover:underline disabled:cursor-not-allowed disabled:text-ink-muted disabled:no-underline"
+          >
+            Clear the pinned location
+          </button>
+        </p>
+      ) : null}
 
-            {hasPin ? (
-              <span className="font-mono text-xs tabular-nums text-ink-muted">
-                {value.latitude?.toFixed(5)}, {value.longitude?.toFixed(5)}
-              </span>
-            ) : null}
-          </div>
-
-          <div
-            id={mapId}
-            ref={mapRef}
-            aria-label="Map for choosing the address location"
-            className={cn(
-              'h-56 w-full overflow-hidden rounded-lg border border-line-strong bg-surface-sunken',
-              disabled && 'pointer-events-none opacity-60',
-            )}
-          />
-
-          {notice !== null ? <p className="text-xs text-status-warning-ink">{notice}</p> : null}
-        </>
-      )}
+      {notice !== null ? <p className="text-xs text-status-warning-ink">{notice}</p> : null}
     </div>
   );
 }

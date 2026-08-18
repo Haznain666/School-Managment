@@ -106,6 +106,43 @@ export function SchoolTable() {
     [load],
   );
 
+  /**
+   * The school the operator has asked to erase, and what they have typed to
+   * confirm it.
+   *
+   * Held here rather than as a `window.confirm`, because a yes/no dialog is
+   * muscle memory by the third time it is seen. Retyping the school's name
+   * cannot be done absent-mindedly, and — the part that matters — cannot be
+   * done at all against the wrong row, which is the mistake worth preventing on
+   * a screen that lists every tenant on the platform.
+   */
+  const [deleting, setDeleting] = useState<SchoolRow | null>(null);
+  const [confirmName, setConfirmName] = useState('');
+
+  const handleDeleteForever = useCallback(
+    async (school: SchoolRow) => {
+      setPendingId(school.id);
+      try {
+        await superAdminFetch(
+          `/api/super-admin/schools/${school.id}?permanent=true`,
+          { method: 'DELETE', body: JSON.stringify({ confirmName }) },
+        );
+        setDeleting(null);
+        setConfirmName('');
+        await load();
+      } catch (caught) {
+        setError(
+          caught instanceof SuperAdminApiError
+            ? caught.message
+            : 'Could not delete the school.',
+        );
+      } finally {
+        setPendingId(null);
+      }
+    },
+    [load, confirmName],
+  );
+
   const handleReactivate = useCallback(
     async (school: SchoolRow) => {
       setPendingId(school.id);
@@ -383,6 +420,27 @@ export function SchoolTable() {
                             Reactivate
                           </Button>
                         )}
+
+                        {/*
+                          Erasure, offered on every row rather than only on
+                          deactivated ones. A tenant created by mistake should
+                          not have to be deactivated first as a ceremony — the
+                          typed-name confirmation is the guard, not the order of
+                          operations.
+                        */}
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          disabled={pendingId === school.id}
+                          onClick={() => {
+                            setConfirmName('');
+                            setError(null);
+                            setDeleting(school);
+                          }}
+                          className="text-status-danger-ink hover:bg-status-danger-subtle"
+                        >
+                          Delete
+                        </Button>
                       </div>
                     </TableCell>
                   </TableRow>
@@ -392,6 +450,88 @@ export function SchoolTable() {
           </div>
         </Card>
       )}
+
+      {/*
+        The erasure dialog. Deliberately spells out what goes, in the school's
+        own numbers where it has them, because "this cannot be undone" is a
+        sentence people have learned to click past — a list of what is about to
+        be destroyed is not.
+      */}
+      {deleting !== null ? (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="delete-school-title"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-[rgb(0_0_0/0.45)] p-4"
+        >
+          <Card className="w-full max-w-lg space-y-4">
+            <h2 id="delete-school-title" className="text-lg font-semibold text-ink">
+              Delete {deleting.name} permanently?
+            </h2>
+
+            <div className="rounded-lg bg-status-danger-subtle px-3 py-2 text-sm text-status-danger-ink">
+              <p className="font-medium">This erases the tenant and everything in it.</p>
+              <p className="mt-1">
+                Branches, students, staff, enrolments, fee challans and payments,
+                exams and results, payroll, and announcements all go with it. The
+                subdomain{' '}
+                <code className="font-mono">{deleting.slug}</code> becomes free
+                for re-use. Supabase accounts are released for anyone who does
+                not also belong to another school.
+              </p>
+              <p className="mt-1 font-medium">There is no undo and no backup taken.</p>
+            </div>
+
+            <p className="text-sm text-ink-muted">
+              To deactivate instead — closing the portal but keeping every record
+              — cancel and use <span className="font-medium text-ink">Deactivate</span>.
+            </p>
+
+            <Input
+              label={`Type ${deleting.name} to confirm`}
+              value={confirmName}
+              onChange={(event) => {
+                setConfirmName(event.target.value);
+              }}
+              disabled={pendingId === deleting.id}
+              autoComplete="off"
+              placeholder={deleting.name}
+            />
+
+            {error !== null ? (
+              <p role="alert" className="text-sm text-status-danger-ink">
+                {error}
+              </p>
+            ) : null}
+
+            <div className="flex justify-end gap-3">
+              <Button
+                variant="secondary"
+                disabled={pendingId === deleting.id}
+                onClick={() => {
+                  setDeleting(null);
+                  setConfirmName('');
+                  setError(null);
+                }}
+              >
+                Cancel
+              </Button>
+              <Button
+                variant="danger"
+                isLoading={pendingId === deleting.id}
+                // The server checks this too. Disabling here is courtesy, not
+                // the guard -- see the route's docblock.
+                disabled={confirmName !== deleting.name}
+                onClick={() => {
+                  void handleDeleteForever(deleting);
+                }}
+              >
+                Delete permanently
+              </Button>
+            </div>
+          </Card>
+        </div>
+      ) : null}
     </div>
   );
 }
