@@ -29,6 +29,11 @@ import { cn } from '@/lib/utils';
  * script's failure is caught and degrades to the same input rather than leaving
  * an empty grey box the operator will report as a bug.
  *
+ * A key that is *present and rejected* is the harder case and is handled
+ * explicitly further down: the script still loads, so nothing throws, and
+ * Google paints its own error panel into the map. See the block around
+ * `gm-err-container`.
+ *
  * That is also why the address stays a free-text field that is merely
  * *assisted* by the map, rather than being derived from it. Plenty of Pakistani
  * school addresses — a block and a sector, a landmark, a lane with no name —
@@ -153,6 +158,19 @@ export function LocationPicker({
 
         if (cancelled || mapRef.current === null) return;
 
+        /**
+         * Registered *before* the first map is constructed, which is the only
+         * time it works.
+         *
+         * Google calls this hook at the moment it rejects the key, and it does
+         * not replay: a handler installed after that moment is never called.
+         * Measured both ways — registered first it fires, registered after the
+         * map it does not, which is a difference invisible from the docs.
+         */
+        window.gm_authFailure = () => {
+          setScriptState('failed');
+        };
+
         const start =
           value.latitude !== null && value.longitude !== null
             ? { lat: value.latitude, lng: value.longitude }
@@ -185,6 +203,50 @@ export function LocationPicker({
           { zoom: value.latitude === null ? 11 : 16, streetViewControl: false },
         ) as unknown as { setLocation: (lat: number, lng: number) => void; destroy: () => void };
 
+        /**
+         * A map that loaded and still does not work.
+         *
+         * ── Why the script loading is not the same as the map working ──────
+         * `https://maps.googleapis.com/maps/api/js` returns 200 and a valid
+         * loader for *any* key, valid or not. The rejection happens later,
+         * inside the library, and it is not thrown — Google paints its own
+         * "Oops! Something went wrong" panel into the container and logs to the
+         * console. So the `catch` below never fires and `scriptState` would sit
+         * at `ready` forever, showing the operator a grey error box where a map
+         * should be, with no explanation and two buttons that silently do
+         * nothing.
+         *
+         * This was found with a real key: billing was not enabled on the
+         * project and the key's API restrictions did not include Maps
+         * JavaScript API, which produces `ApiTargetBlockedMapError`.
+         *
+         * ── Why `gm_authFailure` is not enough on its own ─────────────────
+         * Google documents that hook for auth failures, and it is registered
+         * below because it does cover the common ones — an invalid key, a
+         * referrer that is not on the allow-list, billing switched off. It was
+         * measured *not* to fire for `ApiTargetBlockedMapError`. Hence also
+         * looking for the error panel Google injects, which is the one signal
+         * present in every one of these cases.
+         *
+         * A frame is allowed to pass first: the panel is painted during the
+         * map's own initialisation, not synchronously in the constructor.
+         *
+         * One caveat, also measured: only the **first** map on a page gets the
+         * panel — a second one renders an empty container. That is fine here
+         * because a form has one address field, but it is why this is the
+         * second signal and `gm_authFailure` above is the first.
+         */
+        await new Promise((resolve) => {
+          setTimeout(resolve, 1200);
+        });
+
+        if (cancelled) return;
+
+        if (mapRef.current?.querySelector('.gm-err-container') != null) {
+          setScriptState('failed');
+          return;
+        }
+
         setScriptState('ready');
       } catch {
         if (!cancelled) setScriptState('failed');
@@ -201,20 +263,62 @@ export function LocationPicker({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [apiKey]);
 
+  /**
+   * Stops a geocode that will never answer.
+   *
+   * `Geocoder.geocode` takes a callback and, when the API is blocked or the
+   * project is unbilled, simply never calls it — no error, no rejection. That
+   * was measured, not assumed. Without a ceiling the buttons stay disabled and
+   * the operator is left with a form that has quietly stopped responding, which
+   * reads as a broken page rather than a misconfigured key.
+   *
+   * Ten seconds is far longer than a healthy geocode, which answers in well
+   * under one.
+   */
+  const geocodeGuard = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const startGeocode = useCallback(() => {
+    setIsGeocoding(true);
+    setNotice(null);
+
+    if (geocodeGuard.current !== null) clearTimeout(geocodeGuard.current);
+    geocodeGuard.current = setTimeout(() => {
+      setIsGeocoding(false);
+      setNotice(
+        'The map service did not answer. The address you typed is still saved — ' +
+          'check the Google Maps key’s billing and API restrictions.',
+      );
+    }, 10_000);
+  }, []);
+
+  const endGeocode = useCallback(() => {
+    if (geocodeGuard.current !== null) {
+      clearTimeout(geocodeGuard.current);
+      geocodeGuard.current = null;
+    }
+    setIsGeocoding(false);
+  }, []);
+
+  useEffect(
+    () => () => {
+      if (geocodeGuard.current !== null) clearTimeout(geocodeGuard.current);
+    },
+    [],
+  );
+
   /** Typed address → pin. */
   const findOnMap = useCallback(() => {
     const address = latest.current.value.address.trim();
     if (address === '' || window.google?.maps === undefined) return;
 
-    setIsGeocoding(true);
-    setNotice(null);
+    startGeocode();
 
     new window.google.maps.Geocoder().geocode(
       // Biased to Pakistan: "Model Town" and "Gulberg" exist in several
       // countries, and an unbiased geocoder picks whichever has more traffic.
       { address, componentRestrictions: { country: 'PK' } },
       (results, status) => {
-        setIsGeocoding(false);
+        endGeocode();
 
         const first = results?.[0];
         if (status !== 'OK' || first === undefined) {
@@ -231,20 +335,19 @@ export function LocationPicker({
         });
       },
     );
-  }, []);
+  }, [startGeocode, endGeocode]);
 
   /** Pin → typed address, on request. */
   const useMapAddress = useCallback(() => {
     const { latitude, longitude } = latest.current.value;
     if (latitude === null || longitude === null || window.google?.maps === undefined) return;
 
-    setIsGeocoding(true);
-    setNotice(null);
+    startGeocode();
 
     new window.google.maps.Geocoder().geocode(
       { location: { lat: latitude, lng: longitude } },
       (results, status) => {
-        setIsGeocoding(false);
+        endGeocode();
 
         const first = results?.[0];
         if (status !== 'OK' || first === undefined) {
@@ -258,7 +361,7 @@ export function LocationPicker({
         });
       },
     );
-  }, []);
+  }, [startGeocode, endGeocode]);
 
   const hasPin = value.latitude !== null && value.longitude !== null;
 

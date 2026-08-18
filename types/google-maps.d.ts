@@ -15,6 +15,20 @@
 declare global {
   interface Window {
     google?: typeof google;
+    /**
+     * Google's authentication-failure hook.
+     *
+     * The Maps library calls this global, if it is defined, when it rejects the
+     * key — invalid, referrer not on the allow-list, billing switched off. It is
+     * a documented API with no type of its own because it is set on `window`
+     * rather than imported.
+     *
+     * It does **not** cover every failure. `ApiTargetBlockedMapError` — a key
+     * whose API restrictions exclude Maps JavaScript API — was measured not to
+     * fire it, which is why `LocationPicker` also looks for the error panel
+     * Google paints into the map container.
+     */
+    gm_authFailure?: () => void;
   }
 }
 
