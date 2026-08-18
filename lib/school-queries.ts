@@ -9,6 +9,7 @@ import {
   inArray,
   isNotNull,
   isNull,
+  ne,
   or,
   sql,
   type SQL,
@@ -446,6 +447,80 @@ async function releaseAuthAccount(
       '[school-queries] the membership was deleted but its Supabase account ' +
         `was not: ${error instanceof Error ? error.message : 'unknown error'}`,
     );
+  }
+}
+
+/**
+ * Deletes the Supabase accounts of a school that is about to be erased.
+ *
+ * ── Why this cannot be left to the cascade ───────────────────────────────
+ * Deleting a `schools` row cascades through all 61 foreign keys and takes every
+ * `school_users` row with it, without a line of application code running. The
+ * Supabase accounts those rows pointed at are in a different system entirely
+ * and survive untouched — so a deleted school would leave its whole staff list
+ * holding credentials to a tenant that no longer exists, and every one of those
+ * addresses permanently claimed against re-use.
+ *
+ * ── Run it *before* the delete ───────────────────────────────────────────
+ * Afterwards there is no row left to say which addresses belonged to this
+ * tenant. That ordering is the whole reason this is a separate function rather
+ * than something the delete route does inline afterwards.
+ *
+ * ── The same one-account-per-human rule ──────────────────────────────────
+ * An address is only released when no membership of any *other* school holds
+ * it. A parent with children at two schools, or a teacher who moved, must not
+ * be locked out of the school that still employs them because a different one
+ * was deleted. This is the same guard `releaseAuthAccount` applies to a single
+ * member, applied in bulk.
+ *
+ * Returns how many accounts were removed, for the operator's log line. Never
+ * throws: the school is being deleted either way, and a tidy-up that fails is
+ * worth a warning rather than a failed request that leaves the tenant half-gone.
+ */
+export async function releaseSchoolAuthAccounts(locationId: string): Promise<number> {
+  try {
+    const members = await db
+      .select({ email: schoolUsers.email, authUserId: schoolUsers.authUserId })
+      .from(schoolUsers)
+      .where(eq(schoolUsers.locationId, locationId));
+
+    let released = 0;
+
+    for (const member of members) {
+      const address = normaliseEmail(member.email ?? '');
+      if (address === '' && member.authUserId === null) continue;
+
+      if (address !== '') {
+        // Any membership of another school keeps the account alive.
+        const elsewhere = await db
+          .select({ id: schoolUsers.id })
+          .from(schoolUsers)
+          .where(
+            and(
+              eq(sql`lower(${schoolUsers.email})`, address),
+              ne(schoolUsers.locationId, locationId),
+            ),
+          )
+          .limit(1);
+
+        if (elsewhere.length > 0) continue;
+      }
+
+      const account =
+        member.authUserId !== null
+          ? { id: member.authUserId }
+          : await findAuthUserByEmail(address);
+
+      if (account !== null && (await deleteAuthUser(account.id))) released += 1;
+    }
+
+    return released;
+  } catch (error) {
+    console.warn(
+      '[school-queries] the school is being deleted but its Supabase accounts ' +
+        `could not all be released: ${error instanceof Error ? error.message : 'unknown error'}`,
+    );
+    return 0;
   }
 }
 

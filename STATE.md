@@ -4,7 +4,8 @@
 resume without re-deriving context. Updated at the end of every development
 step, before the session ends.
 
-**Last updated:** 2026-08-18 (**school and branch creation fixed, merged;
+**Last updated:** 2026-08-18 (**school and branch creation fixed, then the
+panel chooser, school deletion and address autocomplete — §5aj; earlier:
 migration `0024` applied and verified — §5ai**)
 
 > ✅ **`0024_school_branch_creation_fixes.sql` applied to the live database,
@@ -21,7 +22,15 @@ migration `0024` applied and verified — §5ai**)
 > ⚠️ **The forms were not click-tested.** No plaintext Super Admin password
 > exists, so QA was 60 scripted assertions (`npm run check-forms`), a rendered
 > chart checked for geometry, a green build and every existing `check-*` script.
-> Driving the two forms by hand in a browser is outstanding. §5ai.
+> Driving the two forms by hand in a browser is **now partly done** — an
+> operator session was already open in the preview browser, so the branch form
+> and the Schools table were exercised directly. §5aj.
+
+> ✅ **Three follow-ups shipped the same day, no migration (§5aj):** Super Admin
+> can now delete a school permanently (all 61 FKs cascade; confirmation is the
+> school's typed name), the apex landing page offers Super Admin or a school
+> portal, and the address field is Google Place Autocomplete —
+> `cyphercodes/location-picker` is removed.
 
 > ✅ **Sprint 13 is live at `schoolhub.codexmill.com`**, confirmed 2026-08-16 by
 > the CSS-hash technique (§5ab) plus a healthy smoke test, and the four new
@@ -4387,6 +4396,92 @@ to a free-text box. Ask before guessing.
 
 ---
 
+## 5aj. Panel chooser, school deletion, address autocomplete — 2026-08-18
+
+Three follow-ups to §5ai, same day, **no migration**. Release notes:
+`release-notes/RELEASE-NOTES-PANEL-CHOOSER-AND-SCHOOL-DELETION.md`.
+
+### Permanent school deletion, and the two things that make it safe
+
+`DELETE /api/super-admin/schools/[schoolId]?permanent=true`. Deactivation stays
+the default and the unmarked path; erasure is the opt-in.
+
+**All 61 foreign keys to `schools.location_id` are `ON DELETE CASCADE`** — that
+was checked against the schema, not assumed, and it is why one statement is
+enough and leaves no orphan. Verified empirically on a throwaway school: after
+the delete, `branches`, `school_users` and `school_modules` all returned zero
+rows for that `location_id`.
+
+**Supabase accounts must be released before the delete, not after.** The cascade
+removes `school_users` without a line of application code running, so afterwards
+nothing remains to say which addresses belonged to the tenant.
+`releaseSchoolAuthAccounts` runs first and applies the same
+one-account-per-*human* rule as `releaseAuthAccount`: an address is only deleted
+when no membership of any **other** school holds it. Deleting one school must
+not lock a parent out of a second.
+
+`confirmName` is checked server-side and must equal the school's name exactly. A
+yes/no dialog is muscle memory by the third use; a typed name cannot be entered
+absent-mindedly and cannot be entered at all against the wrong row.
+
+### The landing page asks which *school*, not which role
+
+There are not eleven sign-in panels, and the chooser must not imply there are.
+Every school role signs in at the same `/login` on their school's subdomain;
+`ROLE_HOME_ROUTES` decides where they land from their `school_users` row. Roles
+are therefore *listed* (so a visitor recognises their own) while the question
+asked is the one that genuinely has an answer: which school. Super Admin is the
+other card, because the operator has no tenant and cannot sign in on a subdomain.
+
+The school is **typed, not chosen from a list** — a dropdown of every tenant
+would serve the customer list to anyone loading the front page. A wrong guess
+reaches `/school-not-found`, which is what a wrong guess at any URL already does.
+
+Host handling mirrors `buildHandoffUrl`: `<slug>.<apex>/login` on the platform
+domain, `/login?school=<slug>` anywhere else. Sending a localhost visitor to
+`beaconhouse.localhost:3000` would resolve to nothing.
+
+### The map became autocomplete
+
+`cyphercodes/location-picker` is **removed** and `<gmpx-place-picker>` from
+`@googlemaps/extended-component-library` replaces it. Entering an address is a
+naming task, not a pointing task. Coordinates still arrive, and from the
+selected place rather than a dropped pin, so they are more accurate.
+
+Two implementation notes worth keeping:
+
+* **React 19 resolves JSX through `React.JSX`, not the global `JSX` namespace.**
+  Augmenting the global one compiles clean and does nothing — the only symptom
+  is a `@ts-expect-error` that never becomes unused. `declare module 'react'` is
+  the form that works. See `types/google-maps.d.ts`.
+* **`key` is reserved in React**, so the API key goes on `<gmpx-api-loader>` as
+  the `apiKey` *property* via a ref, not as a JSX prop. Non-string properties
+  (`country`) are set the same way, because React passes unknown props to custom
+  elements as attributes and would stringify an array.
+
+This deletes the three map failure modes recorded in §5ai — there is no map to
+paint an error panel into, no `gm_authFailure` ordering trap, and no geocode
+callback to hang. `gmpx-requesterror` replaces all three.
+
+### QA was driven by hand this time
+
+An operator session already existed in the preview browser, so the screens
+behind the Super Admin gate were exercised directly — no password was typed.
+That partly discharges §6 item 12. Confirmed visually: **the module-adoption
+chart now reads correctly**, every label in full with its value at the bar end.
+
+The branch form was driven through Karachi → `KHI-MAIN`, Mixed → board name,
+O-Levels re-filtering the ticked classes from Grade 9/10 to O1/O2/O3 while
+keeping Pre-School, and `+92 321 1234567` masking to `(0321) 123-4567`.
+
+**One correction worth carrying forward:** the accessibility-tree reader showed
+no Delete button on any school row and the first conclusion was that it had not
+rendered. A direct DOM query found all nine. The tool was eliding them. A UI
+absence reported by one tool is worth confirming with a second before it is
+called a defect.
+
+---
+
 ## 6. Open items for the user
 
 1. ~~Install GitHub CLI~~ — **partly regressed.** Git has a stored credential
@@ -4416,14 +4511,17 @@ to a free-text box. Ask before guessing.
     was supplied on 2026-08-18 and **does not work yet** — the project is not
     billed, and the key's API restrictions exclude Maps JavaScript API. Three
     steps, all in the Google Cloud console: **enable billing** on the project;
-    add **Maps JavaScript API** and **Geocoding API** under the key's *API
-    restrictions*; set *Application restrictions* to HTTP referrers covering
+    add **Places API** and **Maps JavaScript API** under the key's *API
+    restrictions* (Places is what autocomplete uses since §5aj; Geocoding is no
+    longer needed); set *Application restrictions* to HTTP referrers covering
     `https://schoolhub.codexmill.com/*`, `https://*.schoolhub.codexmill.com/*`
     and `http://localhost:3000/*`. Then set
     `NEXT_PUBLIC_GOOGLE_MAPS_API_KEY` in `.env.local` **and** the Hostinger
     panel. Until then nothing is broken: the address on both creation forms is
     the plain text field it has always been and says so in one line (§5ai).
-12. **Drive the school and branch forms by hand, once.** No plaintext Super
+12. **Drive the *school* form by hand, once** — the branch form was driven in a
+    browser on 2026-08-18 (§5aj) and behaved correctly; the school creation form
+    still has not been submitted end to end by a person. No plaintext Super
     Admin password exists — only `SUPER_ADMIN_PASSWORD_HASH` — so the 2026-08-18
     batch was verified by 60 scripted assertions and a rendered chart rather
     than by clicking. Someone who can sign in should create one school and one

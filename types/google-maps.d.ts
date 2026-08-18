@@ -1,16 +1,29 @@
+import type { DetailedHTMLProps, HTMLAttributes, Ref } from 'react';
+
 /**
- * `window.google`, which `@types/google.maps` does not declare.
+ * The Google Maps globals and custom elements TypeScript cannot infer.
  *
- * That package declares the `google.maps` *namespace* as a global type, which
- * is what you want for annotating values, but it says nothing about the runtime
- * property the Maps script actually attaches to `window`. Reading it through
- * `window` rather than the bare `google` identifier is deliberate:
- * `components/ui/LocationPicker.tsx` has to ask whether the script has loaded
- * *yet*, and a bare `google.maps` reference throws a ReferenceError when it has
- * not, where `window.google?.maps` is simply `undefined`.
+ * ── `window.google` ──────────────────────────────────────────────────────
+ * `@types/google.maps` declares the `google.maps` *namespace* as a global type,
+ * which is what you want for annotating values, but says nothing about the
+ * runtime property the Maps script attaches to `window`. Reading it through
+ * `window` rather than the bare `google` identifier matters when code has to
+ * ask whether the script has loaded *yet*: a bare `google.maps` reference
+ * throws a ReferenceError when it has not, where `window.google?.maps` is
+ * simply `undefined`.
  *
- * Optional for the same reason — the script is loaded on demand and may never
- * be loaded at all when no API key is configured.
+ * ── The custom elements ──────────────────────────────────────────────────
+ * `@googlemaps/extended-component-library` ships Lit web components, not React
+ * components. It registers them with `customElements.define`, so React renders
+ * them as unknown intrinsic elements and TypeScript rejects the JSX unless the
+ * tags are declared here.
+ *
+ * The declarations are deliberately narrow — only the attributes
+ * `LocationPicker` actually sets. Everything else those elements accept is set
+ * imperatively through a ref, which is required anyway for `apiKey` (React
+ * reserves `key`) and is the more reliable path for any non-string property,
+ * because React passes unknown JSX props to custom elements as *attributes*
+ * and an array or an object would be stringified.
  */
 declare global {
   interface Window {
@@ -18,17 +31,45 @@ declare global {
     /**
      * Google's authentication-failure hook.
      *
-     * The Maps library calls this global, if it is defined, when it rejects the
-     * key — invalid, referrer not on the allow-list, billing switched off. It is
-     * a documented API with no type of its own because it is set on `window`
+     * The Maps library calls this global, if defined, when it rejects the key —
+     * invalid, referrer not on the allow-list, billing switched off. A
+     * documented API with no type of its own, because it is set on `window`
      * rather than imported.
      *
-     * It does **not** cover every failure. `ApiTargetBlockedMapError` — a key
-     * whose API restrictions exclude Maps JavaScript API — was measured not to
-     * fire it, which is why `LocationPicker` also looks for the error panel
-     * Google paints into the map container.
+     * It does not cover every failure, and it only fires if it is registered
+     * *before* the first map is constructed — it does not replay. Both were
+     * measured; see STATE.md §5ai.
      */
     gm_authFailure?: () => void;
+  }
+
+}
+
+/**
+ * React 19 resolves JSX through `React.JSX`, not the old global `JSX`
+ * namespace, so augmenting the global one silently does nothing — the JSX still
+ * fails to compile and the only clue is a `@ts-expect-error` that keeps being
+ * "used". This module augmentation is the form that actually takes effect.
+ */
+declare module 'react' {
+  namespace JSX {
+    interface IntrinsicElements {
+      'gmpx-api-loader': DetailedHTMLProps<
+        HTMLAttributes<HTMLElement> & {
+          ref?: Ref<HTMLElement>;
+          /** Attribution channel Google asks integrations to declare. */
+          'solution-channel'?: string;
+        },
+        HTMLElement
+      >;
+      'gmpx-place-picker': DetailedHTMLProps<
+        HTMLAttributes<HTMLElement> & {
+          ref?: Ref<HTMLElement>;
+          placeholder?: string;
+        },
+        HTMLElement
+      >;
+    }
   }
 }
 
