@@ -5,6 +5,7 @@ import { eq } from 'drizzle-orm';
 import { emailOutbox, EMAIL_MAX_ATTEMPTS } from '@/db/schema';
 
 import { db } from './drizzle';
+import { describeError } from './describe-error';
 import { sendEmail, smtpConfigured } from './email-sender';
 import { getSql } from './postgres';
 
@@ -231,7 +232,7 @@ export async function drainOutbox(limit = 20): Promise<DrainResult> {
 
       result.sent += 1;
     } catch (error) {
-      const reason = error instanceof Error ? error.message : 'Unknown transport error';
+      const reason = error instanceof Error ? describeError(error) : 'Unknown transport error';
       const exhausted = row.attempts >= EMAIL_MAX_ATTEMPTS;
 
       // The error is kept either way, because "it failed" without the reason

@@ -24,11 +24,13 @@
  * `if (… !== 'nodejs') return;` reads identically to a human and does not work:
  * the parser still walks the code after it and records the import.
  */
+import { describeSmtpCredentials } from './lib/smtp-credentials';
 import { describeHashShape, readConfiguredHash } from './lib/super-admin-hash-shape';
 
 export async function register(): Promise<void> {
   if (process.env.NEXT_RUNTIME === 'nodejs') {
     checkSuperAdminHash();
+    checkSmtpCredentials();
 
     const { startOutboxDrainer } = await import('./lib/email-outbox');
     startOutboxDrainer();
@@ -70,4 +72,39 @@ function checkSuperAdminHash(): void {
   // Deliberately loud, and deliberately without the hash itself — it is
   // offline-crackable and belongs in a log no more than the password does.
   console.error(`[super-admin] ${shape.message}`);
+}
+
+/**
+ * Says at boot whether the SMTP password survived the trip into this process.
+ *
+ * ── Why this is worth a line in every log ────────────────────────────────
+ * The failure it catches presents as `535 5.7.8 authentication failed` inside a
+ * queue drain — thirty seconds after the operator pressed "Invite", in a log
+ * they were not watching, with a message that reads identically whether the
+ * password is wrong, truncated at a `#`, or wrapped in quotes a panel stored
+ * literally. Production spent from 2026-08-13 in that state while the same
+ * credentials worked locally, and three sessions concluded from it that the
+ * mailbox password was wrong. It never was; see `lib/smtp-credentials.ts`.
+ *
+ * One string inspection per process start turns that into a sentence that names
+ * the actual cause, before a single message is queued.
+ *
+ * Never throws and never blocks startup: unsendable mail is a degraded
+ * platform, not a stopped one, and the school portals do not depend on it.
+ */
+function checkSmtpCredentials(): void {
+  // Only when SMTP is meant to be configured at all. A deployment that has
+  // deliberately left it blank is a supported state and must not be nagged.
+  if ((process.env.SMTP_HOST ?? '').trim() === '') return;
+
+  const shape = describeSmtpCredentials(
+    process.env.SMTP_USER,
+    process.env.SMTP_PASS,
+    process.env.SMTP_PASS_B64,
+  );
+
+  // Without the password itself, which belongs in a log no more than the
+  // Super Admin hash does.
+  if (shape.ok) console.info(`[smtp] ${shape.message}`);
+  else console.error(`[smtp] ${shape.message}`);
 }

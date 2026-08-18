@@ -224,6 +224,79 @@ The route now also logs the reason for every refusal
 (`[super-admin] sign-in refused. email matched: …; password matched: …`), so a
 future occurrence is answerable from the server log alone.
 
+### `SMTP_PASS` — why a correct password returns 535 in production
+
+**Measured 2026-08-19.** Outbound mail failed with
+`535 5.7.8 Error: authentication failed` on every message from 2026-08-13, while
+the identical credentials authenticated against `smtp.titan.email` locally on
+the first attempt, on both ports. The password was re-verified by the operator
+more than once and was **correct every time**. It was never the problem.
+
+The mailbox password contains `!`, `@` and `#`. In a `.env` file an unquoted `#`
+**opens a comment**, so everything from it onward is silently discarded.
+Measured against this repository's own `@next/env`:
+
+| Written as | What the process receives |
+| --- | --- |
+| `SMTP_PASS=fooBar!x@y#z` | `fooBar!x@y` ← **truncated, silently** |
+| `SMTP_PASS='fooBar!x@y#z'` | `fooBar!x@y#z` |
+
+Now read that against the section above: **on Hostinger the panel and the `.env`
+file are one store.** A password typed into the Environment UI is written into a
+`.env` line, and if it contains a `#` the rest of it does not survive. The panel
+goes on displaying the whole password, which is why inspecting it proves
+nothing and why this was diagnosed three times as "the panel's copy is wrong".
+
+The mirror-image mistake is copying the working single-quoted form *out* of
+`.env.local` and into the panel **including its quotes** — nothing strips them
+there, and the mailbox receives two characters it has never heard of.
+
+**The fix, and it is not a workaround:**
+
+```
+SMTP_PASS_B64=<npm run smtp-encode>
+```
+
+Base64's alphabet is `A-Z a-z 0-9 + / =`. No `#`, no `$`, no `!`, no quote, no
+backslash — nothing for dotenv, a shell or a panel to act on. It wins over
+`SMTP_PASS` when both are set, exactly as `SUPER_ADMIN_PASSWORD_HASH_B64` does.
+Generate it with `npm run smtp-encode`, which prompts with the echo off and
+prints a fingerprint. **Then remove `SMTP_PASS` from the panel** and restart.
+
+`lib/smtp-credentials.ts` additionally repairs the damage that *is* reversible
+— wrapping quotes and stray whitespace — and refuses to touch a value where the
+quote could legitimately be data. `npm run check-smtp` asserts both halves (28
+assertions, no network). The boot log now says which state it is in:
+
+```
+[smtp] SMTP_PASS_B64 decoded cleanly (17 chars). This is the transport-safe form.
+[smtp] SMTP_PASS is set as plain text and contains "#", "!" — ...
+```
+
+### Asking the deployed process what password it actually holds
+
+```bash
+curl -sX POST https://schoolhub.codexmill.com/api/internal/smtp-check \
+  -H "x-diagnostics-secret: $SUPER_ADMIN_DIAGNOSTICS_SECRET" \
+  -H 'content-type: application/json' \
+  -d '{"verify":true}'
+```
+
+The sibling of `/api/internal/super-admin-check`, and the only check that proves
+anything: every other one reads some other environment. It returns the
+password's **length** and **fingerprint** (never the password), which fragile
+characters it contains, which variable it came from, and — with
+`{"verify":true}` — the SMTP server's own reply to a real AUTH, sending nothing.
+
+Compare `password.fingerprint` with what `npm run smtp-encode` prints locally.
+**Different fingerprints mean the process is not holding the password you
+entered**, and a `password.length` shorter than the real one is the `#`
+truncation above. Call it twice: more than one Node process has been observed
+behind this proxy and they need not hold the same environment.
+
+Requires `SUPER_ADMIN_DIAGNOSTICS_SECRET`; refuses everything while unset.
+**Unset it once mail is flowing.**
+
 ## 4. Database migrations
 
 Migrations do **not** run on deploy. Run them yourself, from your machine,
@@ -271,6 +344,41 @@ websites**. It can create and delete domains — treat it as a credential.
 `provisioning` · `ready` · `failed` · `unmanaged`. Provisioning is idempotent —
 the Provision / Re-check button on the schools list is safe to press any number
 of times, and is also how schools created before this feature get reconciled.
+
+### ⚠ A wildcard DNS record makes provisioning *look* done when it is not
+
+**Fixed 2026-08-19; read this before adding a wildcard.** Provisioning has two
+halves — the parked domain (a vhost alias) and the DNS record — and since the
+existence check became "does the name resolve?", a wildcard in the zone breaks
+it. A wildcard answers **every** label by definition, so a school created
+seconds ago resolves immediately, `ensureDnsRecord` concludes its record is
+already in place, writes nothing, and reports success.
+
+What that looks like, and it is exactly what was reported for
+`rehearsal-academy.schoolhub.codexmill.com`:
+
+- the parked domain appears in hPanel,
+- hPanel reads **"Not connected"**, because it looks for a record for that exact
+  name and there is none,
+- **no HTTPS certificate is ever issued**, because those are issued per
+  hostname against a name the panel can see pointed at this account, and a
+  wildcard is not that,
+- and the platform records `subdomain_status = 'provisioning'` with
+  `subdomain_error` **null** — success, as far as it knew.
+
+`nameHasOwnRecord()` in `lib/hostinger.ts` now separates the two: it resolves a
+random `wildcard-probe-*` label first, and a zone that answers *that* cannot be
+trusted to say whether any particular name is provisioned, so the Hostinger API
+decides instead and the explicit record gets written. With no wildcard present
+the probe fails and behaviour is identical to before — this cannot regress a
+zone that does not have one.
+
+The retry control gained a fourth readiness state, `wildcard-only`, which says
+so in one line instead of reporting the misleading `tls-pending` ("wait a couple
+of hours for the certificate") for a certificate that is never coming.
+
+**Press Provision / Re-check on any school stuck at "Not connected"** once this
+is deployed; it is idempotent and will write the missing record.
 
 ## 5. School subdomains
 

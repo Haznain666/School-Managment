@@ -370,11 +370,17 @@ export async function ensureDnsRecord(
    * in the first place, so the authority on it is DNS and not an API response
    * body. Cheap, needs no token, and short-circuits every retry after the first
    * success.
+   *
+   * ── Unless a wildcard is answering ─────────────────────────────────────
+   * Then "it resolves" stops meaning "it is provisioned", every new school
+   * looks done, no record is ever written, and hPanel reports the name as
+   * **"Not connected"** with no certificate — which is the fault this check
+   * caused and `nameHasOwnRecord` now excludes. See its docblock.
    */
-  if (await nameResolves(fqdn)) {
+  if (await nameHasOwnRecord(fqdn, config.baseDomain)) {
     return {
       outcome: 'already-present',
-      message: `${fqdn} already resolves, so its DNS record is in place.`,
+      message: `${fqdn} already resolves on a record of its own, so its DNS is in place.`,
     };
   }
 
@@ -454,12 +460,12 @@ export async function ensureDnsRecord(
      * record" is exactly what a *successful earlier run* looks like on a
      * retry, so DNS gets the casting vote before this is called a failure.
      */
-    if (await nameResolves(fqdn)) {
+    if (await nameHasOwnRecord(fqdn, config.baseDomain)) {
       return {
         outcome: 'already-present',
         message:
-          `${fqdn} already resolves. Hostinger declined to write the record again ` +
-          '(it is already there), which is not a problem.',
+          `${fqdn} already resolves on a record of its own. Hostinger declined to ` +
+          'write it again (it is already there), which is not a problem.',
       };
     }
 
@@ -497,6 +503,69 @@ async function nameResolves(fqdn: string): Promise<boolean> {
   } catch {
     return false;
   }
+}
+
+/**
+ * Does this zone answer *every* label, whether a record exists or not?
+ *
+ * ── The regression this exists to close ──────────────────────────────────
+ * `ensureDnsRecord` asks DNS whether a tenant's record exists, and treats "it
+ * resolves" as "it is provisioned". That was a deliberate improvement — see the
+ * docblock there — and it is correct in a zone with no wildcard.
+ *
+ * Add a wildcard (`*.schoolhub.codexmill.com`) and it silently inverts. A
+ * wildcard answers every name by definition, so `nameResolves` returns true for
+ * a school that was created thirty seconds ago and has no record of its own.
+ * `ensureDnsRecord` concludes the DNS half is already done, writes nothing, and
+ * reports success. What the operator then sees is precisely what was reported
+ * here:
+ *
+ *   - the parked domain appears in hPanel,
+ *   - hPanel reads **"Not connected"**, because it looks for a record for that
+ *     exact name and there is none,
+ *   - and no per-hostname certificate is issued, because Hostinger issues those
+ *     per parked domain against a name it can see pointed at itself.
+ *
+ * The wildcard makes the name *reachable* while leaving it *unprovisioned*, and
+ * those two have looked identical to this code ever since the resolver became
+ * the authority.
+ *
+ * ── Why a random probe is the right test ─────────────────────────────────
+ * A name nobody has ever created cannot have an explicit record, so if it
+ * resolves, only a wildcard can be answering. That is a direct measurement of
+ * the one thing that matters, it needs no API token and no zone parsing, and it
+ * is the same technique STATE.md §5ae used by hand to prove the wildcard was
+ * *absent* at the time.
+ *
+ * A fresh random label each call, deliberately: a fixed probe name would be
+ * cached by every resolver between here and the authority, and worse, somebody
+ * would eventually create it.
+ */
+async function zoneAnswersEveryName(baseDomain: string): Promise<boolean> {
+  if (baseDomain.trim() === '') return false;
+
+  const label = `wildcard-probe-${Math.random().toString(36).slice(2, 12)}`;
+  return nameResolves(`${label}.${baseDomain}`);
+}
+
+/**
+ * Does this name have a record of its own — as opposed to merely resolving?
+ *
+ * The question `ensureDnsRecord` actually needs answered. Under a wildcard the
+ * resolver cannot distinguish the two, so when a wildcard is detected this
+ * reports `false` and lets the Hostinger API decide, which is the only source
+ * that knows what is really in the zone.
+ *
+ * Failing towards `false` is the safe direction. A wrongly-skipped record
+ * leaves a school permanently unreachable and looking fine; a redundant write
+ * is refused as a duplicate and handled two lines later.
+ */
+async function nameHasOwnRecord(fqdn: string, baseDomain: string): Promise<boolean> {
+  if (!(await nameResolves(fqdn))) return false;
+
+  // It resolves. That proves provisioning only if nothing is answering for
+  // names that were never provisioned.
+  return !(await zoneAnswersEveryName(baseDomain));
 }
 
 /**
@@ -780,6 +849,13 @@ export type SubdomainReadiness =
   | 'live'
   /** DNS resolves and the alias serves, but no certificate has been issued. */
   | 'tls-pending'
+  /**
+   * It resolves only because a wildcard answers every name. It has no record
+   * of its own, so hPanel reads "Not connected" and no certificate will ever
+   * be issued for it. Distinct from `tls-pending` because waiting fixes that
+   * one and will never fix this one.
+   */
+  | 'wildcard-only'
   /** The name does not resolve. */
   | 'no-dns';
 
@@ -801,7 +877,20 @@ export type SubdomainReadiness =
  */
 export async function diagnoseSubdomain(fqdn: string): Promise<SubdomainReadiness> {
   if (await checkSubdomainReachable(fqdn)) return 'live';
-  return (await nameResolves(fqdn)) ? 'tls-pending' : 'no-dns';
+
+  if (!(await nameResolves(fqdn))) return 'no-dns';
+
+  /*
+   * It resolves but does not serve. Two very different reasons, and telling an
+   * operator to wait for the wrong one costs hours: a certificate that is
+   * genuinely coming, or a wildcard answering for a name that owns no record
+   * and will therefore never be issued one.
+   */
+  const base = serverEnv('PLATFORM_BASE_DOMAIN', serverEnv('NEXT_PUBLIC_APP_DOMAIN', ''))
+    .trim()
+    .toLowerCase();
+
+  return (await zoneAnswersEveryName(base)) ? 'wildcard-only' : 'tls-pending';
 }
 
 /** One line an operator can act on, for each state. */
@@ -816,6 +905,16 @@ export function describeReadiness(state: SubdomainReadiness, fqdn: string): stri
         'automatically for parked domains, usually within a couple of hours, ' +
         'and there is no API to hurry it. If it has not appeared by then, ' +
         'install it in hPanel under the site’s Security → SSL.'
+      );
+    case 'wildcard-only':
+      return (
+        `${fqdn} only resolves because a wildcard record answers every name in ` +
+        'the zone — it has no DNS record of its own. That is why the hosting ' +
+        'panel shows it as "Not connected" and why no HTTPS certificate has ' +
+        'appeared: certificates are issued per hostname, against a name the ' +
+        'panel can see pointed at this account, and a wildcard is not that. ' +
+        'Waiting will not fix it. Press Retry to write the record, or add a ' +
+        `CNAME from ${fqdn} to the platform host by hand.`
       );
     case 'no-dns':
       return `${fqdn} does not resolve yet. DNS changes can take a few minutes to spread.`;
