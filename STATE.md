@@ -54,7 +54,13 @@ live (§5ac) — migration `0023`**)
 > until then), and switch the Node version to 22 in hPanel — `engines` says
 > `>=22` but the git deployment pins 20 and ignores package.json. §5w.
 
-> ✅ **Subdomain provisioning works. Read §5ad → §5ae → §5af → §5ag in order;**
+> 🔴 **SMTP authentication is failing in production** — `535 5.7.8` in
+> `email_outbox.last_error`, so every invitation and sign-in email is queued and
+> not delivered. `SMTP_USER`/`SMTP_PASS` in the hosting panel. Mail is abandoned
+> after ~2 hours of retries. §5ah.
+
+> ✅ **Subdomain provisioning is DONE — `abc-demo` has its certificate and
+> serves over HTTPS.** Read §5ad → §5ae → §5af → §5ag in order;
 > each corrects the one before it and **§5ag is current**. A provisioned school
 > now gets its alias and its DNS record automatically and serves the right
 > tenant; the **only** remaining step is the TLS certificate, which Hostinger
@@ -4162,6 +4168,78 @@ of reporting a failure.
 Still not executed from this environment: nothing, now — the DNS write was
 confirmed by the record it produced, which is the strongest evidence available
 without a token.
+
+---
+
+## 5ah. Why the invitation email never arrived — 2026-08-18
+
+**Subdomain provisioning is finished.** `abc-demo.schoolhub.codexmill.com` has
+its certificate, serves the tenant over HTTPS, and the user signed into it. §5ag
+closes.
+
+The next report was two separate things reported as one: an invitation that sent
+no email, and a `401 unauthenticated` on the Resend button.
+
+### The email: SMTP authentication is failing in production
+
+Read straight from `email_outbox`, which is what that table is for:
+
+```
+to_address : itzhasansiddiqui@gmail.com
+subject    : You have been invited to ABC Demo
+status     : queued        attempts : 2
+last_error : Invalid login: 535 5.7.8 Error: authentication failed:
+```
+
+So **nothing is wrong with the invitation flow.** The row was created, the mail
+was queued, the outbox tried twice, and the SMTP server rejected the
+credentials. `SMTP_USER` / `SMTP_PASS` in the hosting panel are wrong.
+
+Worth noting: **11 messages have status `sent` historically**, so these
+credentials worked before. The likeliest cause is the recent editing of the
+production environment to add `HOSTINGER_API_TOKEN` — and §5v is the standing
+warning that on Hostinger the Environment panel and `.env` are **one store**, so
+editing one disturbs the other.
+
+The queue is on a deadline: `EMAIL_MAX_ATTEMPTS` is 5 with a 1/5/15/60/60-minute
+backoff, so a message has roughly two hours before it is abandoned. Fix the
+credentials inside that window and the queued mail goes out by itself.
+
+### The 401: not the same problem, and probably not a bug
+
+`withSchoolAuth` returned `unauthenticated`, which happens when
+`readSchoolSession()` yields null — an expired or missing session cookie. The
+page had rendered (it is behind `requireSchoolRole`), so a session existed then
+and not at the click. Given that this tab had been open across the wait for the
+TLS certificate, an ordinary expiry is the plain reading.
+
+**It is not the cause of the missing email**, and that ordering matters: the
+invitation and its outbox row were both written before anybody pressed Resend.
+Signing in again and pressing Resend will requeue — against the same broken
+SMTP, so fix the credentials first or the second message queues and fails too.
+
+### What was built: `components/super-admin/EmailDeliveryHealth.tsx`
+
+An SMTP misconfiguration was **invisible from every screen**. Sprint 0's outbox
+was doing its job perfectly — accept, retry, record the reason — and nothing
+rendered `last_error`. From the product this looks like "the system did not send
+the invitation", which is exactly what a school reports and exactly what nobody
+can act on. Diagnosing it required a database query.
+
+The Super Admin dashboard now carries a card that stays quiet when mail is
+flowing and, when it is not, prints the mail server's reply **verbatim**
+(`535 … authentication failed` names the fix; "email could not be sent" does
+not) plus which two variables to check and how long before the queue gives up.
+It counts *queued with a failed attempt* rather than plain queued, because mail
+waiting its turn is not a problem.
+
+Same class of defect as the "Manual" subdomain badge (§5ad) and the discarded
+send outcome (§5ac): the platform knew, stored it, and told nobody.
+
+### For the next person
+
+`email_outbox.last_error` is the first place to look for any "the system did not
+email X" report — **before** suspecting the feature that was meant to send it.
 
 ---
 
