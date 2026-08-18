@@ -2,8 +2,8 @@ import 'server-only';
 
 import { emailRejectionReason, normaliseEmailAddress } from './email-validation';
 import {
-  isValidLandline,
-  isValidMobile,
+  hasCompleteLandlineDigits,
+  hasCompleteMobileDigits,
   LANDLINE_HINT,
   MOBILE_HINT,
   normaliseLandline,
@@ -48,7 +48,13 @@ export function readLandlineField(value: unknown): FieldResult<string | null> {
 
   if (value.trim() === '') return { ok: true, value: null };
 
-  if (!isValidLandline(value)) {
+  // The digit check rather than the strict shape check, then normalisation.
+  // The forms always send an already-masked value, so this is about the other
+  // callers: a bulk import holding `0213456789` is not making a mistake, and
+  // what matters is that the value *stored* is in one canonical shape. A
+  // request that is genuinely malformed still cannot get through, because it
+  // cannot produce the right digits.
+  if (!hasCompleteLandlineDigits(value)) {
     return { ok: false, message: `That landline is not usable. ${LANDLINE_HINT}` };
   }
 
@@ -64,7 +70,7 @@ export function readMobileField(value: unknown): FieldResult<string | null> {
 
   if (value.trim() === '') return { ok: true, value: null };
 
-  if (!isValidMobile(value)) {
+  if (!hasCompleteMobileDigits(value)) {
     return { ok: false, message: `That mobile number is not usable. ${MOBILE_HINT}` };
   }
 

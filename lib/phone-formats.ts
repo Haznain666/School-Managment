@@ -68,12 +68,17 @@ export function formatLandline(input: string): string {
 }
 
 /**
- * True when the value is a complete landline, or is empty.
+ * True when the value carries enough digits to be a landline, or is empty.
+ *
+ * Digits only — this says nothing about the brackets. It is the question the
+ * *server* asks, where a caller that is not this application may legitimately
+ * send `0213456789`, and where the answer is followed by normalisation into the
+ * display form. `isValidLandline` below is the stricter question the form asks.
  *
  * Empty passes because the field is optional everywhere it appears. A partial
  * value does not: `(021) 3` is a number nobody can ring.
  */
-export function isValidLandline(value: string): boolean {
+export function hasCompleteLandlineDigits(value: string): boolean {
   const trimmed = value.trim();
   if (trimmed === '') return true;
 
@@ -82,6 +87,22 @@ export function isValidLandline(value: string): boolean {
     digits.length > LANDLINE_AREA_DIGITS &&
     digits.length <= LANDLINE_AREA_DIGITS + LANDLINE_MAX_SUBSCRIBER_DIGITS
   );
+}
+
+/**
+ * True when the value is exactly the display format, or is empty.
+ *
+ * Shape as well as digits, because the format is a specification rather than a
+ * preference and the form is where it is specified. The field reformats on
+ * every keystroke, so an operator can never produce a value this refuses —
+ * which is the point: the check exists to catch a value that arrived some
+ * *other* way and was not put through the mask.
+ */
+export function isValidLandline(value: string): boolean {
+  const trimmed = value.trim();
+  if (trimmed === '') return true;
+
+  return hasCompleteLandlineDigits(trimmed) && trimmed === formatLandline(trimmed);
 }
 
 /** Normalises to the stored form, so two operators typing it differently agree. */
@@ -124,18 +145,36 @@ export function formatMobile(input: string): string {
 }
 
 /**
- * True when the value is a complete mobile, or is empty.
+ * True when the value carries a complete set of mobile digits, or is empty.
  *
- * The leading `0` is required as well as the length: ten digits starting `321`
- * is a number missing its trunk prefix, and accepting it would store a value
- * `normalizePhone` later turns into a different number than the operator meant.
+ * Digits only, after the `+92` rewrite — the server's question, for the same
+ * reason as `hasCompleteLandlineDigits`. The leading `0` is required as well as
+ * the length: ten digits starting `321` is a number missing its trunk prefix,
+ * and accepting it would store a value `normalizePhone` later turns into a
+ * different number than the one that was meant.
+ */
+export function hasCompleteMobileDigits(value: string): boolean {
+  const trimmed = value.trim();
+  if (trimmed === '') return true;
+
+  const digits = digitsOf(formatMobile(trimmed));
+  return digits.length === MOBILE_DIGITS && digits.startsWith('0');
+}
+
+/**
+ * True when the value is exactly `(xxxx) xxx-xxxx`, or is empty.
+ *
+ * Strict on the shape, not merely the digits, because the requirement is
+ * explicit that "any other format is not acceptable". `0321-1234567` has the
+ * right eleven digits and is refused here — it is a different format, and a
+ * validator that accepted it would leave the field's own rule unenforced
+ * wherever a value bypassed the mask.
  */
 export function isValidMobile(value: string): boolean {
   const trimmed = value.trim();
   if (trimmed === '') return true;
 
-  const digits = digitsOf(trimmed);
-  return digits.length === MOBILE_DIGITS && digits.startsWith('0');
+  return hasCompleteMobileDigits(trimmed) && trimmed === formatMobile(trimmed);
 }
 
 /** Normalises to the stored form. */
