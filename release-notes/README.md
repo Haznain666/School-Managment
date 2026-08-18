@@ -6,6 +6,7 @@ what is not there yet. They are not the engineering handover — that is
 
 | Sprint | Theme | Migration | Notes |
 | --- | --- | --- | --- |
+| — | School & branch creation, fixed (not a sprint) | `0024` | [read](RELEASE-NOTES-SCHOOL-BRANCH-CREATION-FIXES.md) |
 | **13** | Portals completed, the installable app, and two principals | `0023` | [read](RELEASE-NOTES-SPRINT-13.md) |
 | **12** | Reports & analytics — nine printable, exportable reports | none | [read](RELEASE-NOTES-SPRINT-12.md) |
 | **11** | Communications — announcements, notice board, delivery log | `0022` | [read](RELEASE-NOTES-SPRINT-11.md) |
@@ -24,6 +25,11 @@ what is not there yet. They are not the engineering handover — that is
 
 Sprint 0 sits between 8 and 9 because that is when it was built. It is numbered
 0 because it is reconciliation work, not because it came first.
+
+The unnumbered row at the top is not a sprint and is not pretending to be one.
+It is a batch of fixes to screens Sprints 2 and 3 built, and it took migration
+`0024` because it needed columns — not because a fourteenth sprint happened.
+Sprint 14 is internal chat and is still ahead.
 
 ## Not a sprint, but it shipped
 

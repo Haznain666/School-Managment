@@ -1,5 +1,8 @@
--- Sprint 14 -- the school and branch profile fields the creation forms now ask
--- for.
+-- The school and branch profile fields the creation forms now ask for.
+--
+-- Not a sprint. Sprint 14 is internal chat (SPRINTS.md), and this migration was
+-- briefly named for it by mistake; it is a fix batch against the Sprint 2/3
+-- creation surfaces and is numbered only.
 --
 -- Eight columns, every one of them nullable or defaulted, and nothing dropped.
 -- No existing row changes behaviour and no back-fill is needed, which is the
