@@ -39,6 +39,18 @@ export interface BootstrapAdminParams {
   /** Any format `lib/phone.ts` accepts; normalised before it is stored. */
   phone: string;
   email?: string | null | undefined;
+  /**
+   * Defaults to `school_admin`, which is what this module was written for.
+   *
+   * `branch_admin` is the one other value used, by the branch form: an email
+   * typed against a new campus can be invited as that campus's administrator.
+   * Deliberately not open to every role — everyone else still arrives through
+   * the school's own invitation flow, so the platform operator does not become
+   * a general-purpose user administrator for tenants they do not belong to.
+   */
+  role?: 'school_admin' | 'branch_admin';
+  /** The campus a `branch_admin` administers. Null for a school-wide admin. */
+  branchId?: string | null | undefined;
 }
 
 /**
@@ -166,7 +178,8 @@ export async function createFirstSchoolAdmin(
       name,
       phone,
       email: email === '' ? null : email,
-      role: 'school_admin',
+      role: params.role ?? 'school_admin',
+      branchId: params.branchId ?? null,
       isActive: true,
       // `firebase_uid` stays null on purpose. The account is created lazily at
       // first sign-in by `getOrCreateSchoolFirebaseUser`, so this row is enough

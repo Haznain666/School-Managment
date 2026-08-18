@@ -4,9 +4,8 @@
 resume without re-deriving context. Updated at the end of every development
 step, before the session ends.
 
-**Last updated:** 2026-08-18 (**school and branch creation fixed, then the
-panel chooser, school deletion and address autocomplete — §5aj; earlier:
-migration `0024` applied and verified — §5ai**)
+**Last updated:** 2026-08-19 (**dashboard, deletion UI, branch delete and the
+email diagnosis — §5al; earlier in the same batch: §5ai–§5ak**)
 
 > ✅ **`0024_school_branch_creation_fixes.sql` applied to the live database,
 > 2026-08-18.** Verified against the real schema rather than the exit code: 25
@@ -25,6 +24,13 @@ migration `0024` applied and verified — §5ai**)
 > Driving the two forms by hand in a browser is **now partly done** — an
 > operator session was already open in the preview browser, so the branch form
 > and the Schools table were exercised directly. §5aj.
+
+> 🔴 **SMTP credentials in the hosting panel are wrong — proven, not guessed
+> (§5al).** `.env.local` holds the same values and they authenticate against
+> `smtp.titan.email` on both ports; a QA message sent locally on the first
+> attempt. Production has failed with `535` on every message since 2026-08-13.
+> Fix `SMTP_USER`/`SMTP_PASS` in the panel, restart, then press **Retry
+> abandoned messages** on the dashboard. No code change can help.
 
 > 🔴 **The live deployment is serving two different builds at once (§5ak).**
 > More than one Node process is behind the proxy and a push to `main` does not
@@ -4532,6 +4538,75 @@ only and needs secrets the repo does not carry. See §6.
 
 ---
 
+## 5al. Dashboard, deletion UI, branch delete, email — 2026-08-19
+
+No migration. Release notes:
+`release-notes/RELEASE-NOTES-DASHBOARD-DELETION-AND-EMAIL.md`.
+
+### The email fault is a panel credential, and that is now proven
+
+`email_outbox`: **11 sent, the last on 2026-08-13; then 7 consecutive failures,
+every one `Invalid login: 535 5.7.8 Error: authentication failed`.**
+
+The same `SMTP_USER`/`SMTP_PASS` in `.env.local` were tested against
+`smtp.titan.email` and **authenticate on both 465 and 587**. During QA a branch
+invitation queued on the local server was delivered `status: 'sent',
+attempts: 1` — the identical code path that returns 535 in production.
+
+So the code is fine, the mailbox password is fine, and the copy in the Hostinger
+panel is wrong. **No session can fix this.** Do not go looking for it in the
+code again.
+
+"Supabase returns 200 but no email arrives" conflates two systems:
+`admin.createUser` returns 200 and **sends nothing** — it never has. The email
+that matters is the platform's own, through `email_outbox`.
+
+### Three real gaps around it, now closed
+
+* **Creating an administrator sends the email.** `POST .../users` used to write
+  the row and stop, with "Send sign-in email" a separate press. That was the
+  whole of "I created an Admin and nothing arrived".
+* **A branch email can be invited as `branch_admin`.** It was a contact field
+  that was never mailed, so typing an address there was a silent no-op. It needs
+  a mobile too — `school_users.phone` is NOT NULL and unique per school, so an
+  email alone cannot produce a row.
+* **Abandoned mail can be requeued** from the Email Delivery card. The drainer
+  never touches a `failed` row again, and several flows have no resend of their
+  own, so without this the backlog is lost the moment the panel is fixed.
+
+Shared logic now lives in `lib/access-email.ts` with three callers.
+
+### Two z-index/spacing traps worth not repeating
+
+**This project has a named z-index scale** (`tailwind.config.ts`): dropdown 1000,
+**sticky 1100**, backdrop 1200, modal 1300. A dialog written with a raw `z-50`
+was painted over by the Table's own sticky header. Use the tokens.
+
+**`space-y-*` on a `Card` does nothing.** Card renders its children into its own
+`px-5 py-4` body div, so the outer element has one child and a class that styles
+gaps *between siblings* has nothing to act on. Put it on a wrapper inside.
+
+### Branch deletion is not school deletion
+
+A school cascades cleanly through all 61 keys. A branch does not: most of the
+thirteen keys to `branches.id` are **`ON DELETE SET NULL`** — `students`,
+`staff`, `school_users`, `payroll_runs`, `payslips`. Deleting a busy campus
+would silently detach its people from any campus at all, with no error and no
+record of where they were.
+
+So it is refused unless the branch is empty, and the refusal names the counts.
+That is the honest behaviour and it should stay.
+
+### The estate shrank, and not by this session
+
+Six schools — `oneten`, `proton`, `ABC Demo`, `Usman Public`, `check`, `credo` —
+were deleted between the 2026-08-18 session and this one, leaving three. This
+session only created and removed its own probes and confirmed nine remained. The
+new delete feature works; this is a note that it was used, and that it cannot be
+undone.
+
+---
+
 ## 6. Open items for the user
 
 1. ~~Install GitHub CLI~~ — **partly regressed.** Git has a stored credential
@@ -4569,12 +4644,17 @@ only and needs secrets the repo does not carry. See §6.
     `NEXT_PUBLIC_GOOGLE_MAPS_API_KEY` in `.env.local` **and** the Hostinger
     panel. Until then nothing is broken: the address on both creation forms is
     the plain text field it has always been and says so in one line (§5ai).
-12. **Restart the application in hPanel.** Multiple instances serve the site and
+12. **Fix `SMTP_USER` and `SMTP_PASS` in the hosting panel**, then restart, then
+    press *Retry abandoned messages* on the Super Admin dashboard. The same
+    values in `.env.local` authenticate fine against `smtp.titan.email`, so the
+    mailbox is healthy and only the panel's copy is wrong (§5al). Seven
+    invitations are waiting; the queue will never retry them on its own.
+13. **Restart the application in hPanel.** Multiple instances serve the site and
     a git push does not restart all of them, so old and new code are being
     served side by side right now (§5ak). No session can do this — there is no
     API, and the Actions workflow that could is `workflow_dispatch` with secrets
     the repo does not hold.
-13. **Drive the *school* form by hand, once** — the branch form was driven in a
+14. **Drive the *school* form by hand, once** — the branch form was driven in a
     browser on 2026-08-18 (§5aj) and behaved correctly; the school creation form
     still has not been submitted end to end by a person. No plaintext Super
     Admin password exists — only `SUPER_ADMIN_PASSWORD_HASH` — so the 2026-08-18

@@ -458,13 +458,31 @@ export function SchoolTable() {
         be destroyed is not.
       */}
       {deleting !== null ? (
+        // `z-backdrop`, not a raw `z-50`. This project has a named z-index
+        // scale in `tailwind.config.ts`, and `z-sticky` — which the Table's own
+        // sticky header uses — is 1100. A dialog at 50 was painted over by the
+        // table header and the row beneath it, which is exactly how it looked:
+        // table content cutting across the middle of the dialog.
         <div
           role="dialog"
           aria-modal="true"
           aria-labelledby="delete-school-title"
-          className="fixed inset-0 z-50 flex items-center justify-center bg-[rgb(0_0_0/0.45)] p-4"
+          className="fixed inset-0 z-backdrop flex items-center justify-center overflow-y-auto bg-[rgb(2_6_23/0.55)] p-4"
         >
-          <Card className="w-full max-w-lg space-y-4">
+          {/*
+            `space-y-4` belongs on a wrapper *inside* the Card, not on the Card.
+            Card renders its children into its own `px-5 py-4` body div, so the
+            outer element has exactly one child and `space-y-*` — which styles
+            the gaps *between* siblings — had nothing to act on. Every element in
+            this dialog was therefore flush against the next, which is what made
+            it look broken.
+
+            `z-modal` sits above the backdrop, and `max-h`/`overflow-y-auto`
+            keep the dialog usable on a short viewport instead of pushing the
+            buttons off-screen.
+          */}
+          <Card className="z-modal my-auto max-h-[90vh] w-full max-w-lg overflow-y-auto">
+            <div className="space-y-4">
             <h2 id="delete-school-title" className="text-lg font-semibold text-ink">
               Delete {deleting.name} permanently?
             </h2>
@@ -504,7 +522,7 @@ export function SchoolTable() {
               </p>
             ) : null}
 
-            <div className="flex justify-end gap-3">
+            <div className="flex flex-wrap items-center justify-end gap-3 pt-1">
               <Button
                 variant="secondary"
                 disabled={pendingId === deleting.id}
@@ -528,6 +546,7 @@ export function SchoolTable() {
               >
                 Delete permanently
               </Button>
+            </div>
             </div>
           </Card>
         </div>

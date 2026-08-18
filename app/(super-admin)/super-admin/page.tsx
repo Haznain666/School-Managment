@@ -1,11 +1,10 @@
-import { count, desc, eq } from 'drizzle-orm';
+import { and, count, desc, eq, sql } from 'drizzle-orm';
 import type { Metadata } from 'next';
 import Link from 'next/link';
 
-import { branches, schoolModules, schools } from '@/db/schema';
+import { branches, schoolModules, schools, students } from '@/db/schema';
 import { BarChart } from '@/components/charts/BarChart';
 import { EmailDeliveryHealth } from '@/components/super-admin/EmailDeliveryHealth';
-import { PLATFORM_MODULES } from '@/lib/platform-modules';
 import { Badge } from '@/components/ui/Badge';
 import { Card, CardTitle } from '@/components/ui/Card';
 import {
@@ -50,7 +49,8 @@ function StatCard({ label, value, hint }: StatCardProps) {
  * than shipping every school row to count them in the browser.
  */
 export default async function SuperAdminDashboardPage() {
-  const [totalRows, activeRows, branchRows, moduleRows, recent, adoptionRows] = await Promise.all([
+  const [totalRows, activeRows, branchRows, moduleRows, recent, growthRows, sizeRows] =
+    await Promise.all([
     db.select({ value: count() }).from(schools),
     db.select({ value: count() }).from(schools).where(eq(schools.isActive, true)),
     db.select({ value: count() }).from(branches).where(eq(branches.isActive, true)),
@@ -70,15 +70,49 @@ export default async function SuperAdminDashboardPage() {
       .from(schools)
       .orderBy(desc(schools.createdAt))
       .limit(5),
-    // Module adoption: how many schools have each module switched on. This is
-    // the one figure on this panel that says something about the *product*
-    // rather than the estate — a module nobody enables is either not wanted or
-    // not discoverable, and both are worth knowing before building more of it.
+    /**
+     * Schools created per month, for the last twelve.
+     *
+     * ── What replaced module adoption, and why ─────────────────────────
+     * This panel used to draw "how many schools have each module switched
+     * on" — eleven long module names, and eleven bars that between them
+     * answered a product-research question nobody on this screen was asking.
+     * It was also the tallest thing on the page by some margin.
+     *
+     * A platform operator's two standing questions are *is the estate
+     * growing* and *which tenants are actually being used*. These two
+     * queries answer them, and both fit in a compact chart because their
+     * labels are three characters and a school name rather than
+     * "Academics & Timetable".
+     *
+     * Truncated to the month in SQL so the grouping happens once, in the
+     * database, rather than over rows pulled into the request.
+     */
     db
-      .select({ moduleKey: schoolModules.moduleKey, value: count() })
-      .from(schoolModules)
-      .where(eq(schoolModules.isEnabled, true))
-      .groupBy(schoolModules.moduleKey),
+      .select({
+        month: sql<string>`to_char(date_trunc('month', ${schools.createdAt}), 'YYYY-MM')`,
+        value: count(),
+      })
+      .from(schools)
+      .where(sql`${schools.createdAt} >= date_trunc('month', now()) - interval '11 months'`)
+      .groupBy(sql`date_trunc('month', ${schools.createdAt})`),
+
+    // Enrolled students per school. `enrolled` only: a graduated or withdrawn
+    // student is history, and counting them would make a school that has run
+    // for years look larger than one that is currently teaching more children.
+    db
+      .select({ name: schools.name, value: count(students.id) })
+      .from(schools)
+      .leftJoin(
+        students,
+        and(
+          eq(students.locationId, schools.locationId),
+          eq(students.status, 'enrolled'),
+        ),
+      )
+      .groupBy(schools.id, schools.name)
+      .orderBy(desc(count(students.id)))
+      .limit(6),
   ]);
 
   const totalSchools = totalRows[0]?.value ?? 0;
@@ -86,16 +120,34 @@ export default async function SuperAdminDashboardPage() {
   const totalBranches = branchRows[0]?.value ?? 0;
   const enabledModules = moduleRows[0]?.value ?? 0;
 
-  // Every module, including the ones nobody has enabled. A bar chart that omits
-  // its zeroes answers "which modules are used" but not "which are not", and
-  // the second is the more useful question here.
-  const adoption = (() => {
-    const byKey = new Map(adoptionRows.map((row) => [row.moduleKey, row.value]));
-    return PLATFORM_MODULES.map((module) => ({
-      label: module.label,
-      value: byKey.get(module.key) ?? 0,
-    }));
+  /**
+   * The last twelve months, including the ones with no signups.
+   *
+   * Built from a generated list rather than from the query's own rows, because
+   * a month in which nothing happened returns no row at all — and a growth
+   * chart that silently omits its empty months draws a flat line through a
+   * quiet quarter and calls it steady. The gaps are the information.
+   */
+  const growth = (() => {
+    const byMonth = new Map(growthRows.map((row) => [row.month, row.value]));
+    const now = new Date();
+    const months: { label: string; value: number }[] = [];
+
+    for (let back = 11; back >= 0; back -= 1) {
+      const when = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - back, 1));
+      const key = `${when.getUTCFullYear()}-${String(when.getUTCMonth() + 1).padStart(2, '0')}`;
+      months.push({
+        // Three letters: this is a twelve-category x axis, and it is exactly
+        // the label width the vertical chart was designed around.
+        label: when.toLocaleString('en-GB', { month: 'short', timeZone: 'UTC' }),
+        value: byMonth.get(key) ?? 0,
+      });
+    }
+
+    return months;
   })();
+
+  const bySize = sizeRows.filter((row) => row.value > 0);
 
   return (
     <div className="space-y-6">
@@ -122,28 +174,59 @@ export default async function SuperAdminDashboardPage() {
       </div>
 
       {totalSchools === 0 ? null : (
-        <Card
-          header={
-            <CardTitle
-              title="Module adoption"
-              description={`How many of the ${totalSchools} schools have each module switched on`}
+        <div className="grid gap-4 xl:grid-cols-2">
+          <Card
+            header={
+              <CardTitle
+                title="Platform growth"
+                description="Schools added in each of the last twelve months"
+              />
+            }
+          >
+            {/*
+              Vertical, and compact. Twelve three-letter labels is precisely
+              what the default chart geometry was built for — unlike the eleven
+              module names this replaced, which needed a whole chart mode of
+              their own and still took half the page.
+            */}
+            <BarChart
+              title="Schools added per month"
+              summary={growthSummary(growth)}
+              categories={growth.map((row) => row.label)}
+              series={[{ label: 'Schools', values: growth.map((row) => row.value) }]}
+              format={(value) => String(Math.round(value))}
             />
-          }
-        >
-          {/*
-            Horizontal: eleven module names, several of them three words long.
-            On an x axis they overlapped into an unreadable smear — see the
-            BarChart docblock.
-          */}
-          <BarChart
-            title="Schools with each module enabled"
-            summary={adoptionSummary(adoption, totalSchools)}
-            categories={adoption.map((row) => row.label)}
-            series={[{ label: 'Schools', values: adoption.map((row) => row.value) }]}
-            format={(value) => String(Math.round(value))}
-            orientation="horizontal"
-          />
-        </Card>
+          </Card>
+
+          <Card
+            header={
+              <CardTitle
+                title="Where the students are"
+                description="Enrolled students at the six largest schools"
+              />
+            }
+          >
+            {/*
+              The figure that separates a tenant in use from an empty shell,
+              which on an estate carrying test schools is the thing an operator
+              most needs to see. Six rows, so it stays short.
+            */}
+            {bySize.length === 0 ? (
+              <p className="text-sm text-ink-muted">
+                No school has enrolled a student yet.
+              </p>
+            ) : (
+              <BarChart
+                title="Enrolled students per school"
+                summary={sizeSummary(bySize)}
+                categories={bySize.map((row) => row.name)}
+                series={[{ label: 'Students', values: bySize.map((row) => row.value) }]}
+                format={(value) => String(Math.round(value))}
+                orientation="horizontal"
+              />
+            )}
+          </Card>
+        </div>
       )}
 
       <Card
@@ -224,20 +307,29 @@ export default async function SuperAdminDashboardPage() {
 
 /**
  * Names the most and least adopted modules, which is the whole point of that
- * chart — and the half a screen-reader user would otherwise have to assemble
- * from eleven bars.
+ * chart — and what a screen-reader user would otherwise have to assemble bar
+ * by bar.
  */
-function adoptionSummary(
-  rows: ReadonlyArray<{ label: string; value: number }>,
-  totalSchools: number,
-): string {
-  if (rows.length === 0) return 'No modules defined.';
+function growthSummary(rows: ReadonlyArray<{ label: string; value: number }>): string {
+  const total = rows.reduce((sum, row) => sum + row.value, 0);
+  if (total === 0) return 'No schools were added in the last twelve months.';
 
-  const most = rows.reduce((best, row) => (row.value > best.value ? row : best), rows[0]!);
-  const unused = rows.filter((row) => row.value === 0);
+  const best = rows.reduce((peak, row) => (row.value > peak.value ? row : peak), rows[0]!);
+  const latest = rows[rows.length - 1]!;
 
-  const lead = `${most.label} is the most adopted, on at ${most.value} of ${totalSchools} schools.`;
-  return unused.length === 0
-    ? `${lead} Every module is enabled somewhere.`
-    : `${lead} ${unused.length} module${unused.length === 1 ? ' is' : 's are'} enabled nowhere: ${unused.map((row) => row.label).join(', ')}.`;
+  return (
+    `${total} school${total === 1 ? '' : 's'} added over twelve months, ` +
+    `busiest in ${best.label} with ${best.value}. ` +
+    `${latest.value} so far this month.`
+  );
+}
+
+/** One sentence for a screen reader, and the headline a sighted reader takes. */
+function sizeSummary(rows: ReadonlyArray<{ name: string; value: number }>): string {
+  if (rows.length === 0) return 'No school has enrolled a student yet.';
+
+  const top = rows[0]!;
+  const total = rows.reduce((sum, row) => sum + row.value, 0);
+
+  return `${top.name} is the largest with ${top.value} enrolled; ${total} across the ${rows.length} shown.`;
 }
