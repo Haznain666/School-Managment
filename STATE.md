@@ -26,6 +26,12 @@ migration `0024` applied and verified — §5ai**)
 > operator session was already open in the preview browser, so the branch form
 > and the Schools table were exercised directly. §5aj.
 
+> 🔴 **The live deployment is serving two different builds at once (§5ak).**
+> More than one Node process is behind the proxy and a push to `main` does not
+> restart them all, so requests to the same URL alternate between the new code
+> and the old. **Restart the app in hPanel** to clear it. Until then, treat any
+> single check of the live site as inconclusive — sample it ten times and count.
+
 > ✅ **Three follow-ups shipped the same day, no migration (§5aj):** Super Admin
 > can now delete a school permanently (all 61 FKs cascade; confirmation is the
 > school's typed name), the apex landing page offers Super Admin or a school
@@ -4482,6 +4488,50 @@ called a defect.
 
 ---
 
+## 5ak. The deploy is split across instances — 2026-08-18
+
+**More than one Node process serves `schoolhub.codexmill.com`, a push to `main`
+does not restart all of them, and the proxy load-balances between old and new
+builds.** Measured immediately after the §5aj deploy: ten requests to `/`
+returned the new landing page twice and the old one eight times; twenty minutes
+later it was still split, roughly four to two. It does not converge on its own.
+
+The CSS hash shows the same thing — `50b746b551d725aa.css` and
+`e1f6917cc82279b4.css` alternating on consecutive requests to the same URL.
+
+This is not new and is not a surprise: `DEPLOYMENT.md` already warns that
+**"a changing pid means more than one instance is behind the proxy, and they
+need not hold the same environment — one restarted after your edit and one did
+not."** That was written about environment variables. It applies equally to the
+built code, which is the part nobody had checked.
+
+### What this invalidates
+
+**A single observation of the new build is not evidence that the deploy
+landed.** The earlier §5ai deploy was declared live on exactly that basis — one
+poll saw the new CSS hash and the loop stopped. Given this behaviour, that
+observation was consistent with one instance in five having updated. Whether
+§5ai is fully live is therefore *unknown*, not confirmed.
+
+**Sample repeatedly.** The honest check is N requests and a count, against a
+string only the new build emits:
+
+```bash
+for i in $(seq 1 10); do curl -s https://schoolhub.codexmill.com/   | grep -q "Go to my school" && echo NEW || echo OLD; done | sort | uniq -c
+```
+
+The smoke test does not catch this and cannot: every instance is healthy, they
+simply hold different code.
+
+### What fixes it
+
+Restarting the application in hPanel, so every instance reloads. No session can
+do it — there is no API for it, and `.github/workflows/deploy.yml` has a
+`HOSTINGER_RESTART_COMMAND` for exactly this purpose but is `workflow_dispatch`
+only and needs secrets the repo does not carry. See §6.
+
+---
+
 ## 6. Open items for the user
 
 1. ~~Install GitHub CLI~~ — **partly regressed.** Git has a stored credential
@@ -4519,7 +4569,12 @@ called a defect.
     `NEXT_PUBLIC_GOOGLE_MAPS_API_KEY` in `.env.local` **and** the Hostinger
     panel. Until then nothing is broken: the address on both creation forms is
     the plain text field it has always been and says so in one line (§5ai).
-12. **Drive the *school* form by hand, once** — the branch form was driven in a
+12. **Restart the application in hPanel.** Multiple instances serve the site and
+    a git push does not restart all of them, so old and new code are being
+    served side by side right now (§5ak). No session can do this — there is no
+    API, and the Actions workflow that could is `workflow_dispatch` with secrets
+    the repo does not hold.
+13. **Drive the *school* form by hand, once** — the branch form was driven in a
     browser on 2026-08-18 (§5aj) and behaved correctly; the school creation form
     still has not been submitted end to end by a person. No plaintext Super
     Admin password exists — only `SUPER_ADMIN_PASSWORD_HASH` — so the 2026-08-18
