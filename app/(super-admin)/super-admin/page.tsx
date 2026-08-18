@@ -130,12 +130,18 @@ export default async function SuperAdminDashboardPage() {
             />
           }
         >
+          {/*
+            Horizontal: eleven module names, several of them three words long.
+            On an x axis they overlapped into an unreadable smear — see the
+            BarChart docblock.
+          */}
           <BarChart
             title="Schools with each module enabled"
             summary={adoptionSummary(adoption, totalSchools)}
             categories={adoption.map((row) => row.label)}
             series={[{ label: 'Schools', values: adoption.map((row) => row.value) }]}
             format={(value) => String(Math.round(value))}
+            orientation="horizontal"
           />
         </Card>
       )}

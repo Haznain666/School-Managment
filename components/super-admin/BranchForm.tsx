@@ -1,12 +1,14 @@
 'use client';
 
 import { useRouter } from 'next/navigation';
-import { useCallback, useState, type FormEvent } from 'react';
+import { useCallback, useRef, useState, type FormEvent } from 'react';
 
 import { CitySelect } from '@/components/super-admin/CitySelect';
 import { Button } from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
 import { Input } from '@/components/ui/Input';
+import { LocationPicker } from '@/components/ui/LocationPicker';
+import { MultiSelect } from '@/components/ui/MultiSelect';
 import { Select } from '@/components/ui/Select';
 import { Toggle } from '@/components/ui/Toggle';
 import {
@@ -15,6 +17,19 @@ import {
   CURRICULUM_LEVELS,
   type CurriculumLevel,
 } from '@/db/schema';
+import { classOptionsFor, sanitiseClassLevels } from '@/lib/branch-classes';
+import { proposedBranchCode } from '@/lib/cities';
+import { emailRejectionReason } from '@/lib/email-validation';
+import {
+  formatLandline,
+  formatMobile,
+  isValidLandline,
+  isValidMobile,
+  LANDLINE_HINT,
+  LANDLINE_PLACEHOLDER,
+  MOBILE_HINT,
+  MOBILE_PLACEHOLDER,
+} from '@/lib/phone-formats';
 import { superAdminFetch, SuperAdminApiError } from '@/lib/super-admin-client';
 
 export interface BranchFormValues {
@@ -23,10 +38,15 @@ export interface BranchFormValues {
   code: string;
   city: string;
   address: string;
+  latitude: number | null;
+  longitude: number | null;
+  landline: string;
   phone: string;
   email: string;
   curriculumLevel: CurriculumLevel | '';
-  maxGrade: string;
+  /** Required only when `curriculumLevel` is `MIXED`. */
+  boardName: string;
+  classLevels: string[];
   isMainBranch: boolean;
   isActive: boolean;
 }
@@ -42,10 +62,14 @@ const EMPTY: BranchFormValues = {
   code: '',
   city: '',
   address: '',
+  latitude: null,
+  longitude: null,
+  landline: '',
   phone: '',
   email: '',
   curriculumLevel: '',
-  maxGrade: '',
+  boardName: '',
+  classLevels: [],
   isMainBranch: false,
   isActive: true,
 };
@@ -55,6 +79,29 @@ const CURRICULUM_OPTIONS = CURRICULUM_LEVELS.map((level) => ({
   label: CURRICULUM_LEVEL_LABELS[level],
 }));
 
+/**
+ * Create/edit a campus.
+ *
+ * ── Why the fields are in this order ─────────────────────────────────────
+ * City, then name, then code. The city is asked first because it is the only
+ * answer that *produces* another: choosing Karachi proposes `KHI-MAIN` as the
+ * code, so an operator who works top-to-bottom finds the third field already
+ * filled in. Asked in any other order the proposal arrives after the operator
+ * has typed over it, which is worse than not proposing at all.
+ *
+ * The name sits between them and stays empty on purpose. It is the one thing
+ * only the school knows — "Johar Town Campus" is not derivable from anything —
+ * so guessing at it would produce a name nobody uses and which everybody would
+ * have to clear.
+ *
+ * ── What the curriculum controls ─────────────────────────────────────────
+ * Two fields below it, which is why it is asked before either. `MIXED` reveals
+ * the board-name field, because "mixed" alone cannot be printed on a
+ * certificate. And the class list is filtered by it — a Matric campus is
+ * offered Grade 9 and Grade 10, a Cambridge one O1/O2/O3 — so changing the
+ * curriculum re-filters what is already ticked rather than silently keeping
+ * rungs the new curriculum does not have.
+ */
 export function BranchForm({ schoolId, initial }: BranchFormProps) {
   const router = useRouter();
   const isEdit = initial?.id !== undefined;
@@ -63,12 +110,43 @@ export function BranchForm({ schoolId, initial }: BranchFormProps) {
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
+  /**
+   * The code follows the city until the operator edits it, then stops. Same
+   * rule the school form's subdomain follows, and for the same reason: a
+   * deliberate code must not be overwritten by a later change of city.
+   *
+   * Always manual when editing — an existing branch's code is in use, and
+   * re-proposing over it would rename a campus that people already reference.
+   */
+  const codeIsManual = useRef(isEdit);
+
   const setField = useCallback(
     <K extends keyof BranchFormValues>(key: K, value: BranchFormValues[K]) => {
       setValues((current) => ({ ...current, [key]: value }));
     },
     [],
   );
+
+  const handleCityChange = useCallback((city: string) => {
+    setValues((current) => ({
+      ...current,
+      city,
+      code: codeIsManual.current ? current.code : proposedBranchCode(city),
+    }));
+  }, []);
+
+  const handleCurriculumChange = useCallback((level: CurriculumLevel) => {
+    setValues((current) => ({
+      ...current,
+      curriculumLevel: level,
+      // Drop the rungs the new curriculum does not have. Keeping them would
+      // save a campus as teaching classes its own board does not run.
+      classLevels: sanitiseClassLevels(current.classLevels, level),
+      // The board name means nothing off MIXED, and leaving a stale one behind
+      // would save it the next time the operator switched back.
+      boardName: level === 'MIXED' ? current.boardName : '',
+    }));
+  }, []);
 
   const handleSubmit = useCallback(
     async (event: FormEvent<HTMLFormElement>) => {
@@ -80,6 +158,27 @@ export function BranchForm({ schoolId, initial }: BranchFormProps) {
         return;
       }
 
+      if (values.curriculumLevel === 'MIXED' && values.boardName.trim() === '') {
+        setError('Name the board this campus follows.');
+        return;
+      }
+
+      if (!isValidLandline(values.landline)) {
+        setError(`That landline is incomplete. ${LANDLINE_HINT}`);
+        return;
+      }
+
+      if (!isValidMobile(values.phone)) {
+        setError(`That mobile number is not in the accepted format. ${MOBILE_HINT}`);
+        return;
+      }
+
+      const emailProblem = emailRejectionReason(values.email);
+      if (emailProblem !== null) {
+        setError(emailProblem);
+        return;
+      }
+
       setIsSubmitting(true);
 
       const payload = {
@@ -87,10 +186,14 @@ export function BranchForm({ schoolId, initial }: BranchFormProps) {
         code: values.code,
         city: values.city,
         address: values.address,
+        latitude: values.latitude,
+        longitude: values.longitude,
+        landline: values.landline,
         phone: values.phone,
         email: values.email,
         curriculumLevel: values.curriculumLevel,
-        maxGrade: values.maxGrade,
+        boardName: values.boardName,
+        classLevels: values.classLevels,
         isMainBranch: values.isMainBranch,
         isActive: values.isActive,
       };
@@ -129,6 +232,9 @@ export function BranchForm({ schoolId, initial }: BranchFormProps) {
       ? undefined
       : CURRICULUM_LEVEL_DESCRIPTIONS[values.curriculumLevel];
 
+  const classOptions =
+    values.curriculumLevel === '' ? [] : classOptionsFor(values.curriculumLevel);
+
   return (
     <form
       onSubmit={(event) => {
@@ -139,6 +245,14 @@ export function BranchForm({ schoolId, initial }: BranchFormProps) {
     >
       <Card>
         <div className="grid gap-4 sm:grid-cols-2">
+          {/* First: it proposes the code two fields below. */}
+          <CitySelect
+            value={values.city}
+            onChange={handleCityChange}
+            disabled={isSubmitting}
+            required
+          />
+
           <Input
             label="Branch name"
             required
@@ -147,7 +261,8 @@ export function BranchForm({ schoolId, initial }: BranchFormProps) {
               setField('name', event.target.value);
             }}
             disabled={isSubmitting}
-            placeholder="Karachi Main Campus"
+            placeholder="Johar Town Campus"
+            hint="What the school calls this campus."
           />
 
           <Input
@@ -155,20 +270,16 @@ export function BranchForm({ schoolId, initial }: BranchFormProps) {
             required
             value={values.code}
             onChange={(event) => {
+              codeIsManual.current = true;
               setField('code', event.target.value.toUpperCase());
             }}
             disabled={isSubmitting}
-            hint="Unique within this school, e.g. KHI-MAIN"
+            hint={
+              values.city === ''
+                ? 'Unique within this school. Choose a city and one is proposed.'
+                : `Proposed from ${values.city}. Unique within this school — edit it freely.`
+            }
             placeholder="KHI-MAIN"
-          />
-
-          <CitySelect
-            value={values.city}
-            onChange={(city) => {
-              setField('city', city);
-            }}
-            disabled={isSubmitting}
-            required
           />
 
           <Select
@@ -180,46 +291,102 @@ export function BranchForm({ schoolId, initial }: BranchFormProps) {
             disabled={isSubmitting}
             hint={curriculumHint}
             onChange={(event) => {
-              setField('curriculumLevel', event.target.value as CurriculumLevel);
+              handleCurriculumChange(event.target.value as CurriculumLevel);
             }}
           />
 
+          {/*
+            Only for MIXED. The other three levels name their own board, so
+            asking would be asking a question with one possible answer.
+          */}
+          {values.curriculumLevel === 'MIXED' ? (
+            <div className="sm:col-span-2">
+              <Input
+                label="Board name"
+                required
+                value={values.boardName}
+                onChange={(event) => {
+                  setField('boardName', event.target.value);
+                }}
+                disabled={isSubmitting}
+                placeholder="Aga Khan Board and Cambridge"
+                hint="Which boards this campus follows. “Mixed” on its own cannot be printed on a certificate."
+              />
+            </div>
+          ) : null}
+
+          <div className="sm:col-span-2">
+            <MultiSelect
+              label="Classes taught"
+              options={classOptions}
+              value={values.classLevels}
+              onChange={(next) => {
+                setField('classLevels', next);
+              }}
+              disabled={isSubmitting}
+              emptyMessage="Choose a curriculum level first — it decides which classes this campus can offer."
+              hint="Tick every class this campus runs. A junior campus ticks only its own range."
+            />
+          </div>
+
           <Input
-            label="Highest grade"
-            value={values.maxGrade}
+            label="Landline"
+            type="tel"
+            inputMode="numeric"
+            value={values.landline}
             onChange={(event) => {
-              setField('maxGrade', event.target.value);
+              // Reformatted on every keystroke, so the operator never has to be
+              // told where the brackets go.
+              setField('landline', formatLandline(event.target.value));
             }}
             disabled={isSubmitting}
-            placeholder="Grade 10 / O2 / A2"
+            placeholder={LANDLINE_PLACEHOLDER}
+            hint={LANDLINE_HINT}
+            error={isValidLandline(values.landline) ? undefined : 'Incomplete landline number.'}
           />
 
           <Input
-            label="Phone"
+            label="Mobile phone"
             type="tel"
+            inputMode="numeric"
             value={values.phone}
             onChange={(event) => {
-              setField('phone', event.target.value);
+              setField('phone', formatMobile(event.target.value));
             }}
             disabled={isSubmitting}
-          />
-
-          <Input
-            label="Email"
-            type="email"
-            value={values.email}
-            onChange={(event) => {
-              setField('email', event.target.value);
-            }}
-            disabled={isSubmitting}
+            placeholder={MOBILE_PLACEHOLDER}
+            hint={MOBILE_HINT}
+            error={isValidMobile(values.phone) ? undefined : 'Enter eleven digits, e.g. (0321) 123-4567.'}
           />
 
           <div className="sm:col-span-2">
             <Input
-              label="Address"
-              value={values.address}
+              label="Email"
+              type="email"
+              value={values.email}
               onChange={(event) => {
-                setField('address', event.target.value);
+                setField('email', event.target.value);
+              }}
+              disabled={isSubmitting}
+              placeholder="campus@school.edu.pk"
+              error={emailRejectionReason(values.email) ?? undefined}
+            />
+          </div>
+
+          <div className="sm:col-span-2">
+            <LocationPicker
+              value={{
+                address: values.address,
+                latitude: values.latitude,
+                longitude: values.longitude,
+              }}
+              onChange={(next) => {
+                setValues((current) => ({
+                  ...current,
+                  address: next.address,
+                  latitude: next.latitude,
+                  longitude: next.longitude,
+                }));
               }}
               disabled={isSubmitting}
             />

@@ -169,6 +169,13 @@
       "when": 1786867650926,
       "tag": "0023_sprint13_portals",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1787068783018,
+      "tag": "0024_school_branch_creation_fixes",
+      "breakpoints": true
     }
   ]
 }

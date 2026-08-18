@@ -4,8 +4,15 @@ import type { NextRequest } from 'next/server';
 import { branches, isCurriculumLevel } from '@/db/schema';
 import { demoteOtherMainBranches } from '@/lib/branches';
 import { apiFailure, apiSuccess, handleApiError, readJsonBody } from '@/lib/api-response';
+import { sanitiseClassLevels } from '@/lib/branch-classes';
 import { isPakistaniCity } from '@/lib/cities';
 import { db } from '@/lib/drizzle';
+import {
+  readCoordinate,
+  readEmailField,
+  readLandlineField,
+  readMobileField,
+} from '@/lib/profile-fields';
 import { resolveLocationId } from '@/lib/schools';
 import { requireSuperAdmin } from '@/lib/super-admin-guard';
 import { isUuid, readOptionalString, readString } from '@/lib/validation';
@@ -56,10 +63,14 @@ interface CreateBranchBody {
   code?: unknown;
   city?: unknown;
   address?: unknown;
+  latitude?: unknown;
+  longitude?: unknown;
+  landline?: unknown;
   phone?: unknown;
   email?: unknown;
   curriculumLevel?: unknown;
-  maxGrade?: unknown;
+  boardName?: unknown;
+  classLevels?: unknown;
   isMainBranch?: unknown;
   isActive?: unknown;
 }
@@ -103,6 +114,26 @@ export async function POST(request: NextRequest, context: RouteContext) {
       );
     }
 
+    // Required on MIXED and meaningless off it. Enforced here rather than by a
+    // CHECK constraint — see the column comment in `db/schema/branches.ts`.
+    const boardName = readOptionalString(body.boardName);
+    if (body.curriculumLevel === 'MIXED' && boardName === null) {
+      return apiFailure(
+        'invalid_body',
+        'Name the board this campus follows. “Mixed” on its own does not say which.',
+        400,
+      );
+    }
+
+    const landline = readLandlineField(body.landline);
+    if (!landline.ok) return apiFailure('invalid_body', landline.message, 400);
+
+    const phone = readMobileField(body.phone);
+    if (!phone.ok) return apiFailure('invalid_body', phone.message, 400);
+
+    const email = readEmailField(body.email);
+    if (!email.ok) return apiFailure('invalid_body', email.message, 400);
+
     const isMainBranch = body.isMainBranch === true;
 
     const inserted = await db
@@ -113,10 +144,17 @@ export async function POST(request: NextRequest, context: RouteContext) {
         code,
         city,
         address: readOptionalString(body.address),
-        phone: readOptionalString(body.phone),
-        email: readOptionalString(body.email),
+        latitude: readCoordinate(body.latitude, 'latitude'),
+        longitude: readCoordinate(body.longitude, 'longitude'),
+        landline: landline.value,
+        phone: phone.value,
+        email: email.value,
         curriculumLevel: body.curriculumLevel,
-        maxGrade: readOptionalString(body.maxGrade),
+        // Dropped rather than refused when it does not match the curriculum:
+        // the operator changed the curriculum after ticking, which is a
+        // correction, not an error.
+        classLevels: sanitiseClassLevels(body.classLevels, body.curriculumLevel),
+        boardName: body.curriculumLevel === 'MIXED' ? boardName : null,
         isMainBranch,
         isActive: body.isActive === false ? false : true,
       })

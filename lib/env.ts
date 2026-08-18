@@ -14,6 +14,19 @@ export const publicEnv = {
   // key is its opposite and must never appear in this object.
   supabaseAnonKey: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? '',
   appDomain: process.env.NEXT_PUBLIC_APP_DOMAIN ?? 'platform.com',
+  /**
+   * Google Maps JavaScript API key, for the address location picker.
+   *
+   * Optional, and the picker is built to be absent-tolerant: with no key the
+   * address field is a plain text input and says so. A map key is a billed
+   * third-party account, and a school profile form must not stop working
+   * because nobody has opened one yet.
+   *
+   * Public by necessity — the Maps JS API is loaded by the browser and there is
+   * no server-side variant of it. Restrict it by HTTP referrer in the Google
+   * Cloud console; that, not secrecy, is what stops it being spent by others.
+   */
+  googleMapsApiKey: process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY ?? '',
 } as const;
 
 export class MissingEnvError extends Error {

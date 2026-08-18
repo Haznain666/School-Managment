@@ -4,8 +4,24 @@
 resume without re-deriving context. Updated at the end of every development
 step, before the session ends.
 
-**Last updated:** 2026-08-16 (**Sprint 13 built, applied, merged and confirmed
-live (§5ac) — migration `0023`**)
+**Last updated:** 2026-08-18 (**school and branch creation fixed, merged;
+migration `0024` applied and verified — §5ai**)
+
+> ✅ **`0024_school_branch_creation_fixes.sql` applied to the live database,
+> 2026-08-18.** Verified against the real schema rather than the exit code: 25
+> of 25 migrations recorded, all eight columns present with the right types and
+> defaults, `class_levels` defaulting to the empty array on all 6 branches, and
+> `max_grade` still holding its 2 populated rows. **Next free migration number
+> is `0025`.**
+>
+> ⚠️ **This was not a sprint.** Sprint 13.5 (accounting) is still the next
+> sprint and Sprint 14 is still internal chat. `0024` was briefly named for
+> Sprint 14 and renamed before merge.
+>
+> ⚠️ **The forms were not click-tested.** No plaintext Super Admin password
+> exists, so QA was 60 scripted assertions (`npm run check-forms`), a rendered
+> chart checked for geometry, a green build and every existing `check-*` script.
+> Driving the two forms by hand in a browser is outstanding. §5ai.
 
 > ✅ **Sprint 13 is live at `schoolhub.codexmill.com`**, confirmed 2026-08-16 by
 > the CSS-hash technique (§5ab) plus a healthy smoke test, and the four new
@@ -18,8 +34,9 @@ live (§5ac) — migration `0023`**)
 > recorded, all three tables present, 11 indexes, `schools.principal_model`
 > defaulting to `'single'` on all 6 schools, and
 > `role_permissions_permission_check` now accepting `principals.manage`.
-> **Next free migration number is `0024`.** Sprint 13.5 (accounting) is the
-> next sprint, and it needs one.
+> ~~**Next free migration number is `0024`.**~~ Superseded — `0024` was taken
+> by the creation fixes on 2026-08-18. **`0025` is free.** Sprint 13.5
+> (accounting) is still the next sprint, and still needs one.
 
 > ✅ **`0022_sprint11_comms.sql` applied to the live database, 2026-08-15.**
 > Verified: 23 of 23 migrations applied, all three tables present, 12 indexes,
@@ -4243,6 +4260,108 @@ email X" report — **before** suspecting the feature that was meant to send it.
 
 ---
 
+## 5ai. School and branch creation, fixed — 2026-08-18
+
+A batch of ten reported fixes against the Super Admin's creation surfaces, plus
+the two Supabase defects the last of them turned out to be. Migration `0024`,
+applied and verified. **Not a sprint** — Sprint 13.5 (accounting) is still next
+and Sprint 14 is still internal chat. The migration was briefly named
+`0024_sprint14_…` and was renamed before merge for exactly that reason.
+
+`release-notes/RELEASE-NOTES-SCHOOL-BRANCH-CREATION-FIXES.md` is the
+school-facing account. This section is the parts a future session needs.
+
+### The chart: the failure was invisible to every automated check
+
+Eleven module labels on an x axis with ~54 units each. Type-checked, built
+green, rendered valid SVG, and was completely unreadable. `BarChart` gained
+`orientation="horizontal"`; nothing else moved to it, because every other chart
+in the product is a time series or a short-labelled comparison.
+
+**The rule worth keeping:** a vertical bar label's budget is
+`plotWidth / categories.length`. Past roughly a dozen categories, or any label
+longer than about eight characters, go horizontal. Rotation and truncation both
+look like fixes and are not — truncation renders "Academics & Timetable" and
+"Accounts & Finance" identically.
+
+### Two validators per field, deliberately not one
+
+`lib/phone-formats.ts` ended up with two functions per format, and the split is
+the point:
+
+- `isValidMobile` — the **exact display shape**. What the form asks. The
+  requirement said "any other format is not acceptable", so `0321-1234567` is
+  refused: right digits, wrong format.
+- `hasCompleteMobileDigits` — the **digits only**. What the server asks, in
+  `lib/profile-fields.ts`, followed by normalisation.
+
+The server is looser on purpose. Its callers are not only this application — a
+bulk import sending `0213456789` is not making a mistake — and what matters is
+that everything *stored* comes out in one canonical shape. QA caught the missing
+strictness on the form side; do not collapse these two back into one function.
+
+### `auth_user_id` means "has been through setup", and five things read it
+
+This is the trap to avoid re-stepping on. The obvious fix for "Supabase holds no
+real addresses" is to create the account and store `auth_user_id`. **Do not.**
+That column gates the password-setup link, chooses which of two emails the panel
+sends, drives the "Invite pending" badge, permits an emergency link, and is what
+`membershipFor()` matches a session against. Filling it when an account is merely
+*registered* makes all five claim the person is established when they have no
+password and have never signed in.
+
+So `lib/school-bootstrap.ts` registers the address with Supabase and leaves the
+column null. The setup and OTP routes still write it, at the moment it becomes
+true. `getOrCreateAuthUser` is idempotent, so the setup route finding a
+pre-registered account is the normal path, not an edge case.
+
+### Deleting a member now deletes the Supabase account — with one guard
+
+`auth.users.email` is globally unique, so an orphaned account claimed the address
+permanently and re-inviting the same person returned them to their old
+credential, password included. `deleteSchoolMember` now calls
+`releaseAuthAccount`.
+
+**The guard is load-bearing:** one Supabase account is one *human*, not one
+membership, which is what lets an address be a teacher at one school and a parent
+at another. The account is deleted only once no other `school_users` row holds
+that address — and the check is by **address, not `auth_user_id`**, because
+somebody registered but never set up has the address and no id. Matching on the
+id would leave behind exactly the accounts most likely to need clearing.
+
+### The location picker degrades, and is currently degraded
+
+`cyphercodes/location-picker` over the Google Maps JS API, wrapped in
+`components/ui/LocationPicker.tsx`. **No `NEXT_PUBLIC_GOOGLE_MAPS_API_KEY` is
+set in any environment**, so the address is presently the plain text field it
+always was, with one line saying why. That is designed behaviour, not a bug to
+chase — see §6.
+
+### `npm run check-forms`
+
+60 assertions over the form rules and the chart geometry. Same shape as
+`check-theme` and the rest. It found two defects on its first run, one of them
+real. Run it after touching `lib/phone-formats.ts`, `lib/email-validation.ts`,
+`lib/branch-classes.ts`, `lib/cities.ts` or `components/charts/BarChart.tsx`.
+
+### QA was done without signing in, and why
+
+Only `SUPER_ADMIN_PASSWORD_HASH` exists — there is no plaintext password in any
+environment, and a password should not be typed into a form by a session anyway.
+So the panel screens behind the login were **not** click-tested. What was done
+instead: the 60 assertions, the chart rendered through `react-dom/server` and its
+geometry checked (labels at 26-unit intervals, none sharing a baseline), a green
+build, `tsc`, `eslint`, and all five existing `check-*` scripts. **The forms have
+not been driven by hand in a browser.** That is the honest gap in this batch.
+
+### `max_grade` is still there, still populated, and read by nothing
+
+Two branches have a value in it. It cannot be converted to `class_levels`
+automatically because `Grade 10`, `10`, `O2` and `Matric` were all valid answers
+to a free-text box. Ask before guessing.
+
+---
+
 ## 6. Open items for the user
 
 1. ~~Install GitHub CLI~~ — **partly regressed.** Git has a stored credential
@@ -4268,6 +4387,17 @@ email X" report — **before** suspecting the feature that was meant to send it.
    supports push/ADMS — needed before Sprint 19.6 (§5x).
 10. ~~Decide the video vendor~~ — **self-hosted Jitsi, confirmed 2026-08-12.**
     A VPS is now platform infrastructure to provision and operate (§5x).
+11. **A Google Maps API key**, if the address picker is wanted. Enable *Maps
+    JavaScript API* and *Geocoding API*, restrict it by HTTP referrer to the
+    platform's own domains, and set `NEXT_PUBLIC_GOOGLE_MAPS_API_KEY`. It is a
+    billed Google Cloud account, which is why nothing depends on it: with no key
+    the address on both creation forms is the plain text field it has always
+    been, and says so in one line. Nothing is broken until this is done (§5ai).
+12. **Drive the school and branch forms by hand, once.** No plaintext Super
+    Admin password exists — only `SUPER_ADMIN_PASSWORD_HASH` — so the 2026-08-18
+    batch was verified by 60 scripted assertions and a rendered chart rather
+    than by clicking. Someone who can sign in should create one school and one
+    branch end to end. §5ai.
 
 ---
 
@@ -4275,7 +4405,8 @@ email X" report — **before** suspecting the feature that was meant to send it.
 
 | Date | Session did | Next |
 | --- | --- | --- |
-| 2026-08-16 | **Sprint 13 — Portals, the PWA shell and BR4** (§5ac). Fourteen new screens across the three portals a school does not log into, plus two things that are not screens: an installable per-tenant app, and multiple principals. **Migration `0023` written, applied and verified against the real schema** — 24 recorded, three tables, 11 indexes, `principal_model` defaulting to `single` on all six schools, and the permission CHECK accepting `principals.manage`. **BR4 adds no role**: the document's dynamic `principal_${division}` role is refused, because `school_users.role` is CHECK-constrained and every permission default is keyed on a closed set — the assignment scopes what a head *sees*, which is a visibility boundary and not an authorization one, and §5ac says plainly what that costs. **The service worker caches nothing authenticated**, deliberately and permanently until a session-keyed cache exists: a cached fee page outlives its session on a handset that is frequently shared, and signing out does not clear it. Notification preferences are opt-out with no back-fill and govern email only — the notice board is never suppressed, because a school must not be able to have told somebody something they had no way of seeing. Found and fixed a Sprint 11 defect in passing: the composer **discarded the send outcome**, so the unreachable count was computed, stored and never shown to anybody. New `npm run check-portals` asserts the calendar arithmetic and the principal-scope union with no database, then executes all 14 new queries against the live schema. All seven gates green. | **Print one of each document on real A4** — still outstanding, still needs a person and a printer, and Sprint 13 has just added the parent's own report-card sheet to the pile. Then Sprint 13.5 (accounting), which needs migration **`0024`**. Two smaller things this sprint left written but unrendered: the shared-lesson-plan read for coordinators, and Sprint 11's delivery report — build them together. |
+| 2026-08-18 | **School and branch creation, fixed** (§5ai). Ten reported items, and the last of them was two defects wearing one description. The module-adoption chart was drawing eleven long labels onto one x axis and had passed every automated check while being unreadable — `BarChart` gains a horizontal orientation, and rotation and truncation are both recorded as rejected, the second because it renders "Academics & Timetable" and "Accounts & Finance" identically. The branch form asks city first because it is the only answer that produces another (`Karachi` → `KHI-MAIN`, editable); `MIXED` now demands a board name; "Highest grade" — a free-text box that could express neither a junior campus's floor nor a skipped year — is replaced by a curriculum-filtered class list; phone splits into masked landline and mobile; email is checked against the practical grammar rather than `includes('@')`; the address gains a map picker that degrades to plain text with no key configured. All of it applies to the school form and all of it is re-checked server-side. **The two real bugs: Supabase held no address the panel had ever been asked to invite** — only the synthetic `pa_` hand-off accounts — because nothing created an account until password setup, so the address is now registered at provisioning while `auth_user_id` stays null (five things read that column as "has been through setup"); **and deleting a member left their Supabase account claiming the address forever**, so a re-invited person came back onto their old credential — now deleted with the membership, but only once no other school holds that address, because one account is one human and not one membership. **Migration `0024` applied and verified** — 25 recorded, eight columns, nothing dropped; `max_grade` deliberately kept and populated because its free-text values cannot be mapped without guessing. New `npm run check-forms`: 60 assertions, which caught a mobile validator accepting the right digits in the wrong shape. | **The two forms have not been driven by hand in a browser** — no plaintext Super Admin password exists, so QA was scripted. Set `NEXT_PUBLIC_GOOGLE_MAPS_API_KEY` to turn the map on. Then print one of each document on A4, then Sprint 13.5 on migration `0025`. |
+| 2026-08-16 | **Sprint 13 — Portals, the PWA shell and BR4** (§5ac). Fourteen new screens across the three portals a school does not log into, plus two things that are not screens: an installable per-tenant app, and multiple principals. **Migration `0023` written, applied and verified against the real schema** — 24 recorded, three tables, 11 indexes, `principal_model` defaulting to `single` on all six schools, and the permission CHECK accepting `principals.manage`. **BR4 adds no role**: the document's dynamic `principal_${division}` role is refused, because `school_users.role` is CHECK-constrained and every permission default is keyed on a closed set — the assignment scopes what a head *sees*, which is a visibility boundary and not an authorization one, and §5ac says plainly what that costs. **The service worker caches nothing authenticated**, deliberately and permanently until a session-keyed cache exists: a cached fee page outlives its session on a handset that is frequently shared, and signing out does not clear it. Notification preferences are opt-out with no back-fill and govern email only — the notice board is never suppressed, because a school must not be able to have told somebody something they had no way of seeing. Found and fixed a Sprint 11 defect in passing: the composer **discarded the send outcome**, so the unreachable count was computed, stored and never shown to anybody. New `npm run check-portals` asserts the calendar arithmetic and the principal-scope union with no database, then executes all 14 new queries against the live schema. All seven gates green. | **Print one of each document on real A4** — still outstanding, still needs a person and a printer, and Sprint 13 has just added the parent's own report-card sheet to the pile. Then Sprint 13.5 (accounting), which needs migration **`0025`** (`0024` was taken by the 2026-08-18 creation fixes, §5ai). Two smaller things this sprint left written but unrendered: the shared-lesson-plan read for coordinators, and Sprint 11's delivery report — build them together. |
 | 2026-08-15 | **Sprint 12 — Reports & analytics** (§5ab). Nine reports — attendance summary, subject-wise attendance, fee collection, outstanding/aging, academic results, payroll summary, leave summary, enrollment funnel, monthly revenue — each with filters in the URL, a printed sheet on the school's letterhead and a CSV export. **One definition, three renderers**: `lib/report-catalogue.ts` declares a report once and the screen, the sheet and the file all read it, so a column cannot exist on one and not another. **No migration, deliberately** — a `reports.read` key would have needed the permission CHECK dropped and recreated, and would have let anyone who may read the register read the salary bill; each report is gated on the permission that already governs the screen its data comes from. `lib/csv-export.ts` is new because `lib/csv.ts` only read: it writes an Excel BOM and neutralises formula injection, both asserted in the new `npm run check-reports` **because both look like litter to whoever next tidies the file**. Subject-wise attendance is derived from the daily register plus the timetable and says so on screen and on paper — there is no per-period register to read, and the report measures teaching time lost rather than pretending otherwise. Verified against the seeded school: three independently written queries agree on PKR 2,105,531 outstanding, and the cash/bank split sums exactly to the collected total. All six gates green. | **Print one of each document on real A4** — still outstanding, still needs a person and a printer, and Sprint 12 has just added a tenth thing to print. Then Sprint 13 (portals + PWA shell + multiple principals), which does need a migration. |
 | 2026-08-15 | **Sprint 11 — Communications** (§5aa), same session, after Task 1 merged. Three tables, three permissions, the audience rule, four API routes, the composer at `/dashboard/communications`, the notice board on the parent, student and teacher portals with a live unread badge, and the scheduler that releases a scheduled announcement — a second interval in `instrumentation.ts`, because the shared plan has no cron. The default delivery path is ours now that GHL is opt-in: the board always happens, email over the Sprint 0 outbox happens when asked, WhatsApp only where the paid add-on is on. The delivery log is written once at send and is what the notice board reads, so a child who changed section still sees the notice their old class was sent and never one addressed to a class they were not in. `unreachable` is kept separate from `failed` because one is the platform's to retry and the other is the school's to fix. All five gates green. | **Apply `0022_sprint11_comms.sql` to the live database** — nothing works until it runs, and it was left for a deliberate act rather than folded into a build session. Then the delivery-report screen, which is a written query with no page. |
 | 2026-08-15 | **Sprint 10.5 Task 1 — the exams charts** (§5z). Grade distribution, subject averages and pass rate on the exam detail page; pass rate against average across the last six exams on the overview. Two aggregates in `lib/dashboard-queries.ts`, both registered in `check-dashboard`, taking deliverable C from five surfaces to seven. **The distribution is bucketed by the school's own bands** through the same `resolveBand` the report card calls, never fixed percentages — two schools with identical marks must draw different charts, and anything else would contradict the document printed from the same marks. Absent students are in no band and no pass-rate denominator, and every chart says who it left out. Extracted `resultPicker` so which sitting counts is written once rather than three times. **`check-dashboard` now also asserts the fold with no database** — eleven assertions, the pivotal one running the same marks through two schemes and requiring the results to differ, because that regression compiles and executes perfectly. Also **corrected a false claim in §5z**: the §5f worktree build hazard is not dead; the stub `node_modules` reappeared and broke the second build. | **Print one of each document on real A4.** It needs a person and a printer, gates Task 2 (the report card's per-subject bar), and is the only thing left in Sprint 10.5. |

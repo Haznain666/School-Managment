@@ -7,6 +7,12 @@ import { schools } from '@/db/schema';
 import { apiFailure, apiSuccess, handleApiError, readJsonBody } from '@/lib/api-response';
 import { isPakistaniCity } from '@/lib/cities';
 import { db } from '@/lib/drizzle';
+import {
+  readCoordinate,
+  readEmailField,
+  readLandlineField,
+  readMobileField,
+} from '@/lib/profile-fields';
 import { provisionSchoolSubdomain } from '@/lib/hostinger';
 import { createFirstSchoolAdmin } from '@/lib/school-bootstrap';
 import { deriveSchoolCode, schoolCodeRejectionReason } from '@/lib/school-code';
@@ -69,6 +75,9 @@ interface CreateSchoolBody {
   schoolCode?: unknown;
   city?: unknown;
   address?: unknown;
+  latitude?: unknown;
+  longitude?: unknown;
+  landline?: unknown;
   phone?: unknown;
   email?: unknown;
   principalName?: unknown;
@@ -116,6 +125,18 @@ export async function POST(request: NextRequest) {
     const schoolCode =
       schoolCodeInput === '' ? deriveSchoolCode(name) : schoolCodeInput;
 
+    const landline = readLandlineField(body.landline);
+    if (!landline.ok) return apiFailure('invalid_body', landline.message, 400);
+
+    const phone = readMobileField(body.phone);
+    if (!phone.ok) return apiFailure('invalid_body', phone.message, 400);
+
+    const email = readEmailField(body.email);
+    if (!email.ok) return apiFailure('invalid_body', email.message, 400);
+
+    const adminEmail = readEmailField(body.adminEmail);
+    if (!adminEmail.ok) return apiFailure('invalid_body', adminEmail.message, 400);
+
     /**
      * The school owns its tenant identity.
      *
@@ -139,8 +160,11 @@ export async function POST(request: NextRequest) {
         schoolCode,
         city,
         address: readOptionalString(body.address),
-        phone: readOptionalString(body.phone),
-        email: readOptionalString(body.email),
+        latitude: readCoordinate(body.latitude, 'latitude'),
+        longitude: readCoordinate(body.longitude, 'longitude'),
+        landline: landline.value,
+        phone: phone.value,
+        email: email.value,
         principalName: readOptionalString(body.principalName),
       })
       // `slug` is unique. `location_id` is a fresh uuid and cannot clash, so a
@@ -171,7 +195,7 @@ export async function POST(request: NextRequest) {
       locationId: school.locationId,
       name: readString(body.adminName) || readString(body.principalName),
       phone: readString(body.adminPhone) || readString(body.phone),
-      email: readOptionalString(body.adminEmail) ?? readOptionalString(body.email),
+      email: adminEmail.value ?? email.value,
     });
 
     /**

@@ -7,6 +7,7 @@ import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
 import { CURRICULUM_LEVEL_LABELS, type CurriculumLevel } from '@/db/schema';
+import { classRangeLabel } from '@/lib/branch-classes';
 import { superAdminFetch, SuperAdminApiError } from '@/lib/super-admin-client';
 import { cn } from '@/lib/utils';
 
@@ -19,7 +20,8 @@ export interface BranchRow {
   phone: string | null;
   email: string | null;
   curriculumLevel: CurriculumLevel;
-  maxGrade: string | null;
+  boardName: string | null;
+  classLevels: string[];
   isActive: boolean;
   isMainBranch: boolean;
 }
@@ -144,10 +146,18 @@ export function BranchList({ schoolId }: BranchListProps) {
                     {CURRICULUM_LEVEL_LABELS[branch.curriculumLevel]}
                   </dd>
                 </div>
-                {branch.maxGrade !== null && branch.maxGrade !== '' ? (
+                {branch.boardName !== null && branch.boardName !== '' ? (
                   <div className="flex gap-2">
-                    <dt className="text-ink-muted">Up to</dt>
-                    <dd className="text-ink">{branch.maxGrade}</dd>
+                    <dt className="text-ink-muted">Board</dt>
+                    <dd className="text-ink">{branch.boardName}</dd>
+                  </div>
+                ) : null}
+                {branch.classLevels.length > 0 ? (
+                  <div className="flex gap-2">
+                    <dt className="text-ink-muted">Classes</dt>
+                    <dd className="text-ink">
+                      {classRangeLabel(branch.classLevels, branch.curriculumLevel)}
+                    </dd>
                   </div>
                 ) : null}
               </dl>
