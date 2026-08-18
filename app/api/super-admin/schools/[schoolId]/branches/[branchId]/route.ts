@@ -1,7 +1,7 @@
-import { and, eq } from 'drizzle-orm';
+import { and, count, eq } from 'drizzle-orm';
 import type { NextRequest } from 'next/server';
 
-import { branches, isCurriculumLevel } from '@/db/schema';
+import { branches, isCurriculumLevel, schoolUsers, staff, students } from '@/db/schema';
 import { apiFailure, apiSuccess, handleApiError, readJsonBody } from '@/lib/api-response';
 import { sanitiseClassLevels } from '@/lib/branch-classes';
 import { demoteOtherMainBranches } from '@/lib/branches';
@@ -257,30 +257,151 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
   }
 }
 
-export async function DELETE(_request: NextRequest, context: RouteContext) {
+/**
+ * DELETE /api/super-admin/schools/[schoolId]/branches/[branchId]
+ *
+ * Deactivates by default. Erases the campus with `?permanent=true`.
+ *
+ * ── Why this is not simply the school delete, one level down ─────────────
+ * Deleting a *school* is clean: all 61 foreign keys to `schools.location_id`
+ * cascade, so one statement takes the whole tenant and leaves nothing behind.
+ *
+ * A branch is the opposite. Of the thirteen foreign keys pointing at
+ * `branches.id`, most are **`ON DELETE SET NULL`** — `students`, `staff`,
+ * `school_users`, `school_invitations`, `payroll_runs`, `payslips`. Postgres
+ * would happily delete a busy campus and quietly detach four hundred students,
+ * their teachers and their payroll history from any campus at all. Nothing
+ * would error. The rows would simply become school-wide, appear in every branch
+ * filter, and there would be no record of where they used to be.
+ *
+ * That is a far worse outcome than refusing, so this refuses. A branch is
+ * erasable only when nothing is attached to it — which is exactly the case the
+ * feature is for: a campus typed in by mistake, a duplicate, a test row.
+ * Everything else deactivates, which is lossless and reversible.
+ *
+ * The counts are read first and named in the refusal, because "this branch is
+ * in use" sends an operator hunting; "142 students, 11 staff and 3 members"
+ * tells them what they would have to move and where to start.
+ *
+ * ── The residual risk this does not carry ────────────────────────────────
+ * `grades` cascades from a branch, and grades are referenced by sections,
+ * enrolments and exams which do **not** cascade. A branch with a grade ladder
+ * but no people could therefore still be refused by Postgres itself. That
+ * refusal is caught and reported rather than surfacing as a 500 — same
+ * treatment `deleteSchoolMember` gives a referenced member.
+ */
+export async function DELETE(request: NextRequest, context: RouteContext) {
   try {
     await requireSuperAdmin();
 
     const resolved = await resolveContext(context);
     if (resolved === null) return apiFailure('not_found', 'Branch not found.', 404);
 
-    // Soft delete, matching schools: students and staff reference this branch.
-    const updated = await db
-      .update(branches)
-      .set({ isActive: false, isMainBranch: false, updatedAt: new Date() })
-      .where(
-        and(
-          eq(branches.id, resolved.branchId),
-          eq(branches.locationId, resolved.locationId),
-        ),
-      )
-      .returning({ id: branches.id, isActive: branches.isActive });
+    const permanent =
+      new URL(request.url).searchParams.get('permanent') === 'true';
 
-    const branch = updated[0];
+    const scope = and(
+      eq(branches.id, resolved.branchId),
+      eq(branches.locationId, resolved.locationId),
+    );
+
+    if (!permanent) {
+      // Soft delete, matching schools: students and staff reference this branch.
+      const updated = await db
+        .update(branches)
+        .set({ isActive: false, isMainBranch: false, updatedAt: new Date() })
+        .where(scope)
+        .returning({ id: branches.id, isActive: branches.isActive });
+
+      const branch = updated[0];
+      if (branch === undefined) return apiFailure('not_found', 'Branch not found.', 404);
+
+      return apiSuccess({ branch, deactivated: true });
+    }
+
+    const existing = await db
+      .select({ id: branches.id, name: branches.name, code: branches.code })
+      .from(branches)
+      .where(scope)
+      .limit(1);
+
+    const branch = existing[0];
     if (branch === undefined) return apiFailure('not_found', 'Branch not found.', 404);
 
-    return apiSuccess({ branch, deactivated: true });
+    const body = await readJsonBody<{ confirmName?: unknown }>(request);
+    if (readString(body?.confirmName) !== branch.name) {
+      return apiFailure(
+        'confirmation_required',
+        `To delete this branch permanently, send its exact name as confirmName. Expected “${branch.name}”.`,
+        400,
+      );
+    }
+
+    const [studentRows, staffRows, memberRows] = await Promise.all([
+      db
+        .select({ value: count() })
+        .from(students)
+        .where(eq(students.branchId, resolved.branchId)),
+      db.select({ value: count() }).from(staff).where(eq(staff.branchId, resolved.branchId)),
+      db
+        .select({ value: count() })
+        .from(schoolUsers)
+        .where(eq(schoolUsers.branchId, resolved.branchId)),
+    ]);
+
+    const attached = [
+      { n: studentRows[0]?.value ?? 0, one: 'student', many: 'students' },
+      { n: staffRows[0]?.value ?? 0, one: 'staff member', many: 'staff' },
+      { n: memberRows[0]?.value ?? 0, one: 'portal member', many: 'portal members' },
+    ].filter((entry) => entry.n > 0);
+
+    if (attached.length > 0) {
+      const listed = attached
+        .map((entry) => `${entry.n} ${entry.n === 1 ? entry.one : entry.many}`)
+        .join(', ');
+
+      return apiFailure(
+        'conflict',
+        `${branch.name} still has ${listed} attached. Deleting it would detach ` +
+          'them from every campus rather than removing them, so it is refused. ' +
+          'Move them to another branch first, or deactivate this one instead — ' +
+          'a deactivated branch keeps all of its records and is hidden from the ' +
+          'school portal.',
+        409,
+      );
+    }
+
+    try {
+      await db.delete(branches).where(scope);
+    } catch (error) {
+      if (isForeignKeyViolation(error)) {
+        return apiFailure(
+          'conflict',
+          `${branch.name} is still referenced by records this cannot safely ` +
+            'remove — most likely its grade ladder is in use by sections, ' +
+            'enrolments or exams. Deactivate it instead.',
+          409,
+        );
+      }
+      throw error;
+    }
+
+    console.warn(
+      `[super-admin] branch "${branch.name}" (${branch.code}) was permanently deleted`,
+    );
+
+    return apiSuccess({ deleted: true, name: branch.name, code: branch.code });
   } catch (error) {
     return handleApiError(error);
   }
+}
+
+/** Postgres foreign_key_violation. Mirrors `lib/school-queries.ts`. */
+function isForeignKeyViolation(error: unknown): boolean {
+  return (
+    typeof error === 'object' &&
+    error !== null &&
+    'code' in error &&
+    (error as { code?: unknown }).code === '23503'
+  );
 }

@@ -1,20 +1,10 @@
-import { randomBytes } from 'node:crypto';
-
 import { and, eq } from 'drizzle-orm';
 import type { NextRequest } from 'next/server';
 
-import {
-  passwordSetupTokens,
-  schools,
-  schoolUsers,
-  SETUP_TOKEN_TTL_HOURS,
-  setupExpiryFromNow,
-} from '@/db/schema';
+import { schools, schoolUsers } from '@/db/schema';
+import { queueAccessEmail } from '@/lib/access-email';
 import { apiFailure, apiSuccess, handleApiError } from '@/lib/api-response';
 import { db } from '@/lib/drizzle';
-import { enqueueEmail } from '@/lib/email-outbox';
-import { smtpConfigured } from '@/lib/email-sender';
-import { buildSchoolLoginUrl, buildSetupPasswordUrl } from '@/lib/invite-links';
 import { requireSuperAdmin } from '@/lib/super-admin-guard';
 import { isUuid } from '@/lib/validation';
 
@@ -140,98 +130,28 @@ export async function POST(_request: NextRequest, context: RouteContext) {
       );
     }
 
-    if (!smtpConfigured()) {
-      return apiFailure(
-        'misconfigured',
-        'No SMTP transport is configured, so nothing can be sent. Set ' +
-          'SMTP_HOST and SMTP_FROM (and SMTP_PORT if it is not 587).',
-        500,
-      );
-    }
+    const outcome = await queueAccessEmail({
+      locationId: school.locationId,
+      school: { name: school.name, slug: school.slug },
+      member: {
+        id: member.id,
+        name: member.name,
+        email: member.email,
+        authUserId: member.authUserId,
+      },
+      createdBy: session.email,
+    });
 
-    const isFirstTime = member.authUserId === null;
-    let text: string;
-
-    if (isFirstTime) {
-      // 32 bytes, the same width as an emergency link. Rows are kept after use
-      // for the audit trail, and an unused earlier one is left alone rather
-      // than revoked: it expires on its own, and revoking would break a link
-      // the person may be walking to their desk to click.
-      const token = randomBytes(32).toString('hex');
-
-      await db.insert(passwordSetupTokens).values({
-        locationId: school.locationId,
-        schoolUserId: member.id,
-        token,
-        createdBy: session.email,
-        expiresAt: setupExpiryFromNow(),
-      });
-
-      text = [
-        `Hello ${member.name},`,
-        '',
-        `You have been given access to ${school.name} on our school`,
-        'management system.',
-        '',
-        `1. Open ${buildSetupPasswordUrl(token, school.slug)}`,
-        '2. Choose your password',
-        '',
-        `That is it. After this you sign in with ${member.email} and the`,
-        'password you just chose.',
-        '',
-        `The link works once and expires in ${SETUP_TOKEN_TTL_HOURS} hours. If`,
-        'it stops working, ask your administrator to send a new one.',
-        '',
-        'If you were not expecting this, ignore it — the link does nothing',
-        'until somebody sets a password with it, and only this mailbox has it.',
-      ].join('\n');
-    } else {
-      text = [
-        `Hello ${member.name},`,
-        '',
-        `Here is where to sign in to ${school.name}:`,
-        '',
-        `  ${buildSchoolLoginUrl(school.slug)}`,
-        '',
-        `Use your email address, ${member.email}, and your password.`,
-        '',
-        'If you have forgotten it, choose "Forgot password?" on that page and',
-        'we will email you a six-digit code to set a new one.',
-      ].join('\n');
-    }
-
-    try {
-      await enqueueEmail({
-        // Platform mail: the operator of the platform is writing to a member of
-        // a school. The school is recorded anyway, because knowing which tenant
-        // a queued message concerns is worth more than the purity of the null.
-        locationId: school.locationId,
-        to: member.email,
-        subject: isFirstTime
-          ? `Set up your ${school.name} account`
-          : `Your ${school.name} portal access`,
-        text,
-      });
-    } catch (error) {
-      // A failure here is the database refusing an INSERT, not SMTP refusing a
-      // message — the transport is not involved yet. Worth reporting plainly,
-      // because it means nothing was queued and the button did nothing.
-      console.error('[super-admin] could not queue the sign-in email:', error);
-      return apiFailure(
-        'queue_failed',
-        `Could not queue a message to ${member.email}. ${
-          error instanceof Error ? error.message : 'The queue rejected it.'
-        }`,
-        502,
-      );
+    if (!outcome.queued) {
+      return apiFailure('queue_failed', outcome.reason, 502);
     }
 
     return apiSuccess({
       queued: true,
-      email: member.email,
+      email: outcome.email,
       name: member.name,
       /** Lets the panel say which of the two emails just went out. */
-      firstTime: isFirstTime,
+      firstTime: outcome.firstTime,
     });
   } catch (error) {
     return handleApiError(error);

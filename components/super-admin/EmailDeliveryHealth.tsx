@@ -2,6 +2,7 @@ import { and, desc, eq, sql } from 'drizzle-orm';
 
 import { emailOutbox, EMAIL_MAX_ATTEMPTS } from '@/db/schema';
 import { Card, CardTitle } from '@/components/ui/Card';
+import { RequeueFailedEmails } from '@/components/super-admin/RequeueFailedEmails';
 import { db } from '@/lib/drizzle';
 
 /**
@@ -119,6 +120,13 @@ export async function EmailDeliveryHealth() {
         credentials sooner means the queued messages go out on their own rather
         than needing to be re-sent.
       </p>
+
+      {/*
+        And once they *have* been abandoned, this is the only way back — the
+        drainer will never touch a `failed` row again, and several of the flows
+        that queue mail offer no resend of their own.
+      */}
+      <RequeueFailedEmails failed={failed} />
     </Card>
   );
 }

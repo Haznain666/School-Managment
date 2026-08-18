@@ -96,6 +96,48 @@ export async function enqueueEmail(input: EnqueueEmailInput): Promise<string> {
   return id;
 }
 
+/**
+ * Puts abandoned messages back on the queue.
+ *
+ * ── Why this is needed at all ────────────────────────────────────────────
+ * The outbox gives up after `EMAIL_MAX_ATTEMPTS` and marks the row `failed`.
+ * That is right while the fault is transient — retrying a refusing host forever
+ * is how a queue earns a rate-limit ban. But the fault this queue actually sees
+ * is a *credential* one: on 2026-08-18 every message since the 13th had failed
+ * with `535 authentication failed`, because the SMTP user or password in the
+ * hosting panel had gone stale.
+ *
+ * That fault is fixed by editing two environment variables, and at the moment
+ * it is fixed the queue is full of mail that will never be tried again. Without
+ * this, every one of those invitations has to be found and re-sent by hand from
+ * whichever screen created it — and some of them, like the invitation flow, do
+ * not offer a resend at all.
+ *
+ * ── Why attempts is reset rather than incremented ────────────────────────
+ * A requeue is a statement that the *cause* has changed, not that the message
+ * deserves one more go. Leaving `attempts` at its ceiling would have the
+ * drainer abandon the row again on its first failure, which defeats the point.
+ * `scheduled_at` is set to now so it goes out on the next drain rather than
+ * inheriting an old backoff.
+ *
+ * `last_error` is deliberately kept. It is the record of why the message sat
+ * there, and clearing it would erase the only evidence of an outage that has
+ * just been fixed.
+ */
+export async function requeueFailedEmails(): Promise<number> {
+  const requeued = await db
+    .update(emailOutbox)
+    .set({ status: 'queued', attempts: 0, scheduledAt: new Date() })
+    .where(eq(emailOutbox.status, 'failed'))
+    .returning({ id: emailOutbox.id });
+
+  if (requeued.length > 0) {
+    console.info(`[email-outbox] requeued ${requeued.length} abandoned message(s)`);
+  }
+
+  return requeued.length;
+}
+
 export interface DrainResult {
   claimed: number;
   sent: number;

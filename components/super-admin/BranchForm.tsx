@@ -49,6 +49,8 @@ export interface BranchFormValues {
   classLevels: string[];
   isMainBranch: boolean;
   isActive: boolean;
+  /** Create the branch email as this campus's administrator and invite them. */
+  inviteAsBranchAdmin: boolean;
 }
 
 export interface BranchFormProps {
@@ -72,6 +74,7 @@ const EMPTY: BranchFormValues = {
   classLevels: [],
   isMainBranch: false,
   isActive: true,
+  inviteAsBranchAdmin: false,
 };
 
 const CURRICULUM_OPTIONS = CURRICULUM_LEVELS.map((level) => ({
@@ -148,6 +151,17 @@ export function BranchForm({ schoolId, initial }: BranchFormProps) {
     }));
   }, []);
 
+  /**
+   * Both an address and a mobile are required to invite anyone.
+   * `school_users.phone` is NOT NULL and unique per school — it is how a member
+   * is identified within a tenant — so an email alone cannot produce a row.
+   */
+  const canInvite =
+    values.email.trim() !== '' &&
+    emailRejectionReason(values.email) === null &&
+    isValidMobile(values.phone) &&
+    values.phone.trim() !== '';
+
   const handleSubmit = useCallback(
     async (event: FormEvent<HTMLFormElement>) => {
       event.preventDefault();
@@ -196,6 +210,10 @@ export function BranchForm({ schoolId, initial }: BranchFormProps) {
         classLevels: values.classLevels,
         isMainBranch: values.isMainBranch,
         isActive: values.isActive,
+        // Only ever meaningful on create, and only when there is somebody to
+        // invite. Editing a branch must not silently mint a member.
+        inviteAsBranchAdmin:
+          !isEdit && canInvite && values.inviteAsBranchAdmin,
       };
 
       const base = `/api/super-admin/schools/${schoolId}/branches`;
@@ -224,7 +242,7 @@ export function BranchForm({ schoolId, initial }: BranchFormProps) {
         setIsSubmitting(false);
       }
     },
-    [values, isEdit, initial?.id, schoolId, router],
+    [values, isEdit, initial?.id, schoolId, router, canInvite],
   );
 
   const curriculumHint =
@@ -391,6 +409,29 @@ export function BranchForm({ schoolId, initial }: BranchFormProps) {
               disabled={isSubmitting}
             />
           </div>
+
+          {/*
+            Offered only on create, and only once there is an address and a
+            mobile to attach it to. An email typed here used to go nowhere at
+            all, which is what "the email is not being sent to the user" meant.
+          */}
+          {!isEdit && values.email.trim() !== '' ? (
+            <div className="sm:col-span-2">
+              <Toggle
+                label="Invite this email as the branch administrator"
+                description={
+                  canInvite
+                    ? `${values.email.trim()} will be given a branch administrator account for this campus and emailed a link to set their password.`
+                    : 'A mobile number is needed as well — it is how a member is identified within a school. Add one above to enable this.'
+                }
+                checked={canInvite && values.inviteAsBranchAdmin}
+                disabled={isSubmitting || !canInvite}
+                onChange={(next) => {
+                  setField('inviteAsBranchAdmin', next);
+                }}
+              />
+            </div>
+          ) : null}
 
           <div className="space-y-3 sm:col-span-2">
             <Toggle

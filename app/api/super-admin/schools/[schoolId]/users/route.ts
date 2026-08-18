@@ -1,7 +1,8 @@
 import { asc, eq } from 'drizzle-orm';
 import type { NextRequest } from 'next/server';
 
-import { branches, schoolUsers } from '@/db/schema';
+import { branches, schools, schoolUsers } from '@/db/schema';
+import { queueAccessEmail } from '@/lib/access-email';
 import {
   apiFailure,
   apiSuccess,
@@ -100,7 +101,8 @@ interface CreateAdminBody {
  */
 export async function POST(request: NextRequest, context: RouteContext) {
   try {
-    await requireSuperAdmin();
+    // Captured so the issued setup token records who asked for it.
+    const session = await requireSuperAdmin();
 
     const { schoolId } = await context.params;
     if (!isUuid(schoolId)) {
@@ -170,8 +172,43 @@ export async function POST(request: NextRequest, context: RouteContext) {
       );
     }
 
-    // The email is echoed back because the panel's next instruction names it:
-    // nothing has been sent yet, and "Send sign-in email" is the next step.
+    /**
+     * Send the access email now, rather than waiting for a button.
+     *
+     * This route used to create the row and stop, leaving "Send sign-in email"
+     * as a separate press an operator had to know to make. That is the whole
+     * of the reported defect "I created an administrator and they never
+     * received anything" — nothing was ever sent, and no screen said so.
+     *
+     * A failure here does not fail the request: the member exists and is
+     * useful, and the commonest cause is the platform's own SMTP being
+     * misconfigured, which is not something to undo a provisioning over. The
+     * outcome is returned so the panel can say plainly whether mail went out.
+     */
+    const schoolRows = await db
+      .select({ name: schools.name, slug: schools.slug })
+      .from(schools)
+      .where(eq(schools.id, schoolId))
+      .limit(1);
+
+    const school = schoolRows[0];
+    const access =
+      school === undefined
+        ? { queued: false as const, reason: 'The school could not be re-read.' }
+        : await queueAccessEmail({
+            locationId,
+            school,
+            member: {
+              id: result.userId,
+              name,
+              email,
+              // Freshly created, so never through setup — this always produces
+              // the setup link rather than the "where to sign in" reminder.
+              authUserId: null,
+            },
+            createdBy: session.email,
+          });
+
     // `authAccount` says whether the address was registered with Supabase —
     // `failed` is worth seeing, because it means the early duplicate check did
     // not happen and the account will instead be created at password setup.
@@ -181,6 +218,8 @@ export async function POST(request: NextRequest, context: RouteContext) {
         phone: result.phone,
         email,
         authAccount: result.authAccount,
+        emailQueued: access.queued,
+        emailProblem: access.queued ? null : access.reason,
       },
       201,
     );

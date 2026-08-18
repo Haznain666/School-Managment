@@ -54,6 +54,9 @@ export default async function EditBranchPage({
           boardName: branch.boardName ?? '',
           classLevels: branch.classLevels,
           isMainBranch: branch.isMainBranch,
+          // Create-only. An existing branch already has whatever members it
+          // has, and editing it must never mint another.
+          inviteAsBranchAdmin: false,
           isActive: branch.isActive,
         }}
       />
