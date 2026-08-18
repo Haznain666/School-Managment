@@ -308,6 +308,39 @@ export async function getOrCreateAuthUser(
   );
 }
 
+/**
+ * Deletes an account outright.
+ *
+ * ── Why this exists ──────────────────────────────────────────────────────
+ * `auth.users.email` is globally unique, so an account left behind after its
+ * `school_users` row is deleted permanently claims that address. Re-inviting
+ * the same person then lands on an account nobody in this application knows
+ * about: `getOrCreateAuthUser` finds it, returns it, and the new member inherits
+ * whatever password and metadata the old one had. Deleting the membership and
+ * leaving the credential is the worst of both — the person cannot get in, and
+ * the address cannot be reused.
+ *
+ * ── Returns rather than throws ───────────────────────────────────────────
+ * Every caller is deleting a `school_users` row that is already gone by the
+ * time this runs. Raising here would report failure for an operation that
+ * mostly succeeded and would tempt a caller into a rollback it cannot perform.
+ * The outcome is returned so it can be reported as what it is: a tidy-up that
+ * did or did not happen.
+ *
+ * `false` for an account that was already absent, which is not a failure — it
+ * is the state the caller wanted.
+ */
+export async function deleteAuthUser(userId: string): Promise<boolean> {
+  const { error } = await getAuthAdmin().auth.admin.deleteUser(userId);
+
+  if (error !== null) {
+    console.warn(`[auth] could not delete Supabase account ${userId}: ${error.message}`);
+    return false;
+  }
+
+  return true;
+}
+
 /** Sets or replaces an account's password. Service-role, so no old password. */
 export async function setUserPassword(userId: string, password: string): Promise<void> {
   const { error } = await getAuthAdmin().auth.admin.updateUserById(userId, { password });

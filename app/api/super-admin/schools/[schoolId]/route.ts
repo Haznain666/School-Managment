@@ -5,6 +5,12 @@ import { schools } from '@/db/schema';
 import { apiFailure, apiSuccess, handleApiError, readJsonBody } from '@/lib/api-response';
 import { isPakistaniCity } from '@/lib/cities';
 import { db } from '@/lib/drizzle';
+import {
+  readCoordinate,
+  readEmailField,
+  readLandlineField,
+  readMobileField,
+} from '@/lib/profile-fields';
 import { deriveSchoolCode, schoolCodeRejectionReason } from '@/lib/school-code';
 import { slugRejectionReason } from '@/lib/slug';
 import { requireSuperAdmin } from '@/lib/super-admin-guard';
@@ -54,6 +60,9 @@ interface UpdateSchoolBody {
   schoolCode?: unknown;
   city?: unknown;
   address?: unknown;
+  latitude?: unknown;
+  longitude?: unknown;
+  landline?: unknown;
   phone?: unknown;
   email?: unknown;
   principalName?: unknown;
@@ -138,8 +147,30 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
     }
 
     if (body.address !== undefined) updates.address = readOptionalString(body.address);
-    if (body.phone !== undefined) updates.phone = readOptionalString(body.phone);
-    if (body.email !== undefined) updates.email = readOptionalString(body.email);
+    if (body.latitude !== undefined) {
+      updates.latitude = readCoordinate(body.latitude, 'latitude');
+    }
+    if (body.longitude !== undefined) {
+      updates.longitude = readCoordinate(body.longitude, 'longitude');
+    }
+
+    if (body.landline !== undefined) {
+      const landline = readLandlineField(body.landline);
+      if (!landline.ok) return apiFailure('invalid_body', landline.message, 400);
+      updates.landline = landline.value;
+    }
+
+    if (body.phone !== undefined) {
+      const phone = readMobileField(body.phone);
+      if (!phone.ok) return apiFailure('invalid_body', phone.message, 400);
+      updates.phone = phone.value;
+    }
+
+    if (body.email !== undefined) {
+      const email = readEmailField(body.email);
+      if (!email.ok) return apiFailure('invalid_body', email.message, 400);
+      updates.email = email.value;
+    }
     if (body.principalName !== undefined) {
       updates.principalName = readOptionalString(body.principalName);
     }

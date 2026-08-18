@@ -6,6 +6,7 @@ import { schoolUsers } from '@/db/schema';
 
 import type { Database } from './drizzle';
 import { InvalidPhoneError, normalizePhone } from './phone';
+import { getOrCreateAuthUser } from './supabase-auth';
 
 /**
  * First-administrator bootstrap.
@@ -40,12 +41,80 @@ export interface BootstrapAdminParams {
   email?: string | null | undefined;
 }
 
+/**
+ * What became of the Supabase account for the administrator's address.
+ *
+ *  created   the address did not exist in Supabase and now does
+ *  existing  it was already there — the same person at another school, or a
+ *            re-run of this provisioning
+ *  none      no address was supplied, so there was nothing to register
+ *  failed    Supabase refused or was unreachable; `school_users` is still
+ *            correct and the account is created on first password setup
+ */
+export type AuthAccountOutcome = 'created' | 'existing' | 'none' | 'failed';
+
 export type BootstrapAdminResult =
-  | { status: 'created'; userId: string; phone: string }
+  | {
+      status: 'created';
+      userId: string;
+      phone: string;
+      authAccount: AuthAccountOutcome;
+    }
   /** Someone already holds that number at this school; nothing was changed. */
   | { status: 'exists'; userId: string; phone: string }
   /** Nothing usable was supplied. `reason` is safe to show an operator. */
   | { status: 'skipped'; reason: string };
+
+/**
+ * Registers the administrator's address with Supabase Auth.
+ *
+ * ── The defect this closes ───────────────────────────────────────────────
+ * Until now nothing created a Supabase account at the point an administrator
+ * was provisioned. The account appeared much later, on the first password
+ * setup, which meant `auth.users` for a live deployment contained nothing but
+ * the synthetic `pa_…@…` accounts behind the operator hand-off — not one of the
+ * real addresses the panel had been asked to invite. An operator looking at
+ * Supabase to confirm where an invitation went found an address the platform
+ * had invented and none that they had typed.
+ *
+ * Registering the address here also moves the discovery of a bad one forward:
+ * a typo or a duplicate is refused while the operator is still on the form,
+ * instead of surfacing when the recipient clicks their setup link days later.
+ *
+ * ── What is deliberately NOT done ────────────────────────────────────────
+ * `school_users.auth_user_id` is left null. Throughout this codebase that
+ * column means "this person has been through setup and can sign in" — it gates
+ * the setup link (`app/api/school/auth/setup/route.ts`), chooses which of two
+ * emails the panel sends, decides the "Invite pending" badge, and permits an
+ * emergency link. Filling it in the moment an account is *registered* would
+ * make all five say the person is established when they have no password and
+ * have never signed in. The column is still written by the setup and OTP routes
+ * at the moment it becomes true.
+ *
+ * ── Never throws ─────────────────────────────────────────────────────────
+ * The `school_users` row is committed by the time this runs, and Supabase being
+ * unreachable must not undo a school's provisioning. The setup route calls
+ * `getOrCreateAuthUser` for the same address anyway, so a failure here costs
+ * the early check and nothing else.
+ */
+async function registerAuthAccount(email: string): Promise<AuthAccountOutcome> {
+  if (email === '') return 'none';
+
+  try {
+    const before = await getOrCreateAuthUser(email);
+    // `created_at` within the last few seconds is the only signal the admin API
+    // gives that this call made the account rather than found it. Used for
+    // reporting only — nothing branches on it.
+    const age = Date.now() - new Date(before.created_at).getTime();
+    return age < 10_000 ? 'created' : 'existing';
+  } catch (error) {
+    console.warn(
+      '[school-bootstrap] could not register the administrator address with ' +
+        `Supabase: ${error instanceof Error ? error.message : 'unknown error'}`,
+    );
+    return 'failed';
+  }
+}
 
 /**
  * Creates the school's first administrator, if the details allow it.
@@ -109,7 +178,12 @@ export async function createFirstSchoolAdmin(
 
   const created = inserted[0];
   if (created !== undefined) {
-    return { status: 'created', userId: created.id, phone };
+    return {
+      status: 'created',
+      userId: created.id,
+      phone,
+      authAccount: await registerAuthAccount(email),
+    };
   }
 
   const existing = await db

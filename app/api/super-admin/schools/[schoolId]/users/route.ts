@@ -9,6 +9,7 @@ import {
   readJsonBody,
 } from '@/lib/api-response';
 import { db } from '@/lib/drizzle';
+import { readEmailField } from '@/lib/profile-fields';
 import { createFirstSchoolAdmin } from '@/lib/school-bootstrap';
 import { resolveLocationId } from '@/lib/schools';
 import { requireSuperAdmin } from '@/lib/super-admin-guard';
@@ -118,20 +119,28 @@ export async function POST(request: NextRequest, context: RouteContext) {
 
     const name = readString(body.name);
     const phone = readString(body.phone);
-    const email = readString(body.email).toLowerCase();
-
     if (name === '') {
       return apiFailure('invalid_body', "Enter the administrator's name.", 400);
     }
     if (phone === '') {
       return apiFailure('invalid_body', 'Enter a mobile number.', 400);
     }
+
     // Required here, though `createFirstSchoolAdmin` still tolerates its
     // absence for the school-provisioning path that infers it from the
     // principal. Sign-in is by email: an administrator created without one is
     // an account nobody can ever use, and this is the screen where that
     // mistake is made deliberately rather than inherited.
-    if (!email.includes('@') || email.length < 3) {
+    //
+    // Checked properly rather than with the `includes('@')` test this used to
+    // carry, which accepted `@`, `a@b` and `admin@school` — the last of which
+    // is the typo people actually make, and which Supabase then rejects when
+    // the account is created, long after this screen has closed.
+    const emailField = readEmailField(body.email);
+    if (!emailField.ok) return apiFailure('invalid_body', emailField.message, 400);
+
+    const email = emailField.value;
+    if (email === null) {
       return apiFailure(
         'invalid_body',
         'Enter an email address — it is how they sign in.',
@@ -163,8 +172,16 @@ export async function POST(request: NextRequest, context: RouteContext) {
 
     // The email is echoed back because the panel's next instruction names it:
     // nothing has been sent yet, and "Send sign-in email" is the next step.
+    // `authAccount` says whether the address was registered with Supabase —
+    // `failed` is worth seeing, because it means the early duplicate check did
+    // not happen and the account will instead be created at password setup.
     return apiSuccess(
-      { userId: result.userId, phone: result.phone, email },
+      {
+        userId: result.userId,
+        phone: result.phone,
+        email,
+        authAccount: result.authAccount,
+      },
       201,
     );
   } catch (error) {

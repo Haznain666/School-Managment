@@ -7,6 +7,18 @@ import { CitySelect } from '@/components/super-admin/CitySelect';
 import { Button } from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
 import { Input } from '@/components/ui/Input';
+import { LocationPicker } from '@/components/ui/LocationPicker';
+import { emailRejectionReason } from '@/lib/email-validation';
+import {
+  formatLandline,
+  formatMobile,
+  isValidLandline,
+  isValidMobile,
+  LANDLINE_HINT,
+  LANDLINE_PLACEHOLDER,
+  MOBILE_HINT,
+  MOBILE_PLACEHOLDER,
+} from '@/lib/phone-formats';
 import { slugify } from '@/lib/slug';
 import { deriveSchoolCode, schoolCodeRejectionReason } from '@/lib/school-code';
 import { superAdminFetch, SuperAdminApiError } from '@/lib/super-admin-client';
@@ -19,6 +31,9 @@ export interface SchoolFormValues {
   schoolCode: string;
   city: string;
   address: string;
+  latitude: number | null;
+  longitude: number | null;
+  landline: string;
   phone: string;
   email: string;
   principalName: string;
@@ -36,6 +51,9 @@ const EMPTY: SchoolFormValues = {
   schoolCode: '',
   city: '',
   address: '',
+  latitude: null,
+  longitude: null,
+  landline: '',
   phone: '',
   email: '',
   principalName: '',
@@ -137,13 +155,34 @@ export function SchoolForm({ initial, appDomain }: SchoolFormProps) {
         return;
       }
 
-      setIsSubmitting(true);
-
       const codeProblem = schoolCodeRejectionReason(values.schoolCode.trim());
       if (codeProblem !== null) {
         setError(codeProblem);
         return;
       }
+
+      if (!isValidLandline(values.landline)) {
+        setError(`That landline is incomplete. ${LANDLINE_HINT}`);
+        return;
+      }
+
+      if (!isValidMobile(values.phone)) {
+        setError(`That mobile number is not in the accepted format. ${MOBILE_HINT}`);
+        return;
+      }
+
+      const emailProblem = emailRejectionReason(values.email);
+      if (emailProblem !== null) {
+        setError(emailProblem);
+        return;
+      }
+
+      // Every refusal above happens before this, and that ordering is the fix
+      // for a real defect: the school-code check used to sit *after*
+      // `setIsSubmitting(true)` and returned without clearing it, so a bad code
+      // left the form disabled with its spinner running and no way back except
+      // a page reload.
+      setIsSubmitting(true);
 
       const payload = {
         name: values.name,
@@ -151,6 +190,9 @@ export function SchoolForm({ initial, appDomain }: SchoolFormProps) {
         schoolCode: values.schoolCode,
         city: values.city,
         address: values.address,
+        latitude: values.latitude,
+        longitude: values.longitude,
+        landline: values.landline,
         phone: values.phone,
         email: values.email,
         principalName: values.principalName,
@@ -217,6 +259,24 @@ export function SchoolForm({ initial, appDomain }: SchoolFormProps) {
     >
       <Card>
         <div className="grid gap-4 sm:grid-cols-2">
+          {/*
+            City first, as on the branch form. There it produces the branch
+            code; here it produces nothing, but the two forms sitting one click
+            apart and asking the same questions in different orders is its own
+            small tax on an operator setting up a school and its campuses in one
+            sitting.
+          */}
+          <div className="sm:col-span-2">
+            <CitySelect
+              value={values.city}
+              onChange={(city) => {
+                setField('city', city);
+              }}
+              disabled={isSubmitting}
+              required
+            />
+          </div>
+
           <div className="sm:col-span-2">
             <Input
               label="School name"
@@ -272,15 +332,6 @@ export function SchoolForm({ initial, appDomain }: SchoolFormProps) {
             }`}
           />
 
-          <CitySelect
-            value={values.city}
-            onChange={(city) => {
-              setField('city', city);
-            }}
-            disabled={isSubmitting}
-            required
-          />
-
           <Input
             label="Principal name"
             value={values.principalName}
@@ -296,43 +347,71 @@ export function SchoolForm({ initial, appDomain }: SchoolFormProps) {
           />
 
           <Input
-            label="Phone"
+            label="Landline"
             type="tel"
-            value={values.phone}
+            inputMode="numeric"
+            value={values.landline}
             onChange={(event) => {
-              setField('phone', event.target.value);
+              setField('landline', formatLandline(event.target.value));
             }}
             disabled={isSubmitting}
-            placeholder="+92 21 1234567"
-            hint={
-              isEdit
-                ? undefined
-                : // Was: "this also becomes the principal's login, so use a
-                  // mobile that can receive WhatsApp". Both halves stopped
-                  // being true at Stage 4 — the login is the email address
-                  // below, and no passcode goes to a handset — so the form was
-                  // telling operators to choose this field carefully for a
-                  // reason that no longer exists.
-                  'A contact number for the school record. It is not used to sign in.'
-            }
+            placeholder={LANDLINE_PLACEHOLDER}
+            hint={LANDLINE_HINT}
+            error={isValidLandline(values.landline) ? undefined : 'Incomplete landline number.'}
           />
 
           <Input
-            label="Email"
-            type="email"
-            value={values.email}
+            label="Mobile phone"
+            type="tel"
+            inputMode="numeric"
+            value={values.phone}
             onChange={(event) => {
-              setField('email', event.target.value);
+              setField('phone', formatMobile(event.target.value));
             }}
             disabled={isSubmitting}
+            placeholder={MOBILE_PLACEHOLDER}
+            hint={
+              // Was: "this also becomes the principal's login, so use a mobile
+              // that can receive WhatsApp". Both halves stopped being true at
+              // Stage 4 — the login is the email address below, and no passcode
+              // goes to a handset — so the form was telling operators to choose
+              // this field carefully for a reason that no longer exists.
+              MOBILE_HINT
+            }
+            error={isValidMobile(values.phone) ? undefined : 'Enter eleven digits, e.g. (0321) 123-4567.'}
           />
 
           <div className="sm:col-span-2">
             <Input
-              label="Address"
-              value={values.address}
+              label="Email"
+              type="email"
+              value={values.email}
               onChange={(event) => {
-                setField('address', event.target.value);
+                setField('email', event.target.value);
+              }}
+              disabled={isSubmitting}
+              placeholder="office@school.edu.pk"
+              hint={
+                isEdit ? undefined : 'Becomes the first administrator’s sign-in address.'
+              }
+              error={emailRejectionReason(values.email) ?? undefined}
+            />
+          </div>
+
+          <div className="sm:col-span-2">
+            <LocationPicker
+              value={{
+                address: values.address,
+                latitude: values.latitude,
+                longitude: values.longitude,
+              }}
+              onChange={(next) => {
+                setValues((current) => ({
+                  ...current,
+                  address: next.address,
+                  latitude: next.latitude,
+                  longitude: next.longitude,
+                }));
               }}
               disabled={isSubmitting}
             />

@@ -2,6 +2,7 @@ import { sql } from 'drizzle-orm';
 import {
   boolean,
   check,
+  doublePrecision,
   index,
   pgTable,
   text,
@@ -64,6 +65,15 @@ export const schools = pgTable(
     schoolCode: text('school_code'),
     city: text('city').notNull(),
     address: text('address'),
+    /**
+     * Where the address is, when it was picked on a map rather than typed.
+     * Null whenever it was not — see the same pair on `branches`.
+     */
+    latitude: doublePrecision('latitude'),
+    longitude: doublePrecision('longitude'),
+    /** Landline, in the display form `(021) 3456789`. */
+    landline: text('landline'),
+    /** Mobile, in the display form `(0321) 123-4567`. */
     phone: text('phone'),
     email: text('email'),
     principalName: text('principal_name'),

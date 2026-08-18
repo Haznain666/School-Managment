@@ -30,6 +30,7 @@ import type { UserRole } from '@/types/school-auth';
 
 import { getActiveAcademicYear } from './admissions-queries';
 import { db } from './drizzle';
+import { deleteAuthUser, findAuthUserByEmail, normaliseEmail } from './supabase-auth';
 
 /**
  * Tenant-scoped reads shared by the portal layouts, pages and API routes.
@@ -367,14 +368,84 @@ export async function deleteSchoolMember(
     const removed = await db
       .delete(schoolUsers)
       .where(and(eq(schoolUsers.locationId, locationId), eq(schoolUsers.id, userId)))
-      .returning({ id: schoolUsers.id });
+      .returning({
+        id: schoolUsers.id,
+        email: schoolUsers.email,
+        authUserId: schoolUsers.authUserId,
+      });
 
-    return removed[0] === undefined
-      ? { deleted: false, refusal: 'not_found' }
-      : { deleted: true };
+    const deleted = removed[0];
+    if (deleted === undefined) return { deleted: false, refusal: 'not_found' };
+
+    await releaseAuthAccount(deleted.email, deleted.authUserId);
+
+    return { deleted: true };
   } catch (error) {
     if (isForeignKeyViolation(error)) return { deleted: false, refusal: 'referenced' };
     throw error;
+  }
+}
+
+/**
+ * Deletes the Supabase account behind a member who has just been removed.
+ *
+ * ── Why the membership alone was not enough ──────────────────────────────
+ * Deleting the `school_users` row ended the person's access and looked, from
+ * every screen in this application, like a complete removal. It was not.
+ * `auth.users.email` is globally unique, so the account left behind kept the
+ * address claimed forever, and re-inviting the same person put them back onto
+ * that old account: `getOrCreateAuthUser` finds it, hands it back, and the "new"
+ * member silently inherits the previous one's password and metadata. Somebody
+ * deleted for cause could still sign in the moment they were re-added.
+ *
+ * ── The check that has to happen first ───────────────────────────────────
+ * One Supabase account is one *human*, not one membership — that is the whole
+ * design in `lib/supabase-auth.ts`, and it is what lets the same address be a
+ * teacher at one school and a parent at another. So the account may only be
+ * deleted once the last of those memberships is gone. Deleting it while another
+ * school still lists them would lock that person out of a school that never
+ * asked for anything, and would do so invisibly, because nothing in the other
+ * school's data would have changed.
+ *
+ * The check is by address rather than by `auth_user_id`, because a member who
+ * has never signed in has no `auth_user_id` and yet may well hold an account —
+ * `lib/school-bootstrap.ts` registers the address the moment an administrator
+ * is provisioned. Matching on the id would leave exactly those accounts behind,
+ * which is the commonest case for someone deleted shortly after being added.
+ *
+ * Never throws. The membership is already gone; a tidy-up that fails is worth a
+ * log line, not a 500 telling the operator their delete failed when it did not.
+ */
+async function releaseAuthAccount(
+  email: string | null,
+  authUserId: string | null,
+): Promise<void> {
+  const address = normaliseEmail(email ?? '');
+  if (address === '' && authUserId === null) return;
+
+  try {
+    if (address !== '') {
+      const stillAMember = await db
+        .select({ id: schoolUsers.id })
+        .from(schoolUsers)
+        .where(eq(sql`lower(${schoolUsers.email})`, address))
+        .limit(1);
+
+      if (stillAMember.length > 0) return;
+    }
+
+    // `auth_user_id` when the person has signed in, otherwise resolve the
+    // address — a member registered but never set up has the second and not
+    // the first.
+    const account =
+      authUserId !== null ? { id: authUserId } : await findAuthUserByEmail(address);
+
+    if (account !== null) await deleteAuthUser(account.id);
+  } catch (error) {
+    console.warn(
+      '[school-queries] the membership was deleted but its Supabase account ' +
+        `was not: ${error instanceof Error ? error.message : 'unknown error'}`,
+    );
   }
 }
 
