@@ -4,6 +4,7 @@ import Link from 'next/link';
 
 import { branches, schoolModules, schools } from '@/db/schema';
 import { BarChart } from '@/components/charts/BarChart';
+import { EmailDeliveryHealth } from '@/components/super-admin/EmailDeliveryHealth';
 import { PLATFORM_MODULES } from '@/lib/platform-modules';
 import { Badge } from '@/components/ui/Badge';
 import { Card, CardTitle } from '@/components/ui/Card';
@@ -98,6 +99,13 @@ export default async function SuperAdminDashboardPage() {
 
   return (
     <div className="space-y-6">
+      {/*
+        Above the tiles. Silent email is the failure a school reports as "the
+        system did not invite my administrator", and until this card existed the
+        only way to see it was to query the database.
+      */}
+      <EmailDeliveryHealth />
+
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <StatCard label="Total Schools" value={totalSchools} hint="All tenants" />
         <StatCard label="Active Schools" value={activeSchools} hint="Portals reachable" />
