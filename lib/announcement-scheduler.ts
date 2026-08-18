@@ -1,6 +1,7 @@
 import 'server-only';
 
 import { listDueAnnouncements, sendAnnouncement } from './announcement-queries';
+import { describeError } from './describe-error';
 
 /**
  * Releases scheduled announcements when their time comes.
@@ -51,9 +52,7 @@ export async function sweepScheduledAnnouncements(now: Date = new Date()): Promi
       // Left as `scheduled`, so the next sweep tries again. An announcement
       // that silently gave up would be one a school believes went out.
       console.error(
-        `[announcements] ${row.id} could not be sent: ${
-          caught instanceof Error ? caught.message : String(caught)
-        }`,
+        `[announcements] ${row.id} could not be sent: ${describeError(caught)}`,
       );
     }
   }
@@ -75,9 +74,7 @@ export function startAnnouncementScheduler(): void {
       })
       .catch((caught: unknown) => {
         console.error(
-          `[announcements] sweep failed: ${
-            caught instanceof Error ? caught.message : String(caught)
-          }`,
+          `[announcements] sweep failed: ${describeError(caught)}`,
         );
       })
       .finally(() => {

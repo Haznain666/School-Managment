@@ -11,6 +11,7 @@
     "hash-password": "node scripts/hash-password.mjs",
     "check-super-admin": "node scripts/check-super-admin-env.mjs",
     "fingerprint": "node scripts/fingerprint.mjs",
+    "smtp-encode": "node scripts/smtp-encode.mjs",
     "smoke-test": "node scripts/smoke-test-live.mjs",
     "check-theme": "esbuild scripts/check-theme-contrast.ts --bundle --platform=node --format=esm --outfile=node_modules/.cache/check-theme.mjs --log-level=warning && node node_modules/.cache/check-theme.mjs",
     "typecheck": "tsc --noEmit",
@@ -22,6 +23,7 @@
     "check-dashboard": "esbuild scripts/check-dashboard-queries.ts --bundle --platform=node --format=esm --packages=external --alias:server-only=./scripts/server-only-shim.mjs --outfile=node_modules/.cache/check-dashboard.mjs --log-level=warning && node node_modules/.cache/check-dashboard.mjs",
     "check-portals": "esbuild scripts/check-portals.ts --bundle --platform=node --format=esm --packages=external --alias:server-only=./scripts/server-only-shim.mjs --outfile=node_modules/.cache/check-portals.mjs --log-level=warning && node node_modules/.cache/check-portals.mjs",
     "check-forms": "esbuild scripts/check-forms.ts --bundle --platform=node --format=esm --packages=external --outfile=node_modules/.cache/check-forms.mjs --log-level=warning --jsx=automatic && node node_modules/.cache/check-forms.mjs",
+    "check-smtp": "esbuild scripts/check-smtp-credentials.ts --bundle --platform=node --format=esm --packages=external --outfile=node_modules/.cache/check-smtp.mjs --log-level=warning && node node_modules/.cache/check-smtp.mjs",
     "check-provisioning": "esbuild scripts/check-provisioning.ts --bundle --platform=node --format=esm --packages=external --alias:server-only=./scripts/server-only-shim.mjs --outfile=node_modules/.cache/check-provisioning.mjs --log-level=warning && node node_modules/.cache/check-provisioning.mjs"
   },
   "dependencies": {

@@ -3,6 +3,7 @@ import 'server-only';
 import nodemailer from 'nodemailer';
 
 import { serverEnv } from './env';
+import { normalizeSmtpSecret, readConfiguredSmtpPass } from './smtp-credentials';
 
 /**
  * Outbound email over SMTP.
@@ -36,22 +37,44 @@ export function smtpConfigured(): boolean {
   return serverEnv('SMTP_HOST', '') !== '' && serverEnv('SMTP_FROM', '') !== '';
 }
 
-export async function sendEmail(
-  to: string,
-  subject: string,
-  text: string,
-): Promise<void> {
-  const port = Number.parseInt(serverEnv('SMTP_PORT', '587'), 10);
+/**
+ * The credentials this process will actually offer at AUTH.
+ *
+ * ── Why these do not come straight out of `process.env` ──────────────────
+ * Because what `process.env` holds is not necessarily what the operator
+ * entered. A `#` in an unquoted `.env` line truncates the value at that point,
+ * a panel stores wrapping quotes literally, and both fail as `535` with the
+ * panel still displaying something that looks right. `lib/smtp-credentials.ts`
+ * documents the measurements; this is the one place the resolution happens, so
+ * the transport, the boot check and the diagnostics route can never disagree
+ * about which password production is using.
+ *
+ * `SMTP_PASS_B64` wins over `SMTP_PASS` — it is the form nothing can damage.
+ */
+export function resolveSmtpCredentials(): { user: string; pass: string } {
+  return {
+    user: normalizeSmtpSecret(process.env.SMTP_USER) ?? '',
+    pass: readConfiguredSmtpPass(process.env.SMTP_PASS, process.env.SMTP_PASS_B64) ?? '',
+  };
+}
 
-  const transport = nodemailer.createTransport({
+/**
+ * The transport, built once per call from the resolved credentials.
+ *
+ * Shared with the diagnostics route so that `verify()` there exercises the
+ * exact object `sendEmail` uses. A diagnostic that builds its own transport can
+ * only ever prove something about itself.
+ */
+function createTransport(): nodemailer.Transporter {
+  const port = Number.parseInt(serverEnv('SMTP_PORT', '587'), 10);
+  const { user, pass } = resolveSmtpCredentials();
+
+  return nodemailer.createTransport({
     host: serverEnv('SMTP_HOST', ''),
     port: Number.isFinite(port) ? port : 587,
     // 465 is implicit TLS; 587 upgrades via STARTTLS.
     secure: port === 465,
-    auth: {
-      user: serverEnv('SMTP_USER', ''),
-      pass: serverEnv('SMTP_PASS', ''),
-    },
+    auth: { user, pass },
     /**
      * Bounded waits, because nodemailer's defaults are minutes long and every
      * caller here is inside a request someone is watching.
@@ -69,8 +92,30 @@ export async function sendEmail(
     greetingTimeout: 15_000,
     socketTimeout: 20_000,
   });
+}
 
-  await transport.sendMail({ from: serverEnv('SMTP_FROM', ''), to, subject, text });
+/**
+ * Opens a connection and authenticates, without sending anything.
+ *
+ * The only honest answer to "are these credentials right in production", and
+ * the reason the diagnostics route exists: it runs inside the deployed process,
+ * against the deployed environment, and returns the server's own reply.
+ */
+export async function verifySmtp(): Promise<void> {
+  await createTransport().verify();
+}
+
+export async function sendEmail(
+  to: string,
+  subject: string,
+  text: string,
+): Promise<void> {
+  await createTransport().sendMail({
+    from: serverEnv('SMTP_FROM', ''),
+    to,
+    subject,
+    text,
+  });
 }
 
 /** `jonathan@example.com` -> `jo***@example.com`. */

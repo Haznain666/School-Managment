@@ -4,8 +4,8 @@
 resume without re-deriving context. Updated at the end of every development
 step, before the session ends.
 
-**Last updated:** 2026-08-19 (**dashboard, deletion UI, branch delete and the
-email diagnosis — §5al; earlier in the same batch: §5ai–§5ak**)
+**Last updated:** 2026-08-19 (**the SMTP transport fault and the wildcard
+provisioning fault — §5am; earlier the same day: §5al, §5ai–§5ak**)
 
 > ✅ **`0024_school_branch_creation_fixes.sql` applied to the live database,
 > 2026-08-18.** Verified against the real schema rather than the exit code: 25
@@ -25,12 +25,25 @@ email diagnosis — §5al; earlier in the same batch: §5ai–§5ak**)
 > operator session was already open in the preview browser, so the branch form
 > and the Schools table were exercised directly. §5aj.
 
-> 🔴 **SMTP credentials in the hosting panel are wrong — proven, not guessed
-> (§5al).** `.env.local` holds the same values and they authenticate against
-> `smtp.titan.email` on both ports; a QA message sent locally on the first
-> attempt. Production has failed with `535` on every message since 2026-08-13.
-> Fix `SMTP_USER`/`SMTP_PASS` in the panel, restart, then press **Retry
-> abandoned messages** on the dashboard. No code change can help.
+> ~~🔴 **SMTP credentials in the hosting panel are wrong — proven, not guessed
+> (§5al).** […] No code change can help.~~
+>
+> ✅ **WRONG, and corrected in §5am (2026-08-19). The credentials were right the
+> whole time.** The password contains a `#`, and in a `.env` line an unquoted
+> `#` opens a comment — dotenv silently discards everything after it. On
+> Hostinger *the panel and the `.env` file are one store* (DEPLOYMENT.md §3), so
+> the panel's copy was correct and the process still received a truncated
+> password, while the panel went on displaying the whole thing. That is why
+> re-entering it never helped and why inspecting it proved nothing three times.
+> **Set `SMTP_PASS_B64` (`npm run smtp-encode`), delete `SMTP_PASS`, restart,
+> then press Retry abandoned messages.** Verified: resolved through the new path
+> the password is 17 chars, fingerprint `3e92ffa00be4`, and Titan accepts it on
+> both ports.
+>
+> ⚠️ **The lesson worth keeping:** "no code change can help — do not look in the
+> code again" was the most costly sentence in this file. A credential that works
+> in one environment and fails in another is a statement about *transport*, not
+> about the credential.
 
 > 🔴 **The live deployment is serving two different builds at once (§5ak).**
 > More than one Node process is behind the proxy and a push to `main` does not
@@ -4607,6 +4620,110 @@ undone.
 
 ---
 
+## 5am. The 535 was transport, and the wildcard faked provisioning — 2026-08-19
+
+No migration. Release notes:
+`release-notes/RELEASE-NOTES-SMTP-AND-WILDCARD-SUBDOMAINS.md`.
+
+### §5al's conclusion was wrong, and its instruction made it expensive
+
+§5al ended with "the copy in the Hostinger panel is wrong. **No session can fix
+this.** Do not go looking for it in the code again." Every word of the evidence
+was accurate and the conclusion drawn from it was not.
+
+The password contains `!`, `@` and `#`. **In a `.env` line an unquoted `#` opens
+a comment**, so dotenv discards everything after it. Measured against this
+repository's own `@next/env`:
+
+    SMTP_PASS=fooBar!x@y#z      ->  "fooBar!x@y"     truncated, silently
+    SMTP_PASS='fooBar!x@y#z'    ->  "fooBar!x@y#z"
+
+`.env.local` survives only because an earlier session happened to quote it. And
+per DEPLOYMENT.md §3, **on Hostinger the panel and the `.env` file are one
+store** — so a correct password typed into the Environment UI is written into a
+`.env` line and truncated there, while the panel keeps displaying all of it.
+
+That is the whole fault. It explains every observation §5al made, including the
+ones that pointed away from the code: local works (quoted), production fails
+(unquoted), and the panel looks right (it is right; it is just not what arrives).
+
+**Proven:** resolved through the new path the password is 17 characters,
+fingerprint `3e92ffa00be4`, and `smtp.titan.email` accepts it on 465 **and** 587.
+
+### What now exists so this cannot recur
+
+* **`SMTP_PASS_B64`**, the same escape hatch `SUPER_ADMIN_PASSWORD_HASH_B64`
+  already provides. Base64 has no `#`, `$`, `!`, quote or backslash — nothing
+  for dotenv, a shell or a panel to act on. Wins when both are set.
+* **`npm run smtp-encode`** prints the value and a fingerprint.
+* **`lib/smtp-credentials.ts`** repairs what is reversible (wrapping quotes,
+  stray whitespace) and refuses to touch a value where the quote could be data.
+  Truncation is *not* repaired — those bytes are gone, and guessing them would
+  be worse than failing loudly.
+* **A `[smtp]` boot line**, so a damaged credential says so before anyone
+  presses Invite.
+* **`POST /api/internal/smtp-check`** — length, fingerprint, fragile characters,
+  which variable it came from, and the SMTP server's own reply to a real AUTH.
+  The only check that reads the process actually serving requests.
+* **`npm run check-smtp`** — 28 assertions, half of them asserting what the
+  repair must *not* do.
+
+### The subdomain fault: a wildcard answers every name, including ones nobody made
+
+`rehearsal-academy.schoolhub.codexmill.com` was parked, read **"Not connected"**
+in hPanel, got no certificate — and the database agreed nothing was wrong:
+`subdomain_status = 'provisioning'`, `subdomain_error` **null**.
+
+`d087f29` made the resolver the authority on whether a tenant's DNS record
+exists. That was a genuine improvement — it stopped a working subdomain being
+re-written and refused with a 422 the UI showed as *Failed*. **A wildcard
+inverts it.** A wildcard answers every label by definition, so a school created
+seconds ago resolves at once, `ensureDnsRecord` decides its record is already
+there, writes nothing, and reports success. The name becomes *reachable* while
+staying *unprovisioned*, and this code could not tell those apart.
+
+All three symptoms follow from that one fact: hPanel looks for a record for that
+exact name and finds none; certificates are issued per hostname against a name
+the panel can see pointed here, and a wildcard is not that; and the platform
+recorded success because it believed it had succeeded.
+
+`nameHasOwnRecord()` now probes a random `wildcard-probe-*` label first — a name
+nobody created cannot have a record, so if it resolves, only a wildcard can be
+answering, and the API decides instead. **With no wildcard the probe fails and
+behaviour is exactly what it was**, so the topology `d087f29` protected cannot
+regress. A fourth readiness state, `wildcard-only`, replaces the actively
+misleading `tls-pending` ("wait for the certificate") for a certificate that is
+never coming.
+
+⚠️ **Not measured from here.** That the live zone contains a wildcard is the
+best-supported explanation for the symptom, not a verified fact: the Hostinger
+MCP tools still answer `Unauthenticated` and `node:dns` is sandboxed in this
+environment. The fix is correct either way.
+
+### Every background failure was printing the query and hiding the reason
+
+    [announcements] sweep failed: Failed query: select "location_id", "id" ...
+
+Drizzle wraps the statement and hangs the driver's real error off `cause`; every
+background catch logged `error.message` and threw the cause away. Four unrelated
+problems all print that block. `lib/describe-error.ts` walks the chain (bounded,
+cycle-safe) and appends the Postgres code.
+
+**That query was run against the live database during this work and succeeded** —
+the table and all thirteen columns are present. So production's failure is the
+*connection*, not schema drift, and the log will now name it. Note the host also
+prints `Failed to resolve IPv4 addresses with current network`, which is not from
+this codebase or any dependency (checked) and points the same way.
+
+### The estate
+
+Three schools: `Rehearsal Academy`, `My Second Home School`, `Sample Test
+School` — all `provisioning`, all with a null `subdomain_error`. Outbox: 11
+sent (none since 2026-08-13), 7 queued, 6 failed, every failure `535` or
+`Unexpected socket close`.
+
+---
+
 ## 6. Open items for the user
 
 1. ~~Install GitHub CLI~~ — **partly regressed.** Git has a stored credential
@@ -4644,11 +4761,26 @@ undone.
     `NEXT_PUBLIC_GOOGLE_MAPS_API_KEY` in `.env.local` **and** the Hostinger
     panel. Until then nothing is broken: the address on both creation forms is
     the plain text field it has always been and says so in one line (§5ai).
-12. **Fix `SMTP_USER` and `SMTP_PASS` in the hosting panel**, then restart, then
-    press *Retry abandoned messages* on the Super Admin dashboard. The same
-    values in `.env.local` authenticate fine against `smtp.titan.email`, so the
-    mailbox is healthy and only the panel's copy is wrong (§5al). Seven
-    invitations are waiting; the queue will never retry them on its own.
+12. **Set `SMTP_PASS_B64` in the hosting panel and DELETE `SMTP_PASS`**, then
+    restart, then press *Retry abandoned messages* on the Super Admin dashboard.
+    ~~Fix `SMTP_USER`/`SMTP_PASS`; only the panel's copy is wrong (§5al).~~
+    **That was wrong — the credentials are correct and always were (§5am).** The
+    password contains a `#`, and an unquoted `#` in a `.env` line silently
+    truncates the value; on Hostinger the panel *is* a `.env` file. Re-typing it
+    cannot help, which is why it never did. Get the value from
+    `npm run smtp-encode` (it is already in `.env.local`). Thirteen messages are
+    waiting — 7 queued, 6 failed — and the drainer never touches a `failed` row
+    on its own.
+
+    Confirm it landed, rather than assuming: `POST /api/internal/smtp-check`
+    with `{"verify":true}` should report `password.length` **17**,
+    `password.fingerprint` **`3e92ffa00be4`**, and `auth.accepted` **true**.
+    Call it twice — more than one process serves this site (§5ak). Unset
+    `SUPER_ADMIN_DIAGNOSTICS_SECRET` afterwards.
+
+12b. **Press *Provision / Re-check* on all three schools** once this deploys.
+    Each is stuck at "Not connected" with no certificate because a wildcard made
+    provisioning skip writing their DNS record (§5am). The button is idempotent.
 13. **Restart the application in hPanel.** Multiple instances serve the site and
     a git push does not restart all of them, so old and new code are being
     served side by side right now (§5ak). No session can do this — there is no

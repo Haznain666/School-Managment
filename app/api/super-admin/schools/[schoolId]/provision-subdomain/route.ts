@@ -57,11 +57,17 @@ export async function POST(
      * Only ask how it is doing once the alias is known to exist. Probing a
      * hostname that was never created just times out.
      *
-     * Three states, not two. `tls-pending` — DNS correct, alias serving, no
+     * Four states, not two. `tls-pending` — DNS correct, alias serving, no
      * certificate yet — used to be reported exactly like "does not exist",
      * which is how a subdomain that was three-quarters working looked broken.
      * It stays `provisioning` because it genuinely is still in progress, and
      * the message now says which part.
+     *
+     * `wildcard-only` is the one that looks like `tls-pending` and is not: the
+     * name resolves solely because a wildcard answers everything, owns no
+     * record, and will therefore never be issued a certificate however long
+     * anyone waits. It also stays `provisioning`, because a retry genuinely
+     * does fix it — the record simply has to be written.
      */
     const readiness =
       provision.status === 'provisioning'
