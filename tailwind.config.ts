@@ -241,12 +241,22 @@ const config: Config = {
           from: { backgroundPosition: '200% 0' },
           to: { backgroundPosition: '-200% 0' },
         },
+        // The navigation bar at the top of the window. It never reaches 100%
+        // on its own: the width here is a *guess* at progress, and the finish
+        // is driven by the route actually arriving. Easing out hard means the
+        // first 60% appears almost immediately, which is the part a reader
+        // reads as "it heard me".
+        'route-progress': {
+          from: { transform: 'scaleX(0)' },
+          to: { transform: 'scaleX(0.9)' },
+        },
       },
 
       animation: {
         'fade-in': 'fade-in 180ms cubic-bezier(0.25, 1, 0.5, 1)',
         'slide-up': 'slide-up 200ms cubic-bezier(0.16, 1, 0.3, 1)',
         shimmer: 'shimmer 1.6s linear infinite',
+        'route-progress': 'route-progress 8s cubic-bezier(0.1, 0.8, 0.2, 1) forwards',
       },
     },
   },

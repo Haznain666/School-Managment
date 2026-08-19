@@ -67,7 +67,10 @@ anything Firebase, anything Neon, `@neondatabase/serverless`, Vercel-specific co
 
 1. `npm run typecheck` — 0 errors
 2. `npm run lint` — 0 warnings
-3. `npm run build` — passing
+3. `npm run check-loaders` — passing. Every page you added that fetches on the
+   server needs a `loading.tsx` beside it, using a shape from
+   `components/ui/Skeleton`. This is a standing rule; see `CLAUDE.md`.
+4. `npm run build` — passing
 4. Migration file written, numbered correctly, with a matching Drizzle schema file
 5. New permission keys registered in both catalogues
 6. A `STATE.md` section for the sprint, in the existing voice: what was built,

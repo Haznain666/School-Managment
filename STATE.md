@@ -4,8 +4,36 @@
 resume without re-deriving context. Updated at the end of every development
 step, before the session ends.
 
-**Last updated:** 2026-08-19 (**three onboarding faults — §5ap; earlier the same
-day: §5ao, §5an, §5am, §5al, §5ai–§5ak**)
+**Last updated:** 2026-08-19 (**response time, measured and acted on — §5aq;
+earlier the same day: §5ap, §5ao, §5an, §5am, §5al, §5ai–§5ak**)
+
+> ✅ **The slowdown is not in the application — proven, not inferred (§5aq).**
+> The same production build answers `/super-admin/login` in **10ms locally and
+> 0.82–1.23s on the live origin**, and a page that executes nothing
+> (`/school-not-found`) pays the same ~1s on a CDN miss as the pages that
+> query. **Essentially the whole second is the Hostinger CDN edge → origin
+> hop.** Query batching, request caching and indexes were all checked and were
+> all already correct — do not go looking there again.
+>
+> **What was changed, and what it bought:** `/super-admin/login` is now
+> prerendered and edge-cacheable (~1s → ~85ms); middleware serves an expired
+> tenant record and refreshes behind the request (the first click after each
+> 60s expiry went from ~1.5s to **12ms**); and **every one of 108
+> data-fetching routes now streams a shaped skeleton** — first byte at 10ms
+> instead of a blank page for the full wait.
+>
+> 🔴 **The remaining second is the user's to close, in hPanel:** where the
+> origin datacenter sits relative to the Kuala Lumpur edge, whether the CDN
+> helps Pakistani traffic at all, and whether §5ak's two Node processes are
+> still running. The Hostinger MCP server is connected but **unauthenticated**,
+> so none of it could be read from a session.
+
+> ✅ **A loader on every data-fetching screen is now a build rule, not a
+> convention (§5aq).** `npm run check-loaders` fails on a missing loader, on one
+> where there is nothing to wait for, on one that renders no skeleton, and on
+> one placed above a whole section. The rule lives in the new **`CLAUDE.md`**,
+> which is the first repo-level rules file this project has had — read it
+> alongside this one.
 
 > ✅ **`0024_school_branch_creation_fixes.sql` applied to the live database,
 > 2026-08-18.** Verified against the real schema rather than the exit code: 25
@@ -5144,6 +5172,174 @@ give a new campus somebody, and a branch email typed there used to go nowhere at
 all (§5aj). Only the school-side form drops it.
 
 
+## 5aq. Response time: it was never the code — 2026-08-19
+
+The user reported that response time had deteriorated, and attached Hostinger's
+own diagnostics panel scoring the site 0 on "Document request latency", "Reduce
+unused CSS", "Network dependency tree", "Render-blocking requests" and "Avoid
+multiple page redirects", and 50 on "Legacy JavaScript" and "Reduce unused
+JavaScript".
+
+**Nothing was assumed. 34 timed requests were taken against the live origin
+before a single line was read.**
+
+### What the measurement said
+
+`curl` against `https://schoolhub.codexmill.com`, taking `time_starttransfer`
+minus `time_appconnect` so the figure is the server's and not the handshake's:
+
+| Path | Fast | Slow | Server time |
+| --- | --- | --- | --- |
+| `/` | 19/22 | 3/22 | ~85 ms vs ~1.02 s |
+| `/school-not-found` | 9/12 | 3/12 | ~85 ms vs ~1.01 s |
+| `/super-admin/login` | **0/12** | **12/12** | 0.82 – 1.23 s |
+
+Every response carries `Server: hcdn` and `x-hcdn-request-id: …-kul-edge1/3`,
+and the domain resolves to `145.79.24.125` / `145.79.29.161` — Hostinger CDN
+anycast, edge in Kuala Lumpur. So the bimodality is not noise: **~85 ms is a
+CDN cache hit and ~1 s is the trip to the origin.**
+
+### The experiment that settled it
+
+The same production build, `next start` on the laptop:
+
+| | Live origin | Same build, local |
+| --- | --- | --- |
+| `/super-admin/login` | 0.82 – 1.23 s | **10 ms** |
+| `/` | ~1.02 s on a miss | **4 ms** |
+
+A hundredfold, on the same bytes. And `/school-not-found` — prerendered, runs no
+code — took the *same* ~1 s on a cache miss as the pages that query.
+
+**Therefore essentially the whole second is transport between the CDN edge and
+the origin, not compute.** This is worth stating flatly because it is the exact
+shape of the mistake §5am cost three sessions: a thing that is fast in one
+environment and slow in another is a statement about *transport*.
+
+What was checked and found already correct, so that no future session re-derives
+it: `dashboard/page.tsx` already batches with `Promise.all`; `readSchoolSession`
+and `loadOverrides` are already wrapped in React `cache()`, so auth is one
+indexed query per request; ~150 indexes cover every tenant-filtered table; the
+outbox drainer is `FOR UPDATE SKIP LOCKED` with an age-guarded reclaim and its
+only query is index-served.
+
+### What was changed
+
+**1. `/super-admin/login` is prerendered.** It read `searchParams.next`, which
+made it `force-dynamic` and therefore uncacheable, for a page with no query and
+no session. The parameter is now read by `useSearchParams` in the form.
+
+Making the page static was **not sufficient** — the build still marked it `ƒ`.
+`app/(super-admin)/layout.tsx` is `force-dynamic` and reads the session cookie,
+and a dynamic layout drags every route beneath it dynamic. The route was moved
+to a new `app/(platform-public)/` group with a copy of the error boundary. It
+renders identically: that layout returns `<>{children}</>` when there is no
+session, which on that route is always. Now `○ (Static)`.
+
+**2. Middleware serves an expired school record and refreshes behind it.** The
+lookup ran before anything else on every request, so the whole response waited
+for it. Measured against the real Supabase project: **3.5 s cold, 10 ms warm**,
+and under the old code the first request after each 60 s expiry paid it in full
+— always a person's click, never a background job's. `event.waitUntil` keeps
+the refresh alive past the response; a `refreshing` set prevents a stampede.
+
+Proven across the TTL, on the built app:
+
+```
+T+0   cold                    ttfb=1.510
+T+1   warm                    ttfb=0.010
+T+66  first after expiry      ttfb=0.012   <- previously ~1.5s
+T+67  next                    ttfb=0.010
+```
+
+The cost is stated in the code: deactivation now takes effect within 60 s **plus
+one request**. That is not the security boundary — `withSchoolAuth` and
+`requireSchoolRole` re-check the tenant against verified claims on every
+protected route.
+
+**3. The Hostinger diagnostics items that are code.** A modern `browserslist`
+(kills the legacy-JS polyfills), `compress: true` stated rather than defaulted,
+`productionBrowserSourceMaps: false`, `poweredByHeader: false`,
+`optimizePackageImports` for `lucide-react`, and immutable cache headers on
+`/_next/static`.
+
+### A loader on every screen, and a check that keeps it that way
+
+The rest of the second cannot be removed from the code — authenticated HTML is
+per-session and can never be edge-cached. So the work went into not making
+anyone stare at nothing during it.
+
+- **108 `loading.tsx` files**, one per data-fetching segment, each matched to
+  the shape of its page. Five new page-shaped skeletons in
+  `components/ui/Skeleton.tsx`: `SkeletonPageHeader`, `SkeletonForm`,
+  `SkeletonDetail`, `SkeletonChart`, `SkeletonDocument`.
+- **`components/ui/RouteProgress.tsx`** — a bar across the top of the window for
+  the gap before the skeleton, i.e. the click and the wait for the first byte.
+- **`npm run check-loaders`** — fails the build on a missing loader, on a loader
+  where there is nothing to wait for, on one that renders no skeleton, and on
+  one placed above a section rather than on a screen. **The rule is written in
+  the new `CLAUDE.md`** and added to `sprint-developer`'s definition of green.
+
+Measured effect, on `/login?school=lgs` with the build running locally:
+**first byte at 10 ms, all data in place at 1.27 s.** Previously that was 1.27 s
+of blank page.
+
+### Two bugs found by looking in the browser rather than at the build
+
+**The group-level loaders had to go.** Five existed, one per portal group. They
+were fine while every route under them was dynamic. The moment
+`/super-admin/login` became static, `(super-admin)/loading.tsx` rendered its
+stat tiles and six-row table **permanently above the sign-in form** — in the
+server HTML, so hydration was never going to clear it. All five are deleted
+(every segment now has its own) and `check-loaders` refuses a loader that has
+no `page.tsx` beside it.
+
+**The first `RouteProgress` watched anchor clicks, and that was wrong.** The
+landing page navigates with `router.push` from a `<button>`, and so do the
+panel chooser and every redirect-after-save. It now counts in-flight `RSC: 1`
+fetches, excluding `Next-Router-Prefetch`, which catches `<Link>`,
+`router.push`, `router.replace` and `router.refresh` alike and nothing else.
+Verified in the browser: clicking "Super Admin sign in" on the landing page
+raised the bar and landed on the form.
+
+### One intermittent seen in passing, and cleared as not-mine
+
+Once, on a locally-running build, the announcement sweep printed:
+
+    [announcements] sweep failed: ... The "string" argument must be of type
+    string or an instance of Buffer or ArrayBuffer. Received an instance of
+    Date [ERR_INVALID_ARG_TYPE]
+
+The `sweep failed:` shape is the known one from §5am; the cause line is new,
+and it names a real postgres-js parameter-serialisation failure rather than a
+connection refusal.
+
+**It is not from this work, and that was checked rather than assumed.** The
+same `new Date()` parameter succeeds against the live database through the raw
+driver on this machine (postgres 3.4.9, Node v24.18.0). A build of `main` with
+every change stashed was run for ~2.5 minutes and did not produce it; a build
+*with* the changes was then run for longer, plus six concurrent requests, and
+did not produce it either. It fired once and has not been reproducible since.
+
+Left as an open intermittent. No code was changed for it — a background worker
+that logs its cause and retries on the next sweep is already behaving
+correctly, and the wrong move would be to "fix" a failure nobody can summon.
+
+### Left for the user, because no code reaches it
+
+🔴 **The ~1 s edge→origin hop.** Proven to be transport. Three things worth
+doing in hPanel, in order: check **where the origin datacenter is** relative to
+the Kuala Lumpur edge; test whether **the CDN helps Pakistani traffic at all**
+(Lahore → KL → origin may be slower than Lahore → origin); and confirm
+**whether two Node processes are still running** (§5ak — still open).
+
+The Hostinger MCP server is connected but **unauthenticated** in this session,
+so none of the three could be read or changed from here.
+
+⚠️ **The CDN's WAF returned 403 to this IP after ~34 requests in ~3 minutes.**
+A school office behind one NAT'd connection could plausibly trip the same rule.
+Not investigated further.
+
 ## 6. Open items for the user
 
 1. ~~Install GitHub CLI~~ — **partly regressed.** Git has a stored credential
@@ -5218,6 +5414,15 @@ all (§5aj). Only the school-side form drops it.
     batch was verified by 60 scripted assertions and a rendered chart rather
     than by clicking. Someone who can sign in should create one school and one
     branch end to end. §5ai.
+15. 🔴 **Close the ~1s edge→origin hop in hPanel (§5aq).** Proven to be
+    transport, not code — the same build answers in 10ms locally and ~1s live,
+    and a page that executes nothing pays the same ~1s. Three things, in order:
+    (a) which **datacenter** the origin is in, relative to the Kuala Lumpur CDN
+    edge; (b) whether the **CDN helps Pakistani traffic at all** — Lahore → KL →
+    origin may be slower than Lahore → origin, and it is one toggle plus an
+    afternoon of measurement; (c) whether §5ak's **two Node processes** are
+    still running. **Authorise the Hostinger MCP server** and a session can read
+    and change all three; it is connected but unauthenticated today.
 
 ---
 
