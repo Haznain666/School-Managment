@@ -4968,7 +4968,21 @@ set — degraded, not broken.
 ## 5ap. Three onboarding faults, and one of them was never reproduced — 2026-08-19
 
 No migration. Reported by the user as three numbered defects on the school
-onboarding path. **Pushed to `main` and therefore to live, 2026-08-19.**
+onboarding path. **Pushed to `main` and live, 2026-08-19 — verified, not
+assumed.**
+
+The deploy was confirmed by a probe that can only answer one way per build:
+`POST /api/school/branches` returns **405** on the old code (the route had no
+POST export) and **401** on the new one. Live answered 401 on **16 of 16**
+samples, which also says every process behind the proxy is on this build — the
+§5ak split is not present right now. `/login` 200, `/dashboard`,
+`/dashboard/branches` and `/dashboard/users` all 307 to login, Super Admin login
+200.
+
+⚠️ **Do not use the `/login` chunk hash to detect a deploy.** It was polled for
+five minutes after the push and never moved, because the shared webpack runtime
+chunk is content-identical across these builds. It looked exactly like a deploy
+that had not happened. Probe a route whose *behaviour* changed instead.
 
 Written up for a reader who is not an engineer in
 `release-notes/RELEASE-NOTES-SCHOOL-ONBOARDING-FIXES.md`, with 27 cases in
