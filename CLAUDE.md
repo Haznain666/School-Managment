@@ -78,6 +78,33 @@ the client instead. If it can, read it there.
 
 ---
 
+## RULE: a timetable grid resolves its period schedule
+
+**Never call `listTimetableSlots(locationId)` unscoped to draw a grid.**
+
+A school keeps as many bell schedules as it needs (`period_structures`), and
+which one a class runs on is decided by its *grade* — its own assignment, or the
+school default when nobody has assigned it. Use the function that resolves that:
+
+| Drawing | Call |
+| --- | --- |
+| one section's week | `listSlotsForSection(locationId, sectionId)` |
+| one teacher's week | `listSlotsForTeacher(locationId, teacherId, yearId)` |
+| a count across the school | `listTimetableSlots(locationId)` — and only this |
+
+The unscoped call returns every structure's periods at once. On a grid that
+means an infant class laid out against the senior school's eight rows, five of
+which can never be filled and every one of which invites a click. It is right
+for a summary count and wrong for everything else, which is why it is still
+exported rather than deleted.
+
+Writes are guarded the same way: `POST /api/school/timetable/entries` re-resolves
+the section's structure and refuses a slot from another. Without that, a stale
+tab left open across a grade reassignment writes a row that satisfies every
+constraint and appears in no grid — an accepted write nobody can see.
+
+---
+
 ## Green build
 
 All six must pass before anything is merged:
@@ -88,6 +115,7 @@ npm run lint
 npm run check-loaders
 npm run check-forms
 npm run check-address-phone
+npm run check-sprint-periods
 npm run build
 ```
 
@@ -95,10 +123,10 @@ Plus whichever of the other `check-*` scripts covers the area you touched —
 `check-reports`, `check-dashboard`, `check-portals`, `check-provisioning`,
 `check-smtp`.
 
-`.github/workflows/ci.yml` runs the four that need no database — `check-loaders`,
-`check-forms`, `check-address-phone`, `check-theme` — on every push and pull
-request, so the loader rule is enforced by the repository and not only by
-whoever remembers it. The rest execute against the real schema and stay on a
+`.github/workflows/ci.yml` runs the five that need no database —
+`check-loaders`, `check-forms`, `check-address-phone`, `check-theme` and
+`check-sprint-periods` — on every push and pull request, so the loader rule is
+enforced by the repository and not only by whoever remembers it. The rest execute against the real schema and stay on a
 machine that holds the credentials.
 
 ### Building in a worktree
