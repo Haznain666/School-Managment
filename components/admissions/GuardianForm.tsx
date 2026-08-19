@@ -3,6 +3,7 @@
 import { Button } from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
 import { Input } from '@/components/ui/Input';
+import { PhoneField } from '@/components/ui/PhoneField';
 import { Select } from '@/components/ui/Select';
 import {
   GUARDIAN_RELATIONSHIPS,
@@ -146,16 +147,19 @@ export function GuardianForm({
               }}
             />
 
-            <Input
+            <PhoneField
               label="Phone"
-              type="tel"
               required
-              placeholder="0300-1234567"
-              hint="WhatsApp number — this is how the school will reach you."
+              // Identity: this number is the unique index on
+              // `student_guardians` and what an invitation resolves, so the
+              // server puts it through `normalizePhone` and will refuse a
+              // landline. The dropdown still offers one, and says why not.
+              identity
+              hint="This is how the school will reach you."
               value={guardian.phone}
               disabled={disabled}
-              onChange={(event) => {
-                update(index, { phone: event.target.value });
+              onChange={(next) => {
+                update(index, { phone: next });
               }}
             />
 

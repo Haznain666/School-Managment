@@ -67,7 +67,7 @@ export const branches = pgTable(
      *
      * Null for every branch recorded before the picker existed and for any
      * whose operator typed the address by hand, which the form still allows —
-     * see `components/ui/LocationPicker.tsx`. So this is an enrichment, never a
+     * see `components/ui/AddressAutocomplete.tsx`. So this is an enrichment, never a
      * precondition: nothing may require it to render a branch.
      */
     latitude: doublePrecision('latitude'),

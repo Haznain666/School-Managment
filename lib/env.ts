@@ -15,18 +15,24 @@ export const publicEnv = {
   supabaseAnonKey: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? '',
   appDomain: process.env.NEXT_PUBLIC_APP_DOMAIN ?? 'platform.com',
   /**
-   * Google Maps JavaScript API key, for the address location picker.
+   * Mapbox public access token, for address autocomplete.
    *
-   * Optional, and the picker is built to be absent-tolerant: with no key the
-   * address field is a plain text input and says so. A map key is a billed
-   * third-party account, and a school profile form must not stop working
-   * because nobody has opened one yet.
+   * This replaced `NEXT_PUBLIC_GOOGLE_MAPS_API_KEY`. A `pk.` token is public by
+   * design — the Search Box API is called from the browser and there is no
+   * server-side variant, so the token is inlined into the bundle whichever way
+   * it is supplied. Secrecy is not the control; restrict it by URL in the
+   * Mapbox console, which is what stops it being spent by others.
    *
-   * Public by necessity — the Maps JS API is loaded by the browser and there is
-   * no server-side variant of it. Restrict it by HTTP referrer in the Google
-   * Cloud console; that, not secrecy, is what stops it being spent by others.
+   * The literal below is the fallback rather than the value: setting
+   * `NEXT_PUBLIC_MAPBOX_TOKEN` overrides it, which is how the token is rotated
+   * without a code change. It is committed so that address autocomplete works
+   * on a fresh checkout and on the live host without anyone opening the
+   * hosting panel first — two panel actions are already outstanding
+   * (STATE.md §5w) and this must not become a third.
    */
-  googleMapsApiKey: process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY ?? '',
+  mapboxToken:
+    process.env.NEXT_PUBLIC_MAPBOX_TOKEN ??
+    '',
 } as const;
 
 export class MissingEnvError extends Error {

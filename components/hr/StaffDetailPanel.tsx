@@ -5,7 +5,9 @@ import { useCallback, useEffect, useState } from 'react';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { Card, CardTitle } from '@/components/ui/Card';
+import { AddressAutocomplete } from '@/components/ui/AddressAutocomplete';
 import { Input } from '@/components/ui/Input';
+import { PhoneField } from '@/components/ui/PhoneField';
 import { Select } from '@/components/ui/Select';
 import {
   Table,
@@ -379,12 +381,12 @@ export function StaffDetailPanel({ staffId, canEdit }: StaffDetailPanelProps) {
               setField('resignedOn', event.target.value);
             }}
           />
-          <Input
+          <PhoneField
             label="Phone"
             value={form.phone ?? ''}
             disabled={!canEdit}
-            onChange={(event) => {
-              setField('phone', event.target.value);
+            onChange={(next) => {
+              setField('phone', next);
             }}
           />
           <Input
@@ -440,12 +442,12 @@ export function StaffDetailPanel({ staffId, canEdit }: StaffDetailPanelProps) {
               setField('emergencyContactName', event.target.value);
             }}
           />
-          <Input
+          <PhoneField
             label="Emergency phone"
             value={form.emergencyContactPhone ?? ''}
             disabled={!canEdit}
-            onChange={(event) => {
-              setField('emergencyContactPhone', event.target.value);
+            onChange={(next) => {
+              setField('emergencyContactPhone', next);
             }}
           />
           <Input
@@ -473,12 +475,16 @@ export function StaffDetailPanel({ staffId, canEdit }: StaffDetailPanelProps) {
               setField('bankName', event.target.value);
             }}
           />
-          <Input
+          <AddressAutocomplete
             label="Address"
-            value={form.address ?? ''}
+            // `staff` has no latitude/longitude pair — a home address is a
+            // postal fact here, never a map pin — so the search assists the
+            // typing and stops there.
+            withCoordinates={false}
+            value={{ address: form.address ?? '', latitude: null, longitude: null }}
             disabled={!canEdit}
-            onChange={(event) => {
-              setField('address', event.target.value);
+            onChange={(next) => {
+              setField('address', next.address);
             }}
           />
         </div>

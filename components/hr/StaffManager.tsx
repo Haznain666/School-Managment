@@ -7,6 +7,7 @@ import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { Card, CardTitle } from '@/components/ui/Card';
 import { Input } from '@/components/ui/Input';
+import { PhoneField } from '@/components/ui/PhoneField';
 import { Select } from '@/components/ui/Select';
 import {
   Table,
@@ -271,12 +272,11 @@ export function StaffManager({ canEdit }: StaffManagerProps) {
                 setDraft({ ...draft, joinedOn: event.target.value });
               }}
             />
-            <Input
+            <PhoneField
               label="Phone"
               value={draft.phone}
-              placeholder="03001234567"
-              onChange={(event) => {
-                setDraft({ ...draft, phone: event.target.value });
+              onChange={(next) => {
+                setDraft({ ...draft, phone: next });
               }}
             />
             <Input

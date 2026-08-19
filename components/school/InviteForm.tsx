@@ -6,6 +6,7 @@ import { useCallback, useState, type FormEvent } from 'react';
 import { Button } from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
 import { Input } from '@/components/ui/Input';
+import { PhoneField } from '@/components/ui/PhoneField';
 import { Select } from '@/components/ui/Select';
 import { isValidEmail } from '@/lib/password-strength';
 import {
@@ -158,16 +159,15 @@ export function InviteForm({ branches }: InviteFormProps) {
             />
           </div>
 
-          <Input
+          <PhoneField
             label="Phone number"
-            type="tel"
             required
+            // Identity: `school_users.phone` is unique per school and is what
+            // the invitation-accept route resolves the member by.
+            identity
             value={phone}
-            onChange={(event) => {
-              setPhone(event.target.value);
-            }}
-            hint="The invitation is sent here over WhatsApp."
-            placeholder="+92 300 1234567"
+            onChange={setPhone}
+            hint="Identifies this member within the school."
             disabled={isSubmitting}
           />
 

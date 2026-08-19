@@ -6,6 +6,7 @@ import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import { Button } from '@/components/ui/Button';
 import { Card, CardTitle } from '@/components/ui/Card';
 import { Input } from '@/components/ui/Input';
+import { PhoneField } from '@/components/ui/PhoneField';
 import { Select } from '@/components/ui/Select';
 import { Textarea } from '@/components/ui/Textarea';
 import { GENDERS } from '@/db/schema/student-profiles';
@@ -279,17 +280,16 @@ export function ApplyForm({ branches, grades }: ApplyFormProps) {
             }}
           />
 
-          <Input
+          <PhoneField
             label="Phone number"
-            type="tel"
             required
-            placeholder="0300-1234567"
-            hint="We will contact you on WhatsApp about this application."
+            // Identity: `/api/admissions/apply` normalises this and
+            // `/api/admissions/check` looks an application up by it.
+            identity
+            hint="We will contact you on this number about the application."
             value={guardianPhone}
             disabled={isSubmitting}
-            onChange={(event) => {
-              setGuardianPhone(event.target.value);
-            }}
+            onChange={setGuardianPhone}
           />
 
           <Input

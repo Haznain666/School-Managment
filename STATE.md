@@ -4,8 +4,8 @@
 resume without re-deriving context. Updated at the end of every development
 step, before the session ends.
 
-**Last updated:** 2026-08-19 (**the SMTP transport fault and the wildcard
-provisioning fault — §5am; earlier the same day: §5al, §5ai–§5ak**)
+**Last updated:** 2026-08-19 (**the address and phone fields — §5an; earlier
+the same day: §5am, §5al, §5ai–§5ak**)
 
 > ✅ **`0024_school_branch_creation_fixes.sql` applied to the live database,
 > 2026-08-18.** Verified against the real schema rather than the exit code: 25
@@ -51,11 +51,32 @@ provisioning fault — §5am; earlier the same day: §5al, §5ai–§5ak**)
 > and the old. **Restart the app in hPanel** to clear it. Until then, treat any
 > single check of the live site as inconclusive — sample it ten times and count.
 
+> ✅ **Every address and phone field is now one shared component (§5an), no
+> migration.** `AddressAutocomplete` (Mapbox Search Box) and `PhoneField`
+> (Mobile/Landline dropdown, digits-only masks) replaced eleven hand-rolled
+> fields across nine files. Google Places and both `@googlemaps` packages are
+> gone. **`npm run check-address-phone` is what makes this stick** — it scans
+> every `.tsx` under `app/` and `components/` and fails on a raw `<Input
+> label="Phone">`, so the rule applies to pages nobody has written yet.
+>
+> ⚠️ **Mapbox's Pakistani coverage is thin and this is a product fact, not a
+> bug.** Cities, districts and localities resolve; streets and POIs mostly do
+> not — "Model Town Lahore" is found, "Ferozepur Road" and "Beaconhouse" return
+> nothing. Measured against the live API before anything was built. **Do not
+> "fix" an empty suggestion list**; the field is designed around it and the
+> typed text is the record.
+>
+> 🐛 **Fixed in passing: `hasCompleteMobileDigits` accepted any eleven digits
+> starting `0`.** `042 35300000` — a Lahore landline — was therefore a valid
+> "mobile" and was re-masked to `(0423) 530-0000`, a number that does not
+> exist. Every PK mobile is `03xx`; the check now requires it.
+
 > ✅ **Three follow-ups shipped the same day, no migration (§5aj):** Super Admin
 > can now delete a school permanently (all 61 FKs cascade; confirmation is the
 > school's typed name), the apex landing page offers Super Admin or a school
 > portal, and the address field is Google Place Autocomplete —
-> `cyphercodes/location-picker` is removed.
+> `cyphercodes/location-picker` is removed. **The last clause is superseded by
+> §5an: the address field is Mapbox now, and Google is gone entirely.**
 
 > ✅ **Sprint 13 is live at `schoolhub.codexmill.com`**, confirmed 2026-08-16 by
 > the CSS-hash technique (§5ab) plus a healthy smoke test, and the four new
@@ -4724,6 +4745,147 @@ sent (none since 2026-08-13), 7 queued, 6 failed, every failure `535` or
 
 ---
 
+---
+
+## 5an. Address and phone, made one field each — 2026-08-19
+
+No migration. Release notes:
+`release-notes/RELEASE-NOTES-ADDRESS-AND-PHONE-FIELDS.md`.
+
+The user supplied a Mapbox `pk.` token and asked for address autocomplete on
+every address input, a Mobile/Landline dropdown on every field titled "Phone",
+digits-only masks for both — and for the rule to hold "on all the pages,
+existing and in future".
+
+### The token was tested before anything was built, and the answer shaped the design
+
+Nine queries against the live Search Box API, before a line of component code:
+
+    Starbucks (near Seattle)      4 results, POI    -> the token works fully
+    Model Town Lahore             1 result,  locality
+    Gulberg                       2 results, locality
+    PECHS Karachi                 5 results, all cities/districts
+    Beaconhouse                   0 results
+    Ferozepur Road (Lahore prox.) 0 results
+    Johar Town                    1 result — "Johan", Balochistan, 800km away
+
+**Mapbox has Pakistani cities, districts and localities and almost nothing
+below that.** The token is not at fault — global POI search returns four
+Starbucks — and Geocoding v6 was tried as an alternative and is no better.
+Google Places was denser here, which is a real regression in coverage and is
+recorded plainly in the release note rather than buried.
+
+That finding is *why the component is shaped the way it is*: the text box is
+always present, always editable, never replaced by the results list, and an
+empty result list is worded as ordinary. This was already the old component's
+principle ("the place is the assistance; the text is the record") — with Mapbox
+it stops being a nicety and becomes the main path.
+
+### What was built
+
+| File | What |
+| --- | --- |
+| `lib/mapbox-search.ts` | `suggest` then `retrieve`, plain `fetch`, no SDK |
+| `components/ui/AddressAutocomplete.tsx` | replaces `LocationPicker` (deleted) |
+| `components/ui/PhoneField.tsx` | dropdown + the two masks |
+| `lib/phone-formats.ts` | gained `PhoneKind`, `detectPhoneKind`, the `*OfKind` helpers |
+| `scripts/check-address-phone.ts` | 32 assertions + a source scan |
+| `app/(public)/design-system/ContactFields.tsx` | the only place either field can be *seen* |
+
+Eleven fields across nine files were converted. Removed:
+`@googlemaps/extended-component-library`, `@types/google.maps`,
+`types/google-maps.d.ts`, `NEXT_PUBLIC_GOOGLE_MAPS_API_KEY`. The
+`/super-admin/schools/new` route dropped from 3.6 kB to 840 B of route JS.
+
+### Three decisions worth not re-litigating
+
+**No `phone_kind` column.** The format is self-describing — `(0321) 123-4567`
+can only be a mobile — so the kind is derived on load by `detectPhoneKind` and
+never stored. This kept 61 foreign keys, every import path and every existing
+row untouched, and means a number written by an API client that never saw the
+dropdown still displays under the right mask. The round trip (store, detect,
+re-mask, identical) is asserted, because a failure there silently rewrites data
+on load rather than throwing.
+
+**Landline is offered on identity fields and then refused.** A guardian's phone
+is the unique index on `student_guardians`, is what an invitation resolves, and
+is where a passcode goes; `normalizePhone` accepts `+92` and ten digits and
+nothing else. The user chose (asked directly) to keep the dropdown visible and
+fail validation with an explanation rather than hide the option — an operator
+holding a landline-only guardian needs to learn the platform cannot reach them,
+and a missing dropdown teaches nothing. **The alternative — relaxing
+`normalizePhone` and gating the OTP path on kind — was offered and declined.
+Do not implement it without asking again.**
+
+**School and Branch keep two separate fields.** "Landline" and "Mobile phone"
+against two columns, unchanged. A campus has both numbers and a dropdown would
+force a choice between them. `check-address-phone` exempts them *only while
+their own props call* `formatMobile(`/`formatLandline(` — the exemption is for
+a field that already enforces the mask, not for a filename.
+
+### Two defects found by building it
+
+**`hasCompleteMobileDigits` accepted any eleven digits starting `0`.** So
+`042 35300000`, a Lahore landline, was a valid "mobile" and the new dropdown
+re-masked it to `(0423) 530-0000` — a number that does not exist, derived from
+one that does. Caught by the round-trip assertion, not by inspection. Every PK
+mobile prefix is `03xx` and the check now requires it. This is a **pre-existing
+bug in the Sprint-`0024` validator**, live since 2026-08-18.
+
+**Coordinates outlived the address they belonged to.** Pick "Model Town", then
+type a different address over it, and the pin `31.48511, 74.32620` stayed
+attached — so Save would file the new address at the old place's location,
+silently, with nothing on screen contradicting it. The old Google component had
+the same behaviour and it was carried across unnoticed. Found by driving the
+field in a real browser, which is the only way it *could* have been found. The
+retrieved text is now remembered and the pin dropped the moment the text
+diverges.
+
+### How it was verified — and this time in a browser
+
+§5ai could not click-test because there is no plaintext Super Admin password,
+and §5aj only got as far as an already-open operator session. Both address and
+phone fields are behind a session *and* a tenant on every real screen, so
+`ContactFields` was added to `/design-system` — the dev-only workbench route
+that already exists for exactly this reason, and which 404s outside
+development. Driven directly:
+
+- `03ab00+12*34#567xyz` typed into the mobile field gives `(0300) 123-4567`.
+  Letters, `+`, `*` and `#` discarded as typed; eleven digits; 4-3-4.
+- `(042) 35300000` pre-filled: the dropdown reads **Landline**. The fix,
+  observed rather than asserted.
+- Switching the guardian field to Landline gives `aria-invalid="true"` and the
+  identity refusal. The digits survived the switch.
+- "Model Town Lahore", listbox, click: `Model Town, Lahore, لاہور, Punjab,
+  Pakistan` and `31.48511, 74.32620`. **Latitude then longitude** — GeoJSON is
+  `[lng, lat]` and reversing it puts every school in the sea off Somalia.
+- Retyping the address afterwards: pin dropped.
+- **Billing:** two full address entries (46 characters typed) produced
+  **2 suggest calls and 1 retrieve**, across 2 session tokens. The debounce
+  collapses keystrokes and the session rotates after a retrieve, which is the
+  documented Search Box model; a token minted per keystroke would bill each one
+  separately and would be invisible until the invoice arrived.
+- Zero console errors.
+
+### The part that answers "and in future"
+
+`npm run check-address-phone`. Half of it asserts the mask behaviour; the other
+half walks every `.tsx` under `app/` and `components/` and fails on any raw
+`<Input>`/`<Textarea>` whose literal label names a phone or an address. 280
+components, 155 labelled fields, 0 violations.
+
+Writing the scan surfaced two false positives worth keeping in mind: "Email
+address", and the panel chooser's "Your school’s address", which is a *web*
+address taking a slug. Both are excluded by a `NOT_POSTAL` pattern matched
+against the label **and** the props — the second needs the props, because its
+label alone is indistinguishable from a postal one and `value={slug}` is not.
+
+Gates: typecheck, lint, build, `check-forms` (60), `check-address-phone` (32),
+`check-portals`, `check-reports`, `check-dashboard`, `check-theme`,
+`check-provisioning` — all green. The §5f worktree `node_modules` stub
+reappeared and was deleted before each build, as always.
+
+
 ## 6. Open items for the user
 
 1. ~~Install GitHub CLI~~ — **partly regressed.** Git has a stored credential
@@ -4749,18 +4911,18 @@ sent (none since 2026-08-13), 7 queued, 6 failed, every failure `535` or
    supports push/ADMS — needed before Sprint 19.6 (§5x).
 10. ~~Decide the video vendor~~ — **self-hosted Jitsi, confirmed 2026-08-12.**
     A VPS is now platform infrastructure to provision and operate (§5x).
-11. **A *working* Google Maps API key**, if the address picker is wanted. One
-    was supplied on 2026-08-18 and **does not work yet** — the project is not
-    billed, and the key's API restrictions exclude Maps JavaScript API. Three
-    steps, all in the Google Cloud console: **enable billing** on the project;
-    add **Places API** and **Maps JavaScript API** under the key's *API
-    restrictions* (Places is what autocomplete uses since §5aj; Geocoding is no
-    longer needed); set *Application restrictions* to HTTP referrers covering
-    `https://schoolhub.codexmill.com/*`, `https://*.schoolhub.codexmill.com/*`
-    and `http://localhost:3000/*`. Then set
-    `NEXT_PUBLIC_GOOGLE_MAPS_API_KEY` in `.env.local` **and** the Hostinger
-    panel. Until then nothing is broken: the address on both creation forms is
-    the plain text field it has always been and says so in one line (§5ai).
+11. ~~**A *working* Google Maps API key**, if the address picker is wanted.~~
+    **CLOSED 2026-08-19 (§5an) — nothing needs one.** The key supplied on
+    2026-08-18 never worked (unbilled project, and its API restrictions excluded
+    Maps JavaScript API), and three console steps were outstanding to fix it.
+    Address autocomplete now runs on Mapbox instead, on a token that ships with
+    the application, so **there is no action here and no account to open**.
+    `NEXT_PUBLIC_GOOGLE_MAPS_API_KEY` is read by nothing and can be deleted from
+    the hosting panel. To use a different Mapbox token set
+    `NEXT_PUBLIC_MAPBOX_TOKEN` and restrict it by URL in the Mapbox console.
+    **Known limitation, not a configuration fault:** Mapbox finds Pakistani
+    cities and localities but very few streets and almost no buildings, so most
+    school addresses are typed rather than picked — the field is built for that.
 12. **Set `SMTP_PASS_B64` in the hosting panel and DELETE `SMTP_PASS`**, then
     restart, then press *Retry abandoned messages* on the Super Admin dashboard.
     ~~Fix `SMTP_USER`/`SMTP_PASS`; only the panel's copy is wrong (§5al).~~
@@ -4800,6 +4962,7 @@ sent (none since 2026-08-13), 7 queued, 6 failed, every failure `535` or
 
 | Date | Session did | Next |
 | --- | --- | --- |
+| 2026-08-19 | **Address and phone made one field each** (§5an). `AddressAutocomplete` (Mapbox Search Box) and `PhoneField` (Mobile/Landline dropdown, digits-only masks — mobile `(xxxx) xxx-xxxx` fixed at eleven, landline `(xxx)` then up to ten) replaced eleven hand-rolled fields across nine files; Google Places and both `@googlemaps` packages are gone. **The token was measured before anything was built**, and the answer shaped the design: Mapbox has Pakistani cities and localities and almost nothing below — "Beaconhouse" and "Ferozepur Road" return nothing at all — so the text box is the record and an empty suggestion list is worded as ordinary rather than as a miss. **No `phone_kind` column**: the format is self-describing, so the kind is derived on load and the store→detect→re-mask round trip is asserted. On identity fields (guardian, invitation, admissions) Landline is offered and then refused with a reason — the user chose that over relaxing `normalizePhone`, which was offered and declined. **Two defects found by building it:** `hasCompleteMobileDigits` accepted any eleven digits starting `0`, so the Lahore landline `042 35300000` was a valid "mobile" and was re-masked to a number that does not exist (live since `0024`); and coordinates outlived the address they belonged to, so picking a place and then retyping the address would have filed it at the old location. The second was only findable in a browser — so `ContactFields` was added to `/design-system` and both fields were **actually driven**, which §5ai and §5aj could not do. Mapbox billing checked too: 46 characters typed cost 2 suggest calls and 1 retrieve. New `npm run check-address-phone` — 32 assertions plus a scan of all 280 components that fails on a raw `<Input label="Phone">`, which is what makes the rule apply to pages nobody has written yet. | **Print one of each document on real A4** — still outstanding, still needs a person and a printer. Then Sprint 13.5 (accounting) on migration `0025`. Nothing here needs a panel action: the Mapbox token ships with the app and `NEXT_PUBLIC_MAPBOX_TOKEN` only overrides it. `NEXT_PUBLIC_GOOGLE_MAPS_API_KEY` can be deleted from the hosting panel. |
 | 2026-08-18 | **School and branch creation, fixed** (§5ai). Ten reported items, and the last of them was two defects wearing one description. The module-adoption chart was drawing eleven long labels onto one x axis and had passed every automated check while being unreadable — `BarChart` gains a horizontal orientation, and rotation and truncation are both recorded as rejected, the second because it renders "Academics & Timetable" and "Accounts & Finance" identically. The branch form asks city first because it is the only answer that produces another (`Karachi` → `KHI-MAIN`, editable); `MIXED` now demands a board name; "Highest grade" — a free-text box that could express neither a junior campus's floor nor a skipped year — is replaced by a curriculum-filtered class list; phone splits into masked landline and mobile; email is checked against the practical grammar rather than `includes('@')`; the address gains a map picker that degrades to plain text with no key configured. All of it applies to the school form and all of it is re-checked server-side. **The two real bugs: Supabase held no address the panel had ever been asked to invite** — only the synthetic `pa_` hand-off accounts — because nothing created an account until password setup, so the address is now registered at provisioning while `auth_user_id` stays null (five things read that column as "has been through setup"); **and deleting a member left their Supabase account claiming the address forever**, so a re-invited person came back onto their old credential — now deleted with the membership, but only once no other school holds that address, because one account is one human and not one membership. **Migration `0024` applied and verified** — 25 recorded, eight columns, nothing dropped; `max_grade` deliberately kept and populated because its free-text values cannot be mapped without guessing. New `npm run check-forms`: 60 assertions, which caught a mobile validator accepting the right digits in the wrong shape. | **The two forms have not been driven by hand in a browser** — no plaintext Super Admin password exists, so QA was scripted. Set `NEXT_PUBLIC_GOOGLE_MAPS_API_KEY` to turn the map on. Then print one of each document on A4, then Sprint 13.5 on migration `0025`. |
 | 2026-08-16 | **Sprint 13 — Portals, the PWA shell and BR4** (§5ac). Fourteen new screens across the three portals a school does not log into, plus two things that are not screens: an installable per-tenant app, and multiple principals. **Migration `0023` written, applied and verified against the real schema** — 24 recorded, three tables, 11 indexes, `principal_model` defaulting to `single` on all six schools, and the permission CHECK accepting `principals.manage`. **BR4 adds no role**: the document's dynamic `principal_${division}` role is refused, because `school_users.role` is CHECK-constrained and every permission default is keyed on a closed set — the assignment scopes what a head *sees*, which is a visibility boundary and not an authorization one, and §5ac says plainly what that costs. **The service worker caches nothing authenticated**, deliberately and permanently until a session-keyed cache exists: a cached fee page outlives its session on a handset that is frequently shared, and signing out does not clear it. Notification preferences are opt-out with no back-fill and govern email only — the notice board is never suppressed, because a school must not be able to have told somebody something they had no way of seeing. Found and fixed a Sprint 11 defect in passing: the composer **discarded the send outcome**, so the unreachable count was computed, stored and never shown to anybody. New `npm run check-portals` asserts the calendar arithmetic and the principal-scope union with no database, then executes all 14 new queries against the live schema. All seven gates green. | **Print one of each document on real A4** — still outstanding, still needs a person and a printer, and Sprint 13 has just added the parent's own report-card sheet to the pile. Then Sprint 13.5 (accounting), which needs migration **`0025`** (`0024` was taken by the 2026-08-18 creation fixes, §5ai). Two smaller things this sprint left written but unrendered: the shared-lesson-plan read for coordinators, and Sprint 11's delivery report — build them together. |
 | 2026-08-15 | **Sprint 12 — Reports & analytics** (§5ab). Nine reports — attendance summary, subject-wise attendance, fee collection, outstanding/aging, academic results, payroll summary, leave summary, enrollment funnel, monthly revenue — each with filters in the URL, a printed sheet on the school's letterhead and a CSV export. **One definition, three renderers**: `lib/report-catalogue.ts` declares a report once and the screen, the sheet and the file all read it, so a column cannot exist on one and not another. **No migration, deliberately** — a `reports.read` key would have needed the permission CHECK dropped and recreated, and would have let anyone who may read the register read the salary bill; each report is gated on the permission that already governs the screen its data comes from. `lib/csv-export.ts` is new because `lib/csv.ts` only read: it writes an Excel BOM and neutralises formula injection, both asserted in the new `npm run check-reports` **because both look like litter to whoever next tidies the file**. Subject-wise attendance is derived from the daily register plus the timetable and says so on screen and on paper — there is no per-period register to read, and the report measures teaching time lost rather than pretending otherwise. Verified against the seeded school: three independently written queries agree on PKR 2,105,531 outstanding, and the cash/bank split sums exactly to the collected total. All six gates green. | **Print one of each document on real A4** — still outstanding, still needs a person and a printer, and Sprint 12 has just added a tenth thing to print. Then Sprint 13 (portals + PWA shell + multiple principals), which does need a migration. |

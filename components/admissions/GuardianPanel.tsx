@@ -7,6 +7,7 @@ import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { Card, CardTitle } from '@/components/ui/Card';
 import { Input } from '@/components/ui/Input';
+import { PhoneField } from '@/components/ui/PhoneField';
 import { Select } from '@/components/ui/Select';
 import {
   GUARDIAN_RELATIONSHIPS,
@@ -275,16 +276,14 @@ export function GuardianPanel({
                 setRelationship(event.target.value as GuardianRelationship);
               }}
             />
-            <Input
+            <PhoneField
               label="Phone"
-              type="tel"
               required
-              placeholder="0300-1234567"
+              // Identity — see the same field on `GuardianForm`.
+              identity
               value={phone}
               disabled={busy === 'add'}
-              onChange={(event) => {
-                setPhone(event.target.value);
-              }}
+              onChange={setPhone}
             />
             <Input
               label="Email"

@@ -6,6 +6,7 @@ import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { Card, CardTitle } from '@/components/ui/Card';
 import { Input } from '@/components/ui/Input';
+import { PhoneField } from '@/components/ui/PhoneField';
 import {
   Table,
   TableBody,
@@ -340,14 +341,11 @@ export function SchoolUsersTable({ schoolId }: SchoolUsersTableProps) {
             setAdminEmail(event.target.value);
           }}
         />
-        <Input
+        <PhoneField
           label="Mobile number"
           value={adminPhone}
-          placeholder="0300-1234567"
           hint="A contact record, not a login."
-          onChange={(event) => {
-            setAdminPhone(event.target.value);
-          }}
+          onChange={setAdminPhone}
         />
       </div>
 
