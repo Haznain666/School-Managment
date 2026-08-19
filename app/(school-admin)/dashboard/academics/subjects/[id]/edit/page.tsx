@@ -3,7 +3,7 @@ import { notFound } from 'next/navigation';
 
 import { SubjectForm } from '@/components/academics/SubjectForm';
 import { PageHeader } from '@/components/ui/PageHeader';
-import { getSubject } from '@/lib/academics-queries';
+import { getSubject, listSubjects } from '@/lib/academics-queries';
 import { requireSchoolPermission } from '@/lib/school-guard';
 import { isUuid } from '@/lib/validation';
 
@@ -32,6 +32,11 @@ export default async function EditSubjectPage({
   const subject = await getSubject(locationId, id);
   if (subject === null) notFound();
 
+  // This subject is excluded — a colour is not too close to itself, and the
+  // warning firing on every edit would train people to ignore it.
+  const existing = await listSubjects(locationId, { activeOnly: true });
+  const others = existing.filter((one) => one.id !== id);
+
   return (
     <div className="max-w-3xl space-y-6">
       <PageHeader
@@ -39,7 +44,10 @@ export default async function EditSubjectPage({
         description="Renaming affects every timetable this subject appears in, past and present."
       />
 
-      <SubjectForm subject={subject} />
+      <SubjectForm
+        subject={subject}
+        otherSubjects={others.map((one) => ({ name: one.name, color: one.color }))}
+      />
     </div>
   );
 }

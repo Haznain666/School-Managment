@@ -3,7 +3,11 @@ import Link from 'next/link';
 
 import { Card } from '@/components/ui/Card';
 import { PageHeader } from '@/components/ui/PageHeader';
-import { listSubjects, listTimetableSlots } from '@/lib/academics-queries';
+import {
+  listPeriodStructures,
+  listSubjects,
+  listTimetableSlots,
+} from '@/lib/academics-queries';
 import { getActiveAcademicYear } from '@/lib/admissions-queries';
 import { requireSchoolPermission } from '@/lib/school-guard';
 
@@ -56,9 +60,12 @@ function ActionTile({
 export default async function AcademicsOverviewPage() {
   const { locationId } = await requireSchoolPermission('academics.read');
 
-  const [subjects, slots, activeYear] = await Promise.all([
+  const [subjects, slots, structures, activeYear] = await Promise.all([
     listSubjects(locationId, { activeOnly: true }),
+    // Deliberately unscoped: this is a count across every schedule the school
+    // keeps, which is what a summary card means by "periods".
     listTimetableSlots(locationId, { activeOnly: true }),
+    listPeriodStructures(locationId, { activeOnly: true }),
     getActiveAcademicYear(locationId),
   ]);
 
@@ -98,7 +105,11 @@ export default async function AcademicsOverviewPage() {
         <StatCard
           label="Teaching periods"
           value={teachingSlots.length}
-          hint={`${slots.length - teachingSlots.length} break${slots.length - teachingSlots.length === 1 ? '' : 's'} in the day`}
+          hint={
+            structures.length > 1
+              ? `Across ${structures.length} period schedules`
+              : `${slots.length - teachingSlots.length} break${slots.length - teachingSlots.length === 1 ? '' : 's'} in the day`
+          }
         />
         <StatCard
           label="Academic year"
@@ -121,7 +132,12 @@ export default async function AcademicsOverviewPage() {
           <ActionTile
             href="/dashboard/academics/timetable"
             title="Timetable"
-            description="Build a section's week, period by period."
+            description="Build a section's week, and the period schedules its rows come from."
+          />
+          <ActionTile
+            href="/dashboard/academics/teacher-calendar"
+            title="Teacher calendar"
+            description="One teacher's day, week or month, with the gaps visible."
           />
           <ActionTile
             href="/dashboard/academics/attendance"

@@ -61,9 +61,20 @@ export type NewSubject = typeof subjects.$inferInsert;
 /**
  * The palette offered when creating a subject.
  *
- * A fixed set rather than a free colour picker: these are chosen to stay
- * distinguishable from one another and to keep white text legible on top, which
- * an arbitrary hex value does not guarantee.
+ * Eight presets, chosen to stay distinguishable from one another in a grid of
+ * thirty-five cells and to carry legible lettering. A subject may also take any
+ * `#rrggbb` a school picks — this column always accepted one, and the form now
+ * offers it — but the presets are what one click gets, and they are the ones
+ * this product is prepared to vouch for.
+ *
+ * ⚠ Every entry here must clear `MIN_CONTRAST_RATIO` against the lettering
+ * `readableForeground` will pick for it. `npm run check-sprint-periods`
+ * asserts it, and that assertion caught the pink: `#db2777` reached only
+ * 4.39:1 against either candidate — it had been in the palette since Sprint 6
+ * and no build, type-check or screenshot had ever objected. It is now
+ * `#be185d` (5.77:1). Subjects already saved with the old value keep it;
+ * nothing rewrites stored colours, and the grid computes legible lettering for
+ * whatever it finds.
  */
 export const SUBJECT_COLORS = [
   '#2563eb',
@@ -72,7 +83,7 @@ export const SUBJECT_COLORS = [
   '#65a30d',
   '#d97706',
   '#dc2626',
-  '#db2777',
+  '#be185d',
   '#7c3aed',
 ] as const;
 

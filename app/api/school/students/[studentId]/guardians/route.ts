@@ -1,12 +1,18 @@
 import { and, eq, ne } from 'drizzle-orm';
 
-import { schoolUsers, studentGuardians, isGuardianRelationship } from '@/db/schema';
+import {
+  schoolUsers,
+  studentEnrollments,
+  studentGuardians,
+  isGuardianRelationship,
+} from '@/db/schema';
 import { withSchoolAuth } from '@/lib/api-auth';
 import { apiFailure, apiSuccess, handleApiError, readJsonBody } from '@/lib/api-response';
 import { getStudentDetail, listGuardians } from '@/lib/admissions-queries';
 import { db } from '@/lib/drizzle';
 import { createGuardianGHLContact } from '@/lib/ghl-admissions';
 import { MAX_GUARDIANS } from '@/lib/enrollment';
+import { provisionGuardianPortalAccess } from '@/lib/parent-portal-access';
 import { InvalidPhoneError, normalizePhone } from '@/lib/phone';
 import { isUuid, readOptionalString, readString } from '@/lib/validation';
 
@@ -18,6 +24,17 @@ import { isUuid, readOptionalString, readString } from '@/lib/validation';
  *
  * A new guardian is mirrored into GHL immediately, but a failed mirror does not
  * fail the request — the row is the record, the CRM contact is a copy of it.
+ *
+ * ── The welcome, and the one condition on it ─────────────────────────────
+ * A guardian with an email address is given a parent portal account and a
+ * welcome carrying the link to set a password. That used to happen nowhere at
+ * all, which is why every guardian in the system read "No portal account".
+ *
+ * It is held back for exactly one case: a student whose admission fee has not
+ * cleared yet. Those guardians are welcomed by `lib/enrolment-fee-gate.ts` the
+ * moment the money lands. A guardian added to a student already on the roll —
+ * a second parent, a grandmother — is welcomed here and now, because there is
+ * nothing left for them to wait for.
  */
 
 export const runtime = 'nodejs';
@@ -184,8 +201,49 @@ export const POST = withSchoolAuth<RouteContext>(
         console.warn('[guardians] GHL sync failed for a new guardian:', error);
       }
 
+      /*
+       * The fee gate, read rather than assumed.
+       *
+       * `feeStatus` lives on the *active* enrolment. A student with none —
+       * withdrawn, transferred out, or a profile with no placement yet — has
+       * no admission to gate, so their guardians are welcomed immediately;
+       * holding them back would leave the welcome waiting on a payment nobody
+       * is going to make.
+       */
+      const enrolments = await db
+        .select({ feeStatus: studentEnrollments.feeStatus })
+        .from(studentEnrollments)
+        .where(
+          and(
+            eq(studentEnrollments.locationId, auth.locationId),
+            eq(studentEnrollments.studentProfileId, studentId),
+            eq(studentEnrollments.status, 'active'),
+          ),
+        )
+        .limit(1);
+
+      const awaitingFee = enrolments[0]?.feeStatus === 'outstanding';
+
+      const access = awaitingFee
+        ? null
+        : await provisionGuardianPortalAccess({
+            locationId: auth.locationId,
+            guardianId: guardian.id,
+            actorUid: auth.uid,
+          });
+
       return apiSuccess(
-        { guardians: await listGuardians(auth.locationId, studentId) },
+        {
+          guardians: await listGuardians(auth.locationId, studentId),
+          access:
+            access === null
+              ? {
+                  emailQueued: false,
+                  reason:
+                    'This student’s admission fee has not been paid yet. The parent portal welcome goes out automatically once it clears.',
+                }
+              : { emailQueued: access.emailQueued, reason: access.reason },
+        },
         201,
       );
     } catch (error) {

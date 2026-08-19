@@ -31,6 +31,36 @@ export const ENROLLMENT_STATUS_LABELS: Record<EnrollmentStatus, string> = {
 };
 
 /**
+ * Whether the admission fee on this enrolment has been settled.
+ *
+ * ── Why this is a second column and not a fifth status ───────────────────
+ * "A student is only enrolled once their fee is paid" is a real rule, and the
+ * obvious way to write it is `status = 'pending_fee'`. That would be wrong
+ * here, and expensively so: `status = 'active'` is what the register, the
+ * promotion run, the class lists, the challan generator and nine reports all
+ * filter on. A child admitted on Monday and paying on Friday would be invisible
+ * to every one of them for four days — no register to mark, no challan to pay,
+ * and therefore no way to ever leave the state.
+ *
+ * The enrolment is real from the moment it is written. What is conditional is
+ * whether it has been *confirmed*, and that is what this records.
+ */
+export const FEE_CLEARANCE_STATUSES = ['outstanding', 'cleared'] as const;
+export type FeeClearanceStatus = (typeof FEE_CLEARANCE_STATUSES)[number];
+
+export const FEE_CLEARANCE_LABELS: Record<FeeClearanceStatus, string> = {
+  outstanding: 'Fee outstanding',
+  cleared: 'Enrolled — fee paid',
+};
+
+export function isFeeClearanceStatus(value: unknown): value is FeeClearanceStatus {
+  return (
+    typeof value === 'string' &&
+    (FEE_CLEARANCE_STATUSES as readonly string[]).includes(value)
+  );
+}
+
+/**
  * student_enrollments — one row per student per academic year.
  *
  * This is the history table: promoting a child to the next class adds a row
@@ -63,6 +93,22 @@ export const studentEnrollments = pgTable(
     rollNumber: text('roll_number'),
     enrollmentDate: date('enrollment_date').notNull().defaultNow(),
     status: text('status').notNull().default('active').$type<EnrollmentStatus>(),
+    /**
+     * `outstanding` until the school has been paid, then `cleared`.
+     *
+     * Defaults to `outstanding`, so a newly admitted child starts unconfirmed
+     * and the guardians' portal welcome is held back until the money is in.
+     * Every enrolment that existed before this column was added was back-filled
+     * to `cleared` — those children are already at school, and re-opening a
+     * settled admission to chase a fee that was paid last year would be a
+     * fabricated debt.
+     */
+    feeStatus: text('fee_status')
+      .notNull()
+      .default('outstanding')
+      .$type<FeeClearanceStatus>(),
+    /** When the fee cleared. Null while it is outstanding. */
+    feeClearedAt: timestamp('fee_cleared_at', { withTimezone: true }),
     notes: text('notes'),
     createdAt: timestamp('created_at', { withTimezone: true })
       .notNull()
@@ -93,9 +139,19 @@ export const studentEnrollments = pgTable(
     uniqueIndex('student_enrollments_location_id_profile_year_idx')
       .on(table.locationId, table.studentProfileId, table.academicYearId)
       .where(sql`${table.status} = 'active'`),
+    // The list screens filter on this, and the fee gate scans it for the
+    // enrolments still waiting on money.
+    index('student_enrollments_location_fee_status_idx').on(
+      table.locationId,
+      table.feeStatus,
+    ),
     check(
       'student_enrollments_status_check',
       sql`${table.status} IN ('active', 'transferred', 'withdrawn', 'graduated')`,
+    ),
+    check(
+      'student_enrollments_fee_status_check',
+      sql`${table.feeStatus} IN ('outstanding', 'cleared')`,
     ),
   ],
 );

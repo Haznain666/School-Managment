@@ -9,15 +9,21 @@ import {
   uuid,
 } from 'drizzle-orm/pg-core';
 
+import { periodStructures } from './period-structures';
 import { schools } from './schools';
 
 /**
- * timetable_slots — the school's bell schedule.
+ * timetable_slots — one period inside one bell schedule.
  *
- * One row per period, shared by every section: a school rings one bell, so the
- * rows of the weekly grid are defined here once rather than per class. That is
- * also what makes two sections comparable — "period 3" means the same minutes
- * everywhere.
+ * One row per period. Every slot belongs to a `period_structures` row, and the
+ * grades assigned to that structure are the ones laid out against it — so
+ * "period 3" means the same minutes for every section of every grade on the
+ * same schedule, and the infants are not made to carry the seniors' eighth
+ * period as an empty row they can never fill.
+ *
+ * That column is the whole of what changed when structures arrived. A school
+ * that has never opened the structures screen has exactly one, holding every
+ * slot it already had, and nothing about this table reads differently to it.
  *
  * Times are `HH:MM` text rather than `time` columns because nothing here is a
  * moment in time: a period is a label on a wall clock, it never crosses a
@@ -35,6 +41,10 @@ export const timetableSlots = pgTable(
     locationId: text('location_id')
       .notNull()
       .references(() => schools.locationId, { onDelete: 'cascade' }),
+    /** The bell schedule this period belongs to. */
+    periodStructureId: uuid('period_structure_id')
+      .notNull()
+      .references(() => periodStructures.id, { onDelete: 'cascade' }),
     /** e.g. `Period 1`, `Break`, `Assembly`. */
     name: text('name').notNull(),
     /** Wall-clock start, `HH:MM` in 24-hour form. */
@@ -42,7 +52,7 @@ export const timetableSlots = pgTable(
     /** Wall-clock end, `HH:MM` in 24-hour form. */
     endTime: text('end_time').notNull(),
     isBreak: boolean('is_break').notNull().default(false),
-    /** Position down the day. Unique per school — it orders the grid. */
+    /** Position down the day. Unique per structure — it orders the grid. */
     orderIndex: integer('order_index').notNull(),
     isActive: boolean('is_active').notNull().default(true),
     createdAt: timestamp('created_at', { withTimezone: true })
@@ -54,9 +64,18 @@ export const timetableSlots = pgTable(
   },
   (table) => [
     index('timetable_slots_location_id_idx').on(table.locationId),
-    // Two slots claiming the same position would make the grid order arbitrary.
-    uniqueIndex('timetable_slots_location_id_order_index_idx').on(
-      table.locationId,
+    index('timetable_slots_period_structure_id_idx').on(table.periodStructureId),
+    /*
+     * Two slots claiming the same position would make the grid order arbitrary.
+     *
+     * Scoped to the structure rather than the school, which is the point of the
+     * feature: "position 3" in the junior day and "position 3" in the senior
+     * day are different periods at different times, and under the old
+     * school-wide index the second school schedule a school entered was refused
+     * as a duplicate of the first.
+     */
+    uniqueIndex('timetable_slots_structure_order_index_idx').on(
+      table.periodStructureId,
       table.orderIndex,
     ),
   ],

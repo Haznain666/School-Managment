@@ -32,6 +32,7 @@ import {
   type ApplicationStatus,
   type CurriculumLevel,
   type EnrollmentStatus,
+  type FeeClearanceStatus,
   type GuardianRelationship,
 } from '@/db/schema';
 
@@ -188,6 +189,14 @@ export interface GradeRow {
   curriculumLevel: CurriculumLevel;
   sortOrder: number;
   isActive: boolean;
+  /**
+   * The campus this grade belongs to.
+   *
+   * Grades are per branch, so a two-campus school has two rows both labelled
+   * "Class 5" — and any screen that lists them school-wide, such as assigning
+   * grades to a period schedule, is unusable without knowing which is which.
+   */
+  branchName: string | null;
 }
 
 export async function listGrades(
@@ -208,8 +217,10 @@ export async function listGrades(
       curriculumLevel: grades.curriculumLevel,
       sortOrder: grades.sortOrder,
       isActive: grades.isActive,
+      branchName: branches.name,
     })
     .from(grades)
+    .leftJoin(branches, eq(branches.id, grades.branchId))
     .where(and(...conditions))
     .orderBy(asc(grades.branchId), asc(grades.sortOrder));
 
@@ -485,6 +496,8 @@ export interface GuardianRow {
   isPrimaryContact: boolean;
   ghlContactId: string | null;
   schoolUserId: string | null;
+  /** When the parent portal welcome was queued. Null = still owed one. */
+  welcomeEmailSentAt: Date | null;
 }
 
 export async function listGuardians(
@@ -503,6 +516,7 @@ export async function listGuardians(
       isPrimaryContact: studentGuardians.isPrimaryContact,
       ghlContactId: studentGuardians.ghlContactId,
       schoolUserId: studentGuardians.schoolUserId,
+      welcomeEmailSentAt: studentGuardians.welcomeEmailSentAt,
     })
     .from(studentGuardians)
     .where(
@@ -525,6 +539,15 @@ export interface EnrollmentRow {
   enrollmentDate: string;
   status: EnrollmentStatus;
   isActiveYear: boolean;
+  /**
+   * `outstanding` until the admission fee is settled, then `cleared`.
+   *
+   * Separate from `status` on purpose — see the column comment in
+   * `db/schema/student-enrollments.ts`. A student is `active` from the moment
+   * they are admitted; this says whether that admission has been confirmed.
+   */
+  feeStatus: FeeClearanceStatus;
+  feeClearedAt: Date | null;
 }
 
 export async function listEnrollmentHistory(
@@ -545,6 +568,8 @@ export async function listEnrollmentHistory(
       rollNumber: studentEnrollments.rollNumber,
       enrollmentDate: studentEnrollments.enrollmentDate,
       status: studentEnrollments.status,
+      feeStatus: studentEnrollments.feeStatus,
+      feeClearedAt: studentEnrollments.feeClearedAt,
     })
     .from(studentEnrollments)
     .innerJoin(sections, eq(sections.id, studentEnrollments.sectionId))
@@ -570,6 +595,8 @@ export async function listEnrollmentHistory(
     enrollmentDate: row.enrollmentDate,
     status: row.status,
     isActiveYear: row.isActiveYear,
+    feeStatus: row.feeStatus,
+    feeClearedAt: row.feeClearedAt,
   }));
 }
 

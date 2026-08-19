@@ -4,6 +4,7 @@ import { feeChallans } from '@/db/schema';
 import { withSchoolAuth } from '@/lib/api-auth';
 import { apiFailure, apiSuccess, handleApiError, readJsonBody } from '@/lib/api-response';
 import { db } from '@/lib/drizzle';
+import { settleEnrolmentIfFeePaid } from '@/lib/enrolment-fee-gate';
 import { calculateLateFee, challanStatusFor } from '@/lib/fee-calculator';
 import { getChallanDetail, getLateFeeRule } from '@/lib/fee-queries';
 import { paiseToNumeric, toPaise } from '@/lib/money';
@@ -185,7 +186,23 @@ export const PATCH = withSchoolAuth<RouteContext>(
         return apiFailure('not_found', 'Challan not found.', 404);
       }
 
-      return apiSuccess({ challan: await getChallanDetail(auth.locationId, challanId) });
+      /*
+       * A waiver settles the account as surely as cash does, so it can be the
+       * thing that confirms an admission — and for a school that admits on a
+       * scholarship, it is the ONLY thing that ever will. Re-evaluated for
+       * every action rather than only for `waive`: cancelling the one open
+       * challan leaves the student owing nothing either.
+       */
+      const gate = await settleEnrolmentIfFeePaid({
+        locationId: auth.locationId,
+        studentProfileId: existing.studentProfileId,
+        actorUid: auth.uid,
+      });
+
+      return apiSuccess({
+        challan: await getChallanDetail(auth.locationId, challanId),
+        enrolment: { justCleared: gate.cleared },
+      });
     } catch (error) {
       return handleApiError(error);
     }

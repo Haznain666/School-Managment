@@ -65,6 +65,16 @@ export const studentGuardians = pgTable(
     cnic: text('cnic'),
     occupation: text('occupation'),
     isPrimaryContact: boolean('is_primary_contact').notNull().default(false),
+    /**
+     * When the parent-portal welcome was queued for this guardian.
+     *
+     * The marker is on the guardian and not on the student because a family
+     * with three children at the school must not receive three welcomes to the
+     * same portal — one account covers all of them. It is also what makes the
+     * fee gate safely re-runnable: a second payment against a second challan
+     * re-enters the same code path, finds this set, and sends nothing.
+     */
+    welcomeEmailSentAt: timestamp('welcome_email_sent_at', { withTimezone: true }),
     /** GHL contact this guardian is mirrored to. Null until the sync succeeds. */
     ghlContactId: text('ghl_contact_id'),
     createdAt: timestamp('created_at', { withTimezone: true })

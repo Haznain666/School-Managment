@@ -3,6 +3,7 @@
 import { useRouter } from 'next/navigation';
 import { useState, type FormEvent } from 'react';
 
+import { SubjectColorPicker } from '@/components/academics/SubjectColorPicker';
 import { Button } from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
 import { Input } from '@/components/ui/Input';
@@ -12,10 +13,13 @@ import { schoolErrorMessage, schoolFetch } from '@/lib/school-client';
 /**
  * Creating and editing a subject.
  *
- * The colour is a palette rather than a picker. These eight are chosen to stay
- * distinguishable from one another in a grid of thirty-five cells — a free
- * picker invites two subjects a shade apart, which is exactly the mistake that
- * makes a timetable unreadable.
+ * The colour is the eight-swatch palette *and* a free picker — see
+ * `SubjectColorPicker` for why both, and for what the picker does that a bare
+ * `<input type="color">` does not. The palette is still first and still what a
+ * school that does not care gets in one click; the mistake it guards against
+ * (two subjects a shade apart) is now warned about rather than made
+ * impossible, because a school with a house colour has a reason this product
+ * has no standing to overrule.
  */
 
 export interface SubjectFormValues {
@@ -29,9 +33,18 @@ export interface SubjectFormValues {
 export interface SubjectFormProps {
   /** Null when creating. */
   subject?: SubjectFormValues | null;
+  /**
+   * The colours the school's other subjects already use.
+   *
+   * Passed in from the server page rather than fetched here: the list is small,
+   * it is already loaded to render the subjects screen, and a colour picker
+   * that makes its own request to warn about a clash would be spending a
+   * ~1s round trip (§5aq) on advice.
+   */
+  otherSubjects?: ReadonlyArray<{ name: string; color: string | null }>;
 }
 
-export function SubjectForm({ subject = null }: SubjectFormProps) {
+export function SubjectForm({ subject = null, otherSubjects = [] }: SubjectFormProps) {
   const router = useRouter();
 
   const [name, setName] = useState(subject?.name ?? '');
@@ -108,36 +121,13 @@ export function SubjectForm({ subject = null }: SubjectFormProps) {
             }}
           />
 
-          <fieldset className="sm:col-span-2">
-            <legend className="mb-1.5 block text-sm font-medium text-ink">
-              Colour
-            </legend>
-
-            <div className="flex flex-wrap gap-2">
-              {SUBJECT_COLORS.map((option) => (
-                <button
-                  key={option}
-                  type="button"
-                  aria-label={`Use colour ${option}`}
-                  aria-pressed={color === option}
-                  disabled={isSubmitting}
-                  onClick={() => {
-                    setColor(option);
-                  }}
-                  className={
-                    color === option
-                      ? 'h-9 w-9 rounded-full ring-2 ring-ink ring-offset-2'
-                      : 'h-9 w-9 rounded-full ring-1 ring-line-strong'
-                  }
-                  style={{ backgroundColor: option }}
-                />
-              ))}
-            </div>
-
-            <p className="mt-1.5 text-sm text-ink-muted">
-              How this subject appears in the weekly grid.
-            </p>
-          </fieldset>
+          <SubjectColorPicker
+            value={color}
+            onChange={setColor}
+            disabled={isSubmitting}
+            inUse={otherSubjects}
+            previewLabel={code.trim() === '' ? name.trim().toUpperCase() : code.trim().toUpperCase()}
+          />
 
           {subject === null ? null : (
             <label className="flex items-start gap-2 text-sm text-ink sm:col-span-2">

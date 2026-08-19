@@ -159,6 +159,10 @@ export function schoolNav({ role, permissions, moduleFlags }: SchoolNavProps): {
         { label: 'Overview', href: '/dashboard/academics', icon: 'dashboard' },
         { label: 'Subjects', href: '/dashboard/academics/subjects', icon: 'subjects' },
         { label: 'Timetable', href: '/dashboard/academics/timetable', icon: 'timetable' },
+        // Beside the timetable rather than under People: the question it
+        // answers — is this teacher free on Thursday — is a timetable question,
+        // and it is gated on the same permission.
+        { label: 'Teacher Calendar', href: '/dashboard/academics/teacher-calendar', icon: 'timetable' },
         ...(can('attendance.mark')
           ? ([{ label: 'Mark Attendance', href: '/dashboard/academics/attendance', icon: 'attendance' }] satisfies PortalNavItem[])
           : []),

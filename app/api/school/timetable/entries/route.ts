@@ -13,7 +13,8 @@ import { apiFailure, apiSuccess, handleApiError, readJsonBody } from '@/lib/api-
 import {
   getTimetableSlot,
   listTimetableEntries,
-  listTimetableSlots,
+  listSlotsForSection,
+  resolveStructureForSection,
 } from '@/lib/academics-queries';
 import { db } from '@/lib/drizzle';
 import { isUuid, readOptionalString } from '@/lib/validation';
@@ -28,6 +29,13 @@ import { isUuid, readOptionalString } from '@/lib/validation';
  * cell that already holds a lesson replaces it, and a delete-then-insert could
  * leave the cell empty if the second half failed — the unique index is what
  * makes the single statement possible.
+ *
+ * ── The rows a section is laid out against ───────────────────────────────
+ * Not the school's whole bell schedule any more: the schedule of the structure
+ * this section's *grade* is assigned to, or the school default when nobody has
+ * assigned it. That is `listSlotsForSection`, and the same resolution guards
+ * the write — a slot from the senior school's schedule is refused for a junior
+ * section rather than quietly written into a grid that will never draw it.
  */
 
 export const runtime = 'nodejs';
@@ -48,12 +56,16 @@ export const GET = withSchoolAuth(
         );
       }
 
-      const [slots, entries] = await Promise.all([
-        listTimetableSlots(auth.locationId, { activeOnly: true }),
+      const [structure, slots, entries] = await Promise.all([
+        resolveStructureForSection(auth.locationId, sectionId),
+        listSlotsForSection(auth.locationId, sectionId),
         listTimetableEntries(auth.locationId, { sectionId, academicYearId }),
       ]);
 
-      return apiSuccess({ slots, entries });
+      // The structure is returned so the builder can name it on screen. A
+      // grid whose rows changed because the grade was reassigned, with nothing
+      // saying which schedule it is now showing, reads as data loss.
+      return apiSuccess({ slots, entries, structure });
     } catch (error) {
       return handleApiError(error);
     }
@@ -160,6 +172,23 @@ export const POST = withSchoolAuth(
       }
       if (slot === null) {
         return apiFailure('not_found', 'That period does not exist.', 404);
+      }
+
+      /*
+       * The period must belong to the schedule this section actually runs on.
+       *
+       * Without this, a stale browser tab left open across a grade
+       * reassignment would post a junior lesson into a senior period. The row
+       * would be written, would satisfy every constraint, and would never
+       * appear in any grid — the worst kind of accepted write.
+       */
+      const structure = await resolveStructureForSection(auth.locationId, sectionId);
+      if (structure === null || slot.periodStructureId !== structure.id) {
+        return apiFailure(
+          'wrong_structure',
+          `${slot.name} is not part of the schedule this class runs on. Reload the page and try again.`,
+          409,
+        );
       }
 
       // A break is a row in the grid so the day reads correctly, but nothing is

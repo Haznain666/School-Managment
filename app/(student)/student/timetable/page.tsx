@@ -6,7 +6,7 @@ import { PageHeader } from '@/components/ui/PageHeader';
 import {
   getStudentPlacement,
   listTimetableEntries,
-  listTimetableSlots,
+  listSlotsForSection,
 } from '@/lib/academics-queries';
 import { getActiveAcademicYear } from '@/lib/admissions-queries';
 import { requireSchoolRole } from '@/lib/school-guard';
@@ -55,7 +55,10 @@ export default async function StudentTimetablePage() {
   }
 
   const [slots, entries] = await Promise.all([
-    listTimetableSlots(locationId, { activeOnly: true }),
+    // The rows of this student's own grade's schedule, not the school's whole
+    // set of them: an infant laid out against the senior day carries five rows
+    // nothing will ever fill.
+    listSlotsForSection(locationId, placement.sectionId),
     listTimetableEntries(locationId, {
       sectionId: placement.sectionId,
       academicYearId: activeYear.id,

@@ -31,6 +31,14 @@ import { readableForeground } from '@/lib/color-contrast';
  *
  * Saving a cell is an upsert, so replacing a lesson is one request rather than
  * a delete followed by an insert that could leave the cell empty.
+ *
+ * ── The rows are the section's own schedule ──────────────────────────────
+ * Not the school's whole bell schedule: the schedule assigned to this section's
+ * *grade*, or the school default when nobody has assigned it. So the grid for
+ * Pre-Nursery A shows three long periods and the grid for Class 10 A shows
+ * eight short ones, from the same screen. The schedule's name is printed above
+ * the grid — a grid whose rows changed when the grade was reassigned, with
+ * nothing saying which schedule it is now showing, reads as data loss.
  */
 
 export interface TimetableYearOption {
@@ -69,10 +77,19 @@ export interface TimetableBuilderProps {
   sections: readonly TimetableSectionOption[];
   subjects: readonly TimetableSubjectOption[];
   teachers: readonly TimetableTeacherOption[];
+  /**
+   * Bumped by the schedule editor below the grid, to force a refetch.
+   *
+   * A counter rather than the payload itself: the builder still has to be able
+   * to refetch after saving a lesson, which is the far more common action, and
+   * a parent that owned the data would have to be told about that too.
+   */
+  reloadKey?: number;
 }
 
 interface SlotRow {
   id: string;
+  periodStructureId: string;
   name: string;
   startTime: string;
   endTime: string;
@@ -93,9 +110,18 @@ interface EntryRow {
   teacherName: string;
 }
 
+interface StructureRow {
+  id: string;
+  name: string;
+  description: string | null;
+  isDefault: boolean;
+}
+
 interface TimetablePayload {
   slots: SlotRow[];
   entries: EntryRow[];
+  /** Null when the school has no bell schedule at all. */
+  structure: StructureRow | null;
 }
 
 interface EditingCell {
@@ -122,6 +148,7 @@ export function TimetableBuilder({
   sections,
   subjects,
   teachers,
+  reloadKey = 0,
 }: TimetableBuilderProps) {
   const activeYear = academicYears.find((year) => year.isActive) ?? academicYears[0];
 
@@ -164,7 +191,10 @@ export function TimetableBuilder({
 
     try {
       const data = await schoolFetch<TimetablePayload>(
-        `/api/school/timetable/entries?sectionId=${sectionId}&academicYearId=${yearId}`,
+        // `v` carries the reload counter into the URL, which is both how this
+        // callback legitimately depends on it and what stops the browser
+        // answering a refetch-after-write from its own heuristic cache.
+        `/api/school/timetable/entries?sectionId=${sectionId}&academicYearId=${yearId}&v=${reloadKey}`,
       );
       setPayload(data);
     } catch (caught) {
@@ -173,7 +203,7 @@ export function TimetableBuilder({
     } finally {
       setIsLoading(false);
     }
-  }, [yearId, sectionId]);
+  }, [yearId, sectionId, reloadKey]);
 
   useEffect(() => {
     void load();
@@ -185,6 +215,27 @@ export function TimetableBuilder({
       map.set(cellKey(entry.slotId, entry.dayOfWeek), entry);
     }
     return map;
+  }, [payload]);
+
+  /*
+   * Lessons this grid cannot draw, because they sit in periods that belong to a
+   * different schedule.
+   *
+   * This happens for one reason and it is a reason a school will hit: somebody
+   * moved the grade onto another period schedule after its week was built. The
+   * lessons are not lost — they are still filed against the old schedule's
+   * periods, and moving the grade back shows them again — but a grid that
+   * silently went blank is indistinguishable from one that lost the term's
+   * work, and the person looking at it has no way to tell which happened.
+   *
+   * So it is counted and said out loud. Deliberately not auto-migrated: the two
+   * schedules have different periods at different times, and there is no honest
+   * mapping from "period 3 of the senior day" to anything in the junior one.
+   */
+  const strandedCount = useMemo(() => {
+    if (payload === null) return 0;
+    const drawable = new Set(payload.slots.map((slot) => slot.id));
+    return payload.entries.filter((entry) => !drawable.has(entry.slotId)).length;
   }, [payload]);
 
   const openCell = (slot: SlotRow, dayOfWeek: number): void => {
@@ -304,6 +355,20 @@ export function TimetableBuilder({
         </p>
       ) : null}
 
+      {strandedCount === 0 ? null : (
+        <p className="rounded-lg bg-status-warning-subtle px-3 py-2 text-sm text-status-warning-onSubtle">
+          {strandedCount} lesson{strandedCount === 1 ? '' : 's'} for this class{' '}
+          {strandedCount === 1 ? 'is' : 'are'} filed against a different period
+          schedule and cannot be shown here. Nothing has been deleted — this
+          grade was moved onto{' '}
+          <span className="font-medium">
+            {payload?.structure?.name ?? 'another schedule'}
+          </span>
+          , whose periods are different ones. Move the grade back to see them
+          again, or rebuild the week against these periods.
+        </p>
+      )}
+
       {sectionId === '' ? (
         <Card>
           <p className="text-sm text-ink-muted">
@@ -317,8 +382,8 @@ export function TimetableBuilder({
       ) : slots.length === 0 ? (
         <Card>
           <p className="text-sm text-ink-muted">
-            This school has no periods yet, so there is no grid to fill. Add the
-            bell schedule below and the week will appear.
+            This class has no periods yet, so there is no grid to fill. Add
+            them to its period schedule below and the week will appear.
           </p>
         </Card>
       ) : subjects.length === 0 ? (
@@ -330,6 +395,16 @@ export function TimetableBuilder({
         </Card>
       ) : (
         <Card className="p-0">
+          {payload?.structure === null || payload?.structure === undefined ? null : (
+            <p className="border-b border-line px-4 py-2.5 text-xs text-ink-muted">
+              Laid out against{' '}
+              <span className="font-medium text-ink">{payload.structure.name}</span>
+              {payload.structure.isDefault
+                ? ' — the school default, which every unassigned grade uses.'
+                : '.'}
+            </p>
+          )}
+
           <div className="overflow-x-auto">
             <Table caption="Weekly timetable" className="rounded-none border-0">
               <TableHead>

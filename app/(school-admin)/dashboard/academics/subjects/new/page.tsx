@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 
 import { SubjectForm } from '@/components/academics/SubjectForm';
 import { PageHeader } from '@/components/ui/PageHeader';
+import { listSubjects } from '@/lib/academics-queries';
 import { requireSchoolPermission } from '@/lib/school-guard';
 
 export const metadata: Metadata = {
@@ -12,7 +13,11 @@ export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 
 export default async function NewSubjectPage() {
-  await requireSchoolPermission('academics.write');
+  const { locationId } = await requireSchoolPermission('academics.write');
+
+  // Read here so the colour picker can warn about a shade already in use,
+  // without making a request of its own once the page is open.
+  const existing = await listSubjects(locationId, { activeOnly: true });
 
   return (
     <div className="max-w-3xl space-y-6">
@@ -21,7 +26,9 @@ export default async function NewSubjectPage() {
         description="Subjects belong to the school rather than to a grade — the same Mathematics is taught in Class 1 and Class 10."
       />
 
-      <SubjectForm />
+      <SubjectForm
+        otherSubjects={existing.map((one) => ({ name: one.name, color: one.color }))}
+      />
     </div>
   );
 }
