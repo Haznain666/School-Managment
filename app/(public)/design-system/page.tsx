@@ -10,6 +10,7 @@ import {
   Users,
 } from 'lucide-react';
 
+import { ContactFields } from './ContactFields';
 import { BarChart } from '@/components/charts/BarChart';
 import { DonutChart } from '@/components/charts/DonutChart';
 import { HeatmapGrid, type HeatmapCell } from '@/components/charts/HeatmapGrid';
@@ -320,6 +321,8 @@ function Showcase() {
           </TableBody>
         </Table>
       </Card>
+
+      <ContactFields />
 
       <div className="grid gap-5 lg:grid-cols-2">
         <Card header={<CardTitle title="Controls" />}>

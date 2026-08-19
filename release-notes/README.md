@@ -6,6 +6,8 @@ what is not there yet. They are not the engineering handover — that is
 
 | Sprint | Theme | Migration | Notes |
 | --- | --- | --- | --- |
+| — | Address & phone fields — one shape everywhere (not a sprint) | — | [read](RELEASE-NOTES-ADDRESS-AND-PHONE-FIELDS.md) |
+| — | SMTP delivery and wildcard subdomains (not a sprint) | — | [read](RELEASE-NOTES-SMTP-AND-WILDCARD-SUBDOMAINS.md) |
 | — | School & branch creation, fixed (not a sprint) | `0024` | [read](RELEASE-NOTES-SCHOOL-BRANCH-CREATION-FIXES.md) |
 | — | Panel chooser, school deletion, address autocomplete (not a sprint) | — | [read](RELEASE-NOTES-PANEL-CHOOSER-AND-SCHOOL-DELETION.md) |
 | — | Dashboard, deletion UI, branch delete, email delivery (not a sprint) | — | [read](RELEASE-NOTES-DASHBOARD-DELETION-AND-EMAIL.md) |

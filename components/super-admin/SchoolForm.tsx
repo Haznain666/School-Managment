@@ -7,7 +7,7 @@ import { CitySelect } from '@/components/super-admin/CitySelect';
 import { Button } from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
 import { Input } from '@/components/ui/Input';
-import { LocationPicker } from '@/components/ui/LocationPicker';
+import { AddressAutocomplete } from '@/components/ui/AddressAutocomplete';
 import { emailRejectionReason } from '@/lib/email-validation';
 import {
   formatLandline,
@@ -399,7 +399,7 @@ export function SchoolForm({ initial, appDomain }: SchoolFormProps) {
           </div>
 
           <div className="sm:col-span-2">
-            <LocationPicker
+            <AddressAutocomplete
               value={{
                 address: values.address,
                 latitude: values.latitude,

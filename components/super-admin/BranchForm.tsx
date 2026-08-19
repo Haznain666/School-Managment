@@ -7,7 +7,7 @@ import { CitySelect } from '@/components/super-admin/CitySelect';
 import { Button } from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
 import { Input } from '@/components/ui/Input';
-import { LocationPicker } from '@/components/ui/LocationPicker';
+import { AddressAutocomplete } from '@/components/ui/AddressAutocomplete';
 import { MultiSelect } from '@/components/ui/MultiSelect';
 import { Select } from '@/components/ui/Select';
 import { Toggle } from '@/components/ui/Toggle';
@@ -392,7 +392,7 @@ export function BranchForm({ schoolId, initial }: BranchFormProps) {
           </div>
 
           <div className="sm:col-span-2">
-            <LocationPicker
+            <AddressAutocomplete
               value={{
                 address: values.address,
                 latitude: values.latitude,

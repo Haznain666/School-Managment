@@ -158,7 +158,11 @@ export function hasCompleteMobileDigits(value: string): boolean {
   if (trimmed === '') return true;
 
   const digits = digitsOf(formatMobile(trimmed));
-  return digits.length === MOBILE_DIGITS && digits.startsWith('0');
+  // `03` and not merely `0`. A Lahore landline is eleven digits too —
+  // `042 35300000` — and a check on the leading zero alone accepted it as a
+  // mobile, which then masked it as `(0423) 530-0000`: a number that does not
+  // exist, derived from one that does. Every Pakistani mobile prefix is `03xx`.
+  return digits.length === MOBILE_DIGITS && digits.startsWith('03');
 }
 
 /**
@@ -180,4 +184,91 @@ export function isValidMobile(value: string): boolean {
 /** Normalises to the stored form. */
 export function normaliseMobile(value: string): string {
   return formatMobile(value);
+}
+
+/* -----------------------------------------------------------------------------
+ * Kind — which of the two masks a given field is currently wearing
+ *
+ * Added when the Mobile/Landline dropdown was rolled out to every field labelled
+ * "Phone". Before that, School and Branch carried two separate always-visible
+ * fields ("Landline" and "Mobile phone") and no field ever had to ask which
+ * shape it was in. Everywhere else there was one unmasked `Phone` box.
+ *
+ * The kind is deliberately **not stored**. No table gained a `phone_kind`
+ * column, because the format is self-describing: `(0321) 123-4567` can only be
+ * a mobile and `(021) 3456789` can only be a landline. Deriving it on load
+ * keeps 61 foreign keys, every import path and every existing row untouched,
+ * and means a number written by an API client that never saw the dropdown
+ * still displays under the right mask.
+ * -------------------------------------------------------------------------- */
+
+export type PhoneKind = 'mobile' | 'landline';
+
+/** Dropdown contents. Mobile leads because it is the common case. */
+export const PHONE_KIND_OPTIONS: readonly { value: PhoneKind; label: string }[] = [
+  { value: 'mobile', label: 'Mobile' },
+  { value: 'landline', label: 'Landline' },
+];
+
+/**
+ * Which mask a stored value belongs under.
+ *
+ * Falls back to `mobile` for an empty field: a new record is far more often
+ * given a mobile, and starting on the stricter mask means the operator who
+ * types a landline is told to switch rather than silently storing eleven digits
+ * of a number that has ten.
+ *
+ * The order of the tests matters. A mobile is checked first and by *digits*
+ * rather than by shape, so `03001234567` pasted from a spreadsheet is
+ * recognised as a mobile rather than being read as a three-digit area code
+ * followed by eight subscriber digits — which is what a landline-first test
+ * would conclude, and it would be wrong every time.
+ */
+export function detectPhoneKind(value: string): PhoneKind {
+  const trimmed = value.trim();
+  if (trimmed === '') return 'mobile';
+  if (hasCompleteMobileDigits(trimmed)) return 'mobile';
+
+  // An incomplete value still under the mobile mask: `(0321) 12` has the
+  // four-digit bracket a landline never has.
+  if (/^\(\d{4}\)/.test(trimmed)) return 'mobile';
+
+  const digits = digitsOf(trimmed);
+  if (digits.startsWith('03') && digits.length <= MOBILE_DIGITS) return 'mobile';
+  if (digits.startsWith('923') || digits.startsWith('+923')) return 'mobile';
+
+  return trimmed === '' ? 'mobile' : 'landline';
+}
+
+/** The mask for `kind`, applied as the operator types. */
+export function formatPhoneOfKind(kind: PhoneKind, input: string): string {
+  return kind === 'mobile' ? formatMobile(input) : formatLandline(input);
+}
+
+/** True when `value` is exactly the display format for `kind`, or is empty. */
+export function isValidPhoneOfKind(kind: PhoneKind, value: string): boolean {
+  return kind === 'mobile' ? isValidMobile(value) : isValidLandline(value);
+}
+
+/** Digits-only completeness for `kind` — the question the server asks. */
+export function hasCompletePhoneDigits(kind: PhoneKind, value: string): boolean {
+  return kind === 'mobile'
+    ? hasCompleteMobileDigits(value)
+    : hasCompleteLandlineDigits(value);
+}
+
+/** Placeholder and hint for `kind`, so a caller never hard-codes either. */
+export function phonePlaceholderOfKind(kind: PhoneKind): string {
+  return kind === 'mobile' ? MOBILE_PLACEHOLDER : LANDLINE_PLACEHOLDER;
+}
+
+export function phoneHintOfKind(kind: PhoneKind): string {
+  return kind === 'mobile' ? MOBILE_HINT : LANDLINE_HINT;
+}
+
+/** The message a field shows when the value is the wrong shape for its kind. */
+export function phoneErrorOfKind(kind: PhoneKind): string {
+  return kind === 'mobile'
+    ? 'Enter eleven digits, e.g. (0321) 123-4567.'
+    : 'Incomplete landline number — a 3-digit area code, then up to 10 digits.';
 }

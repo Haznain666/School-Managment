@@ -4,8 +4,9 @@ import { useState } from 'react';
 
 import { Button } from '@/components/ui/Button';
 import { Card, CardTitle } from '@/components/ui/Card';
+import { AddressAutocomplete } from '@/components/ui/AddressAutocomplete';
 import { Input } from '@/components/ui/Input';
-import { Textarea } from '@/components/ui/Textarea';
+import { PhoneField } from '@/components/ui/PhoneField';
 import { schoolErrorMessage, schoolFetch } from '@/lib/school-client';
 
 /**
@@ -120,14 +121,11 @@ export function SchoolProfileForm({ readOnly, initial, canEdit }: SchoolProfileF
       </dl>
 
       <div className="grid gap-4 sm:grid-cols-2">
-        <Input
+        <PhoneField
           label="Phone"
           value={phone}
           disabled={!canEdit}
-          placeholder="042 35300000"
-          onChange={(event) => {
-            setPhone(event.target.value);
-          }}
+          onChange={setPhone}
         />
         <Input
           label="Email"
@@ -148,13 +146,18 @@ export function SchoolProfileForm({ readOnly, initial, canEdit }: SchoolProfileF
           }}
         />
         <div className="sm:col-span-2">
-          <Textarea
+          <AddressAutocomplete
             label="Address"
+            multiline
             rows={2}
-            value={address}
+            // `/api/school/settings` accepts four fields and coordinates are
+            // not among them, so a pinned location shown here could not be
+            // saved. Offering one would read as data loss on the next Save.
+            withCoordinates={false}
+            value={{ address, latitude: null, longitude: null }}
             disabled={!canEdit}
-            onChange={(event) => {
-              setAddress(event.target.value);
+            onChange={(next) => {
+              setAddress(next.address);
             }}
           />
         </div>
