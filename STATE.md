@@ -4968,7 +4968,14 @@ set — degraded, not broken.
 ## 5ap. Three onboarding faults, and one of them was never reproduced — 2026-08-19
 
 No migration. Reported by the user as three numbered defects on the school
-onboarding path.
+onboarding path. **Pushed to `main` and therefore to live, 2026-08-19.**
+
+Written up for a reader who is not an engineer in
+`release-notes/RELEASE-NOTES-SCHOOL-ONBOARDING-FIXES.md`, with 27 cases in
+`test-cases/TEST-CASES-SCHOOL-ONBOARDING-FIXES.md`. **UC-SOF-01 to UC-SOF-05 are
+marked UNTESTED and mean it** — verifying the school-creation email end to end
+requires creating a real school, which provisions a subdomain at the host, and
+that was not done unasked.
 
 ### 1. Creating a school created an administrator and told them nothing
 
