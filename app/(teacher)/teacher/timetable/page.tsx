@@ -1,8 +1,9 @@
 import type { Metadata } from 'next';
 
+import { TeacherCalendar } from '@/components/academics/TeacherCalendar';
 import { TimetableGrid } from '@/components/academics/TimetableGrid';
 import { Card } from '@/components/ui/Card';
-import { listTeacherTimetable, listTimetableSlots } from '@/lib/academics-queries';
+import { listSlotsForTeacher, listTeacherTimetable } from '@/lib/academics-queries';
 import { getActiveAcademicYear } from '@/lib/admissions-queries';
 import { requireSchoolRole } from '@/lib/school-guard';
 import { getSchoolUserByUid } from '@/lib/school-queries';
@@ -46,7 +47,7 @@ export default async function TeacherTimetablePage() {
   }
 
   const [slots, entries] = await Promise.all([
-    listTimetableSlots(locationId, { activeOnly: true }),
+    listSlotsForTeacher(locationId, profile.id, activeYear.id),
     listTeacherTimetable(locationId, profile.id, activeYear.id),
   ]);
 
@@ -67,6 +68,24 @@ export default async function TeacherTimetablePage() {
         }))}
         emptyMessage="You have no periods scheduled yet. Your school admin builds the timetable."
       />
+
+      {/*
+        The same week, and two the grid cannot show.
+
+        The grid answers "what shape is my week". The calendar answers "what am
+        I doing on Thursday" and "how heavy is this month", which are the two
+        questions a teacher actually opens this page with. There is no teacher
+        selector: the id is the one resolved from their own session above, so
+        there is nothing here that could be changed to show a colleague.
+      */}
+      <div>
+        <h3 className="text-base font-semibold text-ink">By day and month</h3>
+        <p className="mt-1 mb-4 text-sm text-ink-muted">
+          The same periods, laid out against real dates.
+        </p>
+
+        <TeacherCalendar teacherId={profile.id} fixedTeacherName={profile.name} />
+      </div>
     </div>
   );
 }

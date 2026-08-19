@@ -4,6 +4,7 @@ import { feeChallans, feePayments, isPaymentMethod } from '@/db/schema';
 import { withSchoolAuth } from '@/lib/api-auth';
 import { apiFailure, apiSuccess, handleApiError, readJsonBody } from '@/lib/api-response';
 import { batch, db, type Tx } from '@/lib/drizzle';
+import { settleEnrolmentIfFeePaid } from '@/lib/enrolment-fee-gate';
 import { challanStatusFor, remainingBalance } from '@/lib/fee-calculator';
 import { getChallanDetail } from '@/lib/fee-queries';
 import { sendPaymentConfirmation } from '@/lib/ghl-fees';
@@ -34,6 +35,14 @@ import { isUuid, readOptionalString } from '@/lib/validation';
  * them exceed the total. That is rare, visible (the challan shows more paid
  * than billed) and recoverable, whereas a lost payment is neither — which is
  * why (2) is the one made race-proof.
+ *
+ * ── The fourth thing, added with the admission fee gate ──────────────────
+ * A payment can be the one that confirms an admission. `settleEnrolmentIfFeePaid`
+ * is awaited, unlike the WhatsApp confirmation above, and the difference is
+ * deliberate: the clerk taking the money is the person who will be asked "so
+ * are they enrolled now?", and the response says so. It is bounded — two
+ * indexed reads and, at most, one write per guardian — and it swallows its own
+ * failures, so it can delay the response but never fail it.
  */
 
 export const runtime = 'nodejs';
@@ -207,6 +216,12 @@ export const POST = withSchoolAuth<RouteContext>(
         });
       }
 
+      const gate = await settleEnrolmentIfFeePaid({
+        locationId: auth.locationId,
+        studentProfileId: challan.studentProfileId,
+        actorUid: auth.uid,
+      });
+
       return apiSuccess(
         {
           payment: {
@@ -217,6 +232,16 @@ export const POST = withSchoolAuth<RouteContext>(
           newStatus,
           newPaidAmount,
           balance: ((totalPaise - newPaidPaise) / 100).toFixed(2),
+          enrolment: {
+            justCleared: gate.cleared,
+            welcomesQueued: gate.welcomes.filter((one) => one.emailQueued).length,
+            // Only the guardians who could not be reached. A clerk needs to
+            // know that the father has no address on file; they do not need a
+            // line about the two parents it worked for.
+            welcomeProblems: gate.welcomes
+              .filter((one) => one.reason !== null)
+              .map((one) => one.reason as string),
+          },
         },
         201,
       );

@@ -63,7 +63,7 @@ export const POST = withSchoolAuth(
 
       const color = readOptionalString(body.color);
       if (color !== null && !isHexColor(color)) {
-        return apiFailure('invalid_body', 'Choose a colour from the palette.', 400);
+        return apiFailure('invalid_body', 'Enter a colour as a six-digit hex code, for example #2563eb.', 400);
       }
 
       const created = await db

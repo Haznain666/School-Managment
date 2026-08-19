@@ -55,7 +55,8 @@ jobs:
       # The protocol checks. Each one asserts a rule that is true today and
       # would otherwise quietly stop being true — a loader on every
       # data-fetching route, the form conventions, one component per address
-      # and phone field, and legible derived colours on every palette.
+      # and phone field, legible derived colours on every palette, and the
+      # calendar/period/colour rules this sprint added.
       #
       # Only the ones that need no database are here. `check-dashboard`,
       # `check-portals`, `check-reports` and `check-provisioning` execute
@@ -76,6 +77,16 @@ jobs:
       - name: Theme contrast
         if: '!cancelled()'
         run: npm run check-theme
+
+      # Calendar date arithmetic, subject-colour legibility, the period-schedule
+      # time rules and the fee gate's generated copy. All four are invisible to
+      # the type-checker and to a passing build: a month grid computed in the
+      # wrong timezone, a subject colour whose lettering cannot be read, and a
+      # welcome email that names a family's children are each correct-looking
+      # code that is wrong on somebody else's screen.
+      - name: Period schedules, calendar and colours
+        if: '!cancelled()'
+        run: npm run check-sprint-periods
 
       # Build last: it repeats type checking internally, so running it after a
       # failed typecheck would only echo errors already reported above.

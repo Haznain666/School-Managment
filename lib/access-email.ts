@@ -39,6 +39,13 @@ import { buildSchoolLoginUrl, buildSetupPasswordUrl } from './invite-links';
  * exists precisely to make an established account prove the mailbox with a
  * code.
  *
+ * ── Two audiences, one mechanism ─────────────────────────────────────────
+ * `audience` changes the words and nothing else. A parent is not staff: they
+ * were never "given access to" the school, they do not have an administrator to
+ * ask, and what they want named is their own child. The token, the expiry, the
+ * single-use rule and the queue are identical, because the security properties
+ * have nothing to do with who is reading.
+ *
  * ── It reports queueing, never delivery ──────────────────────────────────
  * The message goes to `email_outbox` and is handed to SMTP moments later,
  * outside this call. Whether it *arrives* is recorded on the row. Saying "sent"
@@ -55,12 +62,25 @@ export interface AccessEmailMember {
   authUserId: string | null;
 }
 
+/** Who is reading. Changes the wording; changes nothing about the token. */
+export type AccessEmailAudience = 'staff' | 'parent';
+
 export interface AccessEmailInput {
   locationId: string;
   school: { name: string; slug: string };
   member: AccessEmailMember;
   /** Recorded on the setup token, for the audit trail. */
   createdBy: string;
+  /** Defaults to `staff`. */
+  audience?: AccessEmailAudience | undefined;
+  /**
+   * The children this parent portal covers, for the parent wording.
+   *
+   * Named rather than counted: "Your account covers Ayesha and Bilal" is a
+   * sentence a parent can check, and "covers 2 students" is one they cannot.
+   * Ignored for the staff audience.
+   */
+  childNames?: readonly string[] | undefined;
 }
 
 export type AccessEmailResult =
@@ -75,6 +95,35 @@ export type AccessEmailResult =
  * both callers have already committed a `school_users` row and neither should
  * roll that back over an email. The outcome is returned to be reported.
  */
+/** The one line that names the children, or nothing when none are known. */
+function childrenSentence(children: readonly string[]): string {
+  if (children.length === 0) {
+    return 'It covers every child of yours enrolled at the school.';
+  }
+  if (children.length === 1) {
+    return `It covers ${children[0]}.`;
+  }
+
+  const last = children[children.length - 1];
+  return `It covers ${children.slice(0, -1).join(', ')} and ${last}.`;
+}
+
+function subjectFor(
+  audience: AccessEmailAudience,
+  isFirstTime: boolean,
+  schoolName: string,
+): string {
+  if (audience === 'parent') {
+    return isFirstTime
+      ? `Set up your ${schoolName} parent portal account`
+      : `Your ${schoolName} parent portal access`;
+  }
+
+  return isFirstTime
+    ? `Set up your ${schoolName} account`
+    : `Your ${schoolName} portal access`;
+}
+
 export async function queueAccessEmail(
   input: AccessEmailInput,
 ): Promise<AccessEmailResult> {
@@ -97,6 +146,8 @@ export async function queueAccessEmail(
   }
 
   const isFirstTime = member.authUserId === null;
+  const audience = input.audience ?? 'staff';
+  const children = (input.childNames ?? []).filter((name) => name.trim() !== '');
   let text: string;
 
   if (isFirstTime) {
@@ -116,46 +167,82 @@ export async function queueAccessEmail(
       expiresAt: setupExpiryFromNow(),
     });
 
-    text = [
-      `Hello ${member.name},`,
-      '',
-      `You have been given access to ${school.name} on our school`,
-      'management system.',
-      '',
-      `1. Open ${buildSetupPasswordUrl(token, school.slug)}`,
-      '2. Choose your password',
-      '',
-      `That is it. After this you sign in with ${email} and the`,
-      'password you just chose.',
-      '',
-      `The link works once and expires in ${SETUP_TOKEN_TTL_HOURS} hours. If`,
-      'it stops working, ask your administrator to send a new one.',
-      '',
-      'If you were not expecting this, ignore it — the link does nothing',
-      'until somebody sets a password with it, and only this mailbox has it.',
-    ].join('\n');
+    const setupUrl = buildSetupPasswordUrl(token, school.slug);
+
+    text =
+      audience === 'parent'
+        ? [
+            `Hello ${member.name},`,
+            '',
+            `${school.name} has opened a parent portal account for you.`,
+            childrenSentence(children),
+            'You can see attendance, fee challans, results and school',
+            'announcements there.',
+            '',
+            `1. Open ${setupUrl}`,
+            '2. Choose your password',
+            '',
+            `After that you sign in with ${email} and the password you`,
+            'just chose.',
+            '',
+            `The link works once and expires in ${SETUP_TOKEN_TTL_HOURS} hours. If`,
+            'it stops working, ask the school office to send a new one.',
+            '',
+            'If you were not expecting this, ignore it — the link does nothing',
+            'until somebody sets a password with it, and only this mailbox has it.',
+          ].join('\n')
+        : [
+            `Hello ${member.name},`,
+            '',
+            `You have been given access to ${school.name} on our school`,
+            'management system.',
+            '',
+            `1. Open ${setupUrl}`,
+            '2. Choose your password',
+            '',
+            `That is it. After this you sign in with ${email} and the`,
+            'password you just chose.',
+            '',
+            `The link works once and expires in ${SETUP_TOKEN_TTL_HOURS} hours. If`,
+            'it stops working, ask your administrator to send a new one.',
+            '',
+            'If you were not expecting this, ignore it — the link does nothing',
+            'until somebody sets a password with it, and only this mailbox has it.',
+          ].join('\n');
   } else {
-    text = [
-      `Hello ${member.name},`,
-      '',
-      `Here is where to sign in to ${school.name}:`,
-      '',
-      `  ${buildSchoolLoginUrl(school.slug)}`,
-      '',
-      `Use your email address, ${email}, and your password.`,
-      '',
-      'If you have forgotten it, choose "Forgot password?" on that page and',
-      'we will email you a six-digit code to set a new one.',
-    ].join('\n');
+    text =
+      audience === 'parent'
+        ? [
+            `Hello ${member.name},`,
+            '',
+            `Here is where to sign in to the ${school.name} parent portal:`,
+            '',
+            `  ${buildSchoolLoginUrl(school.slug)}`,
+            '',
+            `Use your email address, ${email}, and your password.`,
+            '',
+            'If you have forgotten it, choose "Forgot password?" on that page and',
+            'we will email you a six-digit code to set a new one.',
+          ].join('\n')
+        : [
+            `Hello ${member.name},`,
+            '',
+            `Here is where to sign in to ${school.name}:`,
+            '',
+            `  ${buildSchoolLoginUrl(school.slug)}`,
+            '',
+            `Use your email address, ${email}, and your password.`,
+            '',
+            'If you have forgotten it, choose "Forgot password?" on that page and',
+            'we will email you a six-digit code to set a new one.',
+          ].join('\n');
   }
 
   try {
     await enqueueEmail({
       locationId: input.locationId,
       to: email,
-      subject: isFirstTime
-        ? `Set up your ${school.name} account`
-        : `Your ${school.name} portal access`,
+      subject: subjectFor(audience, isFirstTime, school.name),
       text,
     });
   } catch (error) {

@@ -19,6 +19,7 @@ import {
   isGuardianRelationship,
   isIdDocumentType,
   type BloodGroup,
+  type FeeClearanceStatus,
   type Gender,
   type GuardianRelationship,
   type IdDocumentType,
@@ -124,6 +125,20 @@ export interface EnrollStudentParams {
    * is destructive.
    */
   existingStudentId?: string | undefined;
+  /**
+   * Whether this admission is already paid for.
+   *
+   * Defaults to `outstanding`, which is the rule for a new admission: the child
+   * is enrolled, but the enrolment is unconfirmed and the guardians' portal
+   * welcome waits on the money. See `lib/enrolment-fee-gate.ts`.
+   *
+   * The bulk import passes `cleared`, and that is not an exception to the rule
+   * but a different case entirely: those children are already at the school and
+   * have been for years. Marking a migrated roll outstanding would invent a
+   * debt for eight hundred families and hold back every welcome behind a
+   * challan nobody is ever going to raise.
+   */
+  feeStatus?: FeeClearanceStatus | undefined;
 }
 
 export interface EnrolledGuardian {
@@ -459,18 +474,29 @@ export async function resolvePlacement(
 // -----------------------------------------------------------------------------
 
 /**
- * The student's own directory row needs a phone, and students rarely have one —
- * so it borrows the primary guardian's. When that number already belongs to
- * somebody at this school (a sibling's record, or the parent's own login) the
- * unique index would reject it, so a sentinel derived from the admission number
- * is stored instead.
+ * The student's own directory row needs a phone, and students rarely have one.
+ *
+ * ── It used to borrow the guardian's, and that had to stop ───────────────
+ * The old rule was "use the primary guardian's number, unless somebody at this
+ * school already holds it, in which case use a sentinel". `school_users` is
+ * unique on (location, phone), so the effect was that the *child's* row
+ * claimed the father's mobile — and the father's own parent-portal account,
+ * created later when the admission fee cleared, then collided with it. The
+ * upsert would have landed on the child's row: it would have written the
+ * father's email onto his daughter's directory entry and linked him to an
+ * account that was never his.
+ *
+ * So the sentinel is now unconditional. A number belongs to the person who
+ * answers it, and nothing in the product ever looked a student up by their
+ * guardian's phone — the number a school actually rings is on
+ * `student_guardians`, where it always was.
  *
  * The sentinel is deliberately not phone-shaped: `normalizePhone` can never
  * produce it, so it cannot be used to request a passcode and cannot shadow a
  * real number at the login lookup.
  */
-function studentDirectoryPhone(guardianPhone: string, studentId: string, taken: boolean): string {
-  return taken ? `student:${studentId}` : guardianPhone;
+function studentDirectoryPhone(studentId: string): string {
+  return `student:${studentId}`;
 }
 
 function todayIso(): string {
@@ -488,6 +514,7 @@ export async function enrollStudent(
   params: EnrollStudentParams,
 ): Promise<EnrollStudentResult> {
   const { locationId, actorUid, student, guardians, placement } = params;
+  const feeStatus: FeeClearanceStatus = params.feeStatus ?? 'outstanding';
 
   if (guardians.length === 0) {
     throw new EnrollmentError('invalid_body', 'At least one guardian is required.');
@@ -585,11 +612,7 @@ export async function enrollStudent(
         id: schoolUserId,
         locationId,
         name: student.name,
-        phone: studentDirectoryPhone(
-          primaryGuardian.phone,
-          studentId,
-          userIdByPhone.has(primaryGuardian.phone),
-        ),
+        phone: studentDirectoryPhone(studentId),
         role: 'student',
         branchId: resolved.branchId,
         isActive: true,
@@ -621,6 +644,8 @@ export async function enrollStudent(
         rollNumber: placement.rollNumber,
         enrollmentDate: placement.enrollmentDate ?? todayIso(),
         status: 'active',
+        feeStatus,
+        feeClearedAt: feeStatus === 'cleared' ? new Date() : null,
       }),
       tx.insert(studentGuardians).values([firstGuardianRow, ...restGuardianRows]),
     ]);

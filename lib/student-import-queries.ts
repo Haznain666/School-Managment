@@ -307,6 +307,11 @@ export async function commitBatch(
         // issues new ones" — and until it was wired through, the import used
         // the supplied number to detect duplicates and then threw it away.
         existingStudentId: candidate.admissionNumber ?? undefined,
+        // A migrated roll is not a queue of new admissions. These children are
+        // already at the school; the fee gate must not hold their parents'
+        // portal accounts behind a challan nobody will raise. See
+        // `EnrollStudentParams.feeStatus`.
+        feeStatus: 'cleared',
         student: {
           name: candidate.name,
           dateOfBirth: candidate.dateOfBirth,

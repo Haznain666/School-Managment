@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 
+import { FeeClearancePanel } from '@/components/admissions/FeeClearancePanel';
 import { GuardianPanel } from '@/components/admissions/GuardianPanel';
 import { StudentProfileCard } from '@/components/admissions/StudentProfileCard';
 import { Badge } from '@/components/ui/Badge';
@@ -58,6 +59,19 @@ export default async function StudentProfilePage({
     listGuardians(locationId, studentId),
     listEnrollmentHistory(locationId, studentId),
   ]);
+
+  /*
+   * Whether this admission is still waiting on its fee.
+   *
+   * Read off the *active* enrolment specifically. A student with none — one
+   * who has left, or whose placement has not been made — has no admission to
+   * confirm, and treating that as "awaiting fee" would hold their guardians'
+   * portal accounts behind a payment nobody is going to make.
+   */
+  const activeEnrolment = enrollments.find(
+    (enrollment) => enrollment.status === 'active',
+  );
+  const awaitingFee = activeEnrolment?.feeStatus === 'outstanding';
 
   const canEdit = claims.role === 'school_admin' || claims.role === 'branch_admin';
   const current = enrollments.find((enrollment) => enrollment.isActiveYear) ?? null;
@@ -145,7 +159,15 @@ export default async function StudentProfilePage({
                     <TableCell muted>
                       {enrollment.enrollmentDate}
                     </TableCell>
-                    <TableCell muted>{enrollment.status}</TableCell>
+                    <TableCell muted>
+                      {enrollment.status}
+                      {enrollment.status === 'active' &&
+                      enrollment.feeStatus === 'outstanding' ? (
+                        <span className="ml-2">
+                          <Badge variant="warning">Fee outstanding</Badge>
+                        </span>
+                      ) : null}
+                    </TableCell>
                   </TableRow>
                 ))}
               </TableBody>
@@ -153,12 +175,30 @@ export default async function StudentProfilePage({
         )}
       </Card>
 
+      {activeEnrolment === undefined ? null : (
+        <FeeClearancePanel
+          studentProfileId={student.studentProfileId}
+          feeStatus={activeEnrolment.feeStatus}
+          feeClearedAt={activeEnrolment.feeClearedAt?.toISOString() ?? null}
+          canClear={permissions.includes('fees.write')}
+          hasContactableGuardian={guardians.some(
+            (guardian) => guardian.email !== null && guardian.email !== '',
+          )}
+        />
+      )}
+
       <GuardianPanel
         studentProfileId={student.studentProfileId}
-        guardians={guardians}
+        guardians={guardians.map((guardian) => ({
+          ...guardian,
+          // Serialised here rather than passed as a Date: the panel is a client
+          // component and only ever compares this against null.
+          welcomeEmailSentAt: guardian.welcomeEmailSentAt?.toISOString() ?? null,
+        }))}
         maxGuardians={MAX_GUARDIANS}
         canEdit={canEdit}
         studentGhlContactId={student.ghlContactId}
+        awaitingFee={awaitingFee}
       />
     </div>
   );

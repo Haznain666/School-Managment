@@ -114,6 +114,10 @@ export const PUT = withSchoolAuth<RouteContext>(
           .where(
             and(
               eq(timetableSlots.locationId, auth.locationId),
+              // Scoped to this period's own schedule. Position 3 of the junior
+              // day and position 3 of the senior day are different periods,
+              // and a school-wide check here would refuse the second one.
+              eq(timetableSlots.periodStructureId, existing.periodStructureId),
               eq(timetableSlots.orderIndex, orderIndex),
               ne(timetableSlots.id, id),
             ),
@@ -123,7 +127,7 @@ export const PUT = withSchoolAuth<RouteContext>(
         if (clash[0] !== undefined) {
           return apiFailure(
             'duplicate',
-            `Another period already sits at position ${orderIndex}.`,
+            `Another period in this schedule already sits at position ${orderIndex}.`,
             409,
           );
         }

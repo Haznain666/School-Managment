@@ -1,19 +1,30 @@
 import { slotTimeProblem, timetableSlots } from '@/db/schema';
 import { withSchoolAuth } from '@/lib/api-auth';
 import { apiFailure, apiSuccess, handleApiError, readJsonBody } from '@/lib/api-response';
-import { listTimetableSlots } from '@/lib/academics-queries';
+import {
+  getDefaultPeriodStructure,
+  getPeriodStructure,
+  listTimetableSlots,
+} from '@/lib/academics-queries';
 import { db } from '@/lib/drizzle';
-import { readBoolean, readString } from '@/lib/validation';
+import { isUuid, readBoolean, readString } from '@/lib/validation';
 
 /**
  * /api/school/timetable/slots
  *
- * GET  the school's bell schedule, in the order the day runs
- * POST add a period or a break
+ * GET  the periods of one bell schedule, in the order the day runs
+ * POST add a period or a break to one
  *
- * `orderIndex` is unique per school because it is what orders the grid: two
- * slots claiming position 3 would make the rows of every timetable arbitrary,
- * so the insert leans on the index and reports the clash as a 409.
+ * `orderIndex` is unique **per structure**, not per school, and that is the
+ * whole point of period structures: two slots claiming position 3 inside one
+ * schedule would make its rows arbitrary, but position 3 of the junior day and
+ * position 3 of the senior day are different periods at different times. Under
+ * the old school-wide index the second schedule a school entered was refused as
+ * a duplicate of the first.
+ *
+ * `periodStructureId` is optional on both verbs and falls back to the school's
+ * default. That keeps a school with one bell exactly where it was — it never
+ * names a structure and never needs to know one exists.
  */
 
 export const runtime = 'nodejs';
@@ -24,8 +35,35 @@ export const GET = withSchoolAuth(
     try {
       const url = new URL(request.url);
       const activeOnly = url.searchParams.get('activeOnly') === 'true';
+      const requested = url.searchParams.get('periodStructureId');
 
-      return apiSuccess({ slots: await listTimetableSlots(auth.locationId, { activeOnly }) });
+      // An explicit `all` asks for every structure at once, which the
+      // management screen wants and no grid does.
+      if (requested === 'all') {
+        return apiSuccess({
+          slots: await listTimetableSlots(auth.locationId, { activeOnly }),
+        });
+      }
+
+      const structure =
+        requested !== null && isUuid(requested)
+          ? await getPeriodStructure(auth.locationId, requested)
+          : await getDefaultPeriodStructure(auth.locationId);
+
+      if (structure === null) {
+        // Not a 404: a school that has never entered a bell schedule is
+        // correctly configured on its first day, and the screen that asked
+        // needs an empty list, not an error.
+        return apiSuccess({ slots: [], structure: null });
+      }
+
+      return apiSuccess({
+        slots: await listTimetableSlots(auth.locationId, {
+          activeOnly,
+          periodStructureId: structure.id,
+        }),
+        structure,
+      });
     } catch (error) {
       return handleApiError(error);
     }
@@ -34,6 +72,7 @@ export const GET = withSchoolAuth(
 );
 
 interface CreateSlotBody {
+  periodStructureId?: unknown;
   name?: unknown;
   startTime?: unknown;
   endTime?: unknown;
@@ -75,11 +114,27 @@ export const POST = withSchoolAuth(
         );
       }
 
+      // Re-read from this tenant rather than trusted from the body, so a
+      // structure id belonging to another school cannot take a period.
+      const structure =
+        typeof body.periodStructureId === 'string' && isUuid(body.periodStructureId)
+          ? await getPeriodStructure(auth.locationId, body.periodStructureId)
+          : await getDefaultPeriodStructure(auth.locationId);
+
+      if (structure === null) {
+        return apiFailure(
+          'no_structure',
+          'This school has no period schedule to add to. Create one first.',
+          409,
+        );
+      }
+
       const created = await db
         .insert(timetableSlots)
         .values({
           // Tenant comes from the verified session, never from the body.
           locationId: auth.locationId,
+          periodStructureId: structure.id,
           name,
           startTime,
           endTime,
@@ -87,14 +142,14 @@ export const POST = withSchoolAuth(
           orderIndex,
         })
         .onConflictDoNothing({
-          target: [timetableSlots.locationId, timetableSlots.orderIndex],
+          target: [timetableSlots.periodStructureId, timetableSlots.orderIndex],
         })
         .returning({ id: timetableSlots.id });
 
       if (created[0] === undefined) {
         return apiFailure(
           'duplicate',
-          `Another period already sits at position ${orderIndex}.`,
+          `Another period in “${structure.name}” already sits at position ${orderIndex}.`,
           409,
         );
       }

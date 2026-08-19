@@ -17,11 +17,27 @@ import {
 import { schoolErrorMessage, schoolFetch } from '@/lib/school-client';
 
 /**
- * The guardians on a student's profile, plus the manual GHL re-sync.
+ * The guardians on a student's profile, their parent portal accounts, and the
+ * manual GHL re-sync.
  *
- * The re-sync lives here rather than in a settings screen because this is where
- * an admin notices the problem: a guardian showing "Not in GHL" is exactly the
- * row whose WhatsApp will not arrive.
+ * Both manual actions live here rather than in a settings screen because this
+ * is where an admin notices the problem: a guardian showing "Not in GHL" is
+ * exactly the row whose WhatsApp will not arrive, and one showing "Welcome not
+ * sent" is exactly the parent who is about to ring and say they cannot log in.
+ *
+ * ── The three portal states, and why they are three ──────────────────────
+ * "No portal account" used to be the only thing this panel could say, and it
+ * was true of every guardian in the system, and nothing on screen suggested it
+ * was a state anybody could leave. It is now split:
+ *
+ *   * **Portal account** — they have one and the welcome was queued.
+ *   * **Welcome not sent** — the account exists or can, and the message has
+ *     not gone. Usually because the admission fee has not cleared, which is
+ *     working as designed and says so.
+ *   * **No email address** — nothing can be sent, and the fix is to add one.
+ *
+ * The distinction matters because only the third is the school's to act on and
+ * only the second is worth a button.
  */
 
 export interface GuardianItem {
@@ -35,6 +51,8 @@ export interface GuardianItem {
   isPrimaryContact: boolean;
   ghlContactId: string | null;
   schoolUserId: string | null;
+  /** ISO string. Null = still owed a parent portal welcome. */
+  welcomeEmailSentAt: string | null;
 }
 
 export interface GuardianPanelProps {
@@ -44,6 +62,14 @@ export interface GuardianPanelProps {
   canEdit: boolean;
   /** Null when the student has not been mirrored into GHL yet. */
   studentGhlContactId: string | null;
+  /**
+   * True while the admission fee is outstanding.
+   *
+   * The welcome is held back until it clears, so the panel says which of the
+   * two reasons a guardian has not been written to — the fee, or a missing
+   * address. Without it "Welcome not sent" reads as a fault.
+   */
+  awaitingFee?: boolean;
 }
 
 const RELATIONSHIP_OPTIONS = GUARDIAN_RELATIONSHIPS.map((value) => ({
@@ -57,6 +83,7 @@ export function GuardianPanel({
   maxGuardians,
   canEdit,
   studentGhlContactId,
+  awaitingFee = false,
 }: GuardianPanelProps) {
   const router = useRouter();
 
@@ -138,6 +165,49 @@ export function GuardianPanel({
     }
   };
 
+  /**
+   * `force` re-sends to somebody already stamped as welcomed. Two buttons
+   * rather than one so the common case — "she never got one" — cannot
+   * accidentally spam a parent who did, and the rarer "send it again" is still
+   * one click when a parent rings to say nothing arrived.
+   */
+  const sendPortalInvite = async (
+    guardianId: string,
+    force: boolean,
+  ): Promise<void> => {
+    setBusy(guardianId);
+    setError(null);
+    setNotice(null);
+
+    try {
+      const result = await schoolFetch<{ emailQueued: boolean; reason: string | null }>(
+        `/api/school/students/${studentProfileId}/guardians/${guardianId}/portal-invite${
+          force ? '?force=true' : ''
+        }`,
+        { method: 'POST' },
+      );
+
+      if (result.emailQueued) {
+        setNotice(
+          'The parent portal welcome is queued. It carries a link to set a password, and expires in 48 hours.',
+        );
+      } else {
+        // Not an error box. "She has no email address on file" is an answer,
+        // and colouring it red would be a lie about whose problem it is.
+        setNotice(
+          result.reason ??
+            'That guardian already has a portal account and has been welcomed.',
+        );
+      }
+
+      router.refresh();
+    } catch (caught) {
+      setError(schoolErrorMessage(caught, 'Could not send the portal invite.'));
+    } finally {
+      setBusy(null);
+    }
+  };
+
   const syncGhl = async (): Promise<void> => {
     setBusy('sync');
     setError(null);
@@ -191,6 +261,14 @@ export function GuardianPanel({
           />
         }
       >
+        {awaitingFee ? (
+          <p className="mb-4 rounded-lg bg-status-info-subtle px-3 py-2 text-sm text-status-info-onSubtle">
+            This student&rsquo;s admission fee has not been paid yet. Their
+            enrolment is recorded, and the parent portal welcome goes out on its
+            own the moment the fee clears — there is nothing to press here.
+          </p>
+        ) : null}
+
         <ul className="divide-y divide-line">
           {guardians.map((guardian) => (
             <li key={guardian.id} className="flex flex-wrap items-start justify-between gap-3 py-3">
@@ -213,10 +291,14 @@ export function GuardianPanel({
                   {guardian.isPrimaryContact ? (
                     <Badge variant="success">Primary contact</Badge>
                   ) : null}
-                  {guardian.schoolUserId === null ? (
-                    <Badge variant="neutral">No portal account</Badge>
+                  {guardian.email === null || guardian.email === '' ? (
+                    <Badge variant="warning">No email address</Badge>
+                  ) : guardian.welcomeEmailSentAt === null ? (
+                    <Badge variant="neutral">
+                      {awaitingFee ? 'Welcome held — fee due' : 'Welcome not sent'}
+                    </Badge>
                   ) : (
-                    <Badge variant="success">Portal account linked</Badge>
+                    <Badge variant="success">Parent portal account</Badge>
                   )}
                   <Badge variant={guardian.ghlContactId === null ? 'warning' : 'neutral'}>
                     {guardian.ghlContactId === null ? 'Not in GHL' : 'In GHL'}
@@ -225,7 +307,24 @@ export function GuardianPanel({
               </div>
 
               {canEdit ? (
-                <div className="flex gap-2">
+                <div className="flex flex-wrap gap-2">
+                  {guardian.email === null || guardian.email === '' ? null : (
+                    <Button
+                      size="sm"
+                      variant={guardian.welcomeEmailSentAt === null ? 'secondary' : 'ghost'}
+                      isLoading={busy === guardian.id}
+                      onClick={() => {
+                        void sendPortalInvite(
+                          guardian.id,
+                          guardian.welcomeEmailSentAt !== null,
+                        );
+                      }}
+                    >
+                      {guardian.welcomeEmailSentAt === null
+                        ? 'Send portal invite'
+                        : 'Resend invite'}
+                    </Button>
+                  )}
                   {guardian.isPrimaryContact ? null : (
                     <Button
                       size="sm"

@@ -111,7 +111,7 @@ export const PUT = withSchoolAuth<RouteContext>(
       if (body.color !== undefined) {
         const color = readOptionalString(body.color);
         if (color !== null && !isHexColor(color)) {
-          return apiFailure('invalid_body', 'Choose a colour from the palette.', 400);
+          return apiFailure('invalid_body', 'Enter a colour as a six-digit hex code, for example #2563eb.', 400);
         }
         updates.color = color;
       }

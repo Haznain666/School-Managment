@@ -1,12 +1,14 @@
 import 'server-only';
 
-import { and, asc, eq, gte, inArray, lte, sql, type SQL } from 'drizzle-orm';
+import { and, asc, desc, eq, gte, inArray, lte, sql, type SQL } from 'drizzle-orm';
 
 import {
   academicYears,
   attendanceRecords,
   gradeLabel,
   grades,
+  periodStructureGrades,
+  periodStructures,
   schoolUsers,
   sections,
   studentEnrollments,
@@ -16,6 +18,8 @@ import {
   timetableSlots,
   type AttendanceStatus,
 } from '@/db/schema';
+
+import { minutesFromTime } from '@/db/schema/timetable-slots';
 
 import { db } from './drizzle';
 
@@ -77,11 +81,151 @@ export async function getSubject(
 }
 
 // -----------------------------------------------------------------------------
-// Slots — the bell schedule
+// Period structures — the named bell schedules, and the grades on each
+// -----------------------------------------------------------------------------
+
+export interface PeriodStructureRow {
+  id: string;
+  name: string;
+  description: string | null;
+  isDefault: boolean;
+  isActive: boolean;
+}
+
+const STRUCTURE_COLUMNS = {
+  id: periodStructures.id,
+  name: periodStructures.name,
+  description: periodStructures.description,
+  isDefault: periodStructures.isDefault,
+  isActive: periodStructures.isActive,
+} as const;
+
+/** Every bell schedule the school holds, the default first. */
+export async function listPeriodStructures(
+  locationId: string,
+  filters: { activeOnly?: boolean | undefined } = {},
+): Promise<PeriodStructureRow[]> {
+  const conditions: SQL[] = [eq(periodStructures.locationId, locationId)];
+  if (filters.activeOnly === true) {
+    conditions.push(eq(periodStructures.isActive, true));
+  }
+
+  return db
+    .select(STRUCTURE_COLUMNS)
+    .from(periodStructures)
+    .where(and(...conditions))
+    .orderBy(desc(periodStructures.isDefault), asc(periodStructures.name));
+}
+
+export async function getPeriodStructure(
+  locationId: string,
+  structureId: string,
+): Promise<PeriodStructureRow | null> {
+  const rows = await db
+    .select(STRUCTURE_COLUMNS)
+    .from(periodStructures)
+    .where(
+      and(
+        eq(periodStructures.locationId, locationId),
+        eq(periodStructures.id, structureId),
+      ),
+    )
+    .limit(1);
+
+  return rows[0] ?? null;
+}
+
+/** The school default — what a grade nobody has assigned runs on. */
+export async function getDefaultPeriodStructure(
+  locationId: string,
+): Promise<PeriodStructureRow | null> {
+  const rows = await db
+    .select(STRUCTURE_COLUMNS)
+    .from(periodStructures)
+    .where(
+      and(
+        eq(periodStructures.locationId, locationId),
+        eq(periodStructures.isDefault, true),
+      ),
+    )
+    .limit(1);
+
+  return rows[0] ?? null;
+}
+
+export interface StructureGradeAssignment {
+  gradeId: string;
+  periodStructureId: string;
+}
+
+/** Every explicit grade-to-structure assignment in the school. */
+export async function listStructureGradeAssignments(
+  locationId: string,
+): Promise<StructureGradeAssignment[]> {
+  return db
+    .select({
+      gradeId: periodStructureGrades.gradeId,
+      periodStructureId: periodStructureGrades.periodStructureId,
+    })
+    .from(periodStructureGrades)
+    .where(eq(periodStructureGrades.locationId, locationId));
+}
+
+/**
+ * Which structure a grade runs on: its own assignment, or the school default.
+ *
+ * Returns null only when the school has neither — a school that has never
+ * entered a bell schedule at all. Every caller that needs slots goes through
+ * here rather than reading `period_structure_grades` directly, so the fallback
+ * is written once and cannot be forgotten on the next screen that needs it.
+ */
+export async function resolveStructureForGrade(
+  locationId: string,
+  gradeId: string,
+): Promise<PeriodStructureRow | null> {
+  const assigned = await db
+    .select(STRUCTURE_COLUMNS)
+    .from(periodStructureGrades)
+    .innerJoin(
+      periodStructures,
+      eq(periodStructures.id, periodStructureGrades.periodStructureId),
+    )
+    .where(
+      and(
+        eq(periodStructureGrades.locationId, locationId),
+        eq(periodStructureGrades.gradeId, gradeId),
+        eq(periodStructures.isActive, true),
+      ),
+    )
+    .limit(1);
+
+  return assigned[0] ?? (await getDefaultPeriodStructure(locationId));
+}
+
+/** The structure a section runs on, resolved through its grade. */
+export async function resolveStructureForSection(
+  locationId: string,
+  sectionId: string,
+): Promise<PeriodStructureRow | null> {
+  const rows = await db
+    .select({ gradeId: sections.gradeId })
+    .from(sections)
+    .where(and(eq(sections.locationId, locationId), eq(sections.id, sectionId)))
+    .limit(1);
+
+  const gradeId = rows[0]?.gradeId;
+  if (gradeId === undefined) return null;
+
+  return resolveStructureForGrade(locationId, gradeId);
+}
+
+// -----------------------------------------------------------------------------
+// Slots — the periods inside one bell schedule
 // -----------------------------------------------------------------------------
 
 export interface SlotRow {
   id: string;
+  periodStructureId: string;
   name: string;
   startTime: string;
   endTime: string;
@@ -92,6 +236,7 @@ export interface SlotRow {
 
 const SLOT_COLUMNS = {
   id: timetableSlots.id,
+  periodStructureId: timetableSlots.periodStructureId,
   name: timetableSlots.name,
   startTime: timetableSlots.startTime,
   endTime: timetableSlots.endTime,
@@ -100,18 +245,100 @@ const SLOT_COLUMNS = {
   isActive: timetableSlots.isActive,
 } as const;
 
+/**
+ * Periods, ordered down the day.
+ *
+ * `periodStructureId` is optional, and leaving it out means "every structure in
+ * the school" — which is what a summary count wants and what nothing drawing a
+ * grid wants. A grid must pass one, or it lays a junior section out against the
+ * senior school's eight rows.
+ */
 export async function listTimetableSlots(
   locationId: string,
-  filters: { activeOnly?: boolean | undefined } = {},
+  filters: {
+    activeOnly?: boolean | undefined;
+    periodStructureId?: string | undefined;
+  } = {},
 ): Promise<SlotRow[]> {
   const conditions: SQL[] = [eq(timetableSlots.locationId, locationId)];
   if (filters.activeOnly === true) conditions.push(eq(timetableSlots.isActive, true));
+  if (filters.periodStructureId !== undefined) {
+    conditions.push(eq(timetableSlots.periodStructureId, filters.periodStructureId));
+  }
 
   return db
     .select(SLOT_COLUMNS)
     .from(timetableSlots)
     .where(and(...conditions))
     .orderBy(asc(timetableSlots.orderIndex));
+}
+
+/**
+ * The slots a section is laid out against — its grade's structure, or the
+ * school default. Empty when the school has no bell schedule at all.
+ */
+export async function listSlotsForSection(
+  locationId: string,
+  sectionId: string,
+): Promise<SlotRow[]> {
+  const structure = await resolveStructureForSection(locationId, sectionId);
+  if (structure === null) return [];
+
+  return listTimetableSlots(locationId, {
+    activeOnly: true,
+    periodStructureId: structure.id,
+  });
+}
+
+/**
+ * The rows one teacher's own week should be laid out against.
+ *
+ * A teacher is not tied to one bell schedule. A senior-school physicist who
+ * takes one junior class teaches inside two, and neither alone can draw her
+ * week: the junior schedule has no eighth period and the senior one has no
+ * 12:00 finish. So this returns the union of the schedules she actually teaches
+ * in, ordered by the clock rather than by `order_index` — position 3 means
+ * different minutes in each, and ordering by it would interleave them wrongly.
+ *
+ * For the ordinary case — one schedule — this is exactly the old behaviour and
+ * costs one extra indexed read.
+ */
+export async function listSlotsForTeacher(
+  locationId: string,
+  teacherId: string,
+  academicYearId: string,
+): Promise<SlotRow[]> {
+  const structureRows = await db
+    .selectDistinct({ periodStructureId: timetableSlots.periodStructureId })
+    .from(timetableEntries)
+    .innerJoin(timetableSlots, eq(timetableSlots.id, timetableEntries.slotId))
+    .where(
+      and(
+        eq(timetableEntries.locationId, locationId),
+        eq(timetableEntries.teacherId, teacherId),
+        eq(timetableEntries.academicYearId, academicYearId),
+        eq(timetableEntries.isActive, true),
+      ),
+    );
+
+  const structureIds = structureRows.map((row) => row.periodStructureId);
+  if (structureIds.length === 0) return [];
+
+  const slots = await db
+    .select(SLOT_COLUMNS)
+    .from(timetableSlots)
+    .where(
+      and(
+        eq(timetableSlots.locationId, locationId),
+        eq(timetableSlots.isActive, true),
+        inArray(timetableSlots.periodStructureId, structureIds),
+      ),
+    );
+
+  return slots.sort(
+    (left, right) =>
+      minutesFromTime(left.startTime) - minutesFromTime(right.startTime),
+  );
 }
 
 export async function getTimetableSlot(

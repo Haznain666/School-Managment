@@ -4,8 +4,60 @@
 resume without re-deriving context. Updated at the end of every development
 step, before the session ends.
 
-**Last updated:** 2026-08-19 (**response time, measured and acted on — §5aq;
-earlier the same day: §5ap, §5ao, §5an, §5am, §5al, §5ai–§5ak**)
+**Last updated:** 2026-08-20 (**Sprint 13.7 — parent portal accounts, period
+schedules, subject colours, teacher calendar — §5ar**; 2026-08-19: §5aq, §5ap,
+§5ao, §5an, §5am, §5al, §5ai–§5ak)
+
+> ✅ **A parent can now reach the parent portal. Until 2026-08-20 not one ever
+> could (§5ar).** Reported as "the father did not get a welcome email"; the
+> email was the smaller half. `student_guardians` held a contact record and
+> `school_users` — the only table that can sign anybody in — held nothing for
+> them, and **no code path had ever put anything there**. Sprint 13 shipped six
+> parent screens, routed and permissioned, that no parent in any school could
+> open. `lib/parent-portal-access.ts` is the missing half.
+>
+> **Verified end to end against the live database, in a real session:** a new
+> admission came out fee-outstanding with no account; a part payment did not
+> release it and the payment that settled the balance did; the welcome was
+> delivered; its `/set-password` link set a password; and `/parent/children`
+> then showed the child. This is the first sprint since sign-in was fixed
+> (§5am) whose central claim was proved by driving it rather than by reading it.
+>
+> ⚠ **Enrolment used to give the child's directory row the primary guardian's
+> mobile.** `school_users` is unique on (location, phone), so the father's own
+> account would later have collided with his daughter's — the upsert would have
+> written his address onto her record. The child now always takes the
+> `student:<admission-no>` sentinel. Nothing ever looked a student up by their
+> guardian's phone.
+
+> ✅ **`0025_period_structures_parent_access.sql` applied to the live database,
+> 2026-08-20.** Verified against the real schema rather than the exit code: 26
+> of 26 migrations recorded, both new tables present, `period_structure_id` NOT
+> NULL with zero orphans, exactly one default structure per school, the old
+> school-wide position index gone and the per-structure one in place, every
+> pre-existing enrolment back-filled to `cleared` and every existing guardian
+> stamped so deploy day mails nobody. **Next free migration number is `0026`.**
+>
+> ⚠ **`fee_status` is a second column on `student_enrollments`, deliberately not
+> a fifth `status`.** `status = 'active'` is what the register, the promotion
+> run, the class lists, the challan generator and nine reports filter on. A
+> child parked outside `active` would be invisible to all of them — including to
+> the challan generator that would have produced the bill they were waiting to
+> pay. Do not "simplify" these two columns into one.
+
+> ⚠ **A grade moved between period schedules does NOT carry its timetable
+> across (§5ar).** The two schedules have different periods at different times
+> and there is no honest mapping. The lessons are not deleted — they stay filed
+> against the old schedule's slots and moving the grade back shows them again —
+> and the builder counts them and says so rather than going blank. This is
+> designed, not a defect; do not "fix" it by auto-migrating.
+
+> 🐛 **`#db2777` had been in the shipped subject palette since Sprint 6 at
+> 4.39:1** against either lettering colour, below the 4.5:1 floor. No build,
+> type-check or screenshot had ever objected; the new `npm run
+> check-sprint-periods` caught it on its first run. Now `#be185d` (5.77:1).
+> Stored colours are untouched — the grid computes legible lettering for
+> whatever it finds.
 
 > ✅ **The slowdown is not in the application — proven, not inferred (§5aq).**
 > The same production build answers `/super-admin/login` in **10ms locally and
@@ -43,8 +95,9 @@ earlier the same day: §5ap, §5ao, §5an, §5am, §5al, §5ai–§5ak**)
 > 2026-08-18.** Verified against the real schema rather than the exit code: 25
 > of 25 migrations recorded, all eight columns present with the right types and
 > defaults, `class_levels` defaulting to the empty array on all 6 branches, and
-> `max_grade` still holding its 2 populated rows. **Next free migration number
-> is `0025`.**
+> `max_grade` still holding its 2 populated rows. ~~**Next free migration number
+> is `0025`.**~~ Superseded — `0025` was taken by Sprint 13.7 on 2026-08-20.
+> **`0026` is free.**
 >
 > ⚠️ **This was not a sprint.** Sprint 13.5 (accounting) is still the next
 > sprint and Sprint 14 is still internal chat. `0024` was briefly named for
@@ -144,9 +197,10 @@ earlier the same day: §5ap, §5ao, §5an, §5am, §5al, §5ai–§5ak**)
 > recorded, all three tables present, 11 indexes, `schools.principal_model`
 > defaulting to `'single'` on all 6 schools, and
 > `role_permissions_permission_check` now accepting `principals.manage`.
-> ~~**Next free migration number is `0024`.**~~ Superseded — `0024` was taken
-> by the creation fixes on 2026-08-18. **`0025` is free.** Sprint 13.5
-> (accounting) is still the next sprint, and still needs one.
+> ~~**Next free migration number is `0024`.**~~ ~~Superseded — `0024` was taken
+> by the creation fixes on 2026-08-18. **`0025` is free.**~~ Superseded again —
+> `0025` was taken by Sprint 13.7 on 2026-08-20. **`0026` is free.** Sprint
+> 13.5 (accounting) is still the next sprint, and still needs one.
 
 > ✅ **`0022_sprint11_comms.sql` applied to the live database, 2026-08-15.**
 > Verified: 23 of 23 migrations applied, all three tables present, 12 indexes,
@@ -5469,6 +5523,7 @@ Not investigated further.
 
 | Date | Session did | Next |
 | --- | --- | --- |
+| 2026-08-20 | **Sprint 13.7 — parent accounts, period schedules, colours, teacher calendar** (§5ar). The reported fault was "the father did not get a welcome email"; the email was the smaller half. **No guardian had ever been given a `school_users` row**, so Sprint 13's six parent screens — routed, permissioned, with a calendar and printable report cards in them — could not be opened by a single parent at any school, and every profile said "No portal account" with nothing implying that was leavable. `lib/parent-portal-access.ts` opens the account, links every guardian row on that number, and queues the §5g setup email with parent wording. **Found while wiring it:** enrolment gave the *child's* directory row the primary guardian's mobile, and `school_users` is unique on (location, phone) — so the father's own account would later have upserted onto his daughter's row, writing his address onto her record. The sentinel is now unconditional. **The fee gate** is a second column, `fee_status`, and deliberately not a fifth `status`: `active` is what the register, promotions, class lists, the challan generator and nine reports filter on, so a child parked outside it would be invisible to the very generator that produces the bill they are waiting to pay. Clears on "holds a challan and none still open"; a waiver counts; a manual button exists because a school that takes cash across a desk would otherwise never fire it at all. **Period structures** end one-bell-per-school — the old (location, order_index) key refused a school's second schedule as a duplicate of its first — with a default that makes the migration a no-op for anyone who never opens the screen. **Subject colours** gain a picker; asserting its contrast caught `#db2777`, in the shipped palette since Sprint 6 at 4.39:1, which no build or screenshot had ever objected to. **The teacher calendar** projects rules onto dates through UTC-midnight strings and sorts by the clock, because a teacher on two schedules has periods whose positions are not comparable. `0025` applied and verified against the real schema. New `npm run check-sprint-periods` — 107 assertions, in CI. **Everything was driven end to end against the live database in a real session** and the QA rows removed. | **Nothing was looked at** — the preview browser does not composite, so no screenshot of any new screen exists and the layouts are unseen. Twenty minutes of clicking is the next thing worth doing. Then **print one of each document on real A4** (still needs a person and a printer), then Sprint 13.5 (accounting) on migration **`0026`**. Also pre-existing and unrelated: `[announcements] sweep failed … Received an instance of Date`, every 60s in the dev log. |
 | 2026-08-19 | **Three onboarding faults, reported by the user** (§5ap). (1) **Creating a school sent its first administrator nothing** — proven from the data, not inferred: `password_setup_tokens` had a row for the branch admin and none for the school admin, and the only mail that address ever got was an invite-flow OTP somebody sent by hand nine minutes later. Every other member-creating path queues `queueAccessEmail`; the one route that provisions the *first* person into a school was the only one that did not. It does now, and `SchoolForm` lands the operator on Users whenever the admin was not created **or** the mail did not queue. (2) **"School portal unavailable" on /dashboard/users — never reproduced**, and said so plainly: the live site answers that route correctly (14 anonymous samples, plus a garbage-cookie probe that proves the tenant headers are stamped), and it renders locally against the production database for `school_admin`, `branch_admin` and a platform-operator hand-off session alike. The one remaining code path that produces that page was middleware collapsing `fetchSchoolBySlug`s deliberate throw-vs-null distinction, so a single failed Supabase call accused the tenant; the lookup cache now serves its expired entry rather than the not-found page, and logs every time. **If it recurs, look at §5ak** — header casing still differs between consecutive responses, so more than one process is answering. (3) **Invite Staff asked for a branch it would not let you create.** New `POST /api/school/branches` gated on `settings.write` that **never creates a member**; Invite Staff redirects to `/dashboard/branches/new?next=…` when there are none and the caller can make one, and shows an empty state naming who can help when they cannot; the Super Admin branch form is reused with no `schoolId`, which is what drops the invite toggle and the Active toggle; `/dashboard/branches` finally exists, having been a sidebar `placeholder` pointing at a 404 since Sprint 10.5. Two lying strings fixed — the invite page now asks `isWhatsAppEnabled` instead of claiming WhatsApp is primary. | **Print one of each document on real A4** — still outstanding, still needs a person and a printer. Then Sprint 13.5 (accounting) on migration `0025`. **Ask the user whether /dashboard/users recurs** — if it does, the next move is restarting the app in hPanel (§5ak), not more code. `NEXT_PUBLIC_MAPBOX_TOKEN` still needs setting (§6 item 11). |
 | 2026-08-19 | **Address and phone made one field each** (§5an). `AddressAutocomplete` (Mapbox Search Box) and `PhoneField` (Mobile/Landline dropdown, digits-only masks — mobile `(xxxx) xxx-xxxx` fixed at eleven, landline `(xxx)` then up to ten) replaced eleven hand-rolled fields across nine files; Google Places and both `@googlemaps` packages are gone. **The token was measured before anything was built**, and the answer shaped the design: Mapbox has Pakistani cities and localities and almost nothing below — "Beaconhouse" and "Ferozepur Road" return nothing at all — so the text box is the record and an empty suggestion list is worded as ordinary rather than as a miss. **No `phone_kind` column**: the format is self-describing, so the kind is derived on load and the store→detect→re-mask round trip is asserted. On identity fields (guardian, invitation, admissions) Landline is offered and then refused with a reason — the user chose that over relaxing `normalizePhone`, which was offered and declined. **Two defects found by building it:** `hasCompleteMobileDigits` accepted any eleven digits starting `0`, so the Lahore landline `042 35300000` was a valid "mobile" and was re-masked to a number that does not exist (live since `0024`); and coordinates outlived the address they belonged to, so picking a place and then retyping the address would have filed it at the old location. The second was only findable in a browser — so `ContactFields` was added to `/design-system` and both fields were **actually driven**, which §5ai and §5aj could not do. Mapbox billing checked too: 46 characters typed cost 2 suggest calls and 1 retrieve. New `npm run check-address-phone` — 32 assertions plus a scan of all 280 components that fails on a raw `<Input label="Phone">`, which is what makes the rule apply to pages nobody has written yet. | **Print one of each document on real A4** — still outstanding, still needs a person and a printer. Then Sprint 13.5 (accounting) on migration `0025`. Nothing here needs a panel action: the Mapbox token ships with the app and `NEXT_PUBLIC_MAPBOX_TOKEN` only overrides it. `NEXT_PUBLIC_GOOGLE_MAPS_API_KEY` can be deleted from the hosting panel. |
 | 2026-08-18 | **School and branch creation, fixed** (§5ai). Ten reported items, and the last of them was two defects wearing one description. The module-adoption chart was drawing eleven long labels onto one x axis and had passed every automated check while being unreadable — `BarChart` gains a horizontal orientation, and rotation and truncation are both recorded as rejected, the second because it renders "Academics & Timetable" and "Accounts & Finance" identically. The branch form asks city first because it is the only answer that produces another (`Karachi` → `KHI-MAIN`, editable); `MIXED` now demands a board name; "Highest grade" — a free-text box that could express neither a junior campus's floor nor a skipped year — is replaced by a curriculum-filtered class list; phone splits into masked landline and mobile; email is checked against the practical grammar rather than `includes('@')`; the address gains a map picker that degrades to plain text with no key configured. All of it applies to the school form and all of it is re-checked server-side. **The two real bugs: Supabase held no address the panel had ever been asked to invite** — only the synthetic `pa_` hand-off accounts — because nothing created an account until password setup, so the address is now registered at provisioning while `auth_user_id` stays null (five things read that column as "has been through setup"); **and deleting a member left their Supabase account claiming the address forever**, so a re-invited person came back onto their old credential — now deleted with the membership, but only once no other school holds that address, because one account is one human and not one membership. **Migration `0024` applied and verified** — 25 recorded, eight columns, nothing dropped; `max_grade` deliberately kept and populated because its free-text values cannot be mapped without guessing. New `npm run check-forms`: 60 assertions, which caught a mobile validator accepting the right digits in the wrong shape. | **The two forms have not been driven by hand in a browser** — no plaintext Super Admin password exists, so QA was scripted. Set `NEXT_PUBLIC_GOOGLE_MAPS_API_KEY` to turn the map on. Then print one of each document on A4, then Sprint 13.5 on migration `0025`. |
@@ -5517,6 +5572,224 @@ PS 5.1 reads as ANSI and writes UTF-8-with-BOM, which double-encodes the
 box-drawing characters used throughout this codebase's comments and produces
 files the Next.js compiler rejects as invalid UTF-8. Two files were corrupted
 this way and had to be restored with `git checkout`. Use the editing tools.
+
+
+---
+
+## 5ar. Sprint 13.7 — parent accounts, period schedules, colours, teacher calendar — 2026-08-20
+
+Four items the user asked for, and one defect found while building the first.
+The found one is the largest single gap this file has recorded.
+
+### 1. No parent could reach the parent portal, and nothing said so
+
+The report was "when I create a parent, the father did not get a welcome email".
+The email was the smaller half.
+
+`student_guardians` held name, relationship, phone, email, CNIC, occupation.
+`school_users` — the only table `lib/school-auth.ts` will authorise a request
+against — held nothing for a guardian, and **no code path had ever written one**.
+Sprint 13 shipped the parent portal: six screens, routed, permissioned, with an
+attendance calendar and printable report cards in it. Not one parent at any
+school could open it. The profile page said "No portal account" beside every
+guardian in the system and nothing on screen implied that was a state anybody
+could leave.
+
+`lib/parent-portal-access.ts` is the missing half. It opens the `parent` row,
+links it to **every** guardian record carrying that phone number — a father
+against three children is three rows, and the portal follows all of them to find
+his children — and queues the first-time setup email through the same
+`lib/access-email.ts` staff have used since §5g, with parent wording and the
+children named.
+
+`student_guardians.welcome_email_sent_at` is what stops a family of three
+receiving three welcomes, and what makes the fee gate safely re-enterable.
+
+#### ⚠ The collision this uncovered, which was live and silent
+
+`enrollStudent` gave the **child's** `school_users` row the primary guardian's
+mobile, falling back to a `student:<admission-no>` sentinel only when the number
+was already taken. That table is unique on (location, phone). So the father's own
+parent account, created later when the fee cleared, would have upserted **onto
+his daughter's directory row** — writing his email address onto her record and
+linking him to an account that was never his.
+
+The sentinel is now unconditional. A number belongs to the person who answers it,
+and nothing in the product ever looked a student up by their guardian's phone —
+the number a school rings is on `student_guardians`, where it always was.
+
+### 2. The fee gate, and why it is not a fifth enrolment status
+
+The user's rule: a new student counts as enrolled once their fee is paid, and
+that is when the parents are welcomed. Only for new students.
+
+The obvious implementation is `student_enrollments.status = 'pending_fee'`. It is
+wrong, and expensively so. `status = 'active'` is what the register, the
+promotion run, the class lists, the challan generator and nine reports filter on.
+A child admitted Monday and paying Friday would be invisible to every one of them
+for four days — **including to the challan generator that would have produced the
+bill they were waiting to pay**, which makes the state unleavable.
+
+So `fee_status` is a second column. The enrolment is real from the moment it is
+written; what is conditional is whether it has been *confirmed*.
+
+**It clears when the student holds at least one challan and none is still open.**
+Both halves are chosen:
+
+- *at least one* keeps a child admitted five minutes ago outstanding. Without it
+  zero challans reads as zero debt and every admission clears itself instantly —
+  the exact opposite of the rule.
+- *none still open* rather than "the admission challan is paid", because this
+  product has **no admission-fee challan type**. What a school is owed is the sum
+  of its open challans. `cancelled` and `waived` are closed on purpose: a waiver
+  settles an account as surely as cash, which is the only thing that will ever
+  clear a scholarship admission.
+
+`POST /api/school/students/[id]/fee-clearance` is the escape hatch and is not
+optional. A large share of the schools this product is for take the admission fee
+in cash across a desk and never raise a challan. Without the button their gate
+would never fire and their parent portal would be empty **permanently**, with
+nothing anywhere to fix it. Costs `fees.write`; one-way, because it sends email
+to real people.
+
+**Existing rows were back-filled to `cleared`.** Those children are already at
+school. Re-opening settled admissions would invent a debt for every family and
+fire a welcome at the entire parent body on the first payment that landed. The
+bulk import passes `cleared` for the same reason — a migrated roll is not a queue
+of new admissions.
+
+### 3. Period structures — one bell schedule was one too few
+
+`timetable_slots` was uniquely keyed on (location_id, order_index) and its own
+comment explained why: "a school rings one bell". True of a school with one set
+of children in it. False the moment the same school teaches Pre-Nursery and Class
+10 on one campus — the infants sit three long periods and go home, the seniors
+sit eight short ones. Under that key **the second schedule a school entered was
+refused as a duplicate of the first**, and the junior grid carried five rows that
+could never be filled, every one an invitation to click.
+
+`period_structures` are named; `period_structure_grades` assigns grades to them.
+Grades and not sections because nobody rings a different bell for 5A and 5B — and
+because a new section is then timetabled correctly the day it is created.
+
+One structure per school carries `is_default`, enforced by a partial unique
+index, and an unassigned grade runs on it. That is what makes the migration a
+no-op: every school with periods got one "Standard" schedule holding them, **no
+grade assignments were written**, and a one-bell school never learns the feature
+exists.
+
+The unique index moved from (location_id, order_index) to (period_structure_id,
+order_index). `POST /timetable/entries` now re-resolves the section's structure
+and refuses a slot from another one — without it, a stale tab left open across a
+reassignment would write a row that satisfies every constraint and appears in no
+grid, which is the worst kind of accepted write.
+
+#### ⚠ Reassigning a grade does not carry its timetable
+
+Confirmed by driving it: moving Pre-Nursery onto "Junior school" left its two
+existing lessons filed against Standard's slots, invisible. **Nothing is
+deleted** and moving the grade back restores them, but a grid that silently went
+blank is indistinguishable from one that lost a term's work. The builder now
+counts the undrawable entries and says so. Deliberately not auto-migrated: there
+is no honest mapping from "period 3 of the senior day" to anything in the junior
+one.
+
+### 4. Custom subject colours, and a palette colour that was never legible
+
+The column always accepted any `#rrggbb` — `isHexColor` has guarded it since
+Sprint 6. Only the form was closed. `SubjectColorPicker` keeps the eight presets
+first and adds a native picker plus a hex box, previews a **real grid cell** at
+real size with the lettering `readableForeground` will actually compute, and
+warns below 4.5:1 or on a shade close to another subject's. Warns, never refuses:
+a school with a house colour has a reason this product has no standing to
+overrule.
+
+Asserting that caught a live defect. **`#db2777` reached only 4.39:1** against
+either candidate lettering colour and had been in the shipped palette since
+Sprint 6. No build, type-check or screenshot had ever objected. Now `#be185d`
+(5.77:1). Stored colours are untouched.
+
+Also corrected: both subject routes rejected a bad colour with "Choose a colour
+from the palette", which stopped being true the moment the picker shipped.
+
+### 5. The teacher calendar
+
+`lib/teacher-calendar.ts` projects timetable rules onto real dates per range. Not
+a table: 40 teachers over a 200-day year is 60,000 rows saying what 300 rules
+already say, and every edit to a rule would rewrite the rest of the year.
+
+Dates are handled as `YYYY-MM-DD` through **UTC midnight** on both server and
+client, never a local `Date`. "Monday 9am" is Monday 9am in Lahore whichever
+continent the server is on, and a server-local `Date` would put Friday's last
+period on Saturday for a school six hours ahead. Same reason `timetable_slots`
+stores times as text.
+
+Lessons sort by the **clock**, not by `order_index`: a teacher on two schedules in
+one day has periods whose positions are not comparable — position 3 is 10:00 on
+one and 11:20 on the other.
+
+`academics.read` gates the route, which is what the timetable routes already
+carry and they already return every teacher's name against every period — so a
+colleague's *lessons* are not a disclosure. **Leave is**, so it goes only to
+`hr.read` or to the teacher themselves.
+
+⚠ **No school-holiday table exists**, so a day the school is shut still shows its
+periods. Stated on the screen rather than implied away. When a school calendar
+arrives it subtracts in this one file.
+
+### `npm run check-sprint-periods` — 107 assertions, and it is in CI
+
+The rules this sprint added are invisible to the type-checker and to a passing
+build: calendar date arithmetic that is correct on the machine that wrote it and
+wrong six timezones away; a subject colour whose lettering cannot be read; a
+generated welcome that names a family's children and could say "Ayesha, Bilal"
+or "Ayesha and ". It found the palette defect on its first run.
+
+### QA — driven against the live database, 2026-08-20
+
+An emergency login token was minted directly for the school administrator (the
+Super Admin password is still the leaked one and is still unrotated), and every
+path below was exercised through the running application's own API inside that
+authenticated session:
+
+| Checked | Result |
+| --- | --- |
+| New admission | `active` + `outstanding`; guardian unlinked, unwelcomed |
+| Student directory row | `student:LGS-2026-0003` — the father's mobile left free |
+| Part payment (2000 of 5000) | challan `partial`, enrolment **not** cleared |
+| Balance (3000) | challan `paid`, enrolment cleared, **1 welcome queued** |
+| The welcome | delivered (`sent`), names the child, carries `/set-password/<token>` |
+| That link | set a password; `/parent/children` then showed the child |
+| Guardian added to a cleared student | welcomed immediately |
+| Guardian with no email | reported, not failed |
+| Resend to somebody who has a password | returning-user wording, **not** a second setup link |
+| Manual clearance, called twice | cleared once, then 409 — one mail-out, not two |
+| Two schedules at positions 0–2 | accepted (impossible before) |
+| Duplicate position inside one schedule | 409 |
+| Grade assigned | its sections' grids followed it; 3 rows, not 4 |
+| Unassigned grade | fell back to the default; 4 rows |
+| Slot from the wrong schedule | 409 `wrong_structure` |
+| Calendar day / week / month | correct; month = 42 days, whole weeks, Monday-start |
+| Teacher across two schedules | both named, lessons in clock order |
+| Custom hex subject | stored; `#7f1` and `red` refused |
+
+**All QA rows were removed afterwards** — the database is back to one "Standard"
+structure, 4 slots, 2 entries, 2 subjects, which is the state in the user's
+screenshots.
+
+#### ⚠ What was NOT verified, and why
+
+**Nothing was looked at.** The preview browser in this environment does not
+composite, so React's streamed content never swaps in: `innerText` returns empty,
+the accessibility tree holds only the navigation, and `computer{screenshot}`
+times out with "the Browser pane is not displayed". The pages' structure was read
+out of the DOM and every rule was driven through the API, but **no screenshot of
+any new screen exists** and the layouts have not been seen. Worth twenty minutes
+of clicking before relying on them.
+
+Unrelated and pre-existing, seen in the dev log throughout: `[announcements]
+sweep failed … Received an instance of Date [ERR_INVALID_ARG_TYPE]`, every 60
+seconds. Not touched by this sprint. Worth a look.
 
 ---
 

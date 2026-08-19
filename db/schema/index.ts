@@ -41,8 +41,10 @@ export * from './fee-payments';
 export * from './late-fee-rules';
 export * from './challan-sequences';
 
-// Sprint 6 — Academics & Timetable.
+// Sprint 6 — Academics & Timetable. `period-structures` comes first because
+// `timetable-slots` references it: a period belongs to a named bell schedule.
 export * from './subjects';
+export * from './period-structures';
 export * from './timetable-slots';
 export * from './timetable-entries';
 export * from './attendance-records';
