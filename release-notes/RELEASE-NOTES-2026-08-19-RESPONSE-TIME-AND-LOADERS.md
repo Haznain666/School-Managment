@@ -128,6 +128,30 @@ build.
 
 ---
 
+## Confirmed live
+
+Measured after the deploy landed, not predicted.
+
+**The platform sign-in page** went from **0 of 12 samples fast (0.82–1.23 s)** to
+**10 of 10 at 86–91 ms**, and from 42,920 bytes to 9,910.
+
+**A school's own sign-in page**, which can never be cached, now shows its shape
+at ~900 ms and completes at ~2.0–2.2 s. It was blank for the whole of that
+before.
+
+Which gives the number that matters for everything from here:
+
+| | |
+| --- | --- |
+| CDN cache hit | ~85 ms |
+| **CDN edge → origin** | **~800–900 ms** |
+| The application itself | ~10 ms |
+
+A page that cannot be cached spends ~900 ms in transit and ~10 ms working. That
+is the whole remaining problem, and no code change reaches it.
+
+---
+
 ## Still outstanding, and not fixable from the code
 
 **The ~1 second between Hostinger's CDN edge and the origin.** Proven above to

@@ -15,12 +15,16 @@ earlier the same day: §5ap, §5ao, §5an, §5am, §5al, §5ai–§5ak**)
 > hop.** Query batching, request caching and indexes were all checked and were
 > all already correct — do not go looking there again.
 >
-> **What was changed, and what it bought:** `/super-admin/login` is now
-> prerendered and edge-cacheable (~1s → ~85ms); middleware serves an expired
-> tenant record and refreshes behind the request (the first click after each
-> 60s expiry went from ~1.5s to **12ms**); and **every one of 108
-> data-fetching routes now streams a shaped skeleton** — first byte at 10ms
-> instead of a blank page for the full wait.
+> **Confirmed live after the deploy:** `/super-admin/login` went from **0 of 12
+> samples fast (820–1230ms)** to **10 of 10 at 86–91ms**, and its payload from
+> 42,920 to 9,910 bytes. Middleware now serves an expired tenant record and
+> refreshes behind the request — the first click after each 60s expiry went
+> from ~1.5s to **12ms**. And **every one of 108 data-fetching routes streams a
+> shaped skeleton**, so a page that cannot be cached shows its shape at ~900ms
+> instead of staying blank until ~2.2s.
+>
+> **The cost model, measured, for every future question here:** CDN hit ~85ms ·
+> **edge→origin hop ~800–900ms** · application compute ~10ms.
 >
 > 🔴 **The remaining second is the user's to close, in hPanel:** where the
 > origin datacenter sits relative to the Kuala Lumpur edge, whether the CDN
@@ -5301,6 +5305,41 @@ fetches, excluding `Next-Router-Prefetch`, which catches `<Link>`,
 `router.push`, `router.replace` and `router.refresh` alike and nothing else.
 Verified in the browser: clicking "Super Admin sign in" on the landing page
 raised the bar and landed on the form.
+
+### Verified on the live site after the deploy
+
+Measured against `https://schoolhub.codexmill.com` once the git-connected build
+had landed, so these are the authoritative "after" numbers.
+
+**`/super-admin/login`, the page that was changed:**
+
+| | Before | After |
+| --- | --- | --- |
+| Fast samples | **0 of 12** | **10 of 10** |
+| Server time | 820 – 1230 ms | **86 – 91 ms**, median 90 |
+| Payload | 42,920 B | **9,910 B** |
+
+**A tenant page that can never be cached** (`lgs.schoolhub.codexmill.com/login`,
+8 samples after warm-up): first byte at **840 – 1030 ms**, complete at
+**2.0 – 2.2 s**.
+
+Those two rows together give the cost model, and it is worth writing down
+because every future performance question here resolves against it:
+
+    CDN cache hit .............   ~85 ms
+    CDN edge -> origin hop ....  ~800-900 ms   <-- fixed, transport
+    application compute .......   ~10 ms
+
+The tenant page's ~900 ms to first byte is **the hop and essentially nothing
+else** — the shell flushes instantly at the origin, then spends 900 ms in
+transit. Which means the skeleton work is doing exactly what it was meant to:
+the reader sees the page's shape at 900 ms instead of a blank screen until
+2.2 s, and no further code change can improve the 900 ms.
+
+The samples cluster in two bands (~845 ms and ~1025 ms) rather than scattering,
+which is consistent with **§5ak's two Node processes still being in place**.
+
+CI is green on `aa618b6` including the new loader gate, on Node 22.
 
 ### One intermittent seen in passing, and cleared as not-mine
 
