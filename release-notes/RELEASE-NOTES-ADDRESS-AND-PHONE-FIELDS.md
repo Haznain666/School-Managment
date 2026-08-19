@@ -93,11 +93,14 @@ rewritten if the record is saved.
 
 ## What the platform administrator should know
 
-- Address search runs on a Mapbox token that ships with the application, so it
-  works without anything being configured. To use a different one, set
-  `NEXT_PUBLIC_MAPBOX_TOKEN`. Restrict the token by URL in the Mapbox console —
-  it is served to browsers, which is normal for this kind of token, and the URL
-  restriction is what protects the account.
+- **Address search needs `NEXT_PUBLIC_MAPBOX_TOKEN` set in the hosting panel.**
+  Until it is, every address field is the plain text box it has always been and
+  says so in one line — nothing breaks and no address is lost. A token was
+  briefly committed so this would work with no configuration; GitHub push
+  protection refused it, correctly, because this repository is public. Restrict
+  the token by URL in the Mapbox console — it is served to browsers, which is
+  normal for this kind of token, and the URL restriction, not secrecy, is what
+  protects the account.
 - `NEXT_PUBLIC_GOOGLE_MAPS_API_KEY` is no longer read and can be removed.
 - With no token at all, every address field keeps working as a plain text box
   and says why there is no search.

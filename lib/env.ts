@@ -23,16 +23,19 @@ export const publicEnv = {
    * it is supplied. Secrecy is not the control; restrict it by URL in the
    * Mapbox console, which is what stops it being spent by others.
    *
-   * The literal below is the fallback rather than the value: setting
-   * `NEXT_PUBLIC_MAPBOX_TOKEN` overrides it, which is how the token is rotated
-   * without a code change. It is committed so that address autocomplete works
-   * on a fresh checkout and on the live host without anyone opening the
-   * hosting panel first — two panel actions are already outstanding
-   * (STATE.md §5w) and this must not become a third.
+   * ── Why there is no committed fallback ───────────────────────────────
+   * There was one, briefly. GitHub push protection refused the push: this
+   * repository is **public**, and a live token sitting in it is scraped whether
+   * or not the token is technically a secret. The original argument for
+   * committing it — that address search would then work without anyone opening
+   * the hosting panel — stopped holding the moment unblocking the push became
+   * an action of its own. One action either way, so it is the safer one.
+   *
+   * Absent, this resolves to `''` and every address field degrades to the plain
+   * text input it has always been, saying in one line why there is no search.
+   * That path is deliberate and tested (`UC-APF-19`); nothing breaks.
    */
-  mapboxToken:
-    process.env.NEXT_PUBLIC_MAPBOX_TOKEN ??
-    '',
+  mapboxToken: process.env.NEXT_PUBLIC_MAPBOX_TOKEN ?? '',
 } as const;
 
 export class MissingEnvError extends Error {

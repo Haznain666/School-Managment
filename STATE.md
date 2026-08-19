@@ -69,6 +69,11 @@ the same day: §5am, §5al, §5ai–§5ak**)
 > its own history — see §5am for why that matters. §5d item 2 is marked
 > resolved in place.
 
+> ⚠️ **§5an's committed Mapbox token was removed — see §5ao.** GitHub push
+> protection refused it and this repository is public. `NEXT_PUBLIC_MAPBOX_TOKEN`
+> is now a hosting-panel action; until it is set, address search is off and every
+> address field is a plain text box that says so.
+
 > ✅ **Every address and phone field is now one shared component (§5an), no
 > migration.** `AddressAutocomplete` (Mapbox Search Box) and `PhoneField`
 > (Mobile/Landline dropdown, digits-only masks) replaced eleven hand-rolled
@@ -4917,6 +4922,49 @@ Gates: typecheck, lint, build, `check-forms` (60), `check-address-phone` (32),
 reappeared and was deleted before each build, as always.
 
 
+---
+
+## 5ao. The committed Mapbox token was refused, and rightly — 2026-08-19
+
+No migration. Amends §5an the same day.
+
+§5an committed the `pk.` Mapbox token into `lib/env.ts` as a fallback, on a
+decision taken with the user: it meant address search worked on a fresh
+checkout and on the live host with **no panel action**, and two panel actions
+were already outstanding (§5w).
+
+**`git push` was refused by GitHub push protection** — *Mapbox Secret Access
+Token, `lib/env.ts:35`*. Two things about that are worth recording, because
+they point in opposite directions:
+
+- **The label is wrong.** The token is `pk.`, whose payload decodes to
+  `{"u":"hasnainrehman","a":"cmszuk9w803ef2zqy9hxg71ii"}`. A Mapbox *secret*
+  token is `sk.`. GitHub's detector does not distinguish them.
+- **The block is right anyway.** `Haznain666/School-Managment` is a **public**
+  repository. A live token in it is scraped regardless of whether the scanner
+  classified it correctly.
+
+**The decision reversed because its premise did.** The whole argument for
+committing it was "then nobody has to open a panel". Unblocking the push is
+itself an action — through GitHub's allow-secret URL — so it was one action
+either way, and the safer action wins. The user chose to remove the fallback.
+
+`lib/env.ts` now reads `process.env.NEXT_PUBLIC_MAPBOX_TOKEN ?? ''` with no
+literal. The absent-token path was already built and tested (`UC-APF-19`):
+every address field degrades to the plain text input and says in one line why
+there is no search.
+
+**The token had to come out of the unpushed history, not just the tip.** Push
+protection scans every commit in the push, and the literal was in `c4aa30a` and
+in all five commits after it. `git filter-branch` over `origin/main..main`
+rewrote `lib/env.ts` in all six; `backup-before-token-scrub` tags the
+pre-rewrite tip. Nothing was pushed at any point, so no published history moved.
+
+**Consequence to act on:** `NEXT_PUBLIC_MAPBOX_TOKEN` is now a real panel
+action, recorded in §6 item 11. Address autocomplete is off on live until it is
+set — degraded, not broken.
+
+
 ## 6. Open items for the user
 
 1. ~~Install GitHub CLI~~ — **partly regressed.** Git has a stored credential
@@ -4946,11 +4994,16 @@ reappeared and was deleted before each build, as always.
     **CLOSED 2026-08-19 (§5an) — nothing needs one.** The key supplied on
     2026-08-18 never worked (unbilled project, and its API restrictions excluded
     Maps JavaScript API), and three console steps were outstanding to fix it.
-    Address autocomplete now runs on Mapbox instead, on a token that ships with
-    the application, so **there is no action here and no account to open**.
-    `NEXT_PUBLIC_GOOGLE_MAPS_API_KEY` is read by nothing and can be deleted from
-    the hosting panel. To use a different Mapbox token set
-    `NEXT_PUBLIC_MAPBOX_TOKEN` and restrict it by URL in the Mapbox console.
+    Address autocomplete now runs on Mapbox instead, and **no Google account is
+    needed at all**. `NEXT_PUBLIC_GOOGLE_MAPS_API_KEY` is read by nothing and can
+    be deleted from the hosting panel.
+
+    ⚠️ **One action replaced it, and it is smaller: set `NEXT_PUBLIC_MAPBOX_TOKEN`
+    in the hosting panel.** A token was briefly committed as a fallback so this
+    would need no panel action; GitHub push protection refused the push because
+    this repository is public, and the fallback was removed (§5ao). Until the
+    variable is set, every address field is the plain text box it always was and
+    says so — nothing breaks. Restrict the token by URL in the Mapbox console.
     **Known limitation, not a configuration fault:** Mapbox finds Pakistani
     cities and localities but very few streets and almost no buildings, so most
     school addresses are typed rather than picked — the field is built for that.
