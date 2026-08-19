@@ -54,9 +54,21 @@ export interface BranchFormValues {
 }
 
 export interface BranchFormProps {
-  schoolId: string;
+  /**
+   * The school this campus belongs to, when the Super Admin panel is asking.
+   *
+   * Absent inside a school portal, where the tenant is not a parameter — it
+   * comes from the session, and `/api/school/branches` derives it there. That
+   * absence is what the whole `isPlatform` split below turns on: which endpoint
+   * to call, where to go afterwards, and which two controls to offer, all of
+   * which differ between an operator working across schools and an
+   * administrator working inside their own.
+   */
+  schoolId?: string;
   /** Absent for create, present for edit. */
   initial?: BranchFormValues;
+  /** Where to go once saved. Defaults to the panel's branch list. */
+  doneUrl?: string;
 }
 
 const EMPTY: BranchFormValues = {
@@ -105,9 +117,12 @@ const CURRICULUM_OPTIONS = CURRICULUM_LEVELS.map((level) => ({
  * curriculum re-filters what is already ticked rather than silently keeping
  * rungs the new curriculum does not have.
  */
-export function BranchForm({ schoolId, initial }: BranchFormProps) {
+export function BranchForm({ schoolId, initial, doneUrl }: BranchFormProps) {
   const router = useRouter();
   const isEdit = initial?.id !== undefined;
+
+  /** True in the Super Admin panel, false inside a school's own portal. */
+  const isPlatform = schoolId !== undefined;
 
   const [values, setValues] = useState<BranchFormValues>(initial ?? EMPTY);
   const [error, setError] = useState<string | null>(null);
@@ -210,28 +225,47 @@ export function BranchForm({ schoolId, initial }: BranchFormProps) {
         classLevels: values.classLevels,
         isMainBranch: values.isMainBranch,
         isActive: values.isActive,
-        // Only ever meaningful on create, and only when there is somebody to
-        // invite. Editing a branch must not silently mint a member.
+        // Only ever meaningful on create, in the panel, and only when there is
+        // somebody to invite. Editing a branch must not silently mint a member,
+        // and the school-side route ignores this field outright.
         inviteAsBranchAdmin:
-          !isEdit && canInvite && values.inviteAsBranchAdmin,
+          isPlatform && !isEdit && canInvite && values.inviteAsBranchAdmin,
       };
 
-      const base = `/api/super-admin/schools/${schoolId}/branches`;
-
       try {
-        if (isEdit && initial?.id !== undefined) {
-          await superAdminFetch(`${base}/${initial.id}`, {
-            method: 'PATCH',
-            body: JSON.stringify(payload),
-          });
+        if (isPlatform) {
+          const base = `/api/super-admin/schools/${schoolId}/branches`;
+
+          await superAdminFetch(
+            isEdit && initial?.id !== undefined ? `${base}/${initial.id}` : base,
+            {
+              method: isEdit && initial?.id !== undefined ? 'PATCH' : 'POST',
+              body: JSON.stringify(payload),
+            },
+          );
         } else {
-          await superAdminFetch(base, {
+          // Not `superAdminFetch`: its 401 handler sends the browser to
+          // /super-admin/login, which is the last place a school administrator
+          // should land when their own session lapses.
+          const response = await fetch('/api/school/branches', {
             method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(payload),
           });
+
+          const result = (await response.json()) as {
+            ok?: boolean;
+            error?: { message?: string };
+          };
+
+          if (!response.ok || result.ok !== true) {
+            setError(result.error?.message ?? 'Could not save the branch.');
+            setIsSubmitting(false);
+            return;
+          }
         }
 
-        router.push(`/super-admin/schools/${schoolId}/branches`);
+        router.push(doneUrl ?? `/super-admin/schools/${schoolId}/branches`);
         router.refresh();
       } catch (caught) {
         setError(
@@ -242,7 +276,7 @@ export function BranchForm({ schoolId, initial }: BranchFormProps) {
         setIsSubmitting(false);
       }
     },
-    [values, isEdit, initial?.id, schoolId, router, canInvite],
+    [values, isEdit, initial?.id, schoolId, router, canInvite, isPlatform, doneUrl],
   );
 
   const curriculumHint =
@@ -415,7 +449,7 @@ export function BranchForm({ schoolId, initial }: BranchFormProps) {
             mobile to attach it to. An email typed here used to go nowhere at
             all, which is what "the email is not being sent to the user" meant.
           */}
-          {!isEdit && values.email.trim() !== '' ? (
+          {isPlatform && !isEdit && values.email.trim() !== '' ? (
             <div className="sm:col-span-2">
               <Toggle
                 label="Invite this email as the branch administrator"
@@ -444,15 +478,24 @@ export function BranchForm({ schoolId, initial }: BranchFormProps) {
               }}
             />
 
-            <Toggle
-              label="Active"
-              description="Inactive branches stay on record but are hidden from the school portal."
-              checked={values.isActive}
-              disabled={isSubmitting}
-              onChange={(next) => {
-                setField('isActive', next);
-              }}
-            />
+            {/*
+              Deactivating is an operator's control, not a school's. Inside the
+              portal an inactive branch is simply invisible — it disappears from
+              every picker, including this form's own school's — so a school
+              administrator who switched it off would have hidden a campus with
+              no screen left that shows it again.
+            */}
+            {isPlatform ? (
+              <Toggle
+                label="Active"
+                description="Inactive branches stay on record but are hidden from the school portal."
+                checked={values.isActive}
+                disabled={isSubmitting}
+                onChange={(next) => {
+                  setField('isActive', next);
+                }}
+              />
+            ) : null}
           </div>
         </div>
       </Card>

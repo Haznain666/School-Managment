@@ -4,6 +4,7 @@ import { and, desc, eq, ilike, or, type SQL } from 'drizzle-orm';
 import type { NextRequest } from 'next/server';
 
 import { schools } from '@/db/schema';
+import { queueAccessEmail } from '@/lib/access-email';
 import { apiFailure, apiSuccess, handleApiError, readJsonBody } from '@/lib/api-response';
 import { isPakistaniCity } from '@/lib/cities';
 import { db } from '@/lib/drizzle';
@@ -89,7 +90,8 @@ interface CreateSchoolBody {
 
 export async function POST(request: NextRequest) {
   try {
-    await requireSuperAdmin();
+    // Captured so the administrator's setup token records who issued it.
+    const session = await requireSuperAdmin();
 
     const body = await readJsonBody<CreateSchoolBody>(request);
     if (body === null) {
@@ -191,12 +193,52 @@ export async function POST(request: NextRequest) {
      * operator should have to undo a provisioning over. The outcome is reported
      * so the UI can say what happened.
      */
+    const adminName = readString(body.adminName) || readString(body.principalName);
+    const adminAddress = adminEmail.value ?? email.value;
+
     const admin = await createFirstSchoolAdmin(db, {
       locationId: school.locationId,
-      name: readString(body.adminName) || readString(body.principalName),
+      name: adminName,
       phone: readString(body.adminPhone) || readString(body.phone),
-      email: adminEmail.value ?? email.value,
+      email: adminAddress,
     });
+
+    /**
+     * Mail the administrator their password-setup link.
+     *
+     * ── The defect this closes ───────────────────────────────────────────
+     * Creating a school created its first administrator and then sent them
+     * nothing. Every *other* path that mints a member queues this same message
+     * — `POST .../users` does it, and so does the branch form — so the one
+     * route that provisions the very first person into a school was the only
+     * one leaving them with an account and no way to reach it. The reported
+     * symptom was the account existing, the operator moving on, and the
+     * administrator receiving only whatever Supabase happened to send.
+     *
+     * `authUserId: null` is passed deliberately rather than read back: the row
+     * was created moments ago and has never been through setup, so this is
+     * always the first-time email carrying a `/set-password/<token>` link, not
+     * the "here is where to sign in" reminder.
+     *
+     * A failure does not fail the request, for the same reason the
+     * administrator itself does not: the school and the member are both
+     * committed and useful, and the commonest cause is the platform's own SMTP.
+     * The outcome is returned so the panel can say plainly what happened.
+     */
+    const adminAccess =
+      admin.status === 'created'
+        ? await queueAccessEmail({
+            locationId: school.locationId,
+            school: { name: school.name, slug: school.slug },
+            member: {
+              id: admin.userId,
+              name: adminName,
+              email: adminAddress,
+              authUserId: null,
+            },
+            createdBy: session.email,
+          })
+        : null;
 
     /**
      * Provision `<slug>.<PLATFORM_BASE_DOMAIN>` at the host.
@@ -230,6 +272,10 @@ export async function POST(request: NextRequest) {
       {
         school: withStatus ?? school,
         admin,
+        adminEmail: {
+          queued: adminAccess?.queued ?? false,
+          problem: adminAccess === null || adminAccess.queued ? null : adminAccess.reason,
+        },
         subdomain: {
           host: provision.fqdn,
           status: provision.status,

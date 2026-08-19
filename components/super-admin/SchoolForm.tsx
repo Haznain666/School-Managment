@@ -210,18 +210,26 @@ export function SchoolForm({ initial, appDomain }: SchoolFormProps) {
           const created = await superAdminFetch<{
             school: { id: string };
             admin: { status: 'created' | 'exists' | 'skipped' };
+            adminEmail: { queued: boolean; problem: string | null };
           }>('/api/super-admin/schools', {
             method: 'POST',
             body: JSON.stringify(payload),
           });
 
           // A school nobody can sign in to is not provisioned, only recorded.
-          // When the principal's number could not become an administrator, land
-          // the operator on Users, where the empty state offers to create one.
+          // Two ways that happens, and both land on Users rather than the
+          // overview: the number could not become an administrator, or one was
+          // created but their password-setup email never made it into the
+          // queue. Users is where the empty state offers to create somebody and
+          // where "Send sign-in email" lives, so it is the screen that can
+          // finish the job either way.
+          const needsAttention =
+            created.admin.status !== 'created' || !created.adminEmail.queued;
+
           router.push(
-            created.admin.status === 'created'
-              ? `/super-admin/schools/${created.school.id}`
-              : `/super-admin/schools/${created.school.id}/users`,
+            needsAttention
+              ? `/super-admin/schools/${created.school.id}/users`
+              : `/super-admin/schools/${created.school.id}`,
           );
         }
         router.refresh();

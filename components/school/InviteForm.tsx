@@ -72,7 +72,12 @@ export function InviteForm({ branches }: InviteFormProps) {
         return;
       }
       if (phone.trim() === '') {
-        setError('A phone number is required — invitations are sent over WhatsApp.');
+        // Not "invitations are sent over WhatsApp" — they are sent by email,
+        // and have been since Stage 4. The number is required because
+        // `school_users.phone` is NOT NULL and unique per school: it is how a
+        // member is identified within a tenant, whether or not anything is ever
+        // sent to it.
+        setError('A phone number is required — it identifies this member within the school.');
         return;
       }
       if (!isValidEmail(email.trim())) {

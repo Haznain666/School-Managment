@@ -4,8 +4,8 @@
 resume without re-deriving context. Updated at the end of every development
 step, before the session ends.
 
-**Last updated:** 2026-08-19 (**the address and phone fields — §5an; earlier
-the same day: §5am, §5al, §5ai–§5ak**)
+**Last updated:** 2026-08-19 (**three onboarding faults — §5ap; earlier the same
+day: §5ao, §5an, §5am, §5al, §5ai–§5ak**)
 
 > ✅ **`0024_school_branch_creation_fixes.sql` applied to the live database,
 > 2026-08-18.** Verified against the real schema rather than the exit code: 25
@@ -4965,6 +4965,164 @@ action, recorded in §6 item 11. Address autocomplete is off on live until it is
 set — degraded, not broken.
 
 
+## 5ap. Three onboarding faults, and one of them was never reproduced — 2026-08-19
+
+No migration. Reported by the user as three numbered defects on the school
+onboarding path.
+
+### 1. Creating a school created an administrator and told them nothing
+
+**Proven from the data, not inferred.** `password_setup_tokens` held exactly one
+row for LGS — the branch administrator, created at 12:30 from the branch form.
+The *school* administrator, created at 11:31 by school creation itself, had
+none. `email_outbox` said the same thing from the other side: the only message
+that address ever received was an `/invite/<token>` link queued at 11:40, which
+is the school portal's own invite flow, sent by hand nine minutes later by
+somebody working around the silence.
+
+The cause is a one-line omission with three witnesses. Every path that mints a
+member queues `queueAccessEmail` — `POST .../schools/[schoolId]/users` does it,
+and so does the branch form — and `lib/access-email.ts` opens by explaining that
+it exists as a module precisely so those callers cannot drift. `POST
+/api/super-admin/schools` called `createFirstSchoolAdmin` and then went straight
+on to provisioning the subdomain. The one route that provisions the *first*
+person into a school was the only one that never told them.
+
+**What the user actually received, and why it looked like verification.** The
+invite flow (`InviteOTPForm`) is deliberately password-less: it emails a
+six-digit code, and its own accept route says "Signs them in on this response.
+They set a password from the portal." So the mail that did arrive was a code,
+not a link — which is exactly what "only being sent an email verification email"
+describes. The user's assumption was correct.
+
+Fixed by queueing the access email at school creation, with `authUserId: null`
+passed deliberately rather than read back — the row is seconds old and has never
+been through setup, so this is always the `/set-password/<token>` mail. The
+outcome is returned as `adminEmail: { queued, problem }`, and `SchoolForm` now
+lands the operator on the school's **Users** tab whenever the administrator was
+not created *or* the mail did not queue. Previously only the first of those two
+was visible.
+
+### 2. "School portal unavailable" on /dashboard/users — not reproduced
+
+**Say this plainly: the reported page was never made to happen again.** What was
+established instead:
+
+- The live site answers `/dashboard/users` correctly. Anonymous: 307 to
+  `/login?next=/dashboard/users`, 14 samples, no exceptions. With a garbage
+  session cookie: 307 to `/login?school=lgs` — which is the *layout* redirecting
+  after reading the tenant headers, so middleware stamped them.
+- Locally, against the real production database, `/dashboard/users` renders for
+  all three session kinds — `school_admin`, `branch_admin`, and a platform
+  operator hand-off account with no `school_users` row at all.
+- The school itself is fine: `lgs` exists, `is_active` is true, and
+  `role_permissions` is empty, so the defaults apply and `school_admin` holds
+  every key.
+
+Only three things in the codebase can produce that page at that URL, and two are
+ruled out by the above. The third is `resolveSchoolBySlug` **throwing**.
+
+`fetchSchoolBySlug` is careful to distinguish "no such school" (returns null)
+from "the lookup failed" (throws) — its docblock says so — and middleware then
+collapsed the distinction, sending both to `/school-not-found`. So one slow or
+refused HTTPS call to Supabase told a signed-in administrator their school does
+not exist, on whichever page they happened to click next. Reloading fixed it.
+That is precisely the shape of a fault that is real, unreproducible, and blames
+the wrong thing.
+
+**Hardened rather than "fixed", and the difference is worth keeping.** The
+lookup cache now serves its expired entry when a refresh cannot be made. A
+school that resolved 61 seconds ago has not stopped existing because one request
+failed; only a *first* lookup, with nothing cached at all, can still fail. The
+60-second TTL keeps the meaning it was written for — a deactivated school stops
+being reachable within a minute — because that answer arrives as a *successful*
+lookup and replaces the entry. Every fallback is logged, so an outage is still
+visible rather than absorbed.
+
+⚠️ **If the user sees it again, this did not fix it** — and the next place to
+look is §5ak, the two Node processes behind the proxy. Header casing still
+differed between two consecutive responses to the same URL during this session
+(`X-Powered-By` vs `x-powered-by`), which is more than one process answering.
+The `/login` chunk hash was identical across 12 samples, so they are not
+currently serving different *builds*.
+
+### 3. Invite Staff asked for a branch it would not let you create
+
+Every role worth inviting from that screen requires a branch. A school that had
+never had one entered saw the form render, the Branch select stand empty, and
+the only feedback be "this role must be assigned to a branch" against a dropdown
+holding nothing. Branches were creatable **only** from the Super Admin panel —
+`app/api/school/branches/route.ts` was GET-only and said so in its docblock — so
+the school administrator's actual next step was to email the platform operator
+and wait.
+
+Four changes, in the order they matter:
+
+- **`POST /api/school/branches`**, gated on `settings.write` (school-level
+  configuration, the same key as the profile and the palette; by default
+  `school_admin` only). It **never creates a member** — that is the user's
+  second sentence and it is now a property of the route, not a checkbox somebody
+  can tick. The first campus is forced to be the main one, counted from the
+  table after the insert: a school with one branch and no main branch is a state
+  nobody chooses and it quietly breaks every challan header.
+- **Invite Staff redirects** to `/dashboard/branches/new?next=/dashboard/users/invite`
+  when the school has no branches and the caller can create one. Somebody who
+  holds `users.write` but not `settings.write` is not bounced into a screen that
+  would refuse them — they get an empty state naming who can help.
+- **The branch form is the Super Admin's**, given no `schoolId`. That absence is
+  the whole switch: which endpoint, where to go afterwards, and the two controls
+  an operator holds and a school does not. **The invite toggle is one of them**,
+  which is what makes "no user will be invited during Branch creation" true by
+  construction. The **Active** toggle is the other — inside the portal an
+  inactive branch is invisible, so a school administrator switching it off would
+  hide a campus with no screen left that shows it again.
+- **`/dashboard/branches` exists.** It has been a `placeholder: true` link in the
+  sidebar since Sprint 10.5, which in practice meant it 404d — there was no such
+  route. It now lists the campuses and offers Add.
+
+**Two pieces of copy were lying and were corrected while here.** The invite page
+said "goes out over WhatsApp, with email as a fallback"; `lib/invite-sender.ts`
+reversed that at Stage 4 and its docblock explains why — email is what the
+account is keyed by, WhatsApp is a per-school add-on. The page now asks
+`isWhatsAppEnabled` and says what will actually happen. `InviteForm`s phone
+validation said "invitations are sent over WhatsApp"; the number is required
+because `school_users.phone` is NOT NULL and unique per school, whether or not
+anything is ever sent to it.
+
+### How it was verified
+
+Sessions were minted server-side for real accounts through `mintSessionForEmail`
+— the same call the operator hand-off uses — behind a temporary route that
+refused to exist outside `NODE_ENV=development` and was deleted before commit.
+No password was set and no live row was written.
+
+- All three new/changed pages render as `school_admin`; the branch form appears
+  inside the school's own palette with no invite toggle and no Active toggle
+  (screenshotted).
+- The no-branches path was exercised by making `listBranchOptions` return `[]`
+  behind a local-only env flag, reverted after. The redirect fires: the RSC
+  payload carries `dashboard/branches/new?next=/dashboard/users/invite;307;`.
+  Both destination screens show their first-branch copy.
+- `POST /api/school/branches` was driven six ways — duplicate code, unknown
+  city, MIXED without a board, bad curriculum, missing name, malformed mobile —
+  each returning the right code and message. The duplicate case runs the real
+  INSERT and hits `onConflictDoNothing`, so the statement is proven against the
+  live table **without leaving a row behind**. A `branch_admin` gets 403 on POST
+  and 200 on GET.
+- An attempt to test the empty case by deactivating the live branch was blocked
+  by the sandbox, and that was the right call — it would have been a write to
+  the user's production data for a test. The env-flag route above is what
+  replaced it.
+
+`tsc --noEmit` clean, `eslint` clean, build green with `/dashboard/branches` and
+`/dashboard/branches/new` both present.
+
+⚠️ **The Super Admin branch form still offers `inviteAsBranchAdmin`, on
+purpose.** An operator setting a school up over the phone has no other chance to
+give a new campus somebody, and a branch email typed there used to go nowhere at
+all (§5aj). Only the school-side form drops it.
+
+
 ## 6. Open items for the user
 
 1. ~~Install GitHub CLI~~ — **partly regressed.** Git has a stored credential
@@ -5046,6 +5204,7 @@ set — degraded, not broken.
 
 | Date | Session did | Next |
 | --- | --- | --- |
+| 2026-08-19 | **Three onboarding faults, reported by the user** (§5ap). (1) **Creating a school sent its first administrator nothing** — proven from the data, not inferred: `password_setup_tokens` had a row for the branch admin and none for the school admin, and the only mail that address ever got was an invite-flow OTP somebody sent by hand nine minutes later. Every other member-creating path queues `queueAccessEmail`; the one route that provisions the *first* person into a school was the only one that did not. It does now, and `SchoolForm` lands the operator on Users whenever the admin was not created **or** the mail did not queue. (2) **"School portal unavailable" on /dashboard/users — never reproduced**, and said so plainly: the live site answers that route correctly (14 anonymous samples, plus a garbage-cookie probe that proves the tenant headers are stamped), and it renders locally against the production database for `school_admin`, `branch_admin` and a platform-operator hand-off session alike. The one remaining code path that produces that page was middleware collapsing `fetchSchoolBySlug`s deliberate throw-vs-null distinction, so a single failed Supabase call accused the tenant; the lookup cache now serves its expired entry rather than the not-found page, and logs every time. **If it recurs, look at §5ak** — header casing still differs between consecutive responses, so more than one process is answering. (3) **Invite Staff asked for a branch it would not let you create.** New `POST /api/school/branches` gated on `settings.write` that **never creates a member**; Invite Staff redirects to `/dashboard/branches/new?next=…` when there are none and the caller can make one, and shows an empty state naming who can help when they cannot; the Super Admin branch form is reused with no `schoolId`, which is what drops the invite toggle and the Active toggle; `/dashboard/branches` finally exists, having been a sidebar `placeholder` pointing at a 404 since Sprint 10.5. Two lying strings fixed — the invite page now asks `isWhatsAppEnabled` instead of claiming WhatsApp is primary. | **Print one of each document on real A4** — still outstanding, still needs a person and a printer. Then Sprint 13.5 (accounting) on migration `0025`. **Ask the user whether /dashboard/users recurs** — if it does, the next move is restarting the app in hPanel (§5ak), not more code. `NEXT_PUBLIC_MAPBOX_TOKEN` still needs setting (§6 item 11). |
 | 2026-08-19 | **Address and phone made one field each** (§5an). `AddressAutocomplete` (Mapbox Search Box) and `PhoneField` (Mobile/Landline dropdown, digits-only masks — mobile `(xxxx) xxx-xxxx` fixed at eleven, landline `(xxx)` then up to ten) replaced eleven hand-rolled fields across nine files; Google Places and both `@googlemaps` packages are gone. **The token was measured before anything was built**, and the answer shaped the design: Mapbox has Pakistani cities and localities and almost nothing below — "Beaconhouse" and "Ferozepur Road" return nothing at all — so the text box is the record and an empty suggestion list is worded as ordinary rather than as a miss. **No `phone_kind` column**: the format is self-describing, so the kind is derived on load and the store→detect→re-mask round trip is asserted. On identity fields (guardian, invitation, admissions) Landline is offered and then refused with a reason — the user chose that over relaxing `normalizePhone`, which was offered and declined. **Two defects found by building it:** `hasCompleteMobileDigits` accepted any eleven digits starting `0`, so the Lahore landline `042 35300000` was a valid "mobile" and was re-masked to a number that does not exist (live since `0024`); and coordinates outlived the address they belonged to, so picking a place and then retyping the address would have filed it at the old location. The second was only findable in a browser — so `ContactFields` was added to `/design-system` and both fields were **actually driven**, which §5ai and §5aj could not do. Mapbox billing checked too: 46 characters typed cost 2 suggest calls and 1 retrieve. New `npm run check-address-phone` — 32 assertions plus a scan of all 280 components that fails on a raw `<Input label="Phone">`, which is what makes the rule apply to pages nobody has written yet. | **Print one of each document on real A4** — still outstanding, still needs a person and a printer. Then Sprint 13.5 (accounting) on migration `0025`. Nothing here needs a panel action: the Mapbox token ships with the app and `NEXT_PUBLIC_MAPBOX_TOKEN` only overrides it. `NEXT_PUBLIC_GOOGLE_MAPS_API_KEY` can be deleted from the hosting panel. |
 | 2026-08-18 | **School and branch creation, fixed** (§5ai). Ten reported items, and the last of them was two defects wearing one description. The module-adoption chart was drawing eleven long labels onto one x axis and had passed every automated check while being unreadable — `BarChart` gains a horizontal orientation, and rotation and truncation are both recorded as rejected, the second because it renders "Academics & Timetable" and "Accounts & Finance" identically. The branch form asks city first because it is the only answer that produces another (`Karachi` → `KHI-MAIN`, editable); `MIXED` now demands a board name; "Highest grade" — a free-text box that could express neither a junior campus's floor nor a skipped year — is replaced by a curriculum-filtered class list; phone splits into masked landline and mobile; email is checked against the practical grammar rather than `includes('@')`; the address gains a map picker that degrades to plain text with no key configured. All of it applies to the school form and all of it is re-checked server-side. **The two real bugs: Supabase held no address the panel had ever been asked to invite** — only the synthetic `pa_` hand-off accounts — because nothing created an account until password setup, so the address is now registered at provisioning while `auth_user_id` stays null (five things read that column as "has been through setup"); **and deleting a member left their Supabase account claiming the address forever**, so a re-invited person came back onto their old credential — now deleted with the membership, but only once no other school holds that address, because one account is one human and not one membership. **Migration `0024` applied and verified** — 25 recorded, eight columns, nothing dropped; `max_grade` deliberately kept and populated because its free-text values cannot be mapped without guessing. New `npm run check-forms`: 60 assertions, which caught a mobile validator accepting the right digits in the wrong shape. | **The two forms have not been driven by hand in a browser** — no plaintext Super Admin password exists, so QA was scripted. Set `NEXT_PUBLIC_GOOGLE_MAPS_API_KEY` to turn the map on. Then print one of each document on A4, then Sprint 13.5 on migration `0025`. |
 | 2026-08-16 | **Sprint 13 — Portals, the PWA shell and BR4** (§5ac). Fourteen new screens across the three portals a school does not log into, plus two things that are not screens: an installable per-tenant app, and multiple principals. **Migration `0023` written, applied and verified against the real schema** — 24 recorded, three tables, 11 indexes, `principal_model` defaulting to `single` on all six schools, and the permission CHECK accepting `principals.manage`. **BR4 adds no role**: the document's dynamic `principal_${division}` role is refused, because `school_users.role` is CHECK-constrained and every permission default is keyed on a closed set — the assignment scopes what a head *sees*, which is a visibility boundary and not an authorization one, and §5ac says plainly what that costs. **The service worker caches nothing authenticated**, deliberately and permanently until a session-keyed cache exists: a cached fee page outlives its session on a handset that is frequently shared, and signing out does not clear it. Notification preferences are opt-out with no back-fill and govern email only — the notice board is never suppressed, because a school must not be able to have told somebody something they had no way of seeing. Found and fixed a Sprint 11 defect in passing: the composer **discarded the send outcome**, so the unreachable count was computed, stored and never shown to anybody. New `npm run check-portals` asserts the calendar arithmetic and the principal-scope union with no database, then executes all 14 new queries against the live schema. All seven gates green. | **Print one of each document on real A4** — still outstanding, still needs a person and a printer, and Sprint 13 has just added the parent's own report-card sheet to the pile. Then Sprint 13.5 (accounting), which needs migration **`0025`** (`0024` was taken by the 2026-08-18 creation fixes, §5ai). Two smaller things this sprint left written but unrendered: the shared-lesson-plan read for coordinators, and Sprint 11's delivery report — build them together. |
