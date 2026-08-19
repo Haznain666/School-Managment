@@ -137,3 +137,201 @@ export function SkeletonStatTiles({ count = 4, className }: SkeletonStatTilesPro
     </div>
   );
 }
+
+// -----------------------------------------------------------------------------
+// Page-shaped skeletons
+//
+// Everything below composes the atoms above into the four shapes this product
+// actually has, so a route's `loading.tsx` is a single line that names its
+// shape rather than thirty lines of hand-placed boxes. Adding a fifth shape is
+// preferable to hand-rolling one in a route file — see `docs` in CLAUDE.md.
+// -----------------------------------------------------------------------------
+
+export interface SkeletonPageHeaderProps {
+  /** Draw the placeholder for a right-hand action button. */
+  action?: boolean;
+  /** Draw the placeholder for the breadcrumb line above the title. */
+  breadcrumb?: boolean;
+  className?: string;
+}
+
+/** Matches `PageHeader` — eyebrow, title, optional description and action. */
+export function SkeletonPageHeader({
+  action = false,
+  breadcrumb = true,
+  className,
+}: SkeletonPageHeaderProps) {
+  return (
+    <div className={cn('mb-6 flex items-start justify-between gap-4', className)}>
+      <div className="min-w-0 flex-1">
+        {breadcrumb ? <Skeleton className="h-3 w-40" /> : null}
+        <Skeleton className={cn('h-7 w-64', breadcrumb && 'mt-3')} />
+        <Skeleton className="mt-3 h-3.5 w-80 max-w-full" />
+      </div>
+      {action ? <Skeleton className="h-9 w-32 shrink-0" /> : null}
+    </div>
+  );
+}
+
+export interface SkeletonFormProps {
+  /** How many input rows to draw. */
+  fields?: number;
+  /** Lay the fields out in two columns, as the wider forms in this app do. */
+  columns?: 1 | 2;
+  className?: string;
+}
+
+/**
+ * A form placeholder — label above control, in a card, with a submit row.
+ *
+ * The label bar is deliberately much shorter than the control below it; a
+ * stack of equal-width bars reads as a list, not as a form.
+ */
+export function SkeletonForm({ fields = 6, columns = 2, className }: SkeletonFormProps) {
+  return (
+    <div
+      role="status"
+      aria-label="Loading form"
+      className={cn('rounded-card border border-line bg-surface-raised p-6', className)}
+    >
+      <div
+        className={cn('grid gap-5', columns === 2 && 'sm:grid-cols-2')}
+        aria-hidden="true"
+      >
+        {Array.from({ length: fields }, (_, index) => (
+          <div key={index}>
+            <Skeleton className="h-3 w-24" />
+            <Skeleton className="mt-2 h-9 w-full" />
+          </div>
+        ))}
+      </div>
+
+      <div className="mt-6 flex justify-end gap-3 border-t border-line pt-5" aria-hidden="true">
+        <Skeleton className="h-9 w-24" />
+        <Skeleton className="h-9 w-32" />
+      </div>
+    </div>
+  );
+}
+
+export interface SkeletonDetailProps {
+  /** How many label/value pairs to draw. */
+  rows?: number;
+  className?: string;
+}
+
+/** A read-only record: a summary card of label/value pairs, then a panel. */
+export function SkeletonDetail({ rows = 8, className }: SkeletonDetailProps) {
+  return (
+    <div role="status" aria-label="Loading record" className={cn('space-y-6', className)}>
+      <div
+        className="rounded-card border border-line bg-surface-raised p-6"
+        aria-hidden="true"
+      >
+        <div className="flex items-center gap-4">
+          <Skeleton className="h-14 w-14 rounded-full" />
+          <div className="min-w-0 flex-1">
+            <Skeleton className="h-5 w-48" />
+            <Skeleton className="mt-2 h-3 w-32" />
+          </div>
+        </div>
+
+        <div className="mt-6 grid gap-x-8 gap-y-4 sm:grid-cols-2">
+          {Array.from({ length: rows }, (_, index) => (
+            <div key={index}>
+              <Skeleton className="h-3 w-20" />
+              <Skeleton className="mt-2 h-4 w-40 max-w-full" />
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <SkeletonText lines={4} />
+    </div>
+  );
+}
+
+export interface SkeletonChartProps {
+  /** Height of the plot area, in Tailwind height classes. */
+  className?: string;
+  /** Draw a legend row under the plot. */
+  legend?: boolean;
+}
+
+/**
+ * A chart placeholder: bars of varying height rather than one grey rectangle,
+ * so the space reads as a chart arriving instead of an image failing to load.
+ */
+export function SkeletonChart({ className, legend = true }: SkeletonChartProps) {
+  const heights = [
+    'h-1/3', 'h-2/3', 'h-1/2', 'h-5/6', 'h-2/5', 'h-3/4', 'h-1/2', 'h-full',
+    'h-3/5', 'h-1/4', 'h-4/5', 'h-1/2',
+  ];
+
+  return (
+    <div
+      role="status"
+      aria-label="Loading chart"
+      className={cn('rounded-card border border-line bg-surface-raised p-5', className)}
+    >
+      <Skeleton className="h-3 w-32" />
+
+      <div className="mt-5 flex h-40 items-end gap-2" aria-hidden="true">
+        {heights.map((height, index) => (
+          <Skeleton key={index} className={cn('flex-1 rounded-t-control', height)} />
+        ))}
+      </div>
+
+      {legend ? (
+        <div className="mt-4 flex gap-4" aria-hidden="true">
+          <Skeleton className="h-3 w-20" />
+          <Skeleton className="h-3 w-24" />
+          <Skeleton className="h-3 w-16" />
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+/**
+ * A print/preview document placeholder — a sheet of paper with lines on it.
+ *
+ * The print routes render an A4-shaped document rather than an app screen, and
+ * the table skeleton against a white sheet looked like a broken page.
+ */
+export function SkeletonDocument({ className }: SkeletonProps) {
+  return (
+    <div
+      role="status"
+      aria-label="Preparing document"
+      className={cn(
+        'mx-auto w-full max-w-3xl rounded-card border border-line bg-surface-raised p-8',
+        className,
+      )}
+    >
+      <div className="flex items-start justify-between gap-6" aria-hidden="true">
+        <Skeleton className="h-16 w-16" />
+        <div className="flex-1">
+          <Skeleton className="mx-auto h-5 w-56" />
+          <Skeleton className="mx-auto mt-2 h-3 w-40" />
+        </div>
+        <Skeleton className="h-16 w-16" />
+      </div>
+
+      <div className="mt-8 grid gap-x-8 gap-y-3 sm:grid-cols-2" aria-hidden="true">
+        {Array.from({ length: 6 }, (_, index) => (
+          <div key={index} className="flex gap-3">
+            <Skeleton className="h-3 w-20" />
+            <Skeleton className="h-3 flex-1" />
+          </div>
+        ))}
+      </div>
+
+      <SkeletonTable className="mt-8" rows={5} columns={4} />
+
+      <div className="mt-8 flex justify-end" aria-hidden="true">
+        <Skeleton className="h-10 w-40" />
+      </div>
+    </div>
+  );
+}

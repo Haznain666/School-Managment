@@ -64,6 +64,7 @@ npm run dev
 | `npm run build` | Production build |
 | `npm run typecheck` | `tsc --noEmit` |
 | `npm run lint` | ESLint |
+| `npm run check-loaders` | Asserts every data-fetching route has a `loading.tsx` — see `CLAUDE.md` |
 | `npm run db:generate` | Generate a migration from `db/schema` |
 | `npm run db:migrate` | Apply pending migrations |
 | `npm run db:studio` | Drizzle Studio |

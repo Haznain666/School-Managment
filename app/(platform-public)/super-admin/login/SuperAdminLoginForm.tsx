@@ -1,16 +1,11 @@
 'use client';
 
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { useCallback, useState, type FormEvent } from 'react';
 
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { superAdminFetch, SuperAdminApiError } from '@/lib/super-admin-client';
-
-export interface SuperAdminLoginFormProps {
-  /** Where to go after signing in, when redirected here from a deep link. */
-  nextPath: string | null;
-}
 
 /** Only allow same-site relative paths back into the panel. */
 function safeRedirect(next: string | null): string {
@@ -21,8 +16,20 @@ function safeRedirect(next: string | null): string {
   return next;
 }
 
-export function SuperAdminLoginForm({ nextPath }: SuperAdminLoginFormProps) {
+/**
+ * ── Why `next` is read here and not passed down from the page ────────────
+ * Reading `searchParams` in the server component made this route
+ * `force-dynamic`, and it was measured at ~1.0s of origin time on every single
+ * request — for a page with no database access and a trivial tree. Reading the
+ * parameter on the client instead lets the page be prerendered once at build
+ * time and served from the CDN edge, which measured ~85ms.
+ *
+ * The redirect target was never trusted anyway: `safeRedirect` below is what
+ * makes it safe, and it runs identically wherever the value came from.
+ */
+export function SuperAdminLoginForm() {
   const router = useRouter();
+  const nextPath = useSearchParams().get('next');
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');

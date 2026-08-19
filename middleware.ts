@@ -1,4 +1,4 @@
-import { NextResponse, type NextRequest } from 'next/server';
+import { NextResponse, type NextFetchEvent, type NextRequest } from 'next/server';
 
 import { publicEnv } from '@/lib/env';
 import { fetchSchoolBySlug, type ResolvedSchool } from '@/lib/school-lookup-edge';
@@ -73,6 +73,15 @@ const lookupCache = new Map<
 >();
 
 /**
+ * Slugs whose background refresh is already running.
+ *
+ * Without this, the first N requests to arrive after an entry expires would
+ * each start their own refresh — the stampede the cache exists to prevent,
+ * just moved off the critical path instead of removed.
+ */
+const refreshing = new Set<string>();
+
+/**
  * Resolves a slug through Supabase's REST API — see `lib/school-lookup-edge.ts`
  * for why this cannot be a Drizzle query like every other read in the app.
  *
@@ -92,27 +101,74 @@ const lookupCache = new Map<
  * can still fail. The TTL keeps its meaning for the case it was written for: a
  * deactivated school stops being reachable within 60 seconds, because that
  * answer arrives as a successful lookup and replaces the entry.
+ *
+ * ── Why an expired entry is served rather than awaited ───────────────────
+ * This runs before anything else on every request, so whatever it waits for,
+ * the whole response waits for. Measured on 2026-08-19 against the real
+ * Supabase project: a cold lookup put **3.5s** in front of the first byte,
+ * against 10ms once warm. Awaiting the refresh meant one unlucky request every
+ * 60 seconds, per school, paid that in full — and it was always somebody's
+ * click, never a background job's.
+ *
+ * An expired entry is now returned immediately and the refresh runs behind it.
+ * What that costs is precision on the deactivation window: a school switched
+ * off is now unreachable within 60 seconds *plus one request*, because the
+ * request that notices the expiry is still served from the old answer. Nothing
+ * else changes — the refresh lands before the next one arrives, and the answer
+ * it writes is the authoritative one.
+ *
+ * That trade is the right way round. Deactivation is an administrative action
+ * measured in minutes, and it is not the security boundary: `withSchoolAuth`
+ * and `requireSchoolRole` re-check the tenant against verified session claims
+ * on every protected route, so one extra request against a stale record cannot
+ * open anything.
  */
-async function resolveSchoolBySlug(slug: string): Promise<ResolvedSchool | null> {
+function refreshInBackground(slug: string, event: NextFetchEvent): void {
+  if (refreshing.has(slug)) return;
+  refreshing.add(slug);
+
+  const work = fetchSchoolBySlug(slug)
+    .then((record) => {
+      lookupCache.set(slug, { record, expiresAt: Date.now() + LOOKUP_TTL_MS });
+    })
+    .catch((error: unknown) => {
+      // The stale entry stays. Logged so a Supabase outage is visible in the
+      // logs rather than absorbed silently.
+      console.error(
+        `[middleware] background refresh for "${slug}" failed; keeping the ` +
+          'last known result:',
+        error,
+      );
+    })
+    .finally(() => {
+      refreshing.delete(slug);
+    });
+
+  // The response has already been returned by the time this settles. Without
+  // `waitUntil` the runtime is free to consider the request finished and stop
+  // the work half-way, which would leave the entry stale for ever and the flag
+  // set — so the *next* expiry would find `refreshing` still true and never
+  // refresh either.
+  event.waitUntil(work);
+}
+
+async function resolveSchoolBySlug(
+  slug: string,
+  event: NextFetchEvent,
+): Promise<ResolvedSchool | null> {
   const cached = lookupCache.get(slug);
-  if (cached !== undefined && cached.expiresAt > Date.now()) return cached.record;
 
-  try {
-    const record = await fetchSchoolBySlug(slug);
-    lookupCache.set(slug, { record, expiresAt: Date.now() + LOOKUP_TTL_MS });
-    return record;
-  } catch (error) {
-    if (cached === undefined) throw error;
-
-    // Stale, and better than wrong. Logged every time so a Supabase outage is
-    // still visible in the logs rather than absorbed silently.
-    console.error(
-      `[middleware] school lookup for "${slug}" failed; serving the last known ` +
-        'result:',
-      error,
-    );
+  if (cached !== undefined) {
+    // Expired only means "worth refreshing", not "unusable". See the docblock.
+    if (cached.expiresAt <= Date.now()) refreshInBackground(slug, event);
     return cached.record;
   }
+
+  // Nothing cached at all — this one has to wait, and this one alone. A throw
+  // here still reaches the caller, which rewrites to /school-not-found.
+  const record = await fetchSchoolBySlug(slug);
+  lookupCache.set(slug, { record, expiresAt: Date.now() + LOOKUP_TTL_MS });
+  return record;
 }
 
 /**
@@ -262,7 +318,10 @@ async function guardSuperAdmin(request: NextRequest): Promise<NextResponse | nul
 
 // -----------------------------------------------------------------------------
 
-export async function middleware(request: NextRequest): Promise<NextResponse> {
+export async function middleware(
+  request: NextRequest,
+  event: NextFetchEvent,
+): Promise<NextResponse> {
   const superAdminResponse = await guardSuperAdmin(request);
   if (superAdminResponse !== null) return superAdminResponse;
 
@@ -295,7 +354,7 @@ export async function middleware(request: NextRequest): Promise<NextResponse> {
 
   let school: ResolvedSchool | null;
   try {
-    school = await resolveSchoolBySlug(slug);
+    school = await resolveSchoolBySlug(slug, event);
   } catch (error) {
     console.error('[middleware] school lookup failed:', error);
     return NextResponse.rewrite(new URL(SCHOOL_NOT_FOUND_PATH, request.url));
