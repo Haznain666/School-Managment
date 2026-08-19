@@ -1,8 +1,9 @@
 # Release notes — Sprint 13.7: Parent accounts, period schedules, colours and the teacher calendar
 
-**Status:** merged to `main`. **Migration `0025_period_structures_parent_access.sql`
-is applied** to the live database and verified against the real schema — nothing
-to run, nothing to configure. Ready to use.
+**Status:** live at `schoolhub.codexmill.com`, confirmed 2026-08-20. **Migration
+`0025_period_structures_parent_access.sql` is applied** to the live database and
+verified against the real schema — nothing to run, nothing to configure. Ready
+to use.
 
 Four things, three of them asked for and one of them found while building them.
 The found one is the largest.

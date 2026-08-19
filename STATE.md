@@ -38,6 +38,17 @@ schedules, subject colours, teacher calendar — §5ar**; 2026-08-19: §5aq, §5
 > pre-existing enrolment back-filled to `cleared` and every existing guardian
 > stamped so deploy day mails nobody. **Next free migration number is `0026`.**
 >
+> ✅ **Sprint 13.7 is LIVE at `schoolhub.codexmill.com`, confirmed 2026-08-20.**
+> The push to `main` deployed within about a minute. Confirmed by route
+> existence rather than by a healthy homepage, and sampled **ten times each**
+> because §5ak's split-build problem makes a single check meaningless: every new
+> route answers on 10 of 10 samples (`timetable/structures` 401,
+> `teachers/[id]/calendar` 401, `students/[id]/fee-clearance` 405 — POST-only,
+> `structures/[id]` 405 — PUT/DELETE-only), a pre-existing route still answers
+> 401, and a control path still 404s. Immediately before the deploy the same
+> probe returned 404 on 10 of 10, so this distinguishes the new build from the
+> old rather than merely finding the site up.
+>
 > ⚠ **`fee_status` is a second column on `student_enrollments`, deliberately not
 > a fifth `status`.** `status = 'active'` is what the register, the promotion
 > run, the class lists, the challan generator and nine reports filter on. A
@@ -5786,6 +5797,20 @@ times out with "the Browser pane is not displayed". The pages' structure was rea
 out of the DOM and every rule was driven through the API, but **no screenshot of
 any new screen exists** and the layouts have not been seen. Worth twenty minutes
 of clicking before relying on them.
+
+### Deployed, and the window this opened
+
+Merged to `main` and pushed, which auto-deploys (§5v). Live and confirmed by
+ten-sample route probes, as recorded in the header banner.
+
+⚠️ **Note the ordering, because it has a cost.** The migration was applied
+*before* the deploy, as it has to be. Between the two, the old build was running
+against a schema where `timetable_slots.period_structure_id` is NOT NULL and the
+old insert does not supply it — so an administrator adding a period in that
+window would have hit an error. It lasted about a minute here and nobody was in
+the system, but on a busier school it is real. There is no fix that keeps both
+halves correct at once; what there is, is knowing to deploy immediately after
+migrating rather than leaving the two apart.
 
 Unrelated and pre-existing, seen in the dev log throughout: `[announcements]
 sweep failed … Received an instance of Date [ERR_INVALID_ARG_TYPE]`, every 60
