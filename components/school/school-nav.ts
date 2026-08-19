@@ -57,8 +57,13 @@ export function schoolNav({ role, permissions, moduleFlags }: SchoolNavProps): {
     });
   }
 
-  if (role === 'school_admin') {
-    items.push({ label: 'Branches', href: '/dashboard/branches', icon: 'branches', placeholder: true });
+  // No longer a placeholder: a school creates and lists its own campuses since
+  // the invite flow began depending on one existing. Gated on `settings.read`
+  // like every other school-level configuration screen, which by default is
+  // every administrative role — creating is separately gated on
+  // `settings.write` by the page and the route.
+  if (can('settings.read')) {
+    items.push({ label: 'Branches', href: '/dashboard/branches', icon: 'branches' });
   }
 
   if (can('fees.write') && role === 'accountant') {

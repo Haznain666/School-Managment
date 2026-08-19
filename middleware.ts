@@ -75,14 +75,44 @@ const lookupCache = new Map<
 /**
  * Resolves a slug through Supabase's REST API — see `lib/school-lookup-edge.ts`
  * for why this cannot be a Drizzle query like every other read in the app.
+ *
+ * ── Why a failed lookup falls back to the expired entry ──────────────────
+ * `fetchSchoolBySlug` throws for "the lookup failed" and returns null for "no
+ * such school", and that distinction used to be collapsed here: any throw sent
+ * the request to /school-not-found. So a single slow or refused call to
+ * Supabase — one dropped connection, one rate-limited second — told a signed-in
+ * administrator that their school does not exist, on whichever page they
+ * happened to click. Reloading fixed it, which is exactly what makes the
+ * failure so hard to report: it is real, it is not reproducible, and the page
+ * it produces accuses the tenant rather than the transport.
+ *
+ * A school that resolved 61 seconds ago has not stopped existing because one
+ * HTTPS request failed. So the entry is kept past its expiry and served when a
+ * refresh cannot be made, and only a *first* lookup — nothing cached at all —
+ * can still fail. The TTL keeps its meaning for the case it was written for: a
+ * deactivated school stops being reachable within 60 seconds, because that
+ * answer arrives as a successful lookup and replaces the entry.
  */
 async function resolveSchoolBySlug(slug: string): Promise<ResolvedSchool | null> {
   const cached = lookupCache.get(slug);
   if (cached !== undefined && cached.expiresAt > Date.now()) return cached.record;
 
-  const record = await fetchSchoolBySlug(slug);
-  lookupCache.set(slug, { record, expiresAt: Date.now() + LOOKUP_TTL_MS });
-  return record;
+  try {
+    const record = await fetchSchoolBySlug(slug);
+    lookupCache.set(slug, { record, expiresAt: Date.now() + LOOKUP_TTL_MS });
+    return record;
+  } catch (error) {
+    if (cached === undefined) throw error;
+
+    // Stale, and better than wrong. Logged every time so a Supabase outage is
+    // still visible in the logs rather than absorbed silently.
+    console.error(
+      `[middleware] school lookup for "${slug}" failed; serving the last known ` +
+        'result:',
+      error,
+    );
+    return cached.record;
+  }
 }
 
 /**
