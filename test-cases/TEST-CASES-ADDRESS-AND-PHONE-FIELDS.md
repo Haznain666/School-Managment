@@ -140,20 +140,29 @@ one is testing for the wrong behaviour.
 ## Degradation and configuration
 
 #### UC-APF-19 · With no token the field is a plain text box that says why — P1
-**Role** Operator · **Traces to** "With no token at all, every address field keeps working as a plain text box and says why there is no search"
-1. Set `NEXT_PUBLIC_MAPBOX_TOKEN` to empty and rebuild.
-- **Expect** every address field still saves; one line explains the absence.
+**Role** Operator · **Traces to** "Until it is, every address field is the plain text box it has always been and says so in one line — nothing breaks and no address is lost"
+1. With `NEXT_PUBLIC_MAPBOX_TOKEN` unset, open every address field and save one.
+- **Expect** every field still saves; one line explains the absence.
 - **Fail** if any form breaks. "A school profile form must not stop working because a third-party account has lapsed."
+
+> **This is the live state, not a hypothetical.** The committed fallback was
+> removed after GitHub push protection refused it (STATE.md §5ao), so until the
+> panel variable is set this case describes what a school actually sees. **Run
+> it first** — it is the only address case that passes with no token, and the
+> six above it will all fail until one is configured.
 
 #### UC-APF-20 · A rejected token is distinguishable from "no matches" — P1
 **Role** Operator · **Traces to** "the input accepts typing either way, so a blocked token is otherwise indistinguishable from 'no matches'"
 1. Set an invalid token, or restrict it to exclude this origin.
 - **Expect** a message naming the token and its URL restrictions — different from the no-match wording of UC-APF-14.
 
-#### UC-APF-21 · `NEXT_PUBLIC_MAPBOX_TOKEN` overrides the shipped one — P2
-**Role** Operator · **Traces to** "To use a different one, set `NEXT_PUBLIC_MAPBOX_TOKEN`"
-1. Set a different valid token and rebuild.
-- **Expect** requests carry it.
+#### UC-APF-21 · `NEXT_PUBLIC_MAPBOX_TOKEN` is the only source — P1
+**Role** Operator · **Traces to** "**Address search needs `NEXT_PUBLIC_MAPBOX_TOKEN` set in the hosting panel.**… There is no committed fallback"
+1. Grep the repository for a `pk.` literal.
+- **Expect** none — the fallback was removed and its absence is the point.
+2. Set the variable in the panel, rebuild, and confirm requests carry it.
+- **Expect** address search comes to life.
+- **Note** it is read at **build** time, so setting it without a rebuild changes nothing. That is the same trap `NEXT_PUBLIC_SUPABASE_ANON_KEY` carries (STATE.md §5d item 2).
 
 #### UC-APF-22 · Google is gone — P3
 **Role** Operator · **Traces to** "`NEXT_PUBLIC_GOOGLE_MAPS_API_KEY` is no longer read and can be removed"
