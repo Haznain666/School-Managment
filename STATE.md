@@ -51,6 +51,24 @@ the same day: §5am, §5al, §5ai–§5ak**)
 > and the old. **Restart the app in hPanel** to clear it. Until then, treat any
 > single check of the live site as inconclusive — sample it ten times and count.
 
+> ✅ **SIGN-IN WORKS. The single longest-standing limitation in this file is
+> over (user, 2026-08-19).** Setting `SMTP_PASS_B64` resolved it. Every
+> "nothing has been clicked in a browser" caveat in Sprints 11, 12 and 13, and
+> every "not verified inside a real session" note from §5z onward, was
+> downstream of this one thing.
+>
+> **What this unblocks is larger than what caused it.** Three sprints shipped
+> unverified against a real session. `test-cases/` holds 330 cases written from
+> the release notes; roughly 250 of them were blocked on exactly this and are
+> now runnable. **Run them before Sprint 13.5** — 13.5 is accounting, and
+> layering a ledger on a fee module whose P1 cases have never been executed
+> means a disagreeing figure cannot be traced to a sprint.
+>
+> ⚠️ **The four "sign-in has never worked" lines in §7 and §5z/§5aa/§5ab are
+> left as written.** They were true when written and this file does not rewrite
+> its own history — see §5am for why that matters. §5d item 2 is marked
+> resolved in place.
+
 > ✅ **Every address and phone field is now one shared component (§5an), no
 > migration.** `AddressAutocomplete` (Mapbox Search Box) and `PhoneField`
 > (Mobile/Landline dropdown, digits-only masks) replaced eleven hand-rolled
@@ -840,13 +858,26 @@ cd "D:/School-Management-System/.claude/worktrees/stage-4-state-md-100f15" && DA
 (`db.<ref>.supabase.co:5432`) for this. It is IPv6-only without a paid add-on
 and fails with `getaddrinfo ENOTFOUND`; the docblock is corrected.
 
-**2. Supabase dashboard configuration is required and is the user's to do** —
-without it nothing signs in. Authentication → Providers → Email enabled with
-"Confirm email" on; Authentication → Emails → SMTP configured, or codes will
-not be delivered past Supabase's very low built-in limit; Authentication →
-Sessions for the refresh-token lifetime, which the application no longer owns.
-`NEXT_PUBLIC_SUPABASE_ANON_KEY` is new in `.env.example` and is read at **build**
-time.
+**2. ~~Supabase dashboard configuration is required and is the user's to do —
+without it nothing signs in.~~ ✅ RESOLVED 2026-08-19 (user).** Setting
+`SMTP_PASS_B64` (§5am) fixed it. The mail path was the blocker: without
+deliverable mail no code arrives, and with no code nobody completes a sign-in
+— so a mail fault presented for eleven days as an *authentication* fault, and
+was recorded as one in four places.
+
+**This is the second time the same truncated password wore a different
+diagnosis.** §5am caught it wearing "the panel credentials are wrong"; it was
+also wearing "sign-in has never worked from a development machine", and that
+one had been believed since 2026-08-08 and cited by three sprints as the reason
+their screens were never opened. A credential fault that reaches two subsystems
+gets diagnosed twice and separately, and neither diagnosis names the credential.
+
+For reference, the configuration this item asked for: Authentication →
+Providers → Email enabled with "Confirm email" on; Authentication → Emails →
+SMTP; Authentication → Sessions for the refresh-token lifetime.
+`NEXT_PUBLIC_SUPABASE_ANON_KEY` is in `.env.example` and is read at **build**
+time — worth re-checking after any environment change, because it fails at
+build rather than at sign-in.
 
 ---
 

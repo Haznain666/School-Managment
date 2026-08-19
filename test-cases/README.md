@@ -13,29 +13,32 @@ complain about.
 
 ## Read this before running anything
 
-**Most of this suite cannot be run today, and the reason is the same everywhere.**
+**Sign-in works (confirmed by the user, 2026-08-19).** Setting `SMTP_PASS_B64`
+resolved it — the mail path was the blocker, and it had been recorded as an
+authentication fault for eleven days. See `STATE.md` §5d item 2.
 
-Six release notes say so in their own words — Sprints 11, 12 and 13 all end with
-some form of "none of this has been clicked in a browser". The cause is recorded
-in `STATE.md` §5d: **signing in to a school portal from a development machine
-has never worked**, and there is no plaintext Super Admin password either. The
-work that *has* been click-tested (the creation forms, school and branch
-deletion, the panel chooser) was done through a browser session that happened to
-be already open.
-
-So the honest status of this suite is:
+That matters here because this suite was written expecting the opposite. Sprints
+11, 12 and 13 each end with some form of "none of this has been clicked in a
+browser", and **those caveats are now stale rather than current**. The screens
+behind them have still never been opened — the reason they weren't is simply
+gone.
 
 | | |
 | --- | --- |
 | Cases written | **330**, across 20 release notes |
-| Runnable today without a session | the automated `npm run check-*` scripts, and the public routes |
-| Blocked on a working test sign-in | most of it |
+| Runnable now | the great majority — sign-in is no longer a blocker |
 | Blocked on a printer | every case marked **NEEDS PAPER** |
 | Blocked on a hosting-panel action | every case marked **NEEDS PANEL** |
+| Needs a second school with data | every case marked **NEEDS TENANCY** |
+| Already covered by a script | every case marked **AUTOMATED** — run those, don't click them |
 
-**Getting one working test sign-in per role unblocks more of this suite than any
-other single action.** It is worth doing before running the first case, not
-after finding that case forty is unreachable.
+**Three sprints shipped without a single screen being looked at.** That is the
+backlog this suite exists to clear, and it is worth clearing before Sprint 13.5:
+13.5 is accounting, and putting a ledger on top of a fee module whose P1 cases
+have never been executed means a figure that disagrees cannot be traced to the
+sprint that broke it.
+
+Start with the twelve-case shortlist below.
 
 ---
 
