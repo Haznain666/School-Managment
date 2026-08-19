@@ -93,7 +93,13 @@ npm run build
 
 Plus whichever of the other `check-*` scripts covers the area you touched —
 `check-reports`, `check-dashboard`, `check-portals`, `check-provisioning`,
-`check-theme`, `check-smtp`.
+`check-smtp`.
+
+`.github/workflows/ci.yml` runs the four that need no database — `check-loaders`,
+`check-forms`, `check-address-phone`, `check-theme` — on every push and pull
+request, so the loader rule is enforced by the repository and not only by
+whoever remembers it. The rest execute against the real schema and stay on a
+machine that holds the credentials.
 
 ### Building in a worktree
 

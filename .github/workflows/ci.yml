@@ -27,11 +27,13 @@ jobs:
       - name: Check out the repository
         uses: actions/checkout@v4
 
-      # package.json pins `engines.node: >=20`.
+      # package.json pins `engines.node: >=22`. CI was still on 20, which meant
+      # the version that had to pass here was not the version the app declares
+      # it runs on.
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '22'
           cache: npm
 
       # `npm ci` rather than `npm install`: it installs exactly what
@@ -50,12 +52,38 @@ jobs:
         if: '!cancelled()'
         run: npm run lint
 
+      # The protocol checks. Each one asserts a rule that is true today and
+      # would otherwise quietly stop being true — a loader on every
+      # data-fetching route, the form conventions, one component per address
+      # and phone field, and legible derived colours on every palette.
+      #
+      # Only the ones that need no database are here. `check-dashboard`,
+      # `check-portals`, `check-reports` and `check-provisioning` execute
+      # against the real schema and belong on a machine that holds the
+      # credentials, not in a workflow fork PRs can trigger.
+      - name: Loaders — every data-fetching route has one
+        if: '!cancelled()'
+        run: npm run check-loaders
+
+      - name: Forms
+        if: '!cancelled()'
+        run: npm run check-forms
+
+      - name: Address and phone fields
+        if: '!cancelled()'
+        run: npm run check-address-phone
+
+      - name: Theme contrast
+        if: '!cancelled()'
+        run: npm run check-theme
+
       # Build last: it repeats type checking internally, so running it after a
       # failed typecheck would only echo errors already reported above.
       #
-      # No secrets are needed. Every route is `force-dynamic` and the Neon
-      # client is created lazily on first query, so nothing here reaches for
-      # DATABASE_URL at build time. Adding real credentials would be strictly
-      # worse: it would expose them to fork PRs for no benefit.
+      # No secrets are needed. Every route that reads data is `force-dynamic`
+      # and the postgres client is created lazily on first query, so nothing
+      # here reaches for DATABASE_URL at build time. Adding real credentials
+      # would be strictly worse: it would expose them to fork PRs for no
+      # benefit.
       - name: Build
         run: npm run build
