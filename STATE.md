@@ -62,15 +62,33 @@ the same day: Sprint 13.7 — §5ar; 2026-08-19: §5aq, §5ap, §5ao, §5an, §5
 > the process; this deploy happened to be picked up anyway, which is luck and
 > not a guarantee. `PRODUCTION_URL` — without it no deploy is ever verified.
 
-> ⚠ **Route-existence probing no longer distinguishes builds on
-> `schoolhub.codexmill.com` — the method §5ar prescribes has stopped working.**
-> Every path now returns 200 with `x-middleware-rewrite: /school-not-found`,
-> *including* `/api/school/timetable/structures`, which §5ar recorded as
-> answering 401 on 10 of 10 samples the day before. `lgs.codexmill.com` — the
-> only school slug in the database — has **no DNS record at all**. So no school
-> subdomain resolves, and the tenant cannot be reached on the live origin by any
-> host. Diagnose this before trusting any future "it is live" claim made by
-> probing routes.
+> 🔴 **CORRECTION — school portals were never broken. I had the hostname wrong.**
+> This file claimed on 2026-08-20 that route probing no longer distinguished
+> builds, that every path rewrote to `/school-not-found`, and that
+> `lgs.codexmill.com` had no DNS record so no school subdomain resolved. All of
+> that was one mistake: **schools are `<slug>.schoolhub.codexmill.com`**, one
+> label under the platform domain — `subdomainFor()` in `lib/hostinger.ts`
+> appends `NEXT_PUBLIC_APP_DOMAIN`, which is `schoolhub.codexmill.com`.
+> `<slug>.codexmill.com` is not a hostname this product has ever used.
+>
+> Measured 2026-08-20 on the correct pattern:
+>
+> | Host | Result |
+> | --- | --- |
+> | `lgs.schoolhub.codexmill.com` | resolves, `145.79.24.210` |
+> | `…/login` | **200**, the school sign-in page |
+> | `…/api/school/guardians/lookup` | **401** — the new Sprint 13.8 route exists |
+> | `…/api/school/definitely-not-a-route` | **404** — so the 401 is route existence, not a blanket answer |
+>
+> **No DNS change was needed and none was made.** Probing on
+> `schoolhub.codexmill.com` rewrites everything to `/school-not-found` because
+> that host is the platform, not a tenant — which is correct behaviour, not a
+> fault. **Probe a school host, never the platform host.**
+>
+> There is deliberately **no wildcard** under the platform domain (a
+> `wildcard-probe-*` label is NXDOMAIN). Each school's record is written by
+> provisioning; a wildcard would make an unprovisioned school look reachable and
+> is what §5ae spent a session diagnosing.
 
 > ✅ **Siblings are now something the system knows, not something one screen
 > derived (§5as).** Until 2026-08-20 nothing linked one student to another.
@@ -5871,6 +5889,7 @@ to `gte` anyway, so the pattern is no longer in the codebase to be copied.
 
 | Date | Session did | Next |
 | --- | --- | --- |
+| 2026-08-21 | **Release notes, test cases, and a correction I owed the file.** Wrote `RELEASE-NOTES-ANNOUNCEMENT-SWEEP-AND-DEPLOY.md` (the sweep, the seven-process double-send, and the four separate faults the deploy pipeline took to complete) and `TEST-CASES-SPRINT-13.8.md` — 35 cases over the sibling rule, the enrolment lookup, the guardian rules, the CNIC field, the parent portal, the sweep, and the existing-data regressions. Marked 13.8's notes live. **Corrected this file's DNS claim: school portals were never broken.** I had probed `lgs.codexmill.com`; schools are `<slug>.schoolhub.codexmill.com`. `lgs.schoolhub.codexmill.com` resolves, serves the sign-in page, and answers 401 on the new sibling route while a nonsense path answers 404. No DNS change was needed or made. | Drive one scheduled announcement end to end on a school with no real parents — the send path past the atomic claim is still unexercised. Then the P1 test cases above, in a browser: nothing in 13.8 has been clicked. Then set `HOSTINGER_RESTART_COMMAND` and `PRODUCTION_URL` so deploys restart and verify themselves. |
 | 2026-08-20 | **The announcement sweep had never worked** (§5at). ~420 lines of one repeating error in the production log, reported as a possible dependency or recent-change problem; it is neither. `` sql`${announcements.scheduledAt} <= ${now}` `` passed a JS `Date` straight to postgres-js, because a raw template is the one construct with no column to map against. Every sweep since **Sprint 11** threw before reading a row, so **no scheduled announcement had ever been released at any school** — and this file had dismissed the error as "pre-existing and unrelated" three times. `lte(col, now)` maps it to an ISO string. Reproduced against the live database with the real query builder: byte-identical SQL, raw form fails 3/3, `lte` passes 3/3. **Found while fixing it:** the log's timestamps repeat at seven offsets a minute — seven scheduler processes — and `sendAnnouncement` guarded with a read-then-check, so the query fix alone would have sent every parent **seven copies** of every notice (`email_outbox` has no unique key). The send now claims its row with a conditional UPDATE and reverts on failure; seven simultaneous claims against the live table produced exactly one winner. Two rules added to CLAUDE.md. | Deploy is still blocked on the missing SSH secrets (see the banner) — this fix and 13.8 are both merged and neither is live. Then drive one scheduled announcement end to end on a school with no real parents, since the send path past the claim is still unexercised. |
 | 2026-08-20 | **Sprint 13.8 — sibling identity** (§5as). Six requests, one thing. **Nothing in this product linked one student to another**: "sibling" was derived in one file, `lib/family-challans.ts`, by grouping open challans on the primary guardian's phone, so the only screen that knew two children were related was the family voucher — and only for children billed that month. `student_guardians.cnic` becomes an identity key: **two students are siblings when they share a guardian, and two guardian rows are one person when they share a CNIC *or* a phone**, unioned transitively by a union-find so that promoting CNIC does not *split* the families that predate it. The enrolment form asks for the CNIC **first** and fills the card in from the record the school already holds, naming the children that person already guards. Three guardian rules (first must be Father/Mother/Sibling; Father and Mother once each; "Other" carries a written relation) enforced on the form and in `parseGuardians`. Siblings shown on the student profile, application review, challan detail, and as a **header dropdown in the parent portal** — the portal still scopes by `school_user_id`, never by the sibling rule. **Four raw `<Input label="CNIC">` boxes replaced** by one `CnicField`; production held a **32-character** value in that column, which is what an unmasked field produces. New `npm run check-cnic`, 36 assertions, in CI. `0026` applied and verified against the real schema — the junk value left at 32 characters rather than guessed at. | **Nothing was looked at** — still no screenshot of any new screen, now for two sprints running. Twenty minutes of clicking, then print one of each document on real A4. Then the **automatic sibling discount**: second children are detectable now and `student_concessions` still applies them by hand. Sprint 13.5 (accounting) on migration **`0027`**. |
 | 2026-08-20 | **Sprint 13.7 — parent accounts, period schedules, colours, teacher calendar** (§5ar). The reported fault was "the father did not get a welcome email"; the email was the smaller half. **No guardian had ever been given a `school_users` row**, so Sprint 13's six parent screens — routed, permissioned, with a calendar and printable report cards in them — could not be opened by a single parent at any school, and every profile said "No portal account" with nothing implying that was leavable. `lib/parent-portal-access.ts` opens the account, links every guardian row on that number, and queues the §5g setup email with parent wording. **Found while wiring it:** enrolment gave the *child's* directory row the primary guardian's mobile, and `school_users` is unique on (location, phone) — so the father's own account would later have upserted onto his daughter's row, writing his address onto her record. The sentinel is now unconditional. **The fee gate** is a second column, `fee_status`, and deliberately not a fifth `status`: `active` is what the register, promotions, class lists, the challan generator and nine reports filter on, so a child parked outside it would be invisible to the very generator that produces the bill they are waiting to pay. Clears on "holds a challan and none still open"; a waiver counts; a manual button exists because a school that takes cash across a desk would otherwise never fire it at all. **Period structures** end one-bell-per-school — the old (location, order_index) key refused a school's second schedule as a duplicate of its first — with a default that makes the migration a no-op for anyone who never opens the screen. **Subject colours** gain a picker; asserting its contrast caught `#db2777`, in the shipped palette since Sprint 6 at 4.39:1, which no build or screenshot had ever objected to. **The teacher calendar** projects rules onto dates through UTC-midnight strings and sorts by the clock, because a teacher on two schedules has periods whose positions are not comparable. `0025` applied and verified against the real schema. New `npm run check-sprint-periods` — 107 assertions, in CI. **Everything was driven end to end against the live database in a real session** and the QA rows removed. | **Nothing was looked at** — the preview browser does not composite, so no screenshot of any new screen exists and the layouts are unseen. Twenty minutes of clicking is the next thing worth doing. Then **print one of each document on real A4** (still needs a person and a printer), then Sprint 13.5 (accounting) on migration **`0026`**. Also pre-existing and unrelated: `[announcements] sweep failed … Received an instance of Date`, every 60s in the dev log. |

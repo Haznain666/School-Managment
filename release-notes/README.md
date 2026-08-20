@@ -14,6 +14,7 @@ what is not there yet. They are not the engineering handover — that is
 | — | Dashboard, deletion UI, branch delete, email delivery (not a sprint) | — | [read](RELEASE-NOTES-DASHBOARD-DELETION-AND-EMAIL.md) |
 | **13.7** | Parent accounts, period schedules, colours, teacher calendar | `0025` | [read](RELEASE-NOTES-SPRINT-13.7.md) |
 | **13.8** | Sibling identity — the guardian CNIC becomes the key | `0026` | [read](RELEASE-NOTES-SPRINT-13.8.md) |
+| — | Announcement sweep & the deploy pipeline (not a sprint) | none | [read](RELEASE-NOTES-ANNOUNCEMENT-SWEEP-AND-DEPLOY.md) |
 | **13** | Portals completed, the installable app, and two principals | `0023` | [read](RELEASE-NOTES-SPRINT-13.md) |
 | **12** | Reports & analytics — nine printable, exportable reports | none | [read](RELEASE-NOTES-SPRINT-12.md) |
 | **11** | Communications — announcements, notice board, delivery log | `0022` | [read](RELEASE-NOTES-SPRINT-11.md) |

@@ -152,6 +152,7 @@ release-note claims:
 | Dashboard, deletion UI, branch delete, email | 16 | [read](TEST-CASES-DASHBOARD-DELETION-AND-EMAIL.md) |
 | Panel chooser & school deletion | 15 | [read](TEST-CASES-PANEL-CHOOSER-AND-SCHOOL-DELETION.md) |
 | School & branch creation fixes | 22 | [read](TEST-CASES-SCHOOL-BRANCH-CREATION-FIXES.md) |
+| Sprint 13.8 — Sibling identity & the announcement sweep | 35 | [read](TEST-CASES-SPRINT-13.8.md) |
 | Sprint 13 — Portals, installable app, two principals | 26 | [read](TEST-CASES-SPRINT-13.md) |
 | Sprint 12 — Reports & analytics | 20 | [read](TEST-CASES-SPRINT-12.md) |
 | Sprint 11 — Communications | 21 | [read](TEST-CASES-SPRINT-11.md) |

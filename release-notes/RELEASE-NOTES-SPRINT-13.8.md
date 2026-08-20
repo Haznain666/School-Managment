@@ -3,12 +3,13 @@
 **Merged 2026-08-20.** Migration `0026_sibling_identity.sql` applied to the live
 database and verified against the real schema.
 
-> ⛔ **Not yet live.** The code is on `main` and CI is green, but *Deploy to
-> Hostinger* fails at "Authorise the deploy key": `SSH_PRIVATE_KEY`, `SSH_HOST`
-> and `SSH_PORT` are not set on the repository. Add them and re-run the workflow
-> from the Actions tab. The database being ahead of the deployed code is safe
-> here — `0026` is additive and nothing in the shipped build writes the new
-> column.
+> ✅ **Live since 2026-08-20.** Verified by the build id served at
+> `/super-admin/login` changing across the deploy, by the homepage rendering the
+> real platform domain rather than the `platform.com` fallback, and by
+> `/api/school/guardians/lookup` answering `401` on a real school host while a
+> nonsense path answers `404`. The deploy pipeline that had to be repaired to get
+> it there is written up in
+> [its own notes](RELEASE-NOTES-ANNOUNCEMENT-SWEEP-AND-DEPLOY.md).
 
 ---
 
