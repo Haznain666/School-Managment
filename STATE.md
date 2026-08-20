@@ -9,6 +9,31 @@ CNIC becomes the key, and siblings are shown on five surfaces — §5as**; earli
 the same day: Sprint 13.7 — §5ar; 2026-08-19: §5aq, §5ap, §5ao, §5an, §5am,
 §5al, §5ai–§5ak)
 
+> 🐛 **No scheduled announcement had ever been released, at any school, since
+> Sprint 11 — fixed 2026-08-20 (§5at).** `lib/announcement-queries.ts` compared
+> the due time with a raw `` sql`` `` template, which is the one construct where
+> Drizzle has no column to map the value against — so the JavaScript `Date` went
+> to postgres-js untouched and every sweep threw `ERR_INVALID_ARG_TYPE` before
+> reading a row. `lte(column, now)` maps it to an ISO string first.
+> **Reproduced against the live database before and after:** the generated SQL
+> is byte-identical to the production log, the raw form fails 3 of 3 runs, `lte`
+> succeeds 3 of 3.
+>
+> This is the error this file has dismissed as "pre-existing and unrelated" in
+> §5ar and twice before it. It was neither.
+
+> ⚠ **Production runs SEVEN scheduler processes, not one.** The log shows the
+> 60-second sweep at seven distinct offsets within each minute (…:05, :14, :27,
+> :27, :35, :48, :55, repeating exactly). `instrumentation.ts` starts one per
+> server process. **Fixing the query alone would have shipped a 7x email bug:**
+> all seven would have read `scheduled`, passed the old
+> `if (status === 'sent')` check, and queued a full email run each —
+> `announcement_recipients` de-duplicates on a unique key but `email_outbox` does
+> not, so seven runs are seven emails to every parent. `sendAnnouncement` now
+> claims its row with a conditional `UPDATE … WHERE status <> 'sent' RETURNING
+> id` and reverts on failure. **Verified with seven simultaneous claims against
+> the live table: exactly one won.**
+
 > ⛔ **Sprint 13.8 is merged and pushed but NOT LIVE, and this is a blocker on
 > the repository, not on the code (§5as).** `.github/workflows/deploy.yml` is
 > the only deploy path and it is `workflow_dispatch` only, deliberately. Run
@@ -5752,10 +5777,98 @@ blank.
   Nothing auto-applies it now that second children are detectable. That is the
   obvious next sprint.
 
+---
+
+## 5at. The announcement sweep had never worked — 2026-08-20
+
+Reported as ~420 lines of one repeating error in the production log.
+
+### The defect, in one line
+
+```ts
+or(isNull(announcements.scheduledAt), sql`${announcements.scheduledAt} <= ${now}`)
+```
+
+A raw `` sql`` `` template is the only construct where Drizzle has no column to
+map a value against, so the JavaScript `Date` was handed to postgres-js as-is
+and the driver failed to serialise it. `lte(announcements.scheduledAt, now)`
+routes the same value through `PgTimestamp.mapToDriverValue`, which produces
+`"2026-08-20T18:42:48.447Z"`. Same SQL text, same plan, different parameter.
+
+### Proven, not reasoned
+
+Both forms were built with the real query builder and run against the live
+database:
+
+| Form | Parameter sent | 3 runs |
+| --- | --- | --- |
+| `` sql`${col} <= ${now}` `` | `Date` | **FAILS 3/3**, the log's exact message |
+| `lte(col, now)` | `"2026-…Z"` string | OK 3/3 |
+
+The generated SQL was byte-identical to the string in the production log, which
+is what makes this the reported fault rather than something resembling it.
+
+The three hypotheses in the report were each checked and each ruled out: the
+line is unchanged since Sprint 11 (`c0f510a`, 2026-08-15); `postgres@3.4.9` and
+`drizzle-orm@0.44.7` are the versions it has always run against; and the
+`scheduled_at` filter is not new. **It never worked.** Invisible in development
+because nothing there schedules an announcement, total in production.
+
+### The second defect, which the fix would have activated
+
+The log's timestamps repeat at **seven** distinct offsets every minute — seven
+Node processes, each running `instrumentation.ts`. `sendAnnouncement` guarded
+with a read-then-check (`if (announcement.status === 'sent') return null`),
+which all seven would have passed simultaneously.
+
+`announcement_recipients` de-duplicates on a unique key, so the notice board
+would have survived. `email_outbox` has none — an announcement email is an
+insert, not an upsert — so **every parent would have received seven copies of
+every scheduled notice.**
+
+The send now claims its row first:
+
+```sql
+UPDATE announcements SET status='sent' … WHERE id=$1 AND status <> 'sent' RETURNING id
+```
+
+Postgres decides that on one row under one lock. Seven simultaneous claims were
+run against the live table: exactly one returned a row, the other six got
+nothing, and the row ended `sent` once. The probe row was `draft` with no
+`scheduled_at` — invisible to every sweeper, so the test could not release
+anything to anybody — and was deleted afterwards.
+
+⚠ **Claiming moves the row before the work is done**, so `sendAnnouncement`
+reverts the status in a `catch` and re-throws. Without that, one transient
+failure becomes an announcement the school believes went out and nobody
+received. The scheduler's "left as `scheduled`, so the next sweep tries again"
+comment depends on this revert; do not remove it.
+
+### Two rules added to CLAUDE.md
+
+* **A value never reaches the driver through a raw `` sql`` `` template** — use
+  the operator (`eq`, `lte`, `gte`, `inArray`). Reserve the template for
+  expressions that have no operator: `count(*) filter (…)`, a cast, `extract`.
+* **Background work is claimed, not checked** — anything a timer picks up takes
+  a conditional `UPDATE … RETURNING`, because there are seven of them.
+
+`lib/principal-resolver.ts` held the only other raw comparison against a column.
+It was safe — a `date` column against a `YYYY-MM-DD` string — and was converted
+to `gte` anyway, so the pattern is no longer in the codebase to be copied.
+
+### What was NOT done
+
+* **No scheduled announcement was released end to end.** The fix is proven at
+  the query and at the claim; the rest of the send path (audience → outbox →
+  SMTP) was not exercised, because doing that on the live database means mailing
+  a real school's parents.
+* This ships in the same undeployed state as §5as — see the banner at the top.
+
 ## 7. Session log
 
 | Date | Session did | Next |
 | --- | --- | --- |
+| 2026-08-20 | **The announcement sweep had never worked** (§5at). ~420 lines of one repeating error in the production log, reported as a possible dependency or recent-change problem; it is neither. `` sql`${announcements.scheduledAt} <= ${now}` `` passed a JS `Date` straight to postgres-js, because a raw template is the one construct with no column to map against. Every sweep since **Sprint 11** threw before reading a row, so **no scheduled announcement had ever been released at any school** — and this file had dismissed the error as "pre-existing and unrelated" three times. `lte(col, now)` maps it to an ISO string. Reproduced against the live database with the real query builder: byte-identical SQL, raw form fails 3/3, `lte` passes 3/3. **Found while fixing it:** the log's timestamps repeat at seven offsets a minute — seven scheduler processes — and `sendAnnouncement` guarded with a read-then-check, so the query fix alone would have sent every parent **seven copies** of every notice (`email_outbox` has no unique key). The send now claims its row with a conditional UPDATE and reverts on failure; seven simultaneous claims against the live table produced exactly one winner. Two rules added to CLAUDE.md. | Deploy is still blocked on the missing SSH secrets (see the banner) — this fix and 13.8 are both merged and neither is live. Then drive one scheduled announcement end to end on a school with no real parents, since the send path past the claim is still unexercised. |
 | 2026-08-20 | **Sprint 13.8 — sibling identity** (§5as). Six requests, one thing. **Nothing in this product linked one student to another**: "sibling" was derived in one file, `lib/family-challans.ts`, by grouping open challans on the primary guardian's phone, so the only screen that knew two children were related was the family voucher — and only for children billed that month. `student_guardians.cnic` becomes an identity key: **two students are siblings when they share a guardian, and two guardian rows are one person when they share a CNIC *or* a phone**, unioned transitively by a union-find so that promoting CNIC does not *split* the families that predate it. The enrolment form asks for the CNIC **first** and fills the card in from the record the school already holds, naming the children that person already guards. Three guardian rules (first must be Father/Mother/Sibling; Father and Mother once each; "Other" carries a written relation) enforced on the form and in `parseGuardians`. Siblings shown on the student profile, application review, challan detail, and as a **header dropdown in the parent portal** — the portal still scopes by `school_user_id`, never by the sibling rule. **Four raw `<Input label="CNIC">` boxes replaced** by one `CnicField`; production held a **32-character** value in that column, which is what an unmasked field produces. New `npm run check-cnic`, 36 assertions, in CI. `0026` applied and verified against the real schema — the junk value left at 32 characters rather than guessed at. | **Nothing was looked at** — still no screenshot of any new screen, now for two sprints running. Twenty minutes of clicking, then print one of each document on real A4. Then the **automatic sibling discount**: second children are detectable now and `student_concessions` still applies them by hand. Sprint 13.5 (accounting) on migration **`0027`**. |
 | 2026-08-20 | **Sprint 13.7 — parent accounts, period schedules, colours, teacher calendar** (§5ar). The reported fault was "the father did not get a welcome email"; the email was the smaller half. **No guardian had ever been given a `school_users` row**, so Sprint 13's six parent screens — routed, permissioned, with a calendar and printable report cards in them — could not be opened by a single parent at any school, and every profile said "No portal account" with nothing implying that was leavable. `lib/parent-portal-access.ts` opens the account, links every guardian row on that number, and queues the §5g setup email with parent wording. **Found while wiring it:** enrolment gave the *child's* directory row the primary guardian's mobile, and `school_users` is unique on (location, phone) — so the father's own account would later have upserted onto his daughter's row, writing his address onto her record. The sentinel is now unconditional. **The fee gate** is a second column, `fee_status`, and deliberately not a fifth `status`: `active` is what the register, promotions, class lists, the challan generator and nine reports filter on, so a child parked outside it would be invisible to the very generator that produces the bill they are waiting to pay. Clears on "holds a challan and none still open"; a waiver counts; a manual button exists because a school that takes cash across a desk would otherwise never fire it at all. **Period structures** end one-bell-per-school — the old (location, order_index) key refused a school's second schedule as a duplicate of its first — with a default that makes the migration a no-op for anyone who never opens the screen. **Subject colours** gain a picker; asserting its contrast caught `#db2777`, in the shipped palette since Sprint 6 at 4.39:1, which no build or screenshot had ever objected to. **The teacher calendar** projects rules onto dates through UTC-midnight strings and sorts by the clock, because a teacher on two schedules has periods whose positions are not comparable. `0025` applied and verified against the real schema. New `npm run check-sprint-periods` — 107 assertions, in CI. **Everything was driven end to end against the live database in a real session** and the QA rows removed. | **Nothing was looked at** — the preview browser does not composite, so no screenshot of any new screen exists and the layouts are unseen. Twenty minutes of clicking is the next thing worth doing. Then **print one of each document on real A4** (still needs a person and a printer), then Sprint 13.5 (accounting) on migration **`0026`**. Also pre-existing and unrelated: `[announcements] sweep failed … Received an instance of Date`, every 60s in the dev log. |
 | 2026-08-19 | **Three onboarding faults, reported by the user** (§5ap). (1) **Creating a school sent its first administrator nothing** — proven from the data, not inferred: `password_setup_tokens` had a row for the branch admin and none for the school admin, and the only mail that address ever got was an invite-flow OTP somebody sent by hand nine minutes later. Every other member-creating path queues `queueAccessEmail`; the one route that provisions the *first* person into a school was the only one that did not. It does now, and `SchoolForm` lands the operator on Users whenever the admin was not created **or** the mail did not queue. (2) **"School portal unavailable" on /dashboard/users — never reproduced**, and said so plainly: the live site answers that route correctly (14 anonymous samples, plus a garbage-cookie probe that proves the tenant headers are stamped), and it renders locally against the production database for `school_admin`, `branch_admin` and a platform-operator hand-off session alike. The one remaining code path that produces that page was middleware collapsing `fetchSchoolBySlug`s deliberate throw-vs-null distinction, so a single failed Supabase call accused the tenant; the lookup cache now serves its expired entry rather than the not-found page, and logs every time. **If it recurs, look at §5ak** — header casing still differs between consecutive responses, so more than one process is answering. (3) **Invite Staff asked for a branch it would not let you create.** New `POST /api/school/branches` gated on `settings.write` that **never creates a member**; Invite Staff redirects to `/dashboard/branches/new?next=…` when there are none and the caller can make one, and shows an empty state naming who can help when they cannot; the Super Admin branch form is reused with no `schoolId`, which is what drops the invite toggle and the Active toggle; `/dashboard/branches` finally exists, having been a sidebar `placeholder` pointing at a 404 since Sprint 10.5. Two lying strings fixed — the invite page now asks `isWhatsAppEnabled` instead of claiming WhatsApp is primary. | **Print one of each document on real A4** — still outstanding, still needs a person and a printer. Then Sprint 13.5 (accounting) on migration `0025`. **Ask the user whether /dashboard/users recurs** — if it does, the next move is restarting the app in hPanel (§5ak), not more code. `NEXT_PUBLIC_MAPBOX_TOKEN` still needs setting (§6 item 11). |

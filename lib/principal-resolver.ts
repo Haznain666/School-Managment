@@ -1,6 +1,6 @@
 import 'server-only';
 
-import { and, asc, eq, isNull, lte, or, sql } from 'drizzle-orm';
+import { and, asc, eq, gte, isNull, lte, or } from 'drizzle-orm';
 import { cache } from 'react';
 
 import {
@@ -147,7 +147,14 @@ async function activeAssignmentsFor(
         lte(principalAssignments.startsOn, now),
         or(
           isNull(principalAssignments.endsOn),
-          sql`${principalAssignments.endsOn} >= ${now}`,
+          // `gte`, not sql`${col} >= ${now}`. This one was safe — `today()`
+          // returns a `YYYY-MM-DD` string and the column is a `date` — but the
+          // identical line in `lib/announcement-queries.ts` passed a `Date`
+          // instead and threw on every sweep for five days. A raw template is
+          // the one place Drizzle cannot map a value to its column type, so the
+          // operators are used everywhere and the template is kept for the
+          // expressions that genuinely have no operator.
+          gte(principalAssignments.endsOn, now),
         ),
       ),
     );

@@ -172,6 +172,66 @@ the profile in one click, and refusing would lose the admission instead.
 
 ---
 
+---
+
+## RULE: a value never reaches the driver through a raw ``sql`` template
+
+**Use the operator — `eq`, `lte`, `gte`, `inArray` — not `` sql`${column} <= ${value}` ``.**
+
+A raw template is the one place Drizzle has no column to map the value against,
+so it hands the JavaScript value straight to postgres-js. An operator goes
+through the column's `mapToDriverValue` first.
+
+For a `Date` against a `timestamp` column that difference is total:
+
+```ts
+sql`${announcements.scheduledAt} <= ${now}`   // param is a Date  -> throws
+lte(announcements.scheduledAt, now)           // param is an ISO string -> works
+```
+
+The failure is `The "string" argument must be of type string or an instance of
+Buffer or ArrayBuffer. Received an instance of Date [ERR_INVALID_ARG_TYPE]`, and
+it names neither the column nor the file.
+
+### Why this is a rule and not a style note
+
+`lib/announcement-queries.ts` carried that first line from Sprint 11 until
+2026-08-20. Every sweep threw before touching a row, so **no scheduled
+announcement had ever been released at any school**, and nothing said so: the
+sweeper caught the error and logged it, the screen went on saying "Scheduled",
+and development never noticed because nothing there schedules anything.
+
+Reserve `` sql`` `` for expressions that have no operator — `count(*) filter
+(…)`, `extract(isodow from …)`, a cast. If you are writing a comparison, there
+is an operator for it.
+
+---
+
+## RULE: background work is claimed, not checked
+
+**Anything a timer picks up is claimed with a conditional `UPDATE … RETURNING`,
+never with a read followed by an `if`.**
+
+`instrumentation.ts` starts one scheduler per server process, and production
+runs **seven** of them — visible in the log as seven distinct 60-second offsets
+within the same minute. A read-then-check lets all seven pass the same test and
+do the same work.
+
+```ts
+const claimed = await db.update(t).set({ status: 'sent' })
+  .where(and(eq(t.id, id), ne(t.status, 'sent')))
+  .returning({ id: t.id });
+if (claimed.length === 0) return null;   // somebody else owns it
+```
+
+Postgres decides it on one row under one lock: exactly one caller gets a row.
+
+**Claim first, then revert on failure.** Claiming moves the row before the work
+is done, so a throw must hand it back or a transient failure becomes an
+announcement the school believes went out and nobody received.
+
+---
+
 ## Green build
 
 All six must pass before anything is merged:
