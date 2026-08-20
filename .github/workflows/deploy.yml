@@ -239,8 +239,34 @@ jobs:
           HOSTINGER_PORT: ${{ secrets.HOSTINGER_PORT }}
           HOSTINGER_PATH: ${{ secrets.HOSTINGER_PATH }}
         run: |
+          ssh_opts="-i ~/.ssh/id_deploy -p ${HOSTINGER_PORT:-22}"
+
+          # rsync creates the LAST directory of a path and no more. On a first
+          # deploy — or after HOSTINGER_PATH is pointed somewhere new — the
+          # parents do not exist yet, and rsync reports that as
+          #
+          #   rsync: mkdir "***" failed: No such file or directory (2)
+          #
+          # with the path masked, because it came from a secret. Creating the
+          # tree first removes the failure rather than explaining it.
+          if ! ssh $ssh_opts "$HOSTINGER_USER@$HOSTINGER_HOST" \
+                 "mkdir -p '$HOSTINGER_PATH'"; then
+            echo "::error::Could not create HOSTINGER_PATH on the server."
+            echo ""
+            echo "SSH itself is working — the host key was pinned and this"
+            echo "command reached the server. So the path is the problem:"
+            echo ""
+            echo "  * it must be ABSOLUTE, e.g. /home/u123456789/domains/…/app"
+            echo "  * the SSH user in HOSTINGER_USER must be allowed to create it"
+            echo "  * no trailing slash, no ~ , no quotes inside the secret itself"
+            echo ""
+            echo "Run 'pwd' over SSH on the host to see where you land, and set"
+            echo "HOSTINGER_PATH to a directory under that."
+            exit 1
+          fi
+
           rsync -az --delete \
-            -e "ssh -i ~/.ssh/id_deploy -p ${HOSTINGER_PORT:-22}" \
+            -e "ssh $ssh_opts" \
             .next/standalone/ \
             "$HOSTINGER_USER@$HOSTINGER_HOST:$HOSTINGER_PATH/"
 
@@ -286,7 +312,18 @@ jobs:
         env:
           SMOKE_SUPER_ADMIN_EMAIL: ${{ secrets.SMOKE_SUPER_ADMIN_EMAIL }}
           SMOKE_SUPER_ADMIN_PASSWORD: ${{ secrets.SMOKE_SUPER_ADMIN_PASSWORD }}
-        run: node scripts/smoke-test-live.mjs "${{ secrets.PRODUCTION_URL }}"
+          PRODUCTION_URL: ${{ secrets.PRODUCTION_URL }}
+        run: |
+          # `smoke-test-live.mjs` exits 2 when given no origin, which would have
+          # failed a deploy whose upload and restart had both succeeded — the
+          # worst possible moment to report failure. PRODUCTION_URL is optional
+          # by design, so an absent one skips the check and says so.
+          if [ -z "$PRODUCTION_URL" ]; then
+            echo "::warning::PRODUCTION_URL is not set, so the deploy was NOT verified. The upload and restart succeeded; nothing has confirmed the site is actually serving. Set PRODUCTION_URL to turn this into a real check."
+            exit 0
+          fi
+
+          node scripts/smoke-test-live.mjs "$PRODUCTION_URL"
 
       - name: Remove the deploy key
         if: always()
