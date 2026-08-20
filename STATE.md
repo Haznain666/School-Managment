@@ -57,9 +57,53 @@ the same day: Sprint 13.7 — §5ar; 2026-08-19: §5aq, §5ap, §5ao, §5an, §5
 > `RESTART_COMMAND`, which is what a failing step prints — and that is exactly
 > how three unusable secrets came to be created. Do not reintroduce the split.
 >
-> ✅ **`PRODUCTION_URL` is set, and every deploy now proves itself.** Two checks
-> were added on 2026-08-21 and both ran green on a full deploy
-> (run `32422006076`):
+> 🔴 **THE DEPLOY WORKFLOW UPLOADS TO A PLACE THE RUNNING APP DOES NOT SERVE
+> FROM — found 2026-08-21, and it invalidates every "deployed" claim above.**
+>
+> Run `32424514882` built and uploaded `Iwrd9bUQ0XAqcQJcKVEWO`. Two minutes
+> later, and stable for six minutes after that, the host was serving
+> **`AwZbOojWVOxme4EitSUoi`** and the route added in that very build,
+> `/api/internal/build`, answered **404** on both hosts. The artifact never
+> arrives.
+>
+> **Code still reaches production — by something else.** Sprint 13.8 is live
+> (`/api/school/guardians/lookup` answers 401), and the live build id has changed
+> four times today with no workflow run in between. Hostinger is building and
+> deploying from the repository on its own cadence. The rsync is redundant at
+> best, and at worst writes into a directory that is then rebuilt over.
+>
+> **So `HOSTINGER_PATH` is pointing at the wrong directory**, or the host rebuilds
+> on top of whatever is placed there. Next step is hPanel → the Node.js
+> application → its root directory, and either point `HOSTINGER_PATH` at that or
+> delete the upload steps and let Hostinger's own deploy be the deploy.
+>
+> ⚠ **This was invisible until today**, because the check that was supposed to
+> catch it was reading a CDN-cached page — see below. The workflow reported four
+> successful deploys that had not deployed.
+
+> 🐛 **Prerendered pages are cached for a year and nothing purges them.** They
+> ship `Cache-Control: s-maxage=31536000`. `/super-admin/login` was measured
+> **30.4 hours stale** on 2026-08-21 and could not be busted with `no-cache`,
+> `no-store` or `Pragma`. Its markup then referenced chunk hashes that
+> `rsync --delete` had removed, hydration died, and the page reported a
+> client-side exception — which is the fault the user reported. A **Purge the
+> website cache** step now runs after the restart; it needs `HOSTINGER_API_TOKEN`
+> and warns loudly without it. The endpoint suffix is undocumented here, so it
+> tries each candidate and prints every status rather than guessing one and
+> failing silently.
+
+> ⚠ **The build-id check added on 2026-08-20 was unsound and has been replaced.**
+> It read the id from `/super-admin/login` — the very page the CDN holds for a
+> year — so it compared two cache entries and could pass while nothing had been
+> deployed. It is now `GET /api/internal/build`, a route handler (never
+> prerendered, `no-store`) that reads `.next/BUILD_ID` from the running
+> artifact, compared against the `BUILD_ID` of the artifact just uploaded. **It
+> failed on its first run, correctly, and that is how the paragraph above was
+> found.** Do not "fix" it by pointing it at a page again.
+
+> ⚠ **SUPERSEDED — the green run below proved nothing.** `PRODUCTION_URL` is
+> set, but the build-id half of this was measuring the CDN. Kept as the record
+> of a check that looked convincing and was not:
 >
 > * **The build id is measured, not assumed.** Next generates a fresh random id
 >   per build (no `generateBuildId` override) and the app router emits it into
