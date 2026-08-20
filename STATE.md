@@ -57,10 +57,30 @@ the same day: Sprint 13.7 — §5ar; 2026-08-19: §5aq, §5ap, §5ao, §5an, §5
 > `RESTART_COMMAND`, which is what a failing step prints — and that is exactly
 > how three unusable secrets came to be created. Do not reintroduce the split.
 >
-> ⚠ **Two optional secrets are still unset, and both have a consequence.**
-> `HOSTINGER_RESTART_COMMAND` — without it the upload lands but nothing restarts
-> the process; this deploy happened to be picked up anyway, which is luck and
-> not a guarantee. `PRODUCTION_URL` — without it no deploy is ever verified.
+> ✅ **`PRODUCTION_URL` is set, and every deploy now proves itself.** Two checks
+> were added on 2026-08-21 and both ran green on a full deploy
+> (run `32422006076`):
+>
+> * **The build id is measured, not assumed.** Next generates a fresh random id
+>   per build (no `generateBuildId` override) and the app router emits it into
+>   every page. The deploy records what is serving *before* the upload and polls
+>   for it to change afterwards — **`bPamwOY_…` → `9fEccR9A…`, live after 40s.**
+>   If it never changes the deploy **fails** and says whether nothing tried to
+>   restart or a configured command restarted nothing.
+> * **The smoke test runs.** `DEPLOYMENT HEALTHY` — reachability, the auth gate,
+>   and the 401-with-a-wrong-password probe that proves the Super Admin env
+>   reached the process.
+>
+> ⚠ **`HOSTINGER_RESTART_COMMAND` is deliberately still unset.** Its correct
+> value is visible only in hPanel, and a command that silently restarts nothing
+> is worse than none — it makes a deploy report success over an old process.
+> **The host restarts itself:** the build id was also observed changing from
+> `CzQgh6S8…` to `bPamwOY_…` with no workflow run in between. That is now relied
+> on *and measured every time* rather than assumed. Set the command if the
+> build-id check ever starts failing.
+>
+> Optional and still unset: `SMOKE_SUPER_ADMIN_EMAIL` / `SMOKE_SUPER_ADMIN_PASSWORD`,
+> which would add a real sign-in assertion to the smoke test.
 
 > 🔴 **CORRECTION — school portals were never broken. I had the hostname wrong.**
 > This file claimed on 2026-08-20 that route probing no longer distinguished
