@@ -54,15 +54,19 @@ jobs:
           PRODUCTION_URL: ${{ secrets.PRODUCTION_URL }}
           HOSTINGER_API_TOKEN: ${{ secrets.HOSTINGER_API_TOKEN }}
           HOSTINGER_USER: ${{ secrets.HOSTINGER_USER }}
-          NEXT_PUBLIC_APP_DOMAIN: ${{ secrets.NEXT_PUBLIC_APP_DOMAIN }}
         run: |
           if [ -z "$PRODUCTION_URL" ]; then
             echo "::error::Repository secret PRODUCTION_URL is not set. Without it nothing here can run."
             exit 1
           fi
 
-          if [ -z "$HOSTINGER_API_TOKEN" ] || [ -z "$HOSTINGER_USER" ] || [ -z "$NEXT_PUBLIC_APP_DOMAIN" ]; then
-            echo "::warning::HOSTINGER_API_TOKEN, HOSTINGER_USER or NEXT_PUBLIC_APP_DOMAIN is blank, so the cache will NOT be purged. Prerendered pages keep serving the previous build until you press Clear website cache in hPanel."
+          # The site's domain is derived from PRODUCTION_URL rather than read
+          # from a second secret. NEXT_PUBLIC_APP_DOMAIN belongs in Hostinger's
+          # panel now that Hostinger runs the build, so depending on a GitHub
+          # copy of it would break this workflow the moment that copy is
+          # correctly deleted.
+          if [ -z "$HOSTINGER_API_TOKEN" ] || [ -z "$HOSTINGER_USER" ]; then
+            echo "::warning::HOSTINGER_API_TOKEN or HOSTINGER_USER is blank, so the cache will NOT be purged. Prerendered pages keep serving the previous build until you press Clear website cache in hPanel."
           fi
 
           echo "PRODUCTION_URL is set."
@@ -77,40 +81,81 @@ jobs:
       # not be busted by `no-cache`, `no-store` or `Pragma` from the client. Its
       # markup then referenced chunk hashes the newer build no longer had, so
       # hydration died and the page showed a client-side exception.
+      #
+      # ── The endpoint, and how it was established ─────────────────────────
+      #   DELETE /api/hosting/v1/accounts/{username}/websites/{domain}/cache/clear
+      #
+      # From Hostinger's own API SDKs, where it is `clear_website_cache_v1` on
+      # `HostingCacheApi`. An earlier version of this step tried four candidate
+      # paths with POST: three answered 404 and `cache/clear` answered **405
+      # Method Not Allowed** — a path that exists, rejecting the verb. The path
+      # was always right and the method was always wrong. It is DELETE.
       - name: Purge the website cache
         env:
           HOSTINGER_API_TOKEN: ${{ secrets.HOSTINGER_API_TOKEN }}
           HOSTINGER_USER: ${{ secrets.HOSTINGER_USER }}
-          NEXT_PUBLIC_APP_DOMAIN: ${{ secrets.NEXT_PUBLIC_APP_DOMAIN }}
+          PRODUCTION_URL: ${{ secrets.PRODUCTION_URL }}
         run: |
-          if [ -z "$HOSTINGER_API_TOKEN" ] || [ -z "$HOSTINGER_USER" ] || [ -z "$NEXT_PUBLIC_APP_DOMAIN" ]; then
+          if [ -z "$HOSTINGER_API_TOKEN" ] || [ -z "$HOSTINGER_USER" ]; then
             echo "Skipped — see the warning above."
             exit 0
           fi
 
-          base="https://developers.hostinger.com/api/hosting/v1/accounts/$HOSTINGER_USER/websites/$NEXT_PUBLIC_APP_DOMAIN"
+          domain=$(printf '%s' "$PRODUCTION_URL" | sed -E 's#^https?://##' | cut -d/ -f1)
+          url="https://developers.hostinger.com/api/hosting/v1/accounts/$HOSTINGER_USER/websites/$domain/cache/clear"
 
-          # The exact suffix is not documented in this repo. Guessing one and
-          # swallowing the failure is how a step comes to do nothing quietly, so
-          # each candidate is tried and every status printed: one run names the
-          # real one, and none of them can fail silently.
-          purged=0
-          for path in "cache" "clear-cache" "cache/clear" "cache/purge"; do
-            code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 30 \
-                   -X POST "$base/$path" \
-                   -H "Authorization: Bearer $HOSTINGER_API_TOKEN" \
-                   -H "Content-Type: application/json" \
-                   -H "Accept: application/json" || echo 000)
-            echo "  POST .../$path -> $code"
-            case "$code" in
-              2*) echo "Cache purged via .../$path"; purged=1; break ;;
-            esac
-          done
+          # Measured before and after, so this proves the cache actually moved
+          # rather than trusting a 2xx. `Age` is how many seconds the edge has
+          # been holding the copy it just served; clearing resets it.
+          age_before=$(curl -s -D - -o /dev/null --max-time 25 "$PRODUCTION_URL/super-admin/login" \
+                       | grep -i '^age:' | tr -d '\r' | awk '{print $2}')
+          echo "Age before: ${age_before:-<none>}s"
 
-          if [ "$purged" -ne 1 ]; then
-            echo "::error::Every cache-purge endpoint was refused. 404 means the path is wrong; 401/403 means the token or username is. Until this works, clear the cache in hPanel after each deploy."
+          code=$(curl -s -o /tmp/purge.out -w '%{http_code}' --max-time 30 \
+                 -X DELETE "$url" \
+                 -H "Authorization: Bearer $HOSTINGER_API_TOKEN" \
+                 -H 'Content-Type: application/json' \
+                 -H 'Accept: application/json' || echo 000)
+
+          case "$code" in
+            2*)
+              echo "Cache cleared (HTTP $code)."
+              ;;
+            401|403)
+              echo "::error::HTTP $code — HOSTINGER_API_TOKEN is missing, expired, or lacks the hosting scope."
+              exit 1
+              ;;
+            404)
+              echo "::error::HTTP 404 — no website '$domain' under account '$HOSTINGER_USER'. Check HOSTINGER_USER, and that PRODUCTION_URL names the site as Hostinger knows it."
+              exit 1
+              ;;
+            405)
+              echo "::error::HTTP 405 — the API no longer accepts DELETE here. Re-check the method in Hostinger's API reference."
+              exit 1
+              ;;
+            *)
+              echo "::error::HTTP $code from the cache API."
+              head -c 400 /tmp/purge.out || true
+              exit 1
+              ;;
+          esac
+
+          # Give the edge a moment to drop what it was holding.
+          sleep 5
+
+          age_after=$(curl -s -D - -o /dev/null --max-time 25 "$PRODUCTION_URL/super-admin/login" \
+                      | grep -i '^age:' | tr -d '\r' | awk '{print $2}')
+          echo "Age after:  ${age_after:-<none>}s"
+
+          # A cleared cache serves a fresh copy, so Age comes back absent or
+          # small. Still hours old means the API returned success and changed
+          # nothing — the exact failure this step exists to stop being silent.
+          if [ -n "$age_before" ] && [ -n "$age_after" ] && [ "$age_after" -ge "$age_before" ]; then
+            echo "::error::The API reported success but the edge is still serving a ${age_after}s-old copy. The purge did not take effect."
             exit 1
           fi
+
+          echo "Verified: the edge is serving a fresh copy."
 
       # ── Which commit is actually serving requests ────────────────────────
       #
