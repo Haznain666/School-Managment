@@ -430,7 +430,7 @@ in that page — never into a chat, an issue, or a commit.
 | `HOSTINGER_PATH` | absolute path of the directory holding `server.js` |
 | `HOSTINGER_RESTART_COMMAND` | command that restarts the app; if blank the upload still happens and the workflow warns that the old process is still serving |
 | `NEXT_PUBLIC_APP_DOMAIN` | **baked into the build.** `app/page.tsx` is prerendered, so this ends up in the static homepage HTML. Unset, the platform says `platform.com` everywhere and the panel cannot correct it |
-| `NEXT_PUBLIC_MAPBOX_TOKEN` | **baked into the build.** Read by `AddressAutocomplete`, a client component. Unset, address autocomplete is silently dead on every form |
+| `NEXT_PUBLIC_MAPBOX_TOKEN` | optional, but **baked into the build** — read by `AddressAutocomplete`, a client component. Unset, the address field falls back to plain text with a line saying why, which is what production does today. The panel cannot switch it on afterwards |
 | `PRODUCTION_URL` | optional; e.g. `https://schoolhub.codexmill.com`. Without it the smoke test cannot verify the deploy |
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_URL` | optional. Passed to the build for safety, but both are read at runtime from the panel's `.env`; `publicEnv.supabaseAnonKey` is currently read by nothing |
 | `SMOKE_SUPER_ADMIN_EMAIL`, `SMOKE_SUPER_ADMIN_PASSWORD` | optional; enables a real sign-in assertion after each deploy |

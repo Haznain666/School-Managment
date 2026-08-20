@@ -74,8 +74,14 @@ the same day: Sprint 13.7 — §5ar; 2026-08-19: §5aq, §5ap, §5ao, §5an, §5
 > 🐛 **`NEXT_PUBLIC_MAPBOX_TOKEN` was missing from the deploy workflow's build
 > step entirely.** It is read by `AddressAutocomplete`, a client component, so
 > the first successful Actions deploy would have shipped a bundle with an empty
-> token and **address autocomplete dead on every form** — with nothing in the
-> panel able to fix it, because the value is frozen at compile time. Added.
+> token and **no address autocomplete on any form** — with nothing in the panel
+> able to fix it, because the value is frozen at compile time. Added to the
+> build step.
+>
+> It is **warned about, not required**: the token is not in `.env.local` either,
+> so production is already running without it, and the field degrades to plain
+> text with a line saying why. Blocking the deploy over a feature that is
+> already off would be the check inventing a problem.
 >
 > ⚠ `SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_ANON_KEY` were listed as required
 > and are not: both are read at runtime, and `publicEnv.supabaseAnonKey` is read

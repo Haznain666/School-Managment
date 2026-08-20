@@ -56,11 +56,12 @@ jobs:
         run: |
           missing=""
           # Required: the four that say how to reach the host — which cannot
-          # live on the host — and the two that Next.js bakes into the artifact.
+          # live on the host — and the one baked value whose absence is not
+          # survivable (every page would say `platform.com`).
           # Everything else the application needs is read at runtime from
           # Hostinger's own .env and has no business being duplicated here.
           for name in HOSTINGER_SSH_KEY HOSTINGER_HOST HOSTINGER_USER HOSTINGER_PATH \
-                      NEXT_PUBLIC_APP_DOMAIN NEXT_PUBLIC_MAPBOX_TOKEN; do
+                      NEXT_PUBLIC_APP_DOMAIN; do
             if [ -z "${!name}" ]; then
               missing="$missing $name"
               echo "::error::Repository secret $name is not set."
@@ -74,6 +75,14 @@ jobs:
           # `bash -e`, where a `&&` whose left side is false is a failed command
           # and ends the script - so the short form would abort the preflight on
           # precisely the runs where these ARE set.
+          # Warned about, never fatal. `AddressAutocomplete` degrades to the
+          # plain field the form has always had, plus a line saying why there is
+          # no search — which is what production does today, because the token is
+          # not in `.env.local` either. Blocking a deploy over a feature that is
+          # already off would be this check inventing a problem.
+          if [ -z "$NEXT_PUBLIC_MAPBOX_TOKEN" ]; then
+            echo "::warning::NEXT_PUBLIC_MAPBOX_TOKEN is blank - address autocomplete falls back to a plain text field. It is baked into the build, so the panel cannot switch it on afterwards."
+          fi
           if [ -z "$NEXT_PUBLIC_SUPABASE_ANON_KEY" ]; then
             echo "::notice::NEXT_PUBLIC_SUPABASE_ANON_KEY is blank — currently harmless, because publicEnv.supabaseAnonKey is read by nothing. Sign-in uses the runtime value from Hostinger's .env."
           fi
@@ -101,7 +110,7 @@ jobs:
             echo "Note: most of this application's environment does NOT belong here."
             echo "DATABASE_URL, SMTP_*, SUPABASE_SERVICE_ROLE_KEY and the rest are read"
             echo "at runtime from Hostinger's .env and must stay there. Only the four"
-            echo "connection secrets and the two values Next.js bakes into the build"
+            echo "connection secrets and NEXT_PUBLIC_APP_DOMAIN, which Next.js bakes in,"
             echo "have to be repository secrets."
             exit 1
           fi
