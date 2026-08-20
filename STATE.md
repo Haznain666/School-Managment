@@ -34,87 +34,33 @@ the same day: Sprint 13.7 — §5ar; 2026-08-19: §5aq, §5ap, §5ao, §5an, §5
 > id` and reverts on failure. **Verified with seven simultaneous claims against
 > the live table: exactly one won.**
 
-> ⛔ **Sprint 13.8 is merged and pushed but NOT LIVE, and this is a blocker on
-> the repository, not on the code (§5as).** `.github/workflows/deploy.yml` is
-> the only deploy path and it is `workflow_dispatch` only, deliberately. Run
-> manually on 2026-08-20 it failed at **"Authorise the deploy key"** with
-> `SSH_PRIVATE_KEY`, `SSH_HOST` and `SSH_PORT` all **empty** — the three
-> secrets are not set on the repository. The build and artifact-assembly steps
-> before it passed, so what is missing is credentials and nothing else.
+> ✅ **DEPLOYED AND LIVE, 2026-08-20.** Sprint 13.8 (sibling identity, §5as) and
+> the announcement-sweep fix (§5at) are both serving. Proven by the build id at
+> `/super-admin/login` moving from `F0I8X3x6DwUmW54YEsSig` to
+> `CzQgh6S8PQoqClztHso6u` across the deploy, and by the homepage rendering
+> `schoolhub.codexmill.com` rather than the `platform.com` fallback — which is
+> what proves the build-time `NEXT_PUBLIC_APP_DOMAIN` secret took.
 >
-> **There is no auto-deploy on push.** §5ar recorded "the push to `main`
-> deployed within about a minute"; that is not what happens. The live build id
-> at `/super-admin/login` was `F0I8X3x6DwUmW54YEsSig` immediately after the push
-> and **still `F0I8X3x6DwUmW54YEsSig` five minutes later**, sampled every ten
-> seconds with a cache-busting parameter. Whatever deployed 13.7 was done by
-> hand.
+> **The deploy workflow now works end to end.** It took four failures to get
+> there, each a different thing, and each one is now self-diagnosing rather than
+> silent:
 >
-> **Correction, 2026-08-21:** the names in the line above were wrong, and were
-> wrong because they were read off the failing step's `env:` block. Those are
-> the step's *env var* names. The **secret** names are `HOSTINGER_SSH_KEY`,
-> `HOSTINGER_HOST`, `HOSTINGER_PORT`, plus `HOSTINGER_USER`, `HOSTINGER_PATH`,
-> `HOSTINGER_RESTART_COMMAND`, the three build-time `NEXT_PUBLIC_*`/`SUPABASE_URL`
-> values, and `PRODUCTION_URL`. `gh secret list` on 2026-08-21 showed exactly
-> three secrets on the repository — `SSH_PRIVATE_KEY`, `SSH_HOST` and
-> **`SH_PORT`** (a typo) — none of which this workflow reads.
+> | Failed at | Cause | Fixed by |
+> | --- | --- | --- |
+> | Authorise the deploy key | secrets created under the step's *env var* names (`SSH_HOST`…), not the secret names | preflight step that names every missing secret before the build |
+> | Authorise the deploy key | nothing listening on port 22; `HOSTINGER_PORT` unset | `2>/dev/null` removed from `ssh-keyscan`, which had been hiding the reason |
+> | Upload the artifact | `rsync` creates only the last directory; the parents of `HOSTINGER_PATH` did not exist | `mkdir -p` over the same SSH connection first |
+> | (would have been) Verify | `smoke-test-live.mjs` exits 2 with no origin, failing a deploy that had already succeeded | absent `PRODUCTION_URL` skips the check with a warning |
 >
-> **Correction, 2026-08-21 (second):** the list of build-time secrets was also
-> wrong, and the user was right to push back on it — runtime configuration has
-> always lived in Hostinger's panel and belongs there. Checked rather than
-> assumed: `serverEnv`/`requireServerEnv` are `process.env[name]`, a dynamic
-> lookup Next.js cannot inline, so **every** runtime variable is read on the
-> host and none of them belong in GitHub. Only `publicEnv` in `lib/env.ts`
-> references `process.env.NEXT_PUBLIC_X` as a literal, and only two of its three
-> members are read anywhere.
+> ⚠ **Every step env var now carries the same name as the secret behind it.**
+> They were `SSH_PRIVATE_KEY` / `SSH_HOST` / `SSH_PORT` / `DEPLOY_PATH` /
+> `RESTART_COMMAND`, which is what a failing step prints — and that is exactly
+> how three unusable secrets came to be created. Do not reintroduce the split.
 >
-> **Six repository secrets, not seven:** `HOSTINGER_SSH_KEY`, `HOSTINGER_HOST`,
-> `HOSTINGER_USER`, `HOSTINGER_PATH`, `NEXT_PUBLIC_APP_DOMAIN` and
-> `NEXT_PUBLIC_MAPBOX_TOKEN`.
->
-> 🐛 **`NEXT_PUBLIC_MAPBOX_TOKEN` was missing from the deploy workflow's build
-> step entirely.** It is read by `AddressAutocomplete`, a client component, so
-> the first successful Actions deploy would have shipped a bundle with an empty
-> token and **no address autocomplete on any form** — with nothing in the panel
-> able to fix it, because the value is frozen at compile time. Added to the
-> build step.
->
-> It is **warned about, not required**: the token is not in `.env.local` either,
-> so production is already running without it, and the field degrades to plain
-> text with a line saying why. Blocking the deploy over a feature that is
-> already off would be the check inventing a problem.
->
-> ⚠ `SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_ANON_KEY` were listed as required
-> and are not: both are read at runtime, and `publicEnv.supabaseAnonKey` is read
-> by nothing at all. They are passed to the build for safety and the preflight
-> now reports them as notices rather than failing on them.
->
-> **Correction, 2026-08-21 (third):** five of the six are now set and the run
-> gets past the preflight and the build. It fails in **Authorise the deploy key**
-> — and never for the reason the naming suggested: the log shows
-> `HOSTINGER_SSH_KEY: ***` and `HOSTINGER_HOST: ***`, so the secrets resolve.
-> `ssh-keyscan` itself exits 1, and `2>/dev/null` was throwing away the reason.
->
-> That redirect is gone and the step now names the three things it can be.
-> Against the real host it reports: **nothing answered on port 22, and
-> `HOSTINGER_PORT` is unset.** Hostinger shared hosting does not use 22 — it is
-> commonly **65002** (hPanel → Advanced → SSH Access). One secret left.
->
-> Every step's env var now carries the same name as the secret behind it
-> (`HOSTINGER_*` throughout). They were `SSH_PRIVATE_KEY` / `SSH_HOST` /
-> `SSH_PORT` / `DEPLOY_PATH` / `RESTART_COMMAND`, which is what a failing step
-> prints — which is exactly how the wrong secrets got created in the first
-> place.
->
-> **To ship it:** set `HOSTINGER_PORT` and re-run *Deploy to Hostinger*. A new first step,
-> **Check the deploy secrets are set**, now names any that are missing before
-> the build runs, instead of failing eight minutes later inside `ssh-keyscan`.
->
-> ⚠ **The database is ahead of the deployed code, and that is safe here.**
-> `0026` is additive — one nullable column, two indexes, and a canonicalisation
-> of two CNIC values. No shipped code writes `relationship_other`, and the only
-> visible effect on the old build is that a guardian's CNIC now reads
-> `42201-0139154-7` where it read `4220101391547`. Do not treat this as an
-> instance of the §5ar migrate-then-deploy hazard; it is the benign case.
+> ⚠ **Two optional secrets are still unset, and both have a consequence.**
+> `HOSTINGER_RESTART_COMMAND` — without it the upload lands but nothing restarts
+> the process; this deploy happened to be picked up anyway, which is luck and
+> not a guarantee. `PRODUCTION_URL` — without it no deploy is ever verified.
 
 > ⚠ **Route-existence probing no longer distinguishes builds on
 > `schoolhub.codexmill.com` — the method §5ar prescribes has stopped working.**
