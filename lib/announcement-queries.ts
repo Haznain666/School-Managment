@@ -1,6 +1,6 @@
 import 'server-only';
 
-import { and, count, desc, eq, inArray, isNull, or, sql, type SQL } from 'drizzle-orm';
+import { and, count, desc, eq, inArray, isNull, lte, ne, or, sql, type SQL } from 'drizzle-orm';
 
 import {
   announcementReads,
@@ -323,8 +323,81 @@ export async function sendAnnouncement(
 ): Promise<SendOutcome | null> {
   const announcement = await getAnnouncement(locationId, announcementId);
   if (announcement === null) return null;
-  // Sending twice would queue a second email to everyone who already has one.
-  if (announcement.status === 'sent') return null;
+
+  const sentAt = new Date();
+
+  /*
+   * Claim the row before doing any work, in one atomic statement.
+   *
+   * ── Why a read-then-check was not enough ───────────────────────────────
+   * It used to be `if (announcement.status === 'sent') return null`, which is
+   * a read and a decision with a gap between them. The production log on
+   * 2026-08-20 showed the sweep running at **seven** distinct offsets within
+   * the same minute — seven Node processes, each started by
+   * `instrumentation.ts`, each holding its own 60-second timer. Every one of
+   * them would have read `scheduled`, passed that check, and queued a full
+   * email run: seven copies of one notice to every parent in the school.
+   *
+   * Nothing downstream would have stopped it. The notice rows de-duplicate on
+   * a unique key, but `email_outbox` has none — an announcement email is a
+   * row, not an upsert, so seven runs are seven emails.
+   *
+   * `UPDATE … WHERE status <> 'sent' RETURNING id` is decided by Postgres on
+   * one row under one lock. Exactly one caller gets a row back; the other six
+   * get nothing and return null, which is what they already do for an
+   * announcement that was sent a moment ago.
+   */
+  const claimed = await db
+    .update(announcements)
+    .set({ status: 'sent', sentAt, updatedAt: sentAt })
+    .where(
+      and(
+        eq(announcements.locationId, locationId),
+        eq(announcements.id, announcementId),
+        ne(announcements.status, 'sent'),
+      ),
+    )
+    .returning({ id: announcements.id });
+
+  if (claimed.length === 0) return null;
+
+  try {
+    return await deliverAnnouncement(locationId, announcement);
+  } catch (caught) {
+    /*
+     * Hand the announcement back, so the next sweep retries it.
+     *
+     * The claim above moved it to `sent` before the work was done, which is
+     * what makes the claim atomic — and would otherwise turn a transient
+     * failure into an announcement the school believes went out and nobody
+     * received. Reverting restores the pre-2026-08-20 behaviour the scheduler
+     * documents and relies on: a failed send is left where the next sweep will
+     * find it.
+     *
+     * A revert that itself fails is swallowed rather than replacing the real
+     * error, which is the one worth reading.
+     */
+    await db
+      .update(announcements)
+      .set({ status: announcement.status, sentAt: null, updatedAt: new Date() })
+      .where(
+        and(
+          eq(announcements.locationId, locationId),
+          eq(announcements.id, announcementId),
+        ),
+      )
+      .catch(() => undefined);
+
+    throw caught;
+  }
+}
+
+/** The work of a send, once this process has established that it owns it. */
+async function deliverAnnouncement(
+  locationId: string,
+  announcement: AnnouncementRow,
+): Promise<SendOutcome> {
+  const announcementId = announcement.id;
 
   const members = await resolveAudience(
     locationId,
@@ -332,7 +405,6 @@ export async function sendAnnouncement(
     announcement.branchId,
   );
 
-  const sentAt = new Date();
   let queued = 0;
   let unreachable = 0;
   let optedOut = 0;
@@ -361,11 +433,10 @@ export async function sendAnnouncement(
     optedOut = outcome.optedOut;
   }
 
-  await db
-    .update(announcements)
-    .set({ status: 'sent', sentAt, updatedAt: sentAt })
-    .where(and(eq(announcements.locationId, locationId), eq(announcements.id, announcementId)));
-
+  // The status was already written by the claim above — see `sendAnnouncement`.
+  // Writing it again here would be harmless and misleading: it would suggest
+  // the row is marked sent at the end of the work, which is exactly the
+  // read-then-write this was changed to stop being.
   return { recipients: members.length, queued, unreachable, optedOut };
 }
 
@@ -727,7 +798,27 @@ export async function listDueAnnouncements(now: Date = new Date()): Promise<
     .where(
       and(
         eq(announcements.status, 'scheduled'),
-        or(isNull(announcements.scheduledAt), sql`${announcements.scheduledAt} <= ${now}`),
+        /*
+         * `lte(column, date)`, never sql`${column} <= ${date}`.
+         *
+         * This line was the second form from Sprint 11 until 2026-08-20, and
+         * every sweep it ran threw before touching a row:
+         *
+         *   The "string" argument must be of type string or an instance of
+         *   Buffer or ArrayBuffer. Received an instance of Date
+         *
+         * A raw `sql` template is the one place Drizzle has no column type to
+         * work from, so it passes the JavaScript value straight to postgres-js.
+         * `lte` goes through `PgTimestamp.mapToDriverValue`, which turns the
+         * Date into the ISO string the driver wants. Same SQL, same plan — the
+         * parameter is `"2026-08-20T18:42:48.447Z"` instead of a `Date`, and
+         * that is the whole difference between this working and not.
+         *
+         * The failure is invisible in development because nothing schedules an
+         * announcement there, and total in production: not one scheduled
+         * announcement had ever been released.
+         */
+        or(isNull(announcements.scheduledAt), lte(announcements.scheduledAt, now)),
       ),
     )
     .limit(50);
