@@ -57,6 +57,38 @@ the same day: Sprint 13.7 — §5ar; 2026-08-19: §5aq, §5ap, §5ao, §5an, §5
 > `RESTART_COMMAND`, which is what a failing step prints — and that is exactly
 > how three unusable secrets came to be created. Do not reintroduce the split.
 >
+> ✅ **Cache purge: endpoint and method settled, 2026-08-21.**
+> `DELETE /api/hosting/v1/accounts/{username}/websites/{domain}/cache/clear`,
+> `Authorization: Bearer <token>` — both from Hostinger's own API SDKs
+> (`clear_website_cache_v1` on `HostingCacheApi`), not guessed.
+>
+> The earlier candidate-loop version was a workaround and produced another red
+> run, **but its output named the answer**: three paths returned 404 and
+> `cache/clear` returned **405 Method Not Allowed** — a path that exists,
+> rejecting the verb. The path was always right; POST was always wrong.
+>
+> ⚠ **Still blocked on the token.** With the real secret the API replies
+> `{"message":"Unauthenticated."}` — the same string an unauthenticated client
+> gets. Endpoint, method and scheme are all confirmed by the 401 itself (a wrong
+> path gives 404, a wrong verb gives 405). So `HOSTINGER_API_TOKEN` is not a
+> valid Hostinger **API** token, or is stored with quotes/whitespace around it.
+> Test it outside GitHub before touching the workflow again:
+>
+> ```
+> curl -i -H "Authorization: Bearer $TOKEN" >   https://developers.hostinger.com/api/hosting/v1/accounts
+> ```
+>
+> 200 ⇒ the token is fine and the GitHub secret is malformed. 401 ⇒ the token is
+> wrong; generate one at hPanel → API with Hosting scope.
+>
+> Until it works, **press Clear website cache in hPanel after every deploy** —
+> this is not optional, see the year-long TTL above.
+
+> ⚠ **The purge is verified, not trusted.** `Age` is read before and after; a
+> 2xx that leaves the edge serving an equally old copy fails the step. Do not
+> replace that with a status-code check — an API that returns success and
+> changes nothing is the failure this exists to catch.
+
 > 🔴 **THE DEPLOY WORKFLOW UPLOADS TO A PLACE THE RUNNING APP DOES NOT SERVE
 > FROM — found 2026-08-21, and it invalidates every "deployed" claim above.**
 >
