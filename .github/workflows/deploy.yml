@@ -46,16 +46,21 @@ jobs:
           HOSTINGER_USER: ${{ secrets.HOSTINGER_USER }}
           HOSTINGER_PATH: ${{ secrets.HOSTINGER_PATH }}
           NEXT_PUBLIC_APP_DOMAIN: ${{ secrets.NEXT_PUBLIC_APP_DOMAIN }}
+          NEXT_PUBLIC_MAPBOX_TOKEN: ${{ secrets.NEXT_PUBLIC_MAPBOX_TOKEN }}
+          # Optional ones, reported but never fatal.
           NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-          # Optional ones, reported but never fatal.
           HOSTINGER_PORT: ${{ secrets.HOSTINGER_PORT }}
           HOSTINGER_RESTART_COMMAND: ${{ secrets.HOSTINGER_RESTART_COMMAND }}
           PRODUCTION_URL: ${{ secrets.PRODUCTION_URL }}
         run: |
           missing=""
+          # Required: the four that say how to reach the host — which cannot
+          # live on the host — and the two that Next.js bakes into the artifact.
+          # Everything else the application needs is read at runtime from
+          # Hostinger's own .env and has no business being duplicated here.
           for name in HOSTINGER_SSH_KEY HOSTINGER_HOST HOSTINGER_USER HOSTINGER_PATH \
-                      NEXT_PUBLIC_APP_DOMAIN NEXT_PUBLIC_SUPABASE_ANON_KEY SUPABASE_URL; do
+                      NEXT_PUBLIC_APP_DOMAIN NEXT_PUBLIC_MAPBOX_TOKEN; do
             if [ -z "${!name}" ]; then
               missing="$missing $name"
               echo "::error::Repository secret $name is not set."
@@ -69,6 +74,12 @@ jobs:
           # `bash -e`, where a `&&` whose left side is false is a failed command
           # and ends the script - so the short form would abort the preflight on
           # precisely the runs where these ARE set.
+          if [ -z "$NEXT_PUBLIC_SUPABASE_ANON_KEY" ]; then
+            echo "::notice::NEXT_PUBLIC_SUPABASE_ANON_KEY is blank — currently harmless, because publicEnv.supabaseAnonKey is read by nothing. Sign-in uses the runtime value from Hostinger's .env."
+          fi
+          if [ -z "$SUPABASE_URL" ]; then
+            echo "::notice::SUPABASE_URL is blank — harmless, it is only ever read at runtime from Hostinger's .env."
+          fi
           if [ -z "$HOSTINGER_PORT" ]; then
             echo "::notice::HOSTINGER_PORT is blank — SSH will use port 22."
           fi
@@ -86,6 +97,12 @@ jobs:
             echo "same as the env var names printed inside a failing step — a secret"
             echo "called SSH_HOST or SSH_PRIVATE_KEY is invisible to this workflow."
             echo "DEPLOYMENT.md has what each one holds."
+            echo ""
+            echo "Note: most of this application's environment does NOT belong here."
+            echo "DATABASE_URL, SMTP_*, SUPABASE_SERVICE_ROLE_KEY and the rest are read"
+            echo "at runtime from Hostinger's .env and must stay there. Only the four"
+            echo "connection secrets and the two values Next.js bakes into the build"
+            echo "have to be repository secrets."
             exit 1
           fi
 
@@ -107,12 +124,35 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      # NEXT_PUBLIC_* is inlined into the browser bundle at build time, so these
-      # must be present HERE, not only in the hosting panel. Setting them in the
-      # panel afterwards changes nothing about an artifact already built.
+      # ── Which variables belong HERE, and which belong in Hostinger ─────
+      #
+      # Almost none of them belong here. The application reads its environment
+      # at runtime through `serverEnv` / `requireServerEnv`, which are
+      # `process.env[name]` — a dynamic lookup Next.js cannot inline. Every one
+      # of those is read on the host, from the panel's .env, and setting it here
+      # would achieve nothing. DATABASE_URL, SMTP_*, SUPABASE_SERVICE_ROLE_KEY
+      # and the rest are all in that group.
+      #
+      # The exception is `lib/env.ts`'s `publicEnv`, which references
+      # `process.env.NEXT_PUBLIC_X` as a **literal**. Next.js substitutes those
+      # for their values while compiling, so they are frozen into the artifact
+      # and the panel cannot change them afterwards. Two of them are actually
+      # read:
+      #
+      #   NEXT_PUBLIC_APP_DOMAIN   `app/page.tsx` is prerendered, so this is
+      #                            baked into the static homepage HTML. Left
+      #                            unset the whole platform says `platform.com`.
+      #   NEXT_PUBLIC_MAPBOX_TOKEN read by `AddressAutocomplete`, a client
+      #                            component. Left unset, address autocomplete
+      #                            is silently dead on every form.
+      #
+      # The other two are passed for safety rather than need — `SUPABASE_URL` is
+      # only ever read dynamically, and `publicEnv.supabaseAnonKey` is currently
+      # read by nothing — so the preflight warns about them and does not fail.
       - name: Build the standalone artifact
         env:
           NEXT_PUBLIC_APP_DOMAIN: ${{ secrets.NEXT_PUBLIC_APP_DOMAIN }}
+          NEXT_PUBLIC_MAPBOX_TOKEN: ${{ secrets.NEXT_PUBLIC_MAPBOX_TOKEN }}
           NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
         run: npm run build

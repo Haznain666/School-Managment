@@ -58,8 +58,32 @@ the same day: Sprint 13.7 — §5ar; 2026-08-19: §5aq, §5ap, §5ao, §5an, §5
 > three secrets on the repository — `SSH_PRIVATE_KEY`, `SSH_HOST` and
 > **`SH_PORT`** (a typo) — none of which this workflow reads.
 >
-> **To ship it:** add the `HOSTINGER_*` secrets named in DEPLOYMENT.md §5b and
-> re-run *Deploy to Hostinger* from the Actions tab. A new first step,
+> **Correction, 2026-08-21 (second):** the list of build-time secrets was also
+> wrong, and the user was right to push back on it — runtime configuration has
+> always lived in Hostinger's panel and belongs there. Checked rather than
+> assumed: `serverEnv`/`requireServerEnv` are `process.env[name]`, a dynamic
+> lookup Next.js cannot inline, so **every** runtime variable is read on the
+> host and none of them belong in GitHub. Only `publicEnv` in `lib/env.ts`
+> references `process.env.NEXT_PUBLIC_X` as a literal, and only two of its three
+> members are read anywhere.
+>
+> **Six repository secrets, not seven:** `HOSTINGER_SSH_KEY`, `HOSTINGER_HOST`,
+> `HOSTINGER_USER`, `HOSTINGER_PATH`, `NEXT_PUBLIC_APP_DOMAIN` and
+> `NEXT_PUBLIC_MAPBOX_TOKEN`.
+>
+> 🐛 **`NEXT_PUBLIC_MAPBOX_TOKEN` was missing from the deploy workflow's build
+> step entirely.** It is read by `AddressAutocomplete`, a client component, so
+> the first successful Actions deploy would have shipped a bundle with an empty
+> token and **address autocomplete dead on every form** — with nothing in the
+> panel able to fix it, because the value is frozen at compile time. Added.
+>
+> ⚠ `SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_ANON_KEY` were listed as required
+> and are not: both are read at runtime, and `publicEnv.supabaseAnonKey` is read
+> by nothing at all. They are passed to the build for safety and the preflight
+> now reports them as notices rather than failing on them.
+>
+> **To ship it:** add the six secrets named in DEPLOYMENT.md §5b and re-run
+> *Deploy to Hostinger* from the Actions tab. A new first step,
 > **Check the deploy secrets are set**, now names any that are missing before
 > the build runs, instead of failing eight minutes later inside `ssh-keyscan`.
 >

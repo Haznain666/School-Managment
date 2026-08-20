@@ -429,9 +429,30 @@ in that page — never into a chat, an issue, or a commit.
 | `HOSTINGER_SSH_KEY` | **private** key of a deploy keypair — generate a fresh one, do not reuse a personal key |
 | `HOSTINGER_PATH` | absolute path of the directory holding `server.js` |
 | `HOSTINGER_RESTART_COMMAND` | command that restarts the app; if blank the upload still happens and the workflow warns that the old process is still serving |
-| `PRODUCTION_URL` | e.g. `https://schoolhub.codexmill.com` |
-| `NEXT_PUBLIC_APP_DOMAIN`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_URL` | build-time; inlined into the bundle, so they must be here and not only in the panel |
+| `NEXT_PUBLIC_APP_DOMAIN` | **baked into the build.** `app/page.tsx` is prerendered, so this ends up in the static homepage HTML. Unset, the platform says `platform.com` everywhere and the panel cannot correct it |
+| `NEXT_PUBLIC_MAPBOX_TOKEN` | **baked into the build.** Read by `AddressAutocomplete`, a client component. Unset, address autocomplete is silently dead on every form |
+| `PRODUCTION_URL` | optional; e.g. `https://schoolhub.codexmill.com`. Without it the smoke test cannot verify the deploy |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_URL` | optional. Passed to the build for safety, but both are read at runtime from the panel's `.env`; `publicEnv.supabaseAnonKey` is currently read by nothing |
 | `SMOKE_SUPER_ADMIN_EMAIL`, `SMOKE_SUPER_ADMIN_PASSWORD` | optional; enables a real sign-in assertion after each deploy |
+
+### Everything else stays in Hostinger
+
+**This list is short on purpose.** `DATABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`,
+`SMTP_*`, `GHL_*` and the rest are **not** repository secrets and must not be
+copied here. The application reads them through `serverEnv` /
+`requireServerEnv`, which are `process.env[name]` — a dynamic lookup Next.js
+cannot inline — so they are read on the host, from the panel's `.env`, every
+time. Duplicating them into GitHub would create a second copy that silently
+goes stale.
+
+Only two kinds of value have to be repository secrets:
+
+1. **How to reach the host** — the SSH four. They cannot live on the host,
+   because they are what gets you *to* the host.
+2. **What Next.js freezes into the artifact** — `publicEnv` in `lib/env.ts`
+   references `process.env.NEXT_PUBLIC_X` as a literal, and the compiler
+   substitutes the value. Setting those in the panel afterwards changes nothing
+   about a bundle that has already been built.
 
 Generate the deploy key with `ssh-keygen -t ed25519 -f deploy_key -N ""`, put
 the **public** half in the host's `~/.ssh/authorized_keys` and the private half
