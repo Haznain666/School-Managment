@@ -433,6 +433,7 @@ in that page — never into a chat, an issue, or a commit.
 | `NEXT_PUBLIC_MAPBOX_TOKEN` | optional, but **baked into the build** — read by `AddressAutocomplete`, a client component. Unset, the address field falls back to plain text with a line saying why, which is what production does today. The panel cannot switch it on afterwards |
 | `PRODUCTION_URL` | e.g. `https://schoolhub.codexmill.com`. Without it neither the smoke test nor the build-id check can run, and the deploy cannot say whether it deployed |
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_URL` | optional. Passed to the build for safety, but both are read at runtime from the panel's `.env`; `publicEnv.supabaseAnonKey` is currently read by nothing |
+| `HOSTINGER_API_TOKEN` | optional but **strongly wanted**. Purges the website cache after each deploy. Without it, prerendered routes go on serving the previous build — they ship with `s-maxage=31536000` and cannot be busted from the client. `/super-admin/login` was found 30.4 hours stale on 2026-08-21, with hydration broken because its markup referenced chunks that `rsync --delete` had removed |
 | `SMOKE_SUPER_ADMIN_EMAIL`, `SMOKE_SUPER_ADMIN_PASSWORD` | optional; enables a real sign-in assertion after each deploy |
 
 ### Everything else stays in Hostinger

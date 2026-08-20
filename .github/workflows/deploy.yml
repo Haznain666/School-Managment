@@ -53,6 +53,7 @@ jobs:
           HOSTINGER_PORT: ${{ secrets.HOSTINGER_PORT }}
           HOSTINGER_RESTART_COMMAND: ${{ secrets.HOSTINGER_RESTART_COMMAND }}
           PRODUCTION_URL: ${{ secrets.PRODUCTION_URL }}
+          HOSTINGER_API_TOKEN: ${{ secrets.HOSTINGER_API_TOKEN }}
         run: |
           missing=""
           # Required: the four that say how to reach the host — which cannot
@@ -97,6 +98,9 @@ jobs:
           fi
           if [ -z "$PRODUCTION_URL" ]; then
             echo "::warning::PRODUCTION_URL is blank — the smoke test cannot verify the deploy."
+          fi
+          if [ -z "$HOSTINGER_API_TOKEN" ]; then
+            echo "::warning::HOSTINGER_API_TOKEN is blank — the website cache will NOT be purged, so prerendered pages keep serving the previous build until you clear it in hPanel."
           fi
 
           if [ -n "$missing" ]; then
@@ -184,32 +188,34 @@ jobs:
       # thing, everywhere.
       # ── The only honest answer to "did the deploy take effect?" ────────
       #
-      # Next generates a fresh random build id on every build — there is no
-      # `generateBuildId` override in next.config — and the app router emits it
-      # into every page as an HTML comment. So the id serving before the upload,
-      # compared with the id serving after the restart, is a direct measurement
-      # of whether the new artifact is actually running.
+      # Read from `/api/internal/build`, which is a route handler and therefore
+      # cannot be prerendered or cached.
       #
-      # This matters because HOSTINGER_RESTART_COMMAND is optional. Without it
-      # the upload lands and the OLD process keeps serving, and until now the
-      # workflow reported that as a successful deploy with a warning nobody
-      # reads. A deploy that cannot say whether it deployed is not a deploy.
-      - name: Record the build id currently serving
+      # This used to read the build id out of `/super-admin/login`, and that was
+      # worse than no check at all. That page is prerendered and the CDN holds it
+      # with `s-maxage=31536000`; measured on 2026-08-21 it was **30.4 hours
+      # stale** and no request header would bust it. The check was comparing two
+      # cache entries and reporting a successful deploy on the strength of it.
+      - name: Record the build currently running
         if: ${{ !inputs.skip_smoke_test }}
         env:
           PRODUCTION_URL: ${{ secrets.PRODUCTION_URL }}
         run: |
           if [ -z "$PRODUCTION_URL" ]; then
-            echo "BUILD_ID_BEFORE=" >> "$GITHUB_ENV"
+            echo "BUILD_BEFORE=" >> "$GITHUB_ENV"
             echo "::notice::PRODUCTION_URL is not set, so this deploy cannot be measured."
             exit 0
           fi
 
-          before=$(curl -fsS --max-time 20 "$PRODUCTION_URL/super-admin/login?cb=$RANDOM" 2>/dev/null \
-                   | grep -o '<!--[A-Za-z0-9_-]\{10,\}-->' | head -1 || true)
+          body=$(curl -fsS --max-time 20 "$PRODUCTION_URL/api/internal/build" 2>/dev/null || true)
+          before=$(printf '%s' "$body" | sed -n 's/.*"buildId":"\([^"]*\)".*/\1/p')
 
-          echo "BUILD_ID_BEFORE=$before" >> "$GITHUB_ENV"
-          echo "Currently serving: ${before:-<could not read>}"
+          echo "BUILD_BEFORE=$before" >> "$GITHUB_ENV"
+          if [ -z "$before" ]; then
+            echo "::notice::/api/internal/build did not answer yet — expected on the first deploy that introduces it."
+          else
+            echo "Currently running: $before"
+          fi
 
       - name: Authorise the deploy key
         env:
@@ -328,10 +334,56 @@ jobs:
           ssh -i ~/.ssh/id_deploy -p "${HOSTINGER_PORT:-22}" \
             "$HOSTINGER_USER@$HOSTINGER_HOST" "$HOSTINGER_RESTART_COMMAND"
 
-      # A restart is not instant and a smoke test against a half-started server
+      # ── Without this, prerendered pages serve the OLD build for a year ──
+      #
+      # Static routes go out with `Cache-Control: s-maxage=31536000`. On
+      # 2026-08-21 `/super-admin/login` was served **30.4 hours stale** and could
+      # not be busted by `no-cache`, `no-store` or `Pragma` from the client. The
+      # page's markup then referenced chunk hashes from the older build while
+      # `.next/static` on the host had been replaced by rsync --delete, so
+      # hydration died and the page reported a client-side exception.
+      #
+      # A deploy that does not purge is therefore not a deploy: the dynamic
+      # routes update and every prerendered one does not.
+      - name: Purge the website cache
+        env:
+          HOSTINGER_API_TOKEN: ${{ secrets.HOSTINGER_API_TOKEN }}
+          HOSTINGER_USER: ${{ secrets.HOSTINGER_USER }}
+          NEXT_PUBLIC_APP_DOMAIN: ${{ secrets.NEXT_PUBLIC_APP_DOMAIN }}
+        run: |
+          if [ -z "$HOSTINGER_API_TOKEN" ]; then
+            echo "::warning::HOSTINGER_API_TOKEN is not set, so the cache was NOT purged. Prerendered pages (/super-admin/login and the homepage) will keep serving the previous build until the cache expires or you press Clear website cache in hPanel."
+            exit 0
+          fi
+
+          base="https://developers.hostinger.com/api/hosting/v1/accounts/$HOSTINGER_USER/websites/$NEXT_PUBLIC_APP_DOMAIN"
+
+          # The exact suffix is not documented in this repo, and guessing one and
+          # swallowing the failure is how a step comes to do nothing quietly. So
+          # each candidate is tried and every status is printed: one run of this
+          # tells us which is real, and none of them can fail silently.
+          purged=0
+          for path in "cache" "clear-cache" "cache/clear" "cache/purge"; do
+            code=$(curl -s -o /tmp/purge.out -w "%{http_code}" --max-time 30 \
+                   -X POST "$base/$path" \
+                   -H "Authorization: Bearer $HOSTINGER_API_TOKEN" \
+                   -H "Content-Type: application/json" \
+                   -H "Accept: application/json" || echo 000)
+            echo "  POST .../$path -> $code"
+            case "$code" in
+              2*) echo "Cache purged via .../$path"; purged=1; break ;;
+            esac
+          done
+
+          if [ "$purged" -ne 1 ]; then
+            echo "::error::Every cache-purge endpoint was refused. The deploy is uploaded and running, but prerendered pages will serve the previous build until you press Clear website cache in hPanel."
+            echo "The statuses above name which endpoint to use — 404 means wrong path, 401/403 means the token or username is wrong."
+            exit 1
+          fi
+
+      # A restart is not instant, and a smoke test against a half-started server
       # reports a failure that is not real. So this waits for a *specific
-      # observable* — the build id changing — rather than for a fixed 20 seconds
-      # and a hope.
+      # observable* rather than for a fixed number of seconds and a hope.
       - name: Wait for the new build to start serving
         if: ${{ !inputs.skip_smoke_test }}
         env:
@@ -339,34 +391,34 @@ jobs:
           HOSTINGER_RESTART_COMMAND: ${{ secrets.HOSTINGER_RESTART_COMMAND }}
         run: |
           if [ -z "$PRODUCTION_URL" ]; then
-            echo "::notice::Nothing to measure against. Sleeping 20s and hoping."
+            echo "::notice::Nothing to measure against. Sleeping 20s."
             sleep 20
             exit 0
           fi
 
-          if [ -z "$BUILD_ID_BEFORE" ]; then
-            echo "::warning::The build id before the deploy could not be read, so the change cannot be measured. Sleeping 20s."
+          expected=$(cat .next/BUILD_ID 2>/dev/null || true)
+          if [ -z "$expected" ]; then
+            echo "::warning::No .next/BUILD_ID in the artifact, so the running build cannot be compared. Sleeping 20s."
             sleep 20
             exit 0
           fi
 
-          echo "Waiting for something other than $BUILD_ID_BEFORE to be served."
+          echo "Waiting for the host to report build $expected."
 
-          # Up to two minutes. A restart is seconds; a host that rebuilds the
-          # app itself takes longer, and this project has one that does.
+          # Up to two minutes. A restart is seconds; a host that rebuilds the app
+          # itself takes longer, and this project has one that does.
           for attempt in $(seq 1 24); do
             sleep 5
-            now=$(curl -fsS --max-time 20 "$PRODUCTION_URL/super-admin/login?cb=$RANDOM$attempt" 2>/dev/null \
-                  | grep -o '<!--[A-Za-z0-9_-]\{10,\}-->' | head -1 || true)
+            body=$(curl -fsS --max-time 20 "$PRODUCTION_URL/api/internal/build" 2>/dev/null || true)
+            now=$(printf '%s' "$body" | sed -n 's/.*"buildId":"\([^"]*\)".*/\1/p')
 
-            if [ -n "$now" ] && [ "$now" != "$BUILD_ID_BEFORE" ]; then
-              echo "Now serving: $now (was $BUILD_ID_BEFORE)"
-              echo "The new build is live after $((attempt * 5))s."
+            if [ "$now" = "$expected" ]; then
+              echo "Running build $now after $((attempt * 5))s — this is the artifact just uploaded."
               exit 0
             fi
           done
 
-          echo "::error::Two minutes after the upload, the site is still serving $BUILD_ID_BEFORE."
+          echo "::error::Two minutes after the upload, the host is still running ${now:-<no answer>}, not $expected."
           echo ""
           echo "The files were uploaded successfully. The OLD process is still"
           echo "running, so none of this deploy is live."
@@ -374,13 +426,15 @@ jobs:
           if [ -z "$HOSTINGER_RESTART_COMMAND" ]; then
             echo "HOSTINGER_RESTART_COMMAND is not set, so nothing tried to restart"
             echo "the application. Either set it, or restart the Node.js app in"
-            echo "hPanel now — the new files are already in place, so a restart is"
-            echo "all that is missing."
+            echo "hPanel now — the new files are already in place."
           else
             echo "HOSTINGER_RESTART_COMMAND ran without error but the process did"
             echo "not come back on the new build. The command is very likely"
             echo "restarting nothing — check it against hPanel."
           fi
+          echo ""
+          echo "If /api/internal/build 404s, the running build predates it, which"
+          echo "is itself proof that this deploy did not take effect."
           exit 1
 
       # The point of the whole workflow: a deploy that is not verified is a
