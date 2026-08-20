@@ -182,6 +182,35 @@ jobs:
       # to create a repository secret called SSH_HOST, which this workflow does
       # not read. That happened on 2026-08-20 and cost two runs. One name for one
       # thing, everywhere.
+      # ── The only honest answer to "did the deploy take effect?" ────────
+      #
+      # Next generates a fresh random build id on every build — there is no
+      # `generateBuildId` override in next.config — and the app router emits it
+      # into every page as an HTML comment. So the id serving before the upload,
+      # compared with the id serving after the restart, is a direct measurement
+      # of whether the new artifact is actually running.
+      #
+      # This matters because HOSTINGER_RESTART_COMMAND is optional. Without it
+      # the upload lands and the OLD process keeps serving, and until now the
+      # workflow reported that as a successful deploy with a warning nobody
+      # reads. A deploy that cannot say whether it deployed is not a deploy.
+      - name: Record the build id currently serving
+        if: ${{ !inputs.skip_smoke_test }}
+        env:
+          PRODUCTION_URL: ${{ secrets.PRODUCTION_URL }}
+        run: |
+          if [ -z "$PRODUCTION_URL" ]; then
+            echo "BUILD_ID_BEFORE=" >> "$GITHUB_ENV"
+            echo "::notice::PRODUCTION_URL is not set, so this deploy cannot be measured."
+            exit 0
+          fi
+
+          before=$(curl -fsS --max-time 20 "$PRODUCTION_URL/super-admin/login?cb=$RANDOM" 2>/dev/null \
+                   | grep -o '<!--[A-Za-z0-9_-]\{10,\}-->' | head -1 || true)
+
+          echo "BUILD_ID_BEFORE=$before" >> "$GITHUB_ENV"
+          echo "Currently serving: ${before:-<could not read>}"
+
       - name: Authorise the deploy key
         env:
           HOSTINGER_SSH_KEY: ${{ secrets.HOSTINGER_SSH_KEY }}
@@ -300,10 +329,59 @@ jobs:
             "$HOSTINGER_USER@$HOSTINGER_HOST" "$HOSTINGER_RESTART_COMMAND"
 
       # A restart is not instant and a smoke test against a half-started server
-      # reports a failure that is not real.
-      - name: Wait for the process to come back
+      # reports a failure that is not real. So this waits for a *specific
+      # observable* — the build id changing — rather than for a fixed 20 seconds
+      # and a hope.
+      - name: Wait for the new build to start serving
         if: ${{ !inputs.skip_smoke_test }}
-        run: sleep 20
+        env:
+          PRODUCTION_URL: ${{ secrets.PRODUCTION_URL }}
+          HOSTINGER_RESTART_COMMAND: ${{ secrets.HOSTINGER_RESTART_COMMAND }}
+        run: |
+          if [ -z "$PRODUCTION_URL" ]; then
+            echo "::notice::Nothing to measure against. Sleeping 20s and hoping."
+            sleep 20
+            exit 0
+          fi
+
+          if [ -z "$BUILD_ID_BEFORE" ]; then
+            echo "::warning::The build id before the deploy could not be read, so the change cannot be measured. Sleeping 20s."
+            sleep 20
+            exit 0
+          fi
+
+          echo "Waiting for something other than $BUILD_ID_BEFORE to be served."
+
+          # Up to two minutes. A restart is seconds; a host that rebuilds the
+          # app itself takes longer, and this project has one that does.
+          for attempt in $(seq 1 24); do
+            sleep 5
+            now=$(curl -fsS --max-time 20 "$PRODUCTION_URL/super-admin/login?cb=$RANDOM$attempt" 2>/dev/null \
+                  | grep -o '<!--[A-Za-z0-9_-]\{10,\}-->' | head -1 || true)
+
+            if [ -n "$now" ] && [ "$now" != "$BUILD_ID_BEFORE" ]; then
+              echo "Now serving: $now (was $BUILD_ID_BEFORE)"
+              echo "The new build is live after $((attempt * 5))s."
+              exit 0
+            fi
+          done
+
+          echo "::error::Two minutes after the upload, the site is still serving $BUILD_ID_BEFORE."
+          echo ""
+          echo "The files were uploaded successfully. The OLD process is still"
+          echo "running, so none of this deploy is live."
+          echo ""
+          if [ -z "$HOSTINGER_RESTART_COMMAND" ]; then
+            echo "HOSTINGER_RESTART_COMMAND is not set, so nothing tried to restart"
+            echo "the application. Either set it, or restart the Node.js app in"
+            echo "hPanel now — the new files are already in place, so a restart is"
+            echo "all that is missing."
+          else
+            echo "HOSTINGER_RESTART_COMMAND ran without error but the process did"
+            echo "not come back on the new build. The command is very likely"
+            echo "restarting nothing — check it against hPanel."
+          fi
+          exit 1
 
       # The point of the whole workflow: a deploy that is not verified is a
       # deploy that reports success while the site is down.

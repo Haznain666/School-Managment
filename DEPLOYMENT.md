@@ -428,10 +428,10 @@ in that page — never into a chat, an issue, or a commit.
 | `HOSTINGER_PORT` | SSH port. Blank means 22 — **which is usually wrong on Hostinger shared hosting**, where SSH commonly listens on **65002**. hPanel → Advanced → SSH Access has the real one |
 | `HOSTINGER_SSH_KEY` | **private** key of a deploy keypair — generate a fresh one, do not reuse a personal key |
 | `HOSTINGER_PATH` | absolute path of the directory holding `server.js` |
-| `HOSTINGER_RESTART_COMMAND` | command that restarts the app; if blank the upload still happens and the workflow warns that the old process is still serving |
+| `HOSTINGER_RESTART_COMMAND` | optional. Command that restarts the app. If blank the upload still happens and nothing restarts — but the deploy now **measures** whether the new build started serving and fails if it did not, so a blank value can no longer be mistaken for a successful deploy |
 | `NEXT_PUBLIC_APP_DOMAIN` | **baked into the build.** `app/page.tsx` is prerendered, so this ends up in the static homepage HTML. Unset, the platform says `platform.com` everywhere and the panel cannot correct it |
 | `NEXT_PUBLIC_MAPBOX_TOKEN` | optional, but **baked into the build** — read by `AddressAutocomplete`, a client component. Unset, the address field falls back to plain text with a line saying why, which is what production does today. The panel cannot switch it on afterwards |
-| `PRODUCTION_URL` | optional; e.g. `https://schoolhub.codexmill.com`. Without it the smoke test cannot verify the deploy |
+| `PRODUCTION_URL` | e.g. `https://schoolhub.codexmill.com`. Without it neither the smoke test nor the build-id check can run, and the deploy cannot say whether it deployed |
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_URL` | optional. Passed to the build for safety, but both are read at runtime from the panel's `.env`; `publicEnv.supabaseAnonKey` is currently read by nothing |
 | `SMOKE_SUPER_ADMIN_EMAIL`, `SMOKE_SUPER_ADMIN_PASSWORD` | optional; enables a real sign-in assertion after each deploy |
 
