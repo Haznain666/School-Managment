@@ -122,7 +122,26 @@ jobs:
               echo "Cache cleared (HTTP $code)."
               ;;
             401|403)
-              echo "::error::HTTP $code — HOSTINGER_API_TOKEN is missing, expired, or lacks the hosting scope."
+              # Print what the API itself said. "Unauthenticated" and
+              # "insufficient scope" are different problems with the same status
+              # and only the body distinguishes them. The token is never echoed;
+              # this is the response, not the request.
+              echo "::error::HTTP $code — Hostinger rejected the token."
+              echo "The API replied:"
+              head -c 400 /tmp/purge.out || true
+              echo ""
+              echo ""
+              echo "Check, in this order:"
+              echo "  1. The token is a Hostinger API token from hPanel -> API,"
+              echo "     not a VPS-only token and not the GHL token."
+              echo "  2. It was pasted without surrounding quotes or trailing"
+              echo "     whitespace. GitHub stores exactly what was pasted."
+              echo "  3. It has not expired, and its scope covers Hosting."
+              echo ""
+              echo "Test the same token locally to separate a bad token from a"
+              echo "bad secret — this should return 200 and a JSON list:"
+              echo "  curl -i -H \"Authorization: Bearer \$TOKEN\" \\"
+              echo "    https://developers.hostinger.com/api/hosting/v1/accounts"
               exit 1
               ;;
             404)
