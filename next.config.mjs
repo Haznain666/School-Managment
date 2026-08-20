@@ -1,3 +1,5 @@
+import { execSync } from 'node:child_process';
+
 /**
  * The Supabase project hostname, so `next/image` will serve school logos.
  * Derived from SUPABASE_URL rather than hard-coded, because the project ref
@@ -14,9 +16,51 @@ const supabaseHostname = (() => {
   }
 })();
 
+/**
+ * The commit this artifact was built from, used as the Next build id.
+ *
+ * ── Why this is worth overriding ─────────────────────────────────────────
+ * By default Next generates a *random* build id per build, so two builds of
+ * identical source are indistinguishable and a build id answers nothing about
+ * which code is live. On 2026-08-21 that cost an evening: the host was seen
+ * rebuilding repeatedly with a new id each time, which looked like deployments
+ * landing when in fact it was the same stale checkout being rebuilt, and a
+ * commit pushed 28 minutes earlier was still not live.
+ *
+ * With the commit sha as the build id, `GET /api/internal/build` — and the id
+ * embedded in every prerendered page — answers "which commit is running" 
+ * exactly, and a deploy can be verified against the sha that was pushed.
+ *
+ * ── Why the fallbacks, in this order ─────────────────────────────────────
+ * `GITHUB_SHA` is set by Actions. `git rev-parse` covers a host that builds
+ * from a checkout, which is how Hostinger builds this app. Anything else falls
+ * back to null, which tells Next to use its own random id — a build that cannot
+ * name its commit must still be buildable.
+ */
+const buildId = (() => {
+  const fromEnv = process.env.GITHUB_SHA ?? process.env.SOURCE_COMMIT ?? '';
+  if (fromEnv.trim() !== '') return fromEnv.trim().slice(0, 12);
+
+  try {
+    return execSync('git rev-parse HEAD', { stdio: ['ignore', 'pipe', 'ignore'] })
+      .toString()
+      .trim()
+      .slice(0, 12);
+  } catch {
+    return null;
+  }
+})();
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
+
+  /**
+   * The commit, not a random string. See `buildId` above for why. Returning
+   * null is Next's documented way of asking for the default behaviour, which is
+   * what happens on a machine with neither the env var nor a git checkout.
+   */
+  generateBuildId: () => buildId,
 
   /**
    * Hostinger runs the app as a plain Node process, not on a platform that

@@ -416,6 +416,43 @@ binaries and a Windows build cannot run on the host — copies `.next/static`
 restarts the app, waits, and then runs the smoke test below. A failing smoke
 test fails the workflow, so a deploy cannot report success over a broken site.
 
+### How deployment actually works
+
+**Hostinger builds this app from GitHub.** hPanel shows the site connected
+directly to the repository, root directory `./`. **Deploy from hPanel's Git
+section.** There is nothing to upload and no artifact to build here.
+
+`.github/workflows/deploy.yml` used to rsync a standalone build over SSH and
+reported success every time while serving nothing — see STATE.md. It is now
+**Verify the live deployment**: purge the cache, confirm which commit is live,
+smoke test. Run it after deploying.
+
+### Which commit is live
+
+`generateBuildId` in `next.config.mjs` sets the Next build id to the **commit
+sha**, so this is an exact answer rather than the random string Next would
+otherwise emit:
+
+```bash
+curl -s https://schoolhub.codexmill.com/api/internal/build
+# {"buildId":"cac72f9a7fb8","startedAt":"..."}
+```
+
+`buildId` is the first 12 characters of the deployed commit. `startedAt` is when
+the process last restarted — useful when a redeploy of the same commit needs
+confirming.
+
+### Clear the cache after every deploy
+
+Prerendered routes ship `Cache-Control: s-maxage=31536000` — **one year** — and
+nothing invalidates them. On 2026-08-21 `/super-admin/login` was served 30.4
+hours stale, and its markup referenced chunk hashes the newer build no longer
+had, so the page failed to hydrate and showed a client-side exception.
+
+Either set `HOSTINGER_API_TOKEN` so the verify workflow purges it, or press
+**Clear website cache** in hPanel after each deploy. This is not optional
+housekeeping; skipping it breaks prerendered pages.
+
 ### Secrets to set
 
 **Settings → Secrets and variables → Actions.** They are encrypted, and they go
@@ -423,62 +460,27 @@ in that page — never into a chat, an issue, or a commit.
 
 | Secret | What it is |
 | --- | --- |
-| `HOSTINGER_HOST` | SSH hostname or IP |
-| `HOSTINGER_USER` | SSH username |
-| `HOSTINGER_PORT` | SSH port. Blank means 22 — **which is usually wrong on Hostinger shared hosting**, where SSH commonly listens on **65002**. hPanel → Advanced → SSH Access has the real one |
-| `HOSTINGER_SSH_KEY` | **private** key of a deploy keypair — generate a fresh one, do not reuse a personal key |
-| `HOSTINGER_PATH` | absolute path of the directory holding `server.js` |
-| `HOSTINGER_RESTART_COMMAND` | optional. Command that restarts the app. If blank the upload still happens and nothing restarts — but the deploy now **measures** whether the new build started serving and fails if it did not, so a blank value can no longer be mistaken for a successful deploy |
-| `NEXT_PUBLIC_APP_DOMAIN` | **baked into the build.** `app/page.tsx` is prerendered, so this ends up in the static homepage HTML. Unset, the platform says `platform.com` everywhere and the panel cannot correct it |
-| `NEXT_PUBLIC_MAPBOX_TOKEN` | optional, but **baked into the build** — read by `AddressAutocomplete`, a client component. Unset, the address field falls back to plain text with a line saying why, which is what production does today. The panel cannot switch it on afterwards |
-| `PRODUCTION_URL` | e.g. `https://schoolhub.codexmill.com`. Without it neither the smoke test nor the build-id check can run, and the deploy cannot say whether it deployed |
-| `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_URL` | optional. Passed to the build for safety, but both are read at runtime from the panel's `.env`; `publicEnv.supabaseAnonKey` is currently read by nothing |
-| `HOSTINGER_API_TOKEN` | optional but **strongly wanted**. Purges the website cache after each deploy. Without it, prerendered routes go on serving the previous build — they ship with `s-maxage=31536000` and cannot be busted from the client. `/super-admin/login` was found 30.4 hours stale on 2026-08-21, with hydration broken because its markup referenced chunks that `rsync --delete` had removed |
-| `SMOKE_SUPER_ADMIN_EMAIL`, `SMOKE_SUPER_ADMIN_PASSWORD` | optional; enables a real sign-in assertion after each deploy |
+| `PRODUCTION_URL` | required — e.g. `https://schoolhub.codexmill.com`. Everything here reads it |
+| `HOSTINGER_API_TOKEN` | purges the cache after a deploy. Without it, prerendered pages stay stale until you clear them in hPanel |
+| `HOSTINGER_USER` | the hosting account username, for the purge endpoint |
+| `NEXT_PUBLIC_APP_DOMAIN` | the site's domain, for the purge endpoint |
+| `SMOKE_SUPER_ADMIN_EMAIL`, `SMOKE_SUPER_ADMIN_PASSWORD` | optional; adds a real sign-in assertion to the smoke test |
 
-### Everything else stays in Hostinger
+**No longer used:** `HOSTINGER_SSH_KEY`, `HOSTINGER_HOST`, `HOSTINGER_PORT`,
+`HOSTINGER_PATH`, `HOSTINGER_RESTART_COMMAND`. They belonged to the upload path
+that never worked and can be deleted.
 
-**This list is short on purpose.** `DATABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`,
-`SMTP_*`, `GHL_*` and the rest are **not** repository secrets and must not be
-copied here. The application reads them through `serverEnv` /
-`requireServerEnv`, which are `process.env[name]` — a dynamic lookup Next.js
-cannot inline — so they are read on the host, from the panel's `.env`, every
-time. Duplicating them into GitHub would create a second copy that silently
-goes stale.
-
-Only two kinds of value have to be repository secrets:
-
-1. **How to reach the host** — the SSH four. They cannot live on the host,
-   because they are what gets you *to* the host.
-2. **What Next.js freezes into the artifact** — `publicEnv` in `lib/env.ts`
-   references `process.env.NEXT_PUBLIC_X` as a literal, and the compiler
-   substitutes the value. Setting those in the panel afterwards changes nothing
-   about a bundle that has already been built.
-
-Generate the deploy key with `ssh-keygen -t ed25519 -f deploy_key -N ""`, put
-the **public** half in the host's `~/.ssh/authorized_keys` and the private half
-in `HOSTINGER_SSH_KEY`.
-
-> ### These names, not the ones in the error log
+> ### Runtime configuration stays in Hostinger
 >
-> A failing step prints its **env var** names, which are deliberately different
-> from the **secret** names:
+> `DATABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `SMTP_*`, `GHL_*` and the rest are
+> read through `serverEnv`/`requireServerEnv` — `process.env[name]`, a dynamic
+> lookup Next cannot inline — so they are read on the host from the panel's
+> `.env`. Do not copy them into GitHub; a second copy only goes stale.
 >
-> ```
-> env:
->   SSH_PRIVATE_KEY:      <- the env var inside the step
->   SSH_HOST:
->   SSH_PORT:
-> ```
->
-> Those are `HOSTINGER_SSH_KEY`, `HOSTINGER_HOST` and `HOSTINGER_PORT` in the
-> table above. On 2026-08-20 that log was read exactly as it reads and three
-> secrets were created called `SSH_PRIVATE_KEY`, `SSH_HOST` and `SH_PORT` — two
-> under the wrong name, one under a typo, none of them visible to the workflow,
-> and the next run failed identically.
->
-> The **Check the deploy secrets are set** step now runs first and names the
-> missing secrets, so this costs one line of log rather than a rerun.
+> Values Next *bakes into the build* are different: `publicEnv` in `lib/env.ts`
+> references `process.env.NEXT_PUBLIC_X` as a literal and the compiler
+> substitutes it. Since Hostinger runs the build, those must be in the **panel**,
+> not here — `NEXT_PUBLIC_APP_DOMAIN` and `NEXT_PUBLIC_MAPBOX_TOKEN` especially.
 
 ## 5c. Smoke test
 

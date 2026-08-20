@@ -1,370 +1,102 @@
-name: Deploy to Hostinger
+name: Verify the live deployment
 
-# Manual only, and deliberately so. This pushes to production; it should be an
-# act, not a side effect of merging. Trigger it from the Actions tab
-# ("Run workflow"), which also records who ran it and when.
+# ── This workflow does NOT deploy, and used to pretend it did ──────────────
+#
+# Hostinger builds this app from GitHub itself; hPanel shows the site connected
+# directly to the repository with root directory `./`. There is no separate
+# Node.js application root to upload into.
+#
+# Until 2026-08-21 this workflow built a standalone artifact and rsynced it over
+# SSH, and reported success every time. It was never serving anything. Proven:
+# run 32424514882 uploaded build `Iwrd9bUQ0XAqcQJcKVEWO`, and the host went on
+# serving a different build while 404ing the route that build introduced. Four
+# "successful deploys" had deployed nothing.
+#
+# The upload steps are gone rather than fixed, because there was nothing to fix:
+# the deploy is Hostinger's, from hPanel's Git section. What was missing is any
+# way to see whether it had happened, and that is what this workflow is now for.
+#
+#   * `generateBuildId` in next.config.mjs makes the build id the **commit sha**,
+#     so the running commit is readable from any page and from
+#     `GET /api/internal/build`.
+#   * The cache is purged, because prerendered pages ship
+#     `s-maxage=31536000` and otherwise serve the previous build for a year.
+#   * The smoke test proves the site is actually up.
+#
+# Run it after deploying from hPanel.
+
 on:
   workflow_dispatch:
     inputs:
-      skip_smoke_test:
-        description: 'Deploy without verifying the live site afterwards (not recommended)'
-        type: boolean
-        default: false
+      expected_sha:
+        description: 'Commit sha that should be live (blank = whatever main points at)'
+        type: string
+        required: false
 
 concurrency:
-  # Never two deploys at once: the second would rsync over a half-written tree.
-  group: deploy-production
+  group: verify-production
   cancel-in-progress: false
 
 permissions:
   contents: read
 
 jobs:
-  deploy:
-    name: Build, upload, restart, verify
+  verify:
+    name: Purge cache, confirm the commit, smoke test
     runs-on: ubuntu-latest
 
     steps:
-      # Named first, and before the eight minutes of build that would otherwise
-      # precede the failure.
-      #
-      # ── Why this step exists ────────────────────────────────────────────
-      # Without it a missing secret surfaces as `ssh-keyscan` exiting 1 under
-      # `bash -e`, six steps in, with a log that prints the *step's env var
-      # names* — SSH_HOST, SSH_PORT, SSH_PRIVATE_KEY — and nothing else. Those
-      # are not the secret names. On 2026-08-20 that log was read exactly as it
-      # reads, and three repository secrets were created called SSH_PRIVATE_KEY,
-      # SSH_HOST and SH_PORT: two under the wrong name and one under a typo,
-      # none of them visible to this workflow, and the next run failed
-      # identically with no new information.
-      #
-      # A secret's value is never printed here — only whether it is empty.
-      - name: Check the deploy secrets are set
+      # Named first, so a missing secret costs one line of log rather than a
+      # confusing failure further down. A secret's value is never printed —
+      # only whether it is empty.
+      - name: Check the secrets this workflow needs
         env:
-          HOSTINGER_SSH_KEY: ${{ secrets.HOSTINGER_SSH_KEY }}
-          HOSTINGER_HOST: ${{ secrets.HOSTINGER_HOST }}
-          HOSTINGER_USER: ${{ secrets.HOSTINGER_USER }}
-          HOSTINGER_PATH: ${{ secrets.HOSTINGER_PATH }}
-          NEXT_PUBLIC_APP_DOMAIN: ${{ secrets.NEXT_PUBLIC_APP_DOMAIN }}
-          NEXT_PUBLIC_MAPBOX_TOKEN: ${{ secrets.NEXT_PUBLIC_MAPBOX_TOKEN }}
-          # Optional ones, reported but never fatal.
-          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
-          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-          HOSTINGER_PORT: ${{ secrets.HOSTINGER_PORT }}
-          HOSTINGER_RESTART_COMMAND: ${{ secrets.HOSTINGER_RESTART_COMMAND }}
           PRODUCTION_URL: ${{ secrets.PRODUCTION_URL }}
           HOSTINGER_API_TOKEN: ${{ secrets.HOSTINGER_API_TOKEN }}
+          HOSTINGER_USER: ${{ secrets.HOSTINGER_USER }}
+          NEXT_PUBLIC_APP_DOMAIN: ${{ secrets.NEXT_PUBLIC_APP_DOMAIN }}
         run: |
-          missing=""
-          # Required: the four that say how to reach the host — which cannot
-          # live on the host — and the one baked value whose absence is not
-          # survivable (every page would say `platform.com`).
-          # Everything else the application needs is read at runtime from
-          # Hostinger's own .env and has no business being duplicated here.
-          for name in HOSTINGER_SSH_KEY HOSTINGER_HOST HOSTINGER_USER HOSTINGER_PATH \
-                      NEXT_PUBLIC_APP_DOMAIN; do
-            if [ -z "${!name}" ]; then
-              missing="$missing $name"
-              echo "::error::Repository secret $name is not set."
-            fi
-          done
-
-          # Blank is a supported state for each of these, and each has a
-          # consequence worth saying out loud rather than discovering later.
-          #
-          # Written as `if`, never as `[ -z "$X" ] && echo`. This job runs under
-          # `bash -e`, where a `&&` whose left side is false is a failed command
-          # and ends the script - so the short form would abort the preflight on
-          # precisely the runs where these ARE set.
-          # Warned about, never fatal. `AddressAutocomplete` degrades to the
-          # plain field the form has always had, plus a line saying why there is
-          # no search — which is what production does today, because the token is
-          # not in `.env.local` either. Blocking a deploy over a feature that is
-          # already off would be this check inventing a problem.
-          if [ -z "$NEXT_PUBLIC_MAPBOX_TOKEN" ]; then
-            echo "::warning::NEXT_PUBLIC_MAPBOX_TOKEN is blank - address autocomplete falls back to a plain text field. It is baked into the build, so the panel cannot switch it on afterwards."
-          fi
-          if [ -z "$NEXT_PUBLIC_SUPABASE_ANON_KEY" ]; then
-            echo "::notice::NEXT_PUBLIC_SUPABASE_ANON_KEY is blank — currently harmless, because publicEnv.supabaseAnonKey is read by nothing. Sign-in uses the runtime value from Hostinger's .env."
-          fi
-          if [ -z "$SUPABASE_URL" ]; then
-            echo "::notice::SUPABASE_URL is blank — harmless, it is only ever read at runtime from Hostinger's .env."
-          fi
-          if [ -z "$HOSTINGER_PORT" ]; then
-            echo "::notice::HOSTINGER_PORT is blank — SSH will use port 22."
-          fi
-          if [ -z "$HOSTINGER_RESTART_COMMAND" ]; then
-            echo "::warning::HOSTINGER_RESTART_COMMAND is blank — the upload will happen but the OLD process keeps serving until you restart in hPanel."
-          fi
           if [ -z "$PRODUCTION_URL" ]; then
-            echo "::warning::PRODUCTION_URL is blank — the smoke test cannot verify the deploy."
-          fi
-          if [ -z "$HOSTINGER_API_TOKEN" ]; then
-            echo "::warning::HOSTINGER_API_TOKEN is blank — the website cache will NOT be purged, so prerendered pages keep serving the previous build until you clear it in hPanel."
-          fi
-
-          if [ -n "$missing" ]; then
-            echo ""
-            echo "Add them at Settings -> Secrets and variables -> Actions -> New repository secret."
-            echo "The names above are the SECRET names. They are deliberately not the"
-            echo "same as the env var names printed inside a failing step — a secret"
-            echo "called SSH_HOST or SSH_PRIVATE_KEY is invisible to this workflow."
-            echo "DEPLOYMENT.md has what each one holds."
-            echo ""
-            echo "Note: most of this application's environment does NOT belong here."
-            echo "DATABASE_URL, SMTP_*, SUPABASE_SERVICE_ROLE_KEY and the rest are read"
-            echo "at runtime from Hostinger's .env and must stay there. Only the four"
-            echo "connection secrets and NEXT_PUBLIC_APP_DOMAIN, which Next.js bakes in,"
-            echo "have to be repository secrets."
+            echo "::error::Repository secret PRODUCTION_URL is not set. Without it nothing here can run."
             exit 1
           fi
 
-          echo "All required deploy secrets are present."
+          if [ -z "$HOSTINGER_API_TOKEN" ] || [ -z "$HOSTINGER_USER" ] || [ -z "$NEXT_PUBLIC_APP_DOMAIN" ]; then
+            echo "::warning::HOSTINGER_API_TOKEN, HOSTINGER_USER or NEXT_PUBLIC_APP_DOMAIN is blank, so the cache will NOT be purged. Prerendered pages keep serving the previous build until you press Clear website cache in hPanel."
+          fi
+
+          echo "PRODUCTION_URL is set."
 
       - name: Check out the repository
         uses: actions/checkout@v4
 
-      # Ubuntu, matching the host. `sharp` ships platform-specific binaries, so
-      # a Windows build produces an artifact that cannot run on Hostinger —
-      # which is exactly why this job exists rather than a local `npm run build`
-      # and a drag into an SFTP window.
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-          cache: npm
-
-      - name: Install dependencies
-        run: npm ci
-
-      # ── Which variables belong HERE, and which belong in Hostinger ─────
-      #
-      # Almost none of them belong here. The application reads its environment
-      # at runtime through `serverEnv` / `requireServerEnv`, which are
-      # `process.env[name]` — a dynamic lookup Next.js cannot inline. Every one
-      # of those is read on the host, from the panel's .env, and setting it here
-      # would achieve nothing. DATABASE_URL, SMTP_*, SUPABASE_SERVICE_ROLE_KEY
-      # and the rest are all in that group.
-      #
-      # The exception is `lib/env.ts`'s `publicEnv`, which references
-      # `process.env.NEXT_PUBLIC_X` as a **literal**. Next.js substitutes those
-      # for their values while compiling, so they are frozen into the artifact
-      # and the panel cannot change them afterwards. Two of them are actually
-      # read:
-      #
-      #   NEXT_PUBLIC_APP_DOMAIN   `app/page.tsx` is prerendered, so this is
-      #                            baked into the static homepage HTML. Left
-      #                            unset the whole platform says `platform.com`.
-      #   NEXT_PUBLIC_MAPBOX_TOKEN read by `AddressAutocomplete`, a client
-      #                            component. Left unset, address autocomplete
-      #                            is silently dead on every form.
-      #
-      # The other two are passed for safety rather than need — `SUPABASE_URL` is
-      # only ever read dynamically, and `publicEnv.supabaseAnonKey` is currently
-      # read by nothing — so the preflight warns about them and does not fail.
-      - name: Build the standalone artifact
-        env:
-          NEXT_PUBLIC_APP_DOMAIN: ${{ secrets.NEXT_PUBLIC_APP_DOMAIN }}
-          NEXT_PUBLIC_MAPBOX_TOKEN: ${{ secrets.NEXT_PUBLIC_MAPBOX_TOKEN }}
-          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
-          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-        run: npm run build
-
-      # Next leaves these two out of `standalone`. Without them the server runs
-      # and every stylesheet 404s, which reads as "the site is broken" rather
-      # than "two directories are missing".
-      - name: Assemble the deployable tree
-        run: |
-          cp -r .next/static .next/standalone/.next/static
-          if [ -d public ]; then cp -r public .next/standalone/public; fi
-          echo "Artifact size: $(du -sh .next/standalone | cut -f1)"
-
-      # The step env vars carry the same names as the secrets they come from.
-      #
-      # They used to be SSH_PRIVATE_KEY / SSH_HOST / SSH_PORT, which is what a
-      # failing step prints — so the log said `SSH_HOST:` and the natural fix was
-      # to create a repository secret called SSH_HOST, which this workflow does
-      # not read. That happened on 2026-08-20 and cost two runs. One name for one
-      # thing, everywhere.
-      # ── The only honest answer to "did the deploy take effect?" ────────
-      #
-      # Read from `/api/internal/build`, which is a route handler and therefore
-      # cannot be prerendered or cached.
-      #
-      # This used to read the build id out of `/super-admin/login`, and that was
-      # worse than no check at all. That page is prerendered and the CDN holds it
-      # with `s-maxage=31536000`; measured on 2026-08-21 it was **30.4 hours
-      # stale** and no request header would bust it. The check was comparing two
-      # cache entries and reporting a successful deploy on the strength of it.
-      - name: Record the build currently running
-        if: ${{ !inputs.skip_smoke_test }}
-        env:
-          PRODUCTION_URL: ${{ secrets.PRODUCTION_URL }}
-        run: |
-          if [ -z "$PRODUCTION_URL" ]; then
-            echo "BUILD_BEFORE=" >> "$GITHUB_ENV"
-            echo "::notice::PRODUCTION_URL is not set, so this deploy cannot be measured."
-            exit 0
-          fi
-
-          body=$(curl -fsS --max-time 20 "$PRODUCTION_URL/api/internal/build" 2>/dev/null || true)
-          before=$(printf '%s' "$body" | sed -n 's/.*"buildId":"\([^"]*\)".*/\1/p')
-
-          echo "BUILD_BEFORE=$before" >> "$GITHUB_ENV"
-          if [ -z "$before" ]; then
-            echo "::notice::/api/internal/build did not answer yet — expected on the first deploy that introduces it."
-          else
-            echo "Currently running: $before"
-          fi
-
-      - name: Authorise the deploy key
-        env:
-          HOSTINGER_SSH_KEY: ${{ secrets.HOSTINGER_SSH_KEY }}
-          HOSTINGER_HOST: ${{ secrets.HOSTINGER_HOST }}
-          HOSTINGER_PORT: ${{ secrets.HOSTINGER_PORT }}
-        run: |
-          mkdir -p ~/.ssh && chmod 700 ~/.ssh
-          printf '%s\n' "$HOSTINGER_SSH_KEY" > ~/.ssh/id_deploy
-          chmod 600 ~/.ssh/id_deploy
-
-          port="${HOSTINGER_PORT:-22}"
-          echo "Scanning the host key on port $port."
-
-          # Pin the host key rather than disabling checking, so this cannot be
-          # pointed at an impostor by anyone who can influence DNS.
-          #
-          # stderr is NOT sent to /dev/null. It used to be, and that is why this
-          # step failed on 2026-08-20 with nothing but `exit code 1`: ssh-keyscan
-          # had said exactly what was wrong and the redirect threw it away. A
-          # diagnostic you have suppressed is a diagnostic you will spend an
-          # evening re-deriving.
-          if ! ssh-keyscan -T 10 -p "$port" -H "$HOSTINGER_HOST" >> ~/.ssh/known_hosts; then
-            echo "::error::ssh-keyscan could not read a host key from HOSTINGER_HOST on port $port."
-            echo ""
-            echo "The scan reached nothing. In order of likelihood:"
-            echo ""
-            echo "  1. The port is wrong. Hostinger shared hosting does NOT use 22 —"
-            echo "     it is commonly 65002. HOSTINGER_PORT is currently"
-            if [ -z "$HOSTINGER_PORT" ]; then
-              echo "     UNSET, so this tried 22. Check hPanel -> Advanced -> SSH Access"
-              echo "     for the real port and set HOSTINGER_PORT to it."
-            else
-              echo "     set, and this tried $port. Confirm that against hPanel ->"
-              echo "     Advanced -> SSH Access."
-            fi
-            echo ""
-            echo "  2. HOSTINGER_HOST holds something other than a bare hostname or IP."
-            echo "     No scheme, no username, no port suffix — not ssh://host, not"
-            echo "     user@host, not host:65002. Just the host."
-            echo ""
-            echo "  3. SSH is switched off for the account, or the runner's address"
-            echo "     is blocked. Both are settings in hPanel."
-            exit 1
-          fi
-
-          echo "Host key pinned."
-
-      # --delete so a file removed from the repo also leaves the server, with
-      # node_modules excluded: `standalone` carries only what it traced, and the
-      # host must not accumulate a second, stale dependency tree.
-      - name: Upload the artifact
-        env:
-          HOSTINGER_HOST: ${{ secrets.HOSTINGER_HOST }}
-          HOSTINGER_USER: ${{ secrets.HOSTINGER_USER }}
-          HOSTINGER_PORT: ${{ secrets.HOSTINGER_PORT }}
-          HOSTINGER_PATH: ${{ secrets.HOSTINGER_PATH }}
-        run: |
-          ssh_opts="-i ~/.ssh/id_deploy -p ${HOSTINGER_PORT:-22}"
-
-          # rsync creates the LAST directory of a path and no more. On a first
-          # deploy — or after HOSTINGER_PATH is pointed somewhere new — the
-          # parents do not exist yet, and rsync reports that as
-          #
-          #   rsync: mkdir "***" failed: No such file or directory (2)
-          #
-          # with the path masked, because it came from a secret. Creating the
-          # tree first removes the failure rather than explaining it.
-          if ! ssh $ssh_opts "$HOSTINGER_USER@$HOSTINGER_HOST" \
-                 "mkdir -p '$HOSTINGER_PATH'"; then
-            echo "::error::Could not create HOSTINGER_PATH on the server."
-            echo ""
-            echo "SSH itself is working — the host key was pinned and this"
-            echo "command reached the server. So the path is the problem:"
-            echo ""
-            echo "  * it must be ABSOLUTE, e.g. /home/u123456789/domains/…/app"
-            echo "  * the SSH user in HOSTINGER_USER must be allowed to create it"
-            echo "  * no trailing slash, no ~ , no quotes inside the secret itself"
-            echo ""
-            echo "Run 'pwd' over SSH on the host to see where you land, and set"
-            echo "HOSTINGER_PATH to a directory under that."
-            exit 1
-          fi
-
-          rsync -az --delete \
-            -e "ssh $ssh_opts" \
-            .next/standalone/ \
-            "$HOSTINGER_USER@$HOSTINGER_HOST:$HOSTINGER_PATH/"
-
-      # Also ships the diagnostics scripts, which are not part of `standalone`
-      # and are wanted on the host precisely when something is wrong.
-      - name: Upload the diagnostic scripts
-        env:
-          HOSTINGER_HOST: ${{ secrets.HOSTINGER_HOST }}
-          HOSTINGER_USER: ${{ secrets.HOSTINGER_USER }}
-          HOSTINGER_PORT: ${{ secrets.HOSTINGER_PORT }}
-          HOSTINGER_PATH: ${{ secrets.HOSTINGER_PATH }}
-        run: |
-          rsync -az \
-            -e "ssh -i ~/.ssh/id_deploy -p ${HOSTINGER_PORT:-22}" \
-            scripts/ \
-            "$HOSTINGER_USER@$HOSTINGER_HOST:$HOSTINGER_PATH/scripts/"
-
-      - name: Restart the application
-        env:
-          HOSTINGER_HOST: ${{ secrets.HOSTINGER_HOST }}
-          HOSTINGER_USER: ${{ secrets.HOSTINGER_USER }}
-          HOSTINGER_PORT: ${{ secrets.HOSTINGER_PORT }}
-          HOSTINGER_RESTART_COMMAND: ${{ secrets.HOSTINGER_RESTART_COMMAND }}
-        run: |
-          if [ -z "$HOSTINGER_RESTART_COMMAND" ]; then
-            echo "::warning::HOSTINGER_RESTART_COMMAND is not set — the new code is"
-            echo "::warning::uploaded but the OLD process is still running. Restart in hPanel."
-            exit 0
-          fi
-          ssh -i ~/.ssh/id_deploy -p "${HOSTINGER_PORT:-22}" \
-            "$HOSTINGER_USER@$HOSTINGER_HOST" "$HOSTINGER_RESTART_COMMAND"
-
-      # ── Without this, prerendered pages serve the OLD build for a year ──
+      # ── Prerendered pages serve the OLD build for a year without this ────
       #
       # Static routes go out with `Cache-Control: s-maxage=31536000`. On
       # 2026-08-21 `/super-admin/login` was served **30.4 hours stale** and could
-      # not be busted by `no-cache`, `no-store` or `Pragma` from the client. The
-      # page's markup then referenced chunk hashes from the older build while
-      # `.next/static` on the host had been replaced by rsync --delete, so
-      # hydration died and the page reported a client-side exception.
-      #
-      # A deploy that does not purge is therefore not a deploy: the dynamic
-      # routes update and every prerendered one does not.
+      # not be busted by `no-cache`, `no-store` or `Pragma` from the client. Its
+      # markup then referenced chunk hashes the newer build no longer had, so
+      # hydration died and the page showed a client-side exception.
       - name: Purge the website cache
         env:
           HOSTINGER_API_TOKEN: ${{ secrets.HOSTINGER_API_TOKEN }}
           HOSTINGER_USER: ${{ secrets.HOSTINGER_USER }}
           NEXT_PUBLIC_APP_DOMAIN: ${{ secrets.NEXT_PUBLIC_APP_DOMAIN }}
         run: |
-          if [ -z "$HOSTINGER_API_TOKEN" ]; then
-            echo "::warning::HOSTINGER_API_TOKEN is not set, so the cache was NOT purged. Prerendered pages (/super-admin/login and the homepage) will keep serving the previous build until the cache expires or you press Clear website cache in hPanel."
+          if [ -z "$HOSTINGER_API_TOKEN" ] || [ -z "$HOSTINGER_USER" ] || [ -z "$NEXT_PUBLIC_APP_DOMAIN" ]; then
+            echo "Skipped — see the warning above."
             exit 0
           fi
 
           base="https://developers.hostinger.com/api/hosting/v1/accounts/$HOSTINGER_USER/websites/$NEXT_PUBLIC_APP_DOMAIN"
 
-          # The exact suffix is not documented in this repo, and guessing one and
-          # swallowing the failure is how a step comes to do nothing quietly. So
-          # each candidate is tried and every status is printed: one run of this
-          # tells us which is real, and none of them can fail silently.
+          # The exact suffix is not documented in this repo. Guessing one and
+          # swallowing the failure is how a step comes to do nothing quietly, so
+          # each candidate is tried and every status printed: one run names the
+          # real one, and none of them can fail silently.
           purged=0
           for path in "cache" "clear-cache" "cache/clear" "cache/purge"; do
-            code=$(curl -s -o /tmp/purge.out -w "%{http_code}" --max-time 30 \
+            code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 30 \
                    -X POST "$base/$path" \
                    -H "Authorization: Bearer $HOSTINGER_API_TOKEN" \
                    -H "Content-Type: application/json" \
@@ -376,87 +108,54 @@ jobs:
           done
 
           if [ "$purged" -ne 1 ]; then
-            echo "::error::Every cache-purge endpoint was refused. The deploy is uploaded and running, but prerendered pages will serve the previous build until you press Clear website cache in hPanel."
-            echo "The statuses above name which endpoint to use — 404 means wrong path, 401/403 means the token or username is wrong."
+            echo "::error::Every cache-purge endpoint was refused. 404 means the path is wrong; 401/403 means the token or username is. Until this works, clear the cache in hPanel after each deploy."
             exit 1
           fi
 
-      # A restart is not instant, and a smoke test against a half-started server
-      # reports a failure that is not real. So this waits for a *specific
-      # observable* rather than for a fixed number of seconds and a hope.
-      - name: Wait for the new build to start serving
-        if: ${{ !inputs.skip_smoke_test }}
+      # ── Which commit is actually serving requests ────────────────────────
+      #
+      # `generateBuildId` makes the build id the commit sha, so this is an exact
+      # answer rather than the random string Next would otherwise produce. Read
+      # from a route handler, which cannot be prerendered or cached — the check
+      # this replaces read a CDN-cached page and was therefore meaningless.
+      - name: Confirm which commit is live
         env:
           PRODUCTION_URL: ${{ secrets.PRODUCTION_URL }}
-          HOSTINGER_RESTART_COMMAND: ${{ secrets.HOSTINGER_RESTART_COMMAND }}
+          EXPECTED: ${{ inputs.expected_sha }}
         run: |
-          if [ -z "$PRODUCTION_URL" ]; then
-            echo "::notice::Nothing to measure against. Sleeping 20s."
-            sleep 20
+          expected="$EXPECTED"
+          if [ -z "$expected" ]; then expected=$(git rev-parse HEAD); fi
+          expected=$(printf '%s' "$expected" | cut -c1-12)
+
+          body=$(curl -fsS --max-time 25 "$PRODUCTION_URL/api/internal/build" 2>/dev/null || true)
+          live=$(printf '%s' "$body" | sed -n 's/.*"buildId":"\([^"]*\)".*/\1/p')
+
+          echo "expected: $expected"
+          echo "live:     ${live:-<no answer>}"
+
+          if [ "$live" = "$expected" ]; then
+            echo "The live site is running $expected."
             exit 0
           fi
 
-          expected=$(cat .next/BUILD_ID 2>/dev/null || true)
-          if [ -z "$expected" ]; then
-            echo "::warning::No .next/BUILD_ID in the artifact, so the running build cannot be compared. Sleeping 20s."
-            sleep 20
-            exit 0
-          fi
-
-          echo "Waiting for the host to report build $expected."
-
-          # Up to two minutes. A restart is seconds; a host that rebuilds the app
-          # itself takes longer, and this project has one that does.
-          for attempt in $(seq 1 24); do
-            sleep 5
-            body=$(curl -fsS --max-time 20 "$PRODUCTION_URL/api/internal/build" 2>/dev/null || true)
-            now=$(printf '%s' "$body" | sed -n 's/.*"buildId":"\([^"]*\)".*/\1/p')
-
-            if [ "$now" = "$expected" ]; then
-              echo "Running build $now after $((attempt * 5))s — this is the artifact just uploaded."
-              exit 0
-            fi
-          done
-
-          echo "::error::Two minutes after the upload, the host is still running ${now:-<no answer>}, not $expected."
-          echo ""
-          echo "The files were uploaded successfully. The OLD process is still"
-          echo "running, so none of this deploy is live."
-          echo ""
-          if [ -z "$HOSTINGER_RESTART_COMMAND" ]; then
-            echo "HOSTINGER_RESTART_COMMAND is not set, so nothing tried to restart"
-            echo "the application. Either set it, or restart the Node.js app in"
-            echo "hPanel now — the new files are already in place."
+          if [ -z "$live" ]; then
+            echo "::error::/api/internal/build did not answer. The running build predates that route, so Hostinger has not deployed a commit from 2026-08-21 or later."
           else
-            echo "HOSTINGER_RESTART_COMMAND ran without error but the process did"
-            echo "not come back on the new build. The command is very likely"
-            echo "restarting nothing — check it against hPanel."
+            echo "::error::The live site is running $live, not $expected."
           fi
           echo ""
-          echo "If /api/internal/build 404s, the running build predates it, which"
-          echo "is itself proof that this deploy did not take effect."
+          echo "This workflow does not deploy — Hostinger does, from its GitHub"
+          echo "connection. Deploy from hPanel's Git section, then run this again."
+          echo ""
+          echo "Anyone can check the live commit at any time with:"
+          echo "  curl -s \$PRODUCTION_URL/api/internal/build"
           exit 1
 
-      # The point of the whole workflow: a deploy that is not verified is a
-      # deploy that reports success while the site is down.
-      - name: Verify the live site
-        if: ${{ !inputs.skip_smoke_test }}
+      # The point of the whole thing: a deploy nobody verified is a deploy that
+      # reports success over a broken site.
+      - name: Smoke test the live site
+        if: ${{ !cancelled() }}
         env:
           SMOKE_SUPER_ADMIN_EMAIL: ${{ secrets.SMOKE_SUPER_ADMIN_EMAIL }}
           SMOKE_SUPER_ADMIN_PASSWORD: ${{ secrets.SMOKE_SUPER_ADMIN_PASSWORD }}
-          PRODUCTION_URL: ${{ secrets.PRODUCTION_URL }}
-        run: |
-          # `smoke-test-live.mjs` exits 2 when given no origin, which would have
-          # failed a deploy whose upload and restart had both succeeded — the
-          # worst possible moment to report failure. PRODUCTION_URL is optional
-          # by design, so an absent one skips the check and says so.
-          if [ -z "$PRODUCTION_URL" ]; then
-            echo "::warning::PRODUCTION_URL is not set, so the deploy was NOT verified. The upload and restart succeeded; nothing has confirmed the site is actually serving. Set PRODUCTION_URL to turn this into a real check."
-            exit 0
-          fi
-
-          node scripts/smoke-test-live.mjs "$PRODUCTION_URL"
-
-      - name: Remove the deploy key
-        if: always()
-        run: rm -f ~/.ssh/id_deploy
+        run: node scripts/smoke-test-live.mjs "${{ secrets.PRODUCTION_URL }}"
