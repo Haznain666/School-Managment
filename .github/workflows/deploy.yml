@@ -25,6 +25,72 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      # Named first, and before the eight minutes of build that would otherwise
+      # precede the failure.
+      #
+      # ── Why this step exists ────────────────────────────────────────────
+      # Without it a missing secret surfaces as `ssh-keyscan` exiting 1 under
+      # `bash -e`, six steps in, with a log that prints the *step's env var
+      # names* — SSH_HOST, SSH_PORT, SSH_PRIVATE_KEY — and nothing else. Those
+      # are not the secret names. On 2026-08-20 that log was read exactly as it
+      # reads, and three repository secrets were created called SSH_PRIVATE_KEY,
+      # SSH_HOST and SH_PORT: two under the wrong name and one under a typo,
+      # none of them visible to this workflow, and the next run failed
+      # identically with no new information.
+      #
+      # A secret's value is never printed here — only whether it is empty.
+      - name: Check the deploy secrets are set
+        env:
+          HOSTINGER_SSH_KEY: ${{ secrets.HOSTINGER_SSH_KEY }}
+          HOSTINGER_HOST: ${{ secrets.HOSTINGER_HOST }}
+          HOSTINGER_USER: ${{ secrets.HOSTINGER_USER }}
+          HOSTINGER_PATH: ${{ secrets.HOSTINGER_PATH }}
+          NEXT_PUBLIC_APP_DOMAIN: ${{ secrets.NEXT_PUBLIC_APP_DOMAIN }}
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          # Optional ones, reported but never fatal.
+          HOSTINGER_PORT: ${{ secrets.HOSTINGER_PORT }}
+          HOSTINGER_RESTART_COMMAND: ${{ secrets.HOSTINGER_RESTART_COMMAND }}
+          PRODUCTION_URL: ${{ secrets.PRODUCTION_URL }}
+        run: |
+          missing=""
+          for name in HOSTINGER_SSH_KEY HOSTINGER_HOST HOSTINGER_USER HOSTINGER_PATH \
+                      NEXT_PUBLIC_APP_DOMAIN NEXT_PUBLIC_SUPABASE_ANON_KEY SUPABASE_URL; do
+            if [ -z "${!name}" ]; then
+              missing="$missing $name"
+              echo "::error::Repository secret $name is not set."
+            fi
+          done
+
+          # Blank is a supported state for each of these, and each has a
+          # consequence worth saying out loud rather than discovering later.
+          #
+          # Written as `if`, never as `[ -z "$X" ] && echo`. This job runs under
+          # `bash -e`, where a `&&` whose left side is false is a failed command
+          # and ends the script - so the short form would abort the preflight on
+          # precisely the runs where these ARE set.
+          if [ -z "$HOSTINGER_PORT" ]; then
+            echo "::notice::HOSTINGER_PORT is blank — SSH will use port 22."
+          fi
+          if [ -z "$HOSTINGER_RESTART_COMMAND" ]; then
+            echo "::warning::HOSTINGER_RESTART_COMMAND is blank — the upload will happen but the OLD process keeps serving until you restart in hPanel."
+          fi
+          if [ -z "$PRODUCTION_URL" ]; then
+            echo "::warning::PRODUCTION_URL is blank — the smoke test cannot verify the deploy."
+          fi
+
+          if [ -n "$missing" ]; then
+            echo ""
+            echo "Add them at Settings -> Secrets and variables -> Actions -> New repository secret."
+            echo "The names above are the SECRET names. They are deliberately not the"
+            echo "same as the env var names printed inside a failing step — a secret"
+            echo "called SSH_HOST or SSH_PRIVATE_KEY is invisible to this workflow."
+            echo "DEPLOYMENT.md has what each one holds."
+            exit 1
+          fi
+
+          echo "All required deploy secrets are present."
+
       - name: Check out the repository
         uses: actions/checkout@v4
 

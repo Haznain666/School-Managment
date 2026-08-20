@@ -49,8 +49,19 @@ the same day: Sprint 13.7 — §5ar; 2026-08-19: §5aq, §5ap, §5ao, §5an, §5
 > seconds with a cache-busting parameter. Whatever deployed 13.7 was done by
 > hand.
 >
-> **To ship it:** add `SSH_PRIVATE_KEY`, `SSH_HOST` and `SSH_PORT` to the
-> repository secrets and re-run *Deploy to Hostinger* from the Actions tab.
+> **Correction, 2026-08-21:** the names in the line above were wrong, and were
+> wrong because they were read off the failing step's `env:` block. Those are
+> the step's *env var* names. The **secret** names are `HOSTINGER_SSH_KEY`,
+> `HOSTINGER_HOST`, `HOSTINGER_PORT`, plus `HOSTINGER_USER`, `HOSTINGER_PATH`,
+> `HOSTINGER_RESTART_COMMAND`, the three build-time `NEXT_PUBLIC_*`/`SUPABASE_URL`
+> values, and `PRODUCTION_URL`. `gh secret list` on 2026-08-21 showed exactly
+> three secrets on the repository — `SSH_PRIVATE_KEY`, `SSH_HOST` and
+> **`SH_PORT`** (a typo) — none of which this workflow reads.
+>
+> **To ship it:** add the `HOSTINGER_*` secrets named in DEPLOYMENT.md §5b and
+> re-run *Deploy to Hostinger* from the Actions tab. A new first step,
+> **Check the deploy secrets are set**, now names any that are missing before
+> the build runs, instead of failing eight minutes later inside `ssh-keyscan`.
 >
 > ⚠ **The database is ahead of the deployed code, and that is safe here.**
 > `0026` is additive — one nullable column, two indexes, and a canonicalisation

@@ -437,6 +437,27 @@ Generate the deploy key with `ssh-keygen -t ed25519 -f deploy_key -N ""`, put
 the **public** half in the host's `~/.ssh/authorized_keys` and the private half
 in `HOSTINGER_SSH_KEY`.
 
+> ### These names, not the ones in the error log
+>
+> A failing step prints its **env var** names, which are deliberately different
+> from the **secret** names:
+>
+> ```
+> env:
+>   SSH_PRIVATE_KEY:      <- the env var inside the step
+>   SSH_HOST:
+>   SSH_PORT:
+> ```
+>
+> Those are `HOSTINGER_SSH_KEY`, `HOSTINGER_HOST` and `HOSTINGER_PORT` in the
+> table above. On 2026-08-20 that log was read exactly as it reads and three
+> secrets were created called `SSH_PRIVATE_KEY`, `SSH_HOST` and `SH_PORT` — two
+> under the wrong name, one under a typo, none of them visible to the workflow,
+> and the next run failed identically.
+>
+> The **Check the deploy secrets are set** step now runs first and names the
+> missing secrets, so this costs one line of log rather than a rerun.
+
 ## 5c. Smoke test
 
 ```bash
