@@ -1,7 +1,14 @@
 # Sprint 13.8 — siblings become a thing the system knows
 
-**Shipped 2026-08-20.** Migration `0026_sibling_identity.sql` applied to the
-live database and verified against the real schema.
+**Merged 2026-08-20.** Migration `0026_sibling_identity.sql` applied to the live
+database and verified against the real schema.
+
+> ⛔ **Not yet live.** The code is on `main` and CI is green, but *Deploy to
+> Hostinger* fails at "Authorise the deploy key": `SSH_PRIVATE_KEY`, `SSH_HOST`
+> and `SSH_PORT` are not set on the repository. Add them and re-run the workflow
+> from the Actions tab. The database being ahead of the deployed code is safe
+> here — `0026` is additive and nothing in the shipped build writes the new
+> column.
 
 ---
 
