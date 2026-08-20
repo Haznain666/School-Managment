@@ -9,6 +9,41 @@ CNIC becomes the key, and siblings are shown on five surfaces — §5as**; earli
 the same day: Sprint 13.7 — §5ar; 2026-08-19: §5aq, §5ap, §5ao, §5an, §5am,
 §5al, §5ai–§5ak)
 
+> ⛔ **Sprint 13.8 is merged and pushed but NOT LIVE, and this is a blocker on
+> the repository, not on the code (§5as).** `.github/workflows/deploy.yml` is
+> the only deploy path and it is `workflow_dispatch` only, deliberately. Run
+> manually on 2026-08-20 it failed at **"Authorise the deploy key"** with
+> `SSH_PRIVATE_KEY`, `SSH_HOST` and `SSH_PORT` all **empty** — the three
+> secrets are not set on the repository. The build and artifact-assembly steps
+> before it passed, so what is missing is credentials and nothing else.
+>
+> **There is no auto-deploy on push.** §5ar recorded "the push to `main`
+> deployed within about a minute"; that is not what happens. The live build id
+> at `/super-admin/login` was `F0I8X3x6DwUmW54YEsSig` immediately after the push
+> and **still `F0I8X3x6DwUmW54YEsSig` five minutes later**, sampled every ten
+> seconds with a cache-busting parameter. Whatever deployed 13.7 was done by
+> hand.
+>
+> **To ship it:** add `SSH_PRIVATE_KEY`, `SSH_HOST` and `SSH_PORT` to the
+> repository secrets and re-run *Deploy to Hostinger* from the Actions tab.
+>
+> ⚠ **The database is ahead of the deployed code, and that is safe here.**
+> `0026` is additive — one nullable column, two indexes, and a canonicalisation
+> of two CNIC values. No shipped code writes `relationship_other`, and the only
+> visible effect on the old build is that a guardian's CNIC now reads
+> `42201-0139154-7` where it read `4220101391547`. Do not treat this as an
+> instance of the §5ar migrate-then-deploy hazard; it is the benign case.
+
+> ⚠ **Route-existence probing no longer distinguishes builds on
+> `schoolhub.codexmill.com` — the method §5ar prescribes has stopped working.**
+> Every path now returns 200 with `x-middleware-rewrite: /school-not-found`,
+> *including* `/api/school/timetable/structures`, which §5ar recorded as
+> answering 401 on 10 of 10 samples the day before. `lgs.codexmill.com` — the
+> only school slug in the database — has **no DNS record at all**. So no school
+> subdomain resolves, and the tenant cannot be reached on the live origin by any
+> host. Diagnose this before trusting any future "it is live" claim made by
+> probing routes.
+
 > ✅ **Siblings are now something the system knows, not something one screen
 > derived (§5as).** Until 2026-08-20 nothing linked one student to another.
 > "Sibling" existed in exactly one file — `lib/family-challans.ts`, grouping open
@@ -5700,6 +5735,10 @@ blank.
 
 ### What was NOT done
 
+* ⛔ **It is not deployed.** See the banner at the top of this file: the deploy
+  workflow's three SSH secrets are absent from the repository, and there is no
+  auto-deploy on push. Merged, pushed, CI green, migration applied — and the
+  live build id did not move.
 * **Nothing was looked at in a browser.** Same as §5ar: no screenshot of the
   sibling card, the CNIC lookup or the header switcher exists. The layouts are
   unseen. This is the next thing worth doing.
