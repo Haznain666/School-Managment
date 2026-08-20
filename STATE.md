@@ -88,8 +88,24 @@ the same day: Sprint 13.7 — §5ar; 2026-08-19: §5aq, §5ap, §5ao, §5an, §5
 > by nothing at all. They are passed to the build for safety and the preflight
 > now reports them as notices rather than failing on them.
 >
-> **To ship it:** add the six secrets named in DEPLOYMENT.md §5b and re-run
-> *Deploy to Hostinger* from the Actions tab. A new first step,
+> **Correction, 2026-08-21 (third):** five of the six are now set and the run
+> gets past the preflight and the build. It fails in **Authorise the deploy key**
+> — and never for the reason the naming suggested: the log shows
+> `HOSTINGER_SSH_KEY: ***` and `HOSTINGER_HOST: ***`, so the secrets resolve.
+> `ssh-keyscan` itself exits 1, and `2>/dev/null` was throwing away the reason.
+>
+> That redirect is gone and the step now names the three things it can be.
+> Against the real host it reports: **nothing answered on port 22, and
+> `HOSTINGER_PORT` is unset.** Hostinger shared hosting does not use 22 — it is
+> commonly **65002** (hPanel → Advanced → SSH Access). One secret left.
+>
+> Every step's env var now carries the same name as the secret behind it
+> (`HOSTINGER_*` throughout). They were `SSH_PRIVATE_KEY` / `SSH_HOST` /
+> `SSH_PORT` / `DEPLOY_PATH` / `RESTART_COMMAND`, which is what a failing step
+> prints — which is exactly how the wrong secrets got created in the first
+> place.
+>
+> **To ship it:** set `HOSTINGER_PORT` and re-run *Deploy to Hostinger*. A new first step,
 > **Check the deploy secrets are set**, now names any that are missing before
 > the build runs, instead of failing eight minutes later inside `ssh-keyscan`.
 >
