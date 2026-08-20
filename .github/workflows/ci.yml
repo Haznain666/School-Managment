@@ -74,6 +74,15 @@ jobs:
         if: '!cancelled()'
         run: npm run check-address-phone
 
+      # The CNIC mask, its canonical storage form, and the rule that every
+      # field asking for one is `CnicField`. Not a formatting preference: the
+      # guardian CNIC is what decides which enrolled children are siblings, and
+      # two spellings of one number are two people to every query that reads it
+      # while being indistinguishable on a masked screen.
+      - name: CNIC fields and canonicalisation
+        if: '!cancelled()'
+        run: npm run check-cnic
+
       - name: Theme contrast
         if: '!cancelled()'
         run: npm run check-theme

@@ -13,6 +13,7 @@ import {
   OPEN_APPLICATION_STATUSES,
 } from '@/db/schema';
 import { apiFailure, apiSuccess, handleApiError, readJsonBody } from '@/lib/api-response';
+import { normalizeCnic } from '@/lib/national-id';
 import { verifyCaptcha } from '@/lib/admissions-captcha';
 import { db } from '@/lib/drizzle';
 import { createGuardianGHLContact } from '@/lib/ghl-admissions';
@@ -252,7 +253,10 @@ export async function POST(request: NextRequest) {
         guardianRelationship,
         guardianPhone,
         guardianEmail: readOptionalString(body.guardianEmail),
-        guardianCnic: readOptionalString(body.guardianCnic),
+        // Canonicalised on the way in. This is the number the admissions desk
+        // will match the family on when the application is converted, and a
+        // public form is exactly where thirteen bare digits get typed.
+        guardianCnic: normalizeCnic(readOptionalString(body.guardianCnic)),
         // The medical note the applicant wrote is the only thing they have to
         // say about the child, so it is kept with their other remarks.
         notes:

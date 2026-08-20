@@ -9,6 +9,7 @@ import {
 } from '@/db/schema';
 import { withSchoolAuth } from '@/lib/api-auth';
 import { apiFailure, apiSuccess, handleApiError, readJsonBody } from '@/lib/api-response';
+import { normalizeCnic } from '@/lib/national-id';
 import { db } from '@/lib/drizzle';
 import { listDepartments, listStaff } from '@/lib/hr-queries';
 import { isIsoDate, isUuid, readOptionalString, readString } from '@/lib/validation';
@@ -180,7 +181,9 @@ export const POST = withSchoolAuth(
           joinedOn,
           phone: readOptionalString(body.phone),
           email: readOptionalString(body.email),
-          cnic: readOptionalString(body.cnic),
+          // One spelling, as everywhere else a CNIC is stored. See
+          // `lib/national-id.ts`.
+          cnic: normalizeCnic(readOptionalString(body.cnic)),
           dateOfBirth,
           gender: isGender(body.gender) ? body.gender : null,
           address: readOptionalString(body.address),

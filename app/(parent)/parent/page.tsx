@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { PlaceholderModuleCard } from '@/components/school/PlaceholderModuleCard';
 import { Badge } from '@/components/ui/Badge';
 import { Card, CardTitle } from '@/components/ui/Card';
-import { GUARDIAN_RELATIONSHIP_LABELS } from '@/db/schema';
+import { relationshipLabel } from '@/db/schema';
 import {
   getActiveAcademicYear,
   listChildrenForGuardian,
@@ -251,8 +251,7 @@ function ChildCard({
               <span className="font-mono">{child.studentId}</span>
             </Badge>
             <span className="text-xs text-ink-muted">
-              You are their{' '}
-              {GUARDIAN_RELATIONSHIP_LABELS[child.relationship].toLowerCase()}
+              You are their {relationshipLabel(child).toLowerCase()}
             </span>
           </div>
 

@@ -333,6 +333,10 @@ export async function commitBatch(
           {
             name: candidate.guardianName,
             relationship: candidate.guardianRelationship as never,
+            // A spreadsheet has no column for this and inventing one would put
+            // words in the school's mouth. An imported "Other" is described on
+            // the profile when somebody next opens it.
+            relationshipOther: null,
             phone: candidate.guardianPhone,
             email: candidate.guardianEmail,
             cnic: null,

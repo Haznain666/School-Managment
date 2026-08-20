@@ -4,6 +4,7 @@ import { notFound } from 'next/navigation';
 
 import { FeeClearancePanel } from '@/components/admissions/FeeClearancePanel';
 import { GuardianPanel } from '@/components/admissions/GuardianPanel';
+import { SiblingCard } from '@/components/admissions/SiblingCard';
 import { StudentProfileCard } from '@/components/admissions/StudentProfileCard';
 import { Badge } from '@/components/ui/Badge';
 import { Card, CardTitle } from '@/components/ui/Card';
@@ -21,6 +22,7 @@ import {
   listGuardians,
 } from '@/lib/admissions-queries';
 import { MAX_GUARDIANS } from '@/lib/enrollment';
+import { listSiblings } from '@/lib/siblings';
 import { requireSchoolPermission } from '@/lib/school-guard';
 import { isUuid } from '@/lib/validation';
 
@@ -55,9 +57,13 @@ export default async function StudentProfilePage({
   // A branch-scoped admin may only look inside their own branch.
   if (claims.branchId !== null && student.branchId !== claims.branchId) notFound();
 
-  const [guardians, enrollments] = await Promise.all([
+  const [guardians, enrollments, siblings] = await Promise.all([
     listGuardians(locationId, studentId),
     listEnrollmentHistory(locationId, studentId),
+    // Derived, never stored: everyone who shares a guardian identity with this
+    // child. See `lib/siblings.ts` for what "the same guardian" means and what
+    // that rule costs.
+    listSiblings(locationId, studentId),
   ]);
 
   /*
@@ -186,6 +192,18 @@ export default async function StudentProfilePage({
           )}
         />
       )}
+
+      {/*
+        Above the guardians rather than below them, because the guardians are
+        the *reason* for this list and an admin reading downwards meets the
+        family before the mechanism that produced it.
+      */}
+      <SiblingCard
+        siblings={siblings}
+        hrefFor={(sibling) =>
+          `/dashboard/admissions/students/${sibling.studentProfileId}`
+        }
+      />
 
       <GuardianPanel
         studentProfileId={student.studentProfileId}

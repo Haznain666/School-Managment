@@ -5,7 +5,7 @@ import { Badge } from '@/components/ui/Badge';
 import { Card } from '@/components/ui/Card';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { PageHeader } from '@/components/ui/PageHeader';
-import { GUARDIAN_RELATIONSHIP_LABELS } from '@/db/schema';
+import { relationshipLabel } from '@/db/schema';
 import { summariseAttendance, listStudentAttendance } from '@/lib/academics-queries';
 import {
   getActiveAcademicYear,
@@ -154,8 +154,9 @@ function ChildCard({
             </Badge>
           </div>
           <p className="mt-0.5 text-xs text-ink-muted">
-            You are their{' '}
-            {GUARDIAN_RELATIONSHIP_LABELS[child.relationship].toLowerCase()}
+            {/* Not the bare enum: a guardian recorded as "Other" reads "You
+                are their other" without the school's own words. */}
+            You are their {relationshipLabel(child).toLowerCase()}
           </p>
 
           {child.enrollment === null ? (

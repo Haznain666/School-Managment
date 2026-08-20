@@ -4,9 +4,47 @@
 resume without re-deriving context. Updated at the end of every development
 step, before the session ends.
 
-**Last updated:** 2026-08-20 (**Sprint 13.7 — parent portal accounts, period
-schedules, subject colours, teacher calendar — §5ar**; 2026-08-19: §5aq, §5ap,
-§5ao, §5an, §5am, §5al, §5ai–§5ak)
+**Last updated:** 2026-08-20 (**Sprint 13.8 — sibling identity: the guardian
+CNIC becomes the key, and siblings are shown on five surfaces — §5as**; earlier
+the same day: Sprint 13.7 — §5ar; 2026-08-19: §5aq, §5ap, §5ao, §5an, §5am,
+§5al, §5ai–§5ak)
+
+> ✅ **Siblings are now something the system knows, not something one screen
+> derived (§5as).** Until 2026-08-20 nothing linked one student to another.
+> "Sibling" existed in exactly one file — `lib/family-challans.ts`, grouping open
+> challans on the primary guardian's **phone number** — so the only screen in the
+> product that knew two children were related was the family voucher, and only
+> for children with an open challan that month.
+>
+> `student_guardians.cnic` is now an identity key: **two students are siblings
+> when they share a guardian, and two guardian rows are the same person when
+> they share a CNIC *or* a phone number** (`lib/siblings.ts`). Shown on the
+> student profile, the application review, the challan detail, the enrolment
+> form's live lookup, and as a child dropdown in the parent portal header.
+> Super Admin gets nothing, deliberately.
+
+> ⚠ **The two match keys are unioned, never ranked — do not "simplify" this.**
+> Promoting CNIC over phone would *split* families rather than merge them: a
+> father carrying his CNIC on a new child's record and not on the elder one —
+> which is every family already on a roll, plus one new admission — would come
+> out as two guardians and two vouchers. `lib/family-challans.ts` runs a
+> union-find over the guardian rows so the CNIC on the new row and the phone on
+> the old row link the two halves of one father into one family.
+
+> ⚠ **The parent portal does NOT use the sibling rule to decide what a parent
+> may read.** It follows `student_guardians.school_user_id` and nothing else.
+> Widening a portal's reach to "anyone sharing my phone number" is a far worse
+> mistake than a fee voucher grouping two families, and the two rules are
+> deliberately separate functions in the same file so that nobody swaps one for
+> the other.
+
+> ✅ **`0026_sibling_identity.sql` applied to the live database, 2026-08-20.**
+> Verified against the real schema, not the exit code: 27 of 27 migrations
+> recorded, `relationship_other` present, both new indexes present, both
+> thirteen-digit CNICs canonicalised, zero left non-canonical, zero empty
+> strings — and the one **32-character** junk value found in production (proof
+> of what an unmasked field produces) left at exactly 32 characters rather than
+> truncated into a plausible CNIC. **Next free migration number is `0027`.**
 
 > ✅ **A parent can now reach the parent portal. Until 2026-08-20 not one ever
 > could (§5ar).** Reported as "the father did not get a welcome email"; the
@@ -36,7 +74,7 @@ schedules, subject colours, teacher calendar — §5ar**; 2026-08-19: §5aq, §5
 > NULL with zero orphans, exactly one default structure per school, the old
 > school-wide position index gone and the per-structure one in place, every
 > pre-existing enrolment back-filled to `cleared` and every existing guardian
-> stamped so deploy day mails nobody. **Next free migration number is `0026`.**
+> stamped so deploy day mails nobody. **Next free migration number was `0026`; it is now `0027` — see §5as.**
 >
 > ✅ **Sprint 13.7 is LIVE at `schoolhub.codexmill.com`, confirmed 2026-08-20.**
 > The push to `main` deployed within about a minute. Confirmed by route
@@ -5530,10 +5568,156 @@ Not investigated further.
 
 ---
 
+---
+
+## 5as. Sprint 13.8 — sibling identity — 2026-08-20
+
+The user asked for six things. They are one thing.
+
+### The gap, stated exactly
+
+Nothing linked one student to another. There is no sibling table, no household
+record, and there was no derivation of one outside `lib/family-challans.ts`,
+which grouped **open fee challans** on the **primary guardian's phone number**.
+
+Consequences, all of them real before today:
+
+* the only screen that knew two children were related was Fees → Family
+  Vouchers, and only for children with an open challan in the billed month;
+* an admin on Ahmed's profile could not see that Fatima two classes up is his
+  sister — the fact behind the sibling discount, the shared transport and the
+  parent who comes once for two parents' evenings;
+* an admissions clerk enrolling a second child **re-typed the father from
+  scratch**, and any difference in spelling created a second person, after
+  which the two children were related by nothing at all;
+* the guardian CNIC was collected by four different raw `<Input>` boxes, none
+  masked or validated. Production held a **32-character** value in that column.
+
+### The rule, in one file
+
+`lib/siblings.ts`. **Two enrolled students are siblings when they share a
+guardian; two guardian rows are the same person when they share a CNIC or a
+phone number.** Every sibling surface reads it from there.
+
+CNIC is the honest key — issued once, to one person, for life. Phone stays
+because every guardian recorded before today has one and most have no CNIC, and
+a rule that ignored them would un-relate every family already on a roll.
+
+**What it costs, stated plainly:** the phone half still reads two unrelated
+guardians on one handset as one family. That is rare and it is *visible* — the
+sibling card names the children and the guardian they are shared through, and
+the voucher prints them. CNIC coverage grows with every admission.
+
+### The enrolment form asks for the CNIC first
+
+Fifth field → first field, spanning the card. A complete number hits
+`GET /api/school/guardians/lookup`, and on a match the card fills itself in from
+the record the school already holds — **never overwriting anything the clerk has
+typed** — and names the children this person already guards, with admission
+numbers.
+
+Two details worth keeping:
+
+* the fill reads the cards through a **ref**, not the render-time array, so a
+  lookup resolving after the clerk starts typing cannot undo the name they just
+  entered;
+* it also runs **on mount** for a card that arrives already carrying a whole
+  CNIC. That is the converted-application path — the parent typed the number on
+  the public form weeks ago and the clerk never touches the field, so a
+  keystroke-triggered lookup would never fire. It is the case most likely to be
+  a returning family.
+
+The lookup is gated on `admissions.write`, refuses anything shorter than a whole
+CNIC (so it cannot be walked to enumerate a school's guardians), and returns a
+phone number, an email and children's names — which is why both of those are
+true.
+
+### Three guardian rules, enforced twice
+
+The form removes impossible options from the dropdown; `parseGuardians` and both
+guardian routes refuse them. The dropdown is a courtesy, the server is the rule.
+
+1. **First guardian must be Father, Mother or Sibling.** "Other" is the absence
+   of an answer to who the school holds responsible.
+2. **Father and Mother are each available once per student.** A duplicate is
+   what splits one family in two on the sibling lookup and the voucher.
+3. **"Other" carries `relationship_other`** — the relation in the school's own
+   words, required by the API.
+
+⚠ **One documented exception:** `POST /api/school/applications/[id]/convert`
+carries what the *applicant* wrote on the public form. A one-click conversion
+must not fail because a parent called themselves a guardian rather than a
+father; the relationship is corrected on the profile in one click, and refusing
+would lose the admission. Do not "fix" this by tightening it.
+
+### Where siblings are shown
+
+| Portal | Screen | What |
+| --- | --- | --- |
+| School / Branch Admin | student profile | **Siblings at this school** — name, admission number, class, and which guardian they are shared through. Withdrawn siblings appear with a badge. |
+| School / Branch Admin | application review | **This family is already at this school** — before the offer goes out, the only moment it can change the decision. |
+| School / Branch Admin | challan detail | the family, pointing at Family Vouchers. |
+| School / Branch Admin | enrolment + Add guardian | the live CNIC lookup. |
+| Parents / Guardians | **portal header, every screen** | `ChildSwitcher` — a native `<select>` naming every child on this login. One child renders as text. |
+| Super Admin | — | nothing, deliberately. A platform operator has no business reading a family's composition. |
+
+⚠ The Family Vouchers screen is **not branch-scoped** — it reads by
+`location_id` only, so a `branch_admin` with `fees.read` sees every family in
+the school, not only their campus. That predates this sprint and was not
+changed; it is recorded here because it was found while working.
+
+### The standing rule this leaves behind
+
+**Every CNIC field is `components/ui/CnicField.tsx`; every stored CNIC goes
+through `normalizeCnic`.** Four raw inputs replaced — enrolment guardians,
+guardian panel, public application, staff record. `NationalIdField` (student's
+own CNIC *or* B-Form) is the one exemption, and only while it goes on calling
+`formatCnic(` and `isValidCnic(` itself — asserted, not assumed.
+
+New `npm run check-cnic`: 36 assertions across the mask, canonicalisation,
+masking and a source scan of 396 components. **In CI.** `CLAUDE.md` carries this
+rule and the guardian rules.
+
+This is not cosmetic. A column holding `4210112345671` beside `42101-1234567-1`
+holds two people as far as every query is concerned, and the two are
+indistinguishable on screen because both render masked. An unmasked field does
+not produce an ugly value — it produces a family that silently stops being one.
+
+### The migration
+
+`0026_sibling_identity.sql`: `relationship_other` (nullable, no CHECK — old rows
+are history and a constraint would refuse the next unrelated write to them), two
+indexes on `(location_id, cnic)` and `(location_id, phone)`, and a back-fill.
+
+⚠ **The back-fill canonicalises only values carrying exactly thirteen digits.**
+Anything else is left exactly as it is. Guessing at a malformed identity number
+is how you invent a relationship between two unrelated children, and the
+migration must not be capable of it. Those rows simply do not participate:
+`lib/siblings.ts` re-normalises on read and drops what it cannot canonicalise,
+so a partial number can never match another partial by string equality. Empty
+strings were cleared to null — as an identity key, `''` matches every other
+blank.
+
+### What was NOT done
+
+* **Nothing was looked at in a browser.** Same as §5ar: no screenshot of the
+  sibling card, the CNIC lookup or the header switcher exists. The layouts are
+  unseen. This is the next thing worth doing.
+* The **student import** writes `relationship_other: null` and no CNIC — a
+  spreadsheet has no column for either and inventing one would put words in the
+  school's mouth.
+* **Announcements still do not de-duplicate by family**: a parent of three gets
+  whatever the audience rules produce per child.
+* The **sibling discount is still manual** — `student_concessions` is a generic
+  per-student discount that a school happens to name "Sibling discount".
+  Nothing auto-applies it now that second children are detectable. That is the
+  obvious next sprint.
+
 ## 7. Session log
 
 | Date | Session did | Next |
 | --- | --- | --- |
+| 2026-08-20 | **Sprint 13.8 — sibling identity** (§5as). Six requests, one thing. **Nothing in this product linked one student to another**: "sibling" was derived in one file, `lib/family-challans.ts`, by grouping open challans on the primary guardian's phone, so the only screen that knew two children were related was the family voucher — and only for children billed that month. `student_guardians.cnic` becomes an identity key: **two students are siblings when they share a guardian, and two guardian rows are one person when they share a CNIC *or* a phone**, unioned transitively by a union-find so that promoting CNIC does not *split* the families that predate it. The enrolment form asks for the CNIC **first** and fills the card in from the record the school already holds, naming the children that person already guards. Three guardian rules (first must be Father/Mother/Sibling; Father and Mother once each; "Other" carries a written relation) enforced on the form and in `parseGuardians`. Siblings shown on the student profile, application review, challan detail, and as a **header dropdown in the parent portal** — the portal still scopes by `school_user_id`, never by the sibling rule. **Four raw `<Input label="CNIC">` boxes replaced** by one `CnicField`; production held a **32-character** value in that column, which is what an unmasked field produces. New `npm run check-cnic`, 36 assertions, in CI. `0026` applied and verified against the real schema — the junk value left at 32 characters rather than guessed at. | **Nothing was looked at** — still no screenshot of any new screen, now for two sprints running. Twenty minutes of clicking, then print one of each document on real A4. Then the **automatic sibling discount**: second children are detectable now and `student_concessions` still applies them by hand. Sprint 13.5 (accounting) on migration **`0027`**. |
 | 2026-08-20 | **Sprint 13.7 — parent accounts, period schedules, colours, teacher calendar** (§5ar). The reported fault was "the father did not get a welcome email"; the email was the smaller half. **No guardian had ever been given a `school_users` row**, so Sprint 13's six parent screens — routed, permissioned, with a calendar and printable report cards in them — could not be opened by a single parent at any school, and every profile said "No portal account" with nothing implying that was leavable. `lib/parent-portal-access.ts` opens the account, links every guardian row on that number, and queues the §5g setup email with parent wording. **Found while wiring it:** enrolment gave the *child's* directory row the primary guardian's mobile, and `school_users` is unique on (location, phone) — so the father's own account would later have upserted onto his daughter's row, writing his address onto her record. The sentinel is now unconditional. **The fee gate** is a second column, `fee_status`, and deliberately not a fifth `status`: `active` is what the register, promotions, class lists, the challan generator and nine reports filter on, so a child parked outside it would be invisible to the very generator that produces the bill they are waiting to pay. Clears on "holds a challan and none still open"; a waiver counts; a manual button exists because a school that takes cash across a desk would otherwise never fire it at all. **Period structures** end one-bell-per-school — the old (location, order_index) key refused a school's second schedule as a duplicate of its first — with a default that makes the migration a no-op for anyone who never opens the screen. **Subject colours** gain a picker; asserting its contrast caught `#db2777`, in the shipped palette since Sprint 6 at 4.39:1, which no build or screenshot had ever objected to. **The teacher calendar** projects rules onto dates through UTC-midnight strings and sorts by the clock, because a teacher on two schedules has periods whose positions are not comparable. `0025` applied and verified against the real schema. New `npm run check-sprint-periods` — 107 assertions, in CI. **Everything was driven end to end against the live database in a real session** and the QA rows removed. | **Nothing was looked at** — the preview browser does not composite, so no screenshot of any new screen exists and the layouts are unseen. Twenty minutes of clicking is the next thing worth doing. Then **print one of each document on real A4** (still needs a person and a printer), then Sprint 13.5 (accounting) on migration **`0026`**. Also pre-existing and unrelated: `[announcements] sweep failed … Received an instance of Date`, every 60s in the dev log. |
 | 2026-08-19 | **Three onboarding faults, reported by the user** (§5ap). (1) **Creating a school sent its first administrator nothing** — proven from the data, not inferred: `password_setup_tokens` had a row for the branch admin and none for the school admin, and the only mail that address ever got was an invite-flow OTP somebody sent by hand nine minutes later. Every other member-creating path queues `queueAccessEmail`; the one route that provisions the *first* person into a school was the only one that did not. It does now, and `SchoolForm` lands the operator on Users whenever the admin was not created **or** the mail did not queue. (2) **"School portal unavailable" on /dashboard/users — never reproduced**, and said so plainly: the live site answers that route correctly (14 anonymous samples, plus a garbage-cookie probe that proves the tenant headers are stamped), and it renders locally against the production database for `school_admin`, `branch_admin` and a platform-operator hand-off session alike. The one remaining code path that produces that page was middleware collapsing `fetchSchoolBySlug`s deliberate throw-vs-null distinction, so a single failed Supabase call accused the tenant; the lookup cache now serves its expired entry rather than the not-found page, and logs every time. **If it recurs, look at §5ak** — header casing still differs between consecutive responses, so more than one process is answering. (3) **Invite Staff asked for a branch it would not let you create.** New `POST /api/school/branches` gated on `settings.write` that **never creates a member**; Invite Staff redirects to `/dashboard/branches/new?next=…` when there are none and the caller can make one, and shows an empty state naming who can help when they cannot; the Super Admin branch form is reused with no `schoolId`, which is what drops the invite toggle and the Active toggle; `/dashboard/branches` finally exists, having been a sidebar `placeholder` pointing at a 404 since Sprint 10.5. Two lying strings fixed — the invite page now asks `isWhatsAppEnabled` instead of claiming WhatsApp is primary. | **Print one of each document on real A4** — still outstanding, still needs a person and a printer. Then Sprint 13.5 (accounting) on migration `0025`. **Ask the user whether /dashboard/users recurs** — if it does, the next move is restarting the app in hPanel (§5ak), not more code. `NEXT_PUBLIC_MAPBOX_TOKEN` still needs setting (§6 item 11). |
 | 2026-08-19 | **Address and phone made one field each** (§5an). `AddressAutocomplete` (Mapbox Search Box) and `PhoneField` (Mobile/Landline dropdown, digits-only masks — mobile `(xxxx) xxx-xxxx` fixed at eleven, landline `(xxx)` then up to ten) replaced eleven hand-rolled fields across nine files; Google Places and both `@googlemaps` packages are gone. **The token was measured before anything was built**, and the answer shaped the design: Mapbox has Pakistani cities and localities and almost nothing below — "Beaconhouse" and "Ferozepur Road" return nothing at all — so the text box is the record and an empty suggestion list is worded as ordinary rather than as a miss. **No `phone_kind` column**: the format is self-describing, so the kind is derived on load and the store→detect→re-mask round trip is asserted. On identity fields (guardian, invitation, admissions) Landline is offered and then refused with a reason — the user chose that over relaxing `normalizePhone`, which was offered and declined. **Two defects found by building it:** `hasCompleteMobileDigits` accepted any eleven digits starting `0`, so the Lahore landline `042 35300000` was a valid "mobile" and was re-masked to a number that does not exist (live since `0024`); and coordinates outlived the address they belonged to, so picking a place and then retyping the address would have filed it at the old location. The second was only findable in a browser — so `ContactFields` was added to `/design-system` and both fields were **actually driven**, which §5ai and §5aj could not do. Mapbox billing checked too: 46 characters typed cost 2 suggest calls and 1 retrieve. New `npm run check-address-phone` — 32 assertions plus a scan of all 280 components that fails on a raw `<Input label="Phone">`, which is what makes the rule apply to pages nobody has written yet. | **Print one of each document on real A4** — still outstanding, still needs a person and a printer. Then Sprint 13.5 (accounting) on migration `0025`. Nothing here needs a panel action: the Mapbox token ships with the app and `NEXT_PUBLIC_MAPBOX_TOKEN` only overrides it. `NEXT_PUBLIC_GOOGLE_MAPS_API_KEY` can be deleted from the hosting panel. |

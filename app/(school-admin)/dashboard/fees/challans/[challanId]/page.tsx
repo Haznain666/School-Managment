@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 
+import { SiblingCard } from '@/components/admissions/SiblingCard';
 import { ChallanActions } from '@/components/fees/ChallanActions';
 import { ChallanPrintView } from '@/components/fees/ChallanPrintView';
 import { Badge, type BadgeVariant } from '@/components/ui/Badge';
@@ -25,6 +26,7 @@ import { daysOverdue } from '@/lib/fee-calculator';
 import { getChallanDetail, getLateFeeRule } from '@/lib/fee-queries';
 import { amountInWords, formatAmount, formatPkr, toPaise } from '@/lib/money';
 import { requireSchoolPermission } from '@/lib/school-guard';
+import { listSiblings } from '@/lib/siblings';
 import { isUuid } from '@/lib/validation';
 
 export const metadata: Metadata = {
@@ -65,6 +67,16 @@ export default async function ChallanDetailPage({
   ]);
 
   if (challan === null) notFound();
+
+  /*
+   * Who else in this family the school is billing.
+   *
+   * Read after the challan because it needs the student on it. It answers the
+   * question a parent asks at the counter — "is this everything, or is there
+   * another slip for my other child" — which until now could only be answered
+   * by searching the challan list twice and knowing to.
+   */
+  const siblings = await listSiblings(locationId, challan.studentProfileId);
 
   const balancePaise = toPaise(challan.totalAmount) - toPaise(challan.paidAmount);
   const overdueDays =
@@ -209,6 +221,15 @@ export default async function ChallanDetailPage({
             </dl>
           </Card>
         </div>
+
+        <SiblingCard
+          siblings={siblings}
+          title="Siblings at this school"
+          description="This student's family. If more than one of them has an open challan this month, a single family voucher can be issued instead — Fees → Family Vouchers."
+          hrefFor={(sibling) =>
+            `/dashboard/admissions/students/${sibling.studentProfileId}`
+          }
+        />
 
         <Card
           header={

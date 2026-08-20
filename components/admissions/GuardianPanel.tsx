@@ -3,17 +3,20 @@
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 
+import { availableRelationships } from '@/components/admissions/GuardianForm';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { Card, CardTitle } from '@/components/ui/Card';
+import { CnicField } from '@/components/ui/CnicField';
 import { Input } from '@/components/ui/Input';
 import { PhoneField } from '@/components/ui/PhoneField';
 import { Select } from '@/components/ui/Select';
 import {
-  GUARDIAN_RELATIONSHIPS,
   GUARDIAN_RELATIONSHIP_LABELS,
+  relationshipLabel,
   type GuardianRelationship,
 } from '@/db/schema/student-guardians';
+import { cnicProblem } from '@/lib/national-id';
 import { schoolErrorMessage, schoolFetch } from '@/lib/school-client';
 
 /**
@@ -44,6 +47,7 @@ export interface GuardianItem {
   id: string;
   name: string;
   relationship: GuardianRelationship;
+  relationshipOther: string | null;
   phone: string;
   email: string | null;
   cnic: string | null;
@@ -72,11 +76,6 @@ export interface GuardianPanelProps {
   awaitingFee?: boolean;
 }
 
-const RELATIONSHIP_OPTIONS = GUARDIAN_RELATIONSHIPS.map((value) => ({
-  value,
-  label: GUARDIAN_RELATIONSHIP_LABELS[value],
-}));
-
 export function GuardianPanel({
   studentProfileId,
   guardians,
@@ -90,14 +89,74 @@ export function GuardianPanel({
   const [isAdding, setIsAdding] = useState(false);
   const [name, setName] = useState('');
   const [relationship, setRelationship] = useState<GuardianRelationship>('mother');
+  const [relationshipOther, setRelationshipOther] = useState('');
   const [phone, setPhone] = useState('');
   const [email, setEmail] = useState('');
   const [cnic, setCnic] = useState('');
   const [occupation, setOccupation] = useState('');
+  /** Children this CNIC is already recorded against. */
+  const [family, setFamily] = useState<
+    { studentProfileId: string; studentId: string; name: string }[]
+  >([]);
 
+  /**
+   * What the new guardian may be recorded as.
+   *
+   * The same rule the enrolment form applies, fed the guardians already on this
+   * student: Father and Mother each disappear once they are taken, and a
+   * student with no guardian at all cannot be given an "Other" as their first
+   * one. `availableRelationships` is shared with the enrolment form so the two
+   * screens cannot disagree.
+   */
+  const relationshipChoices = availableRelationships(
+    [...guardians.map((guardian) => ({ relationship: guardian.relationship })), {
+      relationship,
+    }],
+    guardians.length,
+  );
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState<'add' | 'sync' | string | null>(null);
+
+  /**
+   * Fill the form in from a guardian this school already holds.
+   *
+   * The same call the enrolment form makes. It matters more here, if anything:
+   * this is the panel an admin opens when a second parent turns up months
+   * after the admission, and it is the moment at which a family already in the
+   * system gets a second, unrelated record instead.
+   */
+  const lookUpCnic = async (value: string): Promise<void> => {
+    try {
+      const result = await schoolFetch<{
+        guardian: {
+          name: string;
+          phone: string;
+          email: string | null;
+          occupation: string | null;
+        } | null;
+        students: { studentProfileId: string; studentId: string; name: string }[];
+      }>(`/api/school/guardians/lookup?cnic=${encodeURIComponent(value)}`);
+
+      setFamily(result.students);
+
+      const found = result.guardian;
+      if (found === null) return;
+
+      // Only what is still blank. The admin is looking at the person; the
+      // database is looking at what was true last time somebody was.
+      setName((current) => (current.trim() === '' ? found.name : current));
+      setPhone((current) => (current.trim() === '' ? found.phone : current));
+      setEmail((current) => (current.trim() === '' ? (found.email ?? '') : current));
+      setOccupation((current) =>
+        current.trim() === '' ? (found.occupation ?? '') : current,
+      );
+    } catch {
+      // Never an error box: a failed lookup leaves the admin typing by hand,
+      // which is what they did before this existed.
+      setFamily([]);
+    }
+  };
 
   const addGuardian = async (): Promise<void> => {
     setBusy('add');
@@ -109,6 +168,7 @@ export function GuardianPanel({
         body: JSON.stringify({
           name,
           relationship,
+          relationshipOther,
           phone,
           email,
           cnic,
@@ -119,10 +179,12 @@ export function GuardianPanel({
 
       setIsAdding(false);
       setName('');
+      setRelationshipOther('');
       setPhone('');
       setEmail('');
       setCnic('');
       setOccupation('');
+      setFamily([]);
       router.refresh();
     } catch (caught) {
       setError(schoolErrorMessage(caught, 'Could not add the guardian.'));
@@ -276,7 +338,7 @@ export function GuardianPanel({
                 <p className="font-medium text-ink">
                   {guardian.name}{' '}
                   <span className="text-sm font-normal text-ink-muted">
-                    · {GUARDIAN_RELATIONSHIP_LABELS[guardian.relationship]}
+                    · {relationshipLabel(guardian)}
                   </span>
                 </p>
                 <p className="font-mono text-xs text-ink-muted">{guardian.phone}</p>
@@ -357,6 +419,44 @@ export function GuardianPanel({
 
         {isAdding ? (
           <div className="mt-4 grid gap-4 border-t border-line pt-4 sm:grid-cols-2">
+            {/*
+              The CNIC leads here for the same reason it leads on the enrolment
+              form: it is what decides whether this is a new person or one the
+              school already holds, and asking for it after the name is asking
+              for it after that decision has been made.
+            */}
+            <div className="sm:col-span-2">
+              <CnicField
+                value={cnic}
+                disabled={busy === 'add'}
+                hint="Enter this first — if this guardian already has a child here, the rest fills itself in."
+                onChange={setCnic}
+                onComplete={(value) => {
+                  void lookUpCnic(value);
+                }}
+              />
+            </div>
+
+            {family.length > 0 ? (
+              <div className="rounded-lg bg-status-info-subtle px-3 py-2.5 text-sm text-status-info-onSubtle sm:col-span-2">
+                <p className="font-medium">
+                  Already a guardian of{' '}
+                  {family.length === 1
+                    ? 'one student'
+                    : `${String(family.length)} students`}{' '}
+                  at this school:
+                </p>
+                <ul className="mt-1.5 space-y-0.5">
+                  {family.map((child) => (
+                    <li key={child.studentProfileId}>
+                      {child.name} ·{' '}
+                      <span className="font-mono">{child.studentId}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
+
             <Input
               label="Full name"
               required
@@ -368,13 +468,38 @@ export function GuardianPanel({
             />
             <Select
               label="Relationship"
-              options={RELATIONSHIP_OPTIONS}
+              options={relationshipChoices.map((value) => ({
+                value,
+                label: GUARDIAN_RELATIONSHIP_LABELS[value],
+              }))}
+              hint={
+                guardians.length === 0
+                  ? 'The first guardian is the person the school holds responsible.'
+                  : undefined
+              }
               value={relationship}
               disabled={busy === 'add'}
               onChange={(event) => {
                 setRelationship(event.target.value as GuardianRelationship);
               }}
             />
+
+            {relationship === 'other' ? (
+              <div className="sm:col-span-2">
+                <Input
+                  label="Relation with this student"
+                  required
+                  placeholder="e.g. Paternal uncle, sponsor, elder cousin"
+                  hint="&ldquo;Other&rdquo; on its own tells a teacher ringing this number nothing."
+                  value={relationshipOther}
+                  disabled={busy === 'add'}
+                  onChange={(event) => {
+                    setRelationshipOther(event.target.value);
+                  }}
+                />
+              </div>
+            ) : null}
+
             <PhoneField
               label="Phone"
               required
@@ -387,18 +512,11 @@ export function GuardianPanel({
             <Input
               label="Email"
               type="email"
+              hint="Needed to open a parent portal account for this guardian."
               value={email}
               disabled={busy === 'add'}
               onChange={(event) => {
                 setEmail(event.target.value);
-              }}
-            />
-            <Input
-              label="CNIC"
-              value={cnic}
-              disabled={busy === 'add'}
-              onChange={(event) => {
-                setCnic(event.target.value);
               }}
             />
             <Input
@@ -413,7 +531,12 @@ export function GuardianPanel({
             <div className="flex gap-3 sm:col-span-2">
               <Button
                 isLoading={busy === 'add'}
-                disabled={name.trim() === '' || phone.trim() === ''}
+                disabled={
+                  name.trim() === '' ||
+                  phone.trim() === '' ||
+                  cnicProblem(cnic) !== null ||
+                  (relationship === 'other' && relationshipOther.trim() === '')
+                }
                 onClick={() => {
                   void addGuardian();
                 }}

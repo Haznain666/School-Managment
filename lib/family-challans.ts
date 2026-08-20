@@ -15,24 +15,34 @@ import {
 
 import { generateChallanNumber } from './challan-number';
 import { db } from './drizzle';
+import { normalizeCnic } from './national-id';
 
 /**
  * One voucher for a parent with several children at the school.
  *
  * ── What "a family" is here ─────────────────────────────────────────────
  * `student_guardians` holds one row per guardian **per child**, so a father
- * with three children is three rows. The grouping key is his **phone number**,
- * which `lib/phone.ts` normalises to E.164 on the way in — not his name, which
- * is spelled three different ways in every real school's data, and not a
- * guardian row id, which is per-child by construction.
+ * with three children is three rows. Two of those rows are the same person when
+ * they share a **CNIC** or a **phone number** — the sibling rule, defined once
+ * in `lib/siblings.ts` and applied here so that the voucher groups exactly the
+ * children every other screen calls siblings.
  *
- * That is a deliberate, and fallible, choice. Two unrelated guardians sharing a
- * handset become one family; a couple who each gave a different number for the
- * same children become two. The first is rare and visible on the voucher — the
- * children's names are printed on it. The second is common and harmless: the
- * school simply issues two vouchers, which is what happens today anyway.
- * Anything better needs a real household record, and inventing one to bill
- * three siblings is not worth what it costs everywhere else.
+ * ── Why the two keys are unioned rather than ranked ──────────────────────
+ * Until 2026-08-20 this grouped on the phone number alone. Simply promoting
+ * CNIC over phone would have *split* families rather than merged them: a father
+ * recorded with his CNIC on his new child's record and without it on the elder
+ * one — which is every family enrolled before today plus one new admission —
+ * would come out as two guardians and two vouchers, a regression shipped as an
+ * improvement.
+ *
+ * So the rows are unioned: any two rows sharing either key are one person, and
+ * transitively so. The CNIC on the new row and the phone on the old row link
+ * the two halves of that father into one family, which is the correct answer
+ * and the one the school would give.
+ *
+ * It stays fallible in the way it always was: two unrelated guardians sharing a
+ * handset become one family. That is rare, and visible on the voucher — the
+ * children's names are printed on it. Every CNIC collected makes it rarer.
  *
  * ── The per-child challans stay, and stay authoritative ─────────────────
  * Fee reports, the defaulter list, concessions and a student's own ledger are
@@ -88,6 +98,7 @@ export async function listFamilyGroups(
       guardianId: studentGuardians.id,
       guardianName: studentGuardians.name,
       phone: studentGuardians.phone,
+      cnic: studentGuardians.cnic,
     })
     .from(feeChallans)
     .innerJoin(studentProfiles, eq(studentProfiles.id, feeChallans.studentProfileId))
@@ -112,10 +123,69 @@ export async function listFamilyGroups(
     )
     .orderBy(asc(studentGuardians.phone), asc(schoolUsers.name));
 
-  const byPhone = new Map<string, FamilyGroup>();
+  /*
+   * Union-find over the guardian rows.
+   *
+   * Each row contributes up to two keys — `phone:+923001234567` and
+   * `cnic:42101-1234567-1` — and every key a row carries is merged into one
+   * set. Two rows that share *either* key therefore land in the same family,
+   * and so do two rows that share nothing directly but are both linked to a
+   * third. That transitivity is the whole reason this is a union-find and not
+   * a `Map` keyed on "cnic ?? phone": the father whose elder child predates
+   * CNIC collection is reachable from his newer record only through the phone
+   * number they have in common.
+   */
+  const parent = new Map<string, string>();
+
+  const find = (key: string): string => {
+    let root = parent.get(key) ?? key;
+    while (root !== (parent.get(root) ?? root)) root = parent.get(root) ?? root;
+
+    // Path compression, so a school with a thousand challans does not walk the
+    // chain once per row.
+    let walk = key;
+    while (walk !== root) {
+      const next = parent.get(walk) ?? walk;
+      parent.set(walk, root);
+      walk = next;
+    }
+
+    return root;
+  };
+
+  const union = (left: string, right: string): void => {
+    const a = find(left);
+    const b = find(right);
+    if (a !== b) parent.set(a, b);
+  };
+
+  const keysFor = (row: { phone: string; cnic: string | null }): string[] => {
+    const keys = [`phone:${row.phone}`];
+
+    // Only a whole, canonical CNIC is a key. A half-recorded number must never
+    // match another half-recorded number — that would invent a family.
+    const cnic = normalizeCnic(row.cnic);
+    if (cnic !== null) keys.push(`cnic:${cnic}`);
+
+    return keys;
+  };
 
   for (const row of rows) {
-    const group = byPhone.get(row.phone) ?? {
+    const keys = keysFor(row);
+    for (const key of keys) find(key);
+    for (const key of keys.slice(1)) union(keys[0] ?? key, key);
+  }
+
+  const byFamily = new Map<string, FamilyGroup>();
+
+  for (const row of rows) {
+    const key = find(keysFor(row)[0] ?? `phone:${row.phone}`);
+
+    const group = byFamily.get(key) ?? {
+      // The first row in the ordering names the voucher. `listFamilyGroups`
+      // orders by phone then student name, so the same family is described the
+      // same way on every run rather than by whichever child sorted first this
+      // month.
       guardianId: row.guardianId,
       guardianName: row.guardianName,
       phone: row.phone,
@@ -135,10 +205,10 @@ export async function listFamilyGroups(
       status: row.status,
     });
 
-    byPhone.set(row.phone, group);
+    byFamily.set(key, group);
   }
 
-  return [...byPhone.values()]
+  return [...byFamily.values()]
     .filter((group) => group.members.length > 1)
     .map((group) => ({
       ...group,

@@ -18,6 +18,8 @@ import {
   isGender,
   isGuardianRelationship,
   isIdDocumentType,
+  FIRST_GUARDIAN_RELATIONSHIPS,
+  SINGLETON_RELATIONSHIPS,
   type BloodGroup,
   type FeeClearanceStatus,
   type Gender,
@@ -25,7 +27,7 @@ import {
   type IdDocumentType,
 } from '@/db/schema';
 
-import { isValidCnic } from './national-id';
+import { isValidCnic, normalizeCnic } from './national-id';
 
 import { batch, type Database } from './drizzle';
 import { syncAdmissionContacts, triggerAdmissionWelcomeWorkflow } from './ghl-admissions';
@@ -75,9 +77,12 @@ export const MAX_GUARDIANS = 3;
 export interface GuardianInput {
   name: string;
   relationship: GuardianRelationship;
+  /** How they are related, in the school's words. Only when `other`. */
+  relationshipOther: string | null;
   /** E.164, already normalised by `parseGuardians`. */
   phone: string;
   email: string | null;
+  /** Canonical `42101-1234567-1`, or null. See `normalizeCnic`. */
   cnic: string | null;
   occupation: string | null;
   isPrimaryContact: boolean;
@@ -249,8 +254,22 @@ export function parseStudentInput(body: Record<string, unknown>): StudentInput {
  * Narrows an untrusted guardian array.
  *
  * Exactly one guardian ends up primary: the first one flagged, or the first in
- * the list when none is. The school needs a single number to WhatsApp, and
+ * the list when none is. The school needs a single number to write to, and
  * leaving that ambiguous would make the notification path guess.
+ *
+ * ── The three relationship rules are enforced here, not only on the form ──
+ * The first guardian may not be `other`; `father` and `mother` may each be
+ * claimed once; and `other` must carry a relation in words. The enrolment form
+ * removes the impossible options from its dropdown, which is a courtesy to the
+ * clerk and no protection at all — this function is what a script, a stale tab
+ * or a second entry point has to get past.
+ *
+ * ── And the CNIC is canonicalised here ───────────────────────────────────
+ * `normalizeCnic` or nothing. A guardian's CNIC decides which children are
+ * siblings (`lib/siblings.ts`), and a column holding `4210112345671` beside
+ * `42101-1234567-1` reads as two people. Thirteen digits in any punctuation
+ * become the one spelling; anything else becomes null, because a half-recorded
+ * identity number is worse than an absent one — it can match another half.
  */
 export function parseGuardians(value: unknown): GuardianInput[] {
   if (!Array.isArray(value) || value.length === 0) {
@@ -287,6 +306,24 @@ export function parseGuardians(value: unknown): GuardianInput[] {
       );
     }
 
+    if (
+      index === 0 &&
+      !(FIRST_GUARDIAN_RELATIONSHIPS as readonly string[]).includes(relationship)
+    ) {
+      throw new EnrollmentError(
+        'invalid_body',
+        'The first guardian must be the student’s father, mother or sibling.',
+      );
+    }
+
+    const relationshipOther = readOptionalString(guardian['relationshipOther']);
+    if (relationship === 'other' && relationshipOther === null) {
+      throw new EnrollmentError(
+        'invalid_body',
+        `Say how guardian ${index + 1} is related to this student.`,
+      );
+    }
+
     let phone: string;
     try {
       phone = normalizePhone(readString(guardian['phone']));
@@ -303,13 +340,38 @@ export function parseGuardians(value: unknown): GuardianInput[] {
     return {
       name,
       relationship,
+      // Kept only where it means something. A relation typed, then changed to
+      // Father, must not be stored against Father.
+      relationshipOther: relationship === 'other' ? relationshipOther : null,
       phone,
       email: readOptionalString(guardian['email']),
-      cnic: readOptionalString(guardian['cnic']),
+      cnic: normalizeCnic(readOptionalString(guardian['cnic'])),
       occupation: readOptionalString(guardian['occupation']),
       isPrimaryContact: guardian['isPrimaryContact'] === true,
     };
   });
+
+  for (const relationship of SINGLETON_RELATIONSHIPS) {
+    if (parsed.filter((guardian) => guardian.relationship === relationship).length > 1) {
+      throw new EnrollmentError(
+        'invalid_body',
+        `Only one guardian can be recorded as the student’s ${relationship}.`,
+      );
+    }
+  }
+
+  // Two cards carrying one CNIC is one person entered twice, and would leave
+  // the student with two guardian rows that every family query then has to
+  // de-duplicate.
+  const cnics = parsed
+    .map((guardian) => guardian.cnic)
+    .filter((value): value is string => value !== null);
+  if (new Set(cnics).size !== cnics.length) {
+    throw new EnrollmentError(
+      'invalid_body',
+      'Two guardians share a CNIC. One person cannot be recorded twice on the same student.',
+    );
+  }
 
   const primaryIndex = parsed.findIndex((guardian) => guardian.isPrimaryContact);
   const chosen = primaryIndex === -1 ? 0 : primaryIndex;
@@ -597,6 +659,7 @@ export async function enrollStudent(
     phone: guardian.phone,
     email: guardian.email,
     cnic: guardian.cnic,
+    relationshipOther: guardian.relationshipOther,
     occupation: guardian.occupation,
     isPrimaryContact: guardian.isPrimaryContact,
   }));
