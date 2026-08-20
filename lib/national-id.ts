@@ -69,3 +69,49 @@ export function maskNationalId(value: string): string {
 
   return `${head}${value.slice(value.length - visible)}`;
 }
+
+/**
+ * The canonical storage form of a CNIC, or null when there is not one.
+ *
+ * ── Why this exists next to `formatCnic` ─────────────────────────────────
+ * `formatCnic` is a *typing* function: it reformats a half-entered value on
+ * every keystroke and is happy to return `42101-12` because that is what the
+ * clerk has typed so far. This is the *storage* function: it answers "is this
+ * a whole CNIC, and if so what is the one spelling of it", and returns null
+ * for everything else.
+ *
+ * The distinction matters because a CNIC is now an identity key — it is what
+ * makes two children siblings (`lib/siblings.ts`). A column that holds
+ * `4210112345671` on one row and `42101-1234567-1` on another cannot answer
+ * that question, and the difference is invisible on screen because both render
+ * as a masked field. So every write path puts the number through here and the
+ * comparison is a plain equality.
+ *
+ * Legacy rows written before this existed are normalised by migration `0026`
+ * under exactly this rule: thirteen digits become the canonical form, and
+ * anything else is left alone rather than guessed at.
+ */
+export function normalizeCnic(raw: string | null | undefined): string | null {
+  if (raw === null || raw === undefined) return null;
+
+  const digits = raw.replace(/\D/g, '');
+  if (digits.length !== CNIC_DIGITS) return null;
+
+  return `${digits.slice(0, 5)}-${digits.slice(5, 12)}-${digits.slice(12)}`;
+}
+
+/**
+ * The message a partly-typed CNIC earns, or null when the value is acceptable.
+ *
+ * Blank is acceptable everywhere a CNIC is asked for. Not one screen in this
+ * product may refuse to record a person because their card is not to hand —
+ * an admissions desk with a queue in front of it will simply invent a number
+ * to get past the field, and an invented CNIC is worse than an absent one now
+ * that the column decides who is related to whom.
+ */
+export function cnicProblem(value: string): string | null {
+  if (value.trim() === '') return null;
+  if (isValidCnic(value)) return null;
+
+  return 'A CNIC / Smart Card number is 13 digits, as 42101-1234567-1.';
+}

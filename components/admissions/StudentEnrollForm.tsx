@@ -11,6 +11,7 @@ import {
 } from '@/components/admissions/AcademicPlacementForm';
 import {
   emptyGuardian,
+  guardiansProblem,
   GuardianForm,
   type GuardianDraft,
 } from '@/components/admissions/GuardianForm';
@@ -33,8 +34,7 @@ import {
   type Gender,
 } from '@/db/schema/student-profiles';
 import { GUARDIAN_RELATIONSHIP_LABELS } from '@/db/schema/student-guardians';
-import { maskNationalId } from '@/lib/national-id';
-import { isValidPhone } from '@/lib/phone';
+import { formatCnic, maskNationalId } from '@/lib/national-id';
 import { schoolErrorMessage, schoolFetch, withSchoolParam } from '@/lib/school-client';
 import {
   DEFAULT_NATIONALITY,
@@ -151,14 +151,24 @@ export function StudentEnrollForm({
       {
         ...first,
         name: prefill.guardianName ?? '',
+        /*
+         * An application carries whatever relationship the parent chose on the
+         * public form, and the first guardian on an enrolment may only be
+         * father, mother or sibling. Anything else lands on `father` rather
+         * than being carried through into a value the step would then refuse —
+         * the clerk is looking at the person and corrects it in one click.
+         */
         relationship:
-          prefill.guardianRelationship !== undefined &&
-          prefill.guardianRelationship in GUARDIAN_RELATIONSHIP_LABELS
-            ? (prefill.guardianRelationship as GuardianDraft['relationship'])
-            : 'guardian',
+          prefill.guardianRelationship === 'mother' ||
+          prefill.guardianRelationship === 'sibling'
+            ? prefill.guardianRelationship
+            : 'father',
         phone: prefill.guardianPhone ?? '',
         email: prefill.guardianEmail ?? '',
-        cnic: prefill.guardianCnic ?? '',
+        // Through the mask, so a number typed into the public application form
+        // as 13 bare digits arrives here in the one spelling the sibling lookup
+        // can match on.
+        cnic: formatCnic(prefill.guardianCnic ?? ''),
       },
     ];
   });
@@ -199,17 +209,9 @@ export function StudentEnrollForm({
       return nationalIdProblem(student.nationalId);
     }
 
-    if (index === 1) {
-      for (const [position, guardian] of guardians.entries()) {
-        if (guardian.name.trim() === '') {
-          return `Guardian ${position + 1} needs a full name.`;
-        }
-        if (!isValidPhone(guardian.phone)) {
-          return `Guardian ${position + 1} needs a valid Pakistani mobile number.`;
-        }
-      }
-      return null;
-    }
+    // Every guardian rule lives on the form that draws the fields, so the two
+    // cannot drift. See `guardiansProblem`.
+    if (index === 1) return guardiansProblem(guardians);
 
     if (index === 2) {
       if (placement.branchId === '') return 'Select a branch.';
@@ -266,6 +268,7 @@ export function StudentEnrollForm({
           guardians: guardians.map((guardian) => ({
             name: guardian.name,
             relationship: guardian.relationship,
+            relationshipOther: guardian.relationshipOther,
             phone: guardian.phone,
             email: guardian.email,
             cnic: guardian.cnic,
@@ -516,8 +519,15 @@ export function StudentEnrollForm({
             <ul className="mt-2 space-y-1 text-sm text-ink-muted">
               {guardians.map((guardian, index) => (
                 <li key={index}>
-                  {guardian.name} · {GUARDIAN_RELATIONSHIP_LABELS[guardian.relationship]}{' '}
+                  {guardian.name} ·{' '}
+                  {guardian.relationship === 'other' &&
+                  guardian.relationshipOther.trim() !== ''
+                    ? guardian.relationshipOther
+                    : GUARDIAN_RELATIONSHIP_LABELS[guardian.relationship]}{' '}
                   · {guardian.phone}
+                  {/* Masked here for the same reason the student's is — the
+                      review step is read at the desk with the parent alongside. */}
+                  {guardian.cnic === '' ? '' : ` · ${maskNationalId(guardian.cnic)}`}
                   {guardian.isPrimaryContact ? ' · primary contact' : ''}
                 </li>
               ))}

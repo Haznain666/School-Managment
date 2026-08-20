@@ -17,6 +17,7 @@ import {
   syncEnrollmentToGhl,
   type GuardianInput,
 } from '@/lib/enrollment';
+import { normalizeCnic } from '@/lib/national-id';
 import { InvalidPhoneError, normalizePhone } from '@/lib/phone';
 import { StudentIdError } from '@/lib/student-id';
 import { isUuid, readOptionalString, readString } from '@/lib/validation';
@@ -161,14 +162,30 @@ export const POST = withSchoolAuth<RouteContext>(
         throw error;
       }
 
+      /*
+       * The one place the first-guardian rule does not apply.
+       *
+       * A first guardian entered by a clerk must be the student's father,
+       * mother or sibling — "Other" is the absence of an answer and the form
+       * refuses it. This guardian was not entered by a clerk: it is what the
+       * applicant themselves wrote on the public form, weeks ago, and a
+       * one-click conversion must not fail because they described themselves
+       * as the child's guardian rather than as their father. The relationship
+       * is corrected on the student's profile in one click if it is wrong;
+       * refusing the conversion would instead lose the admission.
+       */
       const guardian: GuardianInput = {
         name: application.guardianName,
         relationship: isGuardianRelationship(application.guardianRelationship)
           ? application.guardianRelationship
           : 'guardian',
+        relationshipOther: null,
         phone: guardianPhone,
         email: application.guardianEmail,
-        cnic: application.guardianCnic,
+        // Canonicalised, because this is the column the sibling lookup reads.
+        // A public form's `4210112345671` must land in the same spelling an
+        // admissions clerk would have produced.
+        cnic: normalizeCnic(application.guardianCnic),
         occupation: null,
         isPrimaryContact: true,
       };

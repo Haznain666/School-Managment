@@ -1,3 +1,5 @@
+import type { ReactNode } from 'react';
+
 import { LogoutButton } from '@/components/school/LogoutButton';
 import { SidebarToggle } from '@/components/school/PortalFrame';
 import { ROLE_LABELS, type UserRole } from '@/types/school-auth';
@@ -16,6 +18,16 @@ export interface SchoolNavbarProps {
    * including the operator — mistakes the session for a member of the school.
    */
   platformAdminEmail?: string | null;
+  /**
+   * Portal-specific context shown beside the school name.
+   *
+   * The parent portal puts its child switcher here — which child is being read
+   * is the most important piece of state in that portal, and the header is the
+   * one place on every screen where it can always be seen. No other portal has
+   * anything to put here, which is why this is a slot rather than a prop for
+   * one feature.
+   */
+  contextSlot?: ReactNode;
 }
 
 /**
@@ -35,6 +47,7 @@ export function SchoolNavbar({
   role,
   schoolSlug,
   platformAdminEmail = null,
+  contextSlot,
 }: SchoolNavbarProps) {
   const isPlatformSession = platformAdminEmail !== null && platformAdminEmail !== '';
 
@@ -73,6 +86,8 @@ export function SchoolNavbar({
             <p className="text-xs opacity-75">{portalLabel}</p>
           ) : null}
         </div>
+
+        {contextSlot}
       </div>
 
       <div className="flex items-center gap-3">

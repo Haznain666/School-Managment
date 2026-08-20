@@ -31,6 +31,59 @@ export const GUARDIAN_RELATIONSHIP_LABELS: Record<GuardianRelationship, string> 
 };
 
 /**
+ * How a guardian is described on screen.
+ *
+ * `other` alone is not a description — it is the absence of one — so the
+ * school's own words replace it wherever a relationship is shown. Defined here
+ * rather than in a component because the enrolment review, the guardian panel,
+ * the parent portal and the sibling card all render it, and a second copy of
+ * this rule is a second place for a bare "Other" to leak out.
+ */
+export function relationshipLabel(guardian: {
+  relationship: GuardianRelationship;
+  relationshipOther: string | null;
+}): string {
+  if (guardian.relationship === 'other') {
+    const words = (guardian.relationshipOther ?? '').trim();
+    if (words !== '') return words;
+  }
+
+  return GUARDIAN_RELATIONSHIP_LABELS[guardian.relationship];
+}
+
+/**
+ * What the *first* guardian on a record may be.
+ *
+ * A child's first recorded guardian is the person the school holds responsible
+ * for them, and "Other" is not an answer to that — it is the absence of one.
+ * Recording an uncle as the first guardian and describing him nowhere is how a
+ * record ends up with a phone number and no idea whose it is.
+ *
+ * The narrower set is enforced on the form and again in `parseGuardians`, and
+ * deliberately not by a database constraint: rows written before this rule
+ * existed are legitimate history, and a check constraint would refuse the next
+ * unrelated write to any of them.
+ */
+export const FIRST_GUARDIAN_RELATIONSHIPS = [
+  'father',
+  'mother',
+  'sibling',
+] as const satisfies readonly GuardianRelationship[];
+
+/**
+ * The relationships only one guardian per student may hold.
+ *
+ * A child has one father and one mother. Two rows claiming either is not a
+ * family arrangement this product needs to model — it is a duplicate, and the
+ * duplicate is what would later split one family into two on the sibling
+ * lookup and the family voucher.
+ */
+export const SINGLETON_RELATIONSHIPS = [
+  'father',
+  'mother',
+] as const satisfies readonly GuardianRelationship[];
+
+/**
  * student_guardians — who the school contacts about a child.
  *
  * `school_user_id` is nullable on purpose: most guardians are recorded during
@@ -59,9 +112,36 @@ export const studentGuardians = pgTable(
     }),
     name: text('name').notNull(),
     relationship: text('relationship').notNull().$type<GuardianRelationship>(),
+    /**
+     * How this person is related, in their own words. Only for `other`.
+     *
+     * "Other" on its own records nothing a teacher ringing this number could
+     * use. The five fixed values cover the cases a school has a policy about;
+     * this covers the uncle, the sponsor and the elder cousin, and is required
+     * by the API whenever `relationship` is `other` — which is why it is
+     * nullable in the column and not in the write path. Every row written
+     * before this existed has it null, and those rows are not rewritten.
+     */
+    relationshipOther: text('relationship_other'),
     /** E.164, normalised by `lib/phone.ts`. The WhatsApp channel. */
     phone: text('phone').notNull(),
     email: text('email'),
+    /**
+     * The guardian's CNIC / Smart Card, as `42101-1234567-1`.
+     *
+     * ── This is an identity key now, not a note ─────────────────────────
+     * Two enrolled children are siblings when they share a guardian, and this
+     * is what "the same guardian" means — see `lib/siblings.ts`. A name is
+     * spelled three ways in every real school's data and a phone number is
+     * shared by a household rather than owned by a person, so neither can
+     * carry that. A CNIC is issued once, to one person, for life.
+     *
+     * Stored in exactly one spelling. `normalizeCnic` in `lib/national-id.ts`
+     * is the only thing that writes it, migration `0026` normalised the rows
+     * that predate the rule, and `CnicField` is the only field that collects
+     * it. Null stays perfectly legal: a school must be able to enrol a child
+     * whose parent left the card at home.
+     */
     cnic: text('cnic'),
     occupation: text('occupation'),
     isPrimaryContact: boolean('is_primary_contact').notNull().default(false),
@@ -85,6 +165,13 @@ export const studentGuardians = pgTable(
     index('student_guardians_location_id_idx').on(table.locationId),
     index('student_guardians_student_profile_id_idx').on(table.studentProfileId),
     index('student_guardians_school_user_id_idx').on(table.schoolUserId),
+    // The sibling lookup and the guardian-by-CNIC prefill both enter through
+    // (location, cnic). Without this they are a sequential scan of every
+    // guardian in the school on a screen an admissions clerk is waiting on.
+    index('student_guardians_location_cnic_idx').on(table.locationId, table.cnic),
+    // The same, for the phone half of the sibling rule and for the family
+    // voucher's grouping.
+    index('student_guardians_location_phone_idx').on(table.locationId, table.phone),
     check(
       'student_guardians_relationship_check',
       sql`${table.relationship} IN ('father', 'mother', 'guardian', 'sibling', 'other')`,

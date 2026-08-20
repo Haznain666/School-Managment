@@ -489,6 +489,8 @@ export interface GuardianRow {
   id: string;
   name: string;
   relationship: GuardianRelationship;
+  /** The school's own words, when `relationship` is `other`. */
+  relationshipOther: string | null;
   phone: string;
   email: string | null;
   cnic: string | null;
@@ -509,6 +511,7 @@ export async function listGuardians(
       id: studentGuardians.id,
       name: studentGuardians.name,
       relationship: studentGuardians.relationship,
+      relationshipOther: studentGuardians.relationshipOther,
       phone: studentGuardians.phone,
       email: studentGuardians.email,
       cnic: studentGuardians.cnic,
@@ -741,6 +744,8 @@ export interface ChildSummary {
   name: string;
   photoUrl: string | null;
   relationship: GuardianRelationship;
+  /** The school's own words, when `relationship` is `other`. */
+  relationshipOther: string | null;
   enrollment: CurrentEnrollment | null;
 }
 
@@ -763,6 +768,7 @@ export async function listChildrenForGuardian(
       name: schoolUsers.name,
       photoUrl: studentProfiles.photoUrl,
       relationship: studentGuardians.relationship,
+      relationshipOther: studentGuardians.relationshipOther,
     })
     .from(studentGuardians)
     .innerJoin(studentProfiles, eq(studentProfiles.id, studentGuardians.studentProfileId))

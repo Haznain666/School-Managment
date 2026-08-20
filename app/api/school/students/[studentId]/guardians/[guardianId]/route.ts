@@ -1,10 +1,17 @@
 import { and, eq, ne } from 'drizzle-orm';
 
-import { studentGuardians, isGuardianRelationship } from '@/db/schema';
+import {
+  studentGuardians,
+  isGuardianRelationship,
+  FIRST_GUARDIAN_RELATIONSHIPS,
+  GUARDIAN_RELATIONSHIP_LABELS,
+  SINGLETON_RELATIONSHIPS,
+} from '@/db/schema';
 import { withSchoolAuth } from '@/lib/api-auth';
 import { apiFailure, apiSuccess, handleApiError, readJsonBody } from '@/lib/api-response';
 import { getStudentDetail, listGuardians } from '@/lib/admissions-queries';
 import { db } from '@/lib/drizzle';
+import { normalizeCnic } from '@/lib/national-id';
 import { InvalidPhoneError, normalizePhone } from '@/lib/phone';
 import { isUuid, readOptionalString, readString } from '@/lib/validation';
 
@@ -27,6 +34,7 @@ type RouteContext = { params: Promise<{ studentId: string; guardianId: string }>
 interface UpdateGuardianBody {
   name?: unknown;
   relationship?: unknown;
+  relationshipOther?: unknown;
   phone?: unknown;
   email?: unknown;
   cnic?: unknown;
@@ -75,7 +83,51 @@ export const PATCH = withSchoolAuth<RouteContext>(
         if (!isGuardianRelationship(relationship)) {
           return apiFailure('invalid_body', 'Select a valid relationship.', 400);
         }
+
+        /*
+         * The same three rules the create path enforces, applied to an edit.
+         *
+         * Editing is how you would otherwise get around them: add a lawful
+         * second Father-less guardian, then change them to Father. The
+         * comparison excludes this row so that re-saving a guardian without
+         * changing their relationship is never refused as a clash with
+         * themselves.
+         */
+        const others = guardians.filter((guardian) => guardian.id !== guardianId);
+
+        if (
+          others.length === 0 &&
+          !(FIRST_GUARDIAN_RELATIONSHIPS as readonly string[]).includes(relationship)
+        ) {
+          return apiFailure(
+            'invalid_body',
+            'The only guardian on a student must be their father, mother or sibling.',
+            400,
+          );
+        }
+
+        if (
+          (SINGLETON_RELATIONSHIPS as readonly string[]).includes(relationship) &&
+          others.some((guardian) => guardian.relationship === relationship)
+        ) {
+          return apiFailure(
+            'already_exists',
+            `This student already has a guardian recorded as ${GUARDIAN_RELATIONSHIP_LABELS[relationship]}.`,
+            409,
+          );
+        }
+
+        const relationshipOther = readOptionalString(body.relationshipOther);
+        if (relationship === 'other' && relationshipOther === null) {
+          return apiFailure(
+            'invalid_body',
+            'Say how this guardian is related to the student.',
+            400,
+          );
+        }
+
         updates.relationship = relationship;
+        updates.relationshipOther = relationship === 'other' ? relationshipOther : null;
       }
 
       if (body.phone !== undefined) {
@@ -94,7 +146,26 @@ export const PATCH = withSchoolAuth<RouteContext>(
       }
 
       if (body.email !== undefined) updates.email = readOptionalString(body.email);
-      if (body.cnic !== undefined) updates.cnic = readOptionalString(body.cnic);
+      if (body.cnic !== undefined) {
+        // Canonicalised, never stored as typed — this column decides who is a
+        // sibling. See `normalizeCnic`.
+        const cnic = normalizeCnic(readOptionalString(body.cnic));
+
+        if (
+          cnic !== null &&
+          guardians.some(
+            (guardian) => guardian.id !== guardianId && guardian.cnic === cnic,
+          )
+        ) {
+          return apiFailure(
+            'already_exists',
+            'Another guardian on this student already carries that CNIC.',
+            409,
+          );
+        }
+
+        updates.cnic = cnic;
+      }
       if (body.occupation !== undefined) {
         updates.occupation = readOptionalString(body.occupation);
       }

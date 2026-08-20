@@ -9,6 +9,7 @@ import { requireSchoolRole } from '@/lib/school-guard';
 import { countUnreadNotices } from '@/lib/announcement-queries';
 import { getSchoolUserByUid } from '@/lib/school-queries';
 import { getSchoolBranding } from '@/lib/school-tenant';
+import { listPortalChildren } from '@/lib/siblings';
 
 /**
  * Parent portal shell — role `parent` only.
@@ -28,10 +29,18 @@ export default async function ParentLayout({ children }: { children: ReactNode }
     getSchoolUserByUid(locationId, claims.uid),
   ]);
 
-  // The badge is read after the profile, because it needs the school-user id
-  // the profile carries. One indexed count against the delivery log.
-  const unreadNotices =
-    profile === null ? 0 : await countUnreadNotices(locationId, profile.id);
+  /*
+   * Both of these need the school-user id the profile carries, so they follow
+   * it rather than joining the pair above. One indexed count against the
+   * delivery log, and one indexed read of this login's children — the second is
+   * what puts the sibling switcher in the header on every parent screen.
+   */
+  const [unreadNotices, students] = await Promise.all([
+    profile === null ? Promise.resolve(0) : countUnreadNotices(locationId, profile.id),
+    profile === null
+      ? Promise.resolve([])
+      : listPortalChildren(locationId, profile.id),
+  ]);
 
   const brandStyle = paletteToCSSVars(
     branding?.palette ?? null,
@@ -52,6 +61,7 @@ export default async function ParentLayout({ children }: { children: ReactNode }
             userName={profile?.name ?? ''}
             role={claims.role}
             schoolSlug={claims.schoolSlug}
+            students={students}
           />
         }
       >

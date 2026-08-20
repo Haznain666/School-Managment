@@ -6,6 +6,7 @@ import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { Card, CardTitle } from '@/components/ui/Card';
 import { AddressAutocomplete } from '@/components/ui/AddressAutocomplete';
+import { CnicField } from '@/components/ui/CnicField';
 import { Input } from '@/components/ui/Input';
 import { PhoneField } from '@/components/ui/PhoneField';
 import { Select } from '@/components/ui/Select';
@@ -398,13 +399,17 @@ export function StaffDetailPanel({ staffId, canEdit }: StaffDetailPanelProps) {
               setField('email', event.target.value);
             }}
           />
-          <Input
-            label="CNIC"
+          {/*
+            The same field the admissions desk uses — masked, revealed
+            deliberately, and reformatted to 5-7-1 as it is typed. A staff CNIC
+            is a national identity number on a screen in a shared office for
+            exactly the same reason a guardian's is.
+          */}
+          <CnicField
             value={form.cnic ?? ''}
             disabled={!canEdit}
-            placeholder="35201-1234567-1"
-            onChange={(event) => {
-              setField('cnic', event.target.value);
+            onChange={(value) => {
+              setField('cnic', value);
             }}
           />
           <Input

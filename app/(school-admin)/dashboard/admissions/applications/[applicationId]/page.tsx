@@ -3,6 +3,7 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 
 import { ApplicationReviewCard } from '@/components/admissions/ApplicationReviewCard';
+import { SiblingCard } from '@/components/admissions/SiblingCard';
 import { Badge } from '@/components/ui/Badge';
 import { Card, CardTitle } from '@/components/ui/Card';
 import { applicationReference, APPLICATION_STATUS_LABELS } from '@/db/schema';
@@ -12,6 +13,7 @@ import {
   listSections,
 } from '@/lib/admissions-queries';
 import { requireSchoolPermission } from '@/lib/school-guard';
+import { listStudentsForGuardianIdentity } from '@/lib/siblings';
 import { isUuid } from '@/lib/validation';
 
 export const metadata: Metadata = {
@@ -37,6 +39,21 @@ export default async function ApplicationDetailPage({
   if (claims.branchId !== null && application.branchId !== claims.branchId) notFound();
 
   const activeYear = await getActiveAcademicYear(locationId);
+
+  /*
+   * Does this school already teach this family?
+   *
+   * Asked here, on the screen where the offer is decided, because that is the
+   * only moment it can change anything — a sibling is why a school waives an
+   * admission test, applies the sibling discount or places the child on their
+   * brother's campus, and none of that is available once the offer has gone
+   * out. Matched on the applicant's own CNIC and phone number, which is the
+   * same rule every other sibling surface uses.
+   */
+  const existingFamily = await listStudentsForGuardianIdentity(locationId, {
+    cnic: application.guardianCnic,
+    phone: application.guardianPhone,
+  });
 
   // Sections are offered for the active year rather than the year the family
   // applied under: a place is being offered now, not retrospectively.
@@ -64,6 +81,15 @@ export default async function ApplicationDetailPage({
           Ref {applicationReference(application.id)}
         </span>
       </div>
+
+      <SiblingCard
+        siblings={existingFamily}
+        title="This family is already at this school"
+        description="Students recorded against the same guardian as this application — matched on the CNIC given on the form, or on the phone number. A sibling is worth knowing about before the offer goes out."
+        hrefFor={(sibling) =>
+          `/dashboard/admissions/students/${sibling.studentProfileId}`
+        }
+      />
 
       <Card
         header={

@@ -3,6 +3,7 @@ import { and, eq } from 'drizzle-orm';
 import { isEmploymentType, isGender, isStaffStatus, staff } from '@/db/schema';
 import { withSchoolAuth, canAccessBranch } from '@/lib/api-auth';
 import { apiFailure, apiSuccess, handleApiError, readJsonBody } from '@/lib/api-response';
+import { normalizeCnic } from '@/lib/national-id';
 import { db } from '@/lib/drizzle';
 import { getStaff, getStaffSalaryStructure } from '@/lib/hr-queries';
 import { isIsoDate, isUuid, readOptionalString, readString } from '@/lib/validation';
@@ -185,6 +186,11 @@ export const PATCH = withSchoolAuth<RouteContext>(
       for (const field of optionalText) {
         if (body[field] !== undefined) updates[field] = readOptionalString(body[field]);
       }
+
+      // The CNIC is the one member of that list that has a canonical form, and
+      // it is re-written here rather than excluded from the loop so that the
+      // loop stays the plain thing it is. See `lib/national-id.ts`.
+      if (updates.cnic !== undefined) updates.cnic = normalizeCnic(updates.cnic);
 
       if (Object.keys(updates).length === 0) {
         return apiFailure('invalid_body', 'No fields to update.', 400);

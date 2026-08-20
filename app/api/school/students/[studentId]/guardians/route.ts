@@ -5,6 +5,9 @@ import {
   studentEnrollments,
   studentGuardians,
   isGuardianRelationship,
+  FIRST_GUARDIAN_RELATIONSHIPS,
+  GUARDIAN_RELATIONSHIP_LABELS,
+  SINGLETON_RELATIONSHIPS,
 } from '@/db/schema';
 import { withSchoolAuth } from '@/lib/api-auth';
 import { apiFailure, apiSuccess, handleApiError, readJsonBody } from '@/lib/api-response';
@@ -13,6 +16,7 @@ import { db } from '@/lib/drizzle';
 import { createGuardianGHLContact } from '@/lib/ghl-admissions';
 import { MAX_GUARDIANS } from '@/lib/enrollment';
 import { provisionGuardianPortalAccess } from '@/lib/parent-portal-access';
+import { normalizeCnic } from '@/lib/national-id';
 import { InvalidPhoneError, normalizePhone } from '@/lib/phone';
 import { isUuid, readOptionalString, readString } from '@/lib/validation';
 
@@ -64,6 +68,7 @@ export const GET = withSchoolAuth<RouteContext>(
 interface CreateGuardianBody {
   name?: unknown;
   relationship?: unknown;
+  relationshipOther?: unknown;
   phone?: unknown;
   email?: unknown;
   cnic?: unknown;
@@ -99,6 +104,20 @@ export const POST = withSchoolAuth<RouteContext>(
         return apiFailure('invalid_body', 'Select a valid relationship.', 400);
       }
 
+      /*
+       * "Other" has to say what it means — see `GuardianForm` for why. Read
+       * before the existing guardians are fetched, so a malformed body costs
+       * one round trip rather than three.
+       */
+      const relationshipOther = readOptionalString(body.relationshipOther);
+      if (relationship === 'other' && relationshipOther === null) {
+        return apiFailure(
+          'invalid_body',
+          'Say how this guardian is related to the student.',
+          400,
+        );
+      }
+
       let phone: string;
       try {
         phone = normalizePhone(readString(body.phone));
@@ -130,6 +149,47 @@ export const POST = withSchoolAuth<RouteContext>(
         );
       }
 
+      const cnic = normalizeCnic(readOptionalString(body.cnic));
+
+      // One person, entered twice. Refused rather than merged, because merging
+      // would mean deciding which of two spellings of a name is the right one.
+      if (cnic !== null && existing.some((guardian) => guardian.cnic === cnic)) {
+        return apiFailure(
+          'already_exists',
+          'That CNIC is already recorded as a guardian for this student.',
+          409,
+        );
+      }
+
+      /*
+       * The relationship rules, enforced on the second entry point too.
+       *
+       * The first guardian rule applies when there is no guardian yet — adding
+       * the very first one from this panel is the same decision the enrolment
+       * form makes on its first card, and it must not be a way around it.
+       */
+      if (
+        existing.length === 0 &&
+        !(FIRST_GUARDIAN_RELATIONSHIPS as readonly string[]).includes(relationship)
+      ) {
+        return apiFailure(
+          'invalid_body',
+          'The first guardian must be the student’s father, mother or sibling.',
+          400,
+        );
+      }
+
+      if (
+        (SINGLETON_RELATIONSHIPS as readonly string[]).includes(relationship) &&
+        existing.some((guardian) => guardian.relationship === relationship)
+      ) {
+        return apiFailure(
+          'already_exists',
+          `This student already has a guardian recorded as ${GUARDIAN_RELATIONSHIP_LABELS[relationship]}.`,
+          409,
+        );
+      }
+
       // The first guardian on a record is always the primary contact — someone
       // has to be the number the school actually rings.
       const isPrimaryContact = existing.length === 0 || body.isPrimaryContact === true;
@@ -152,9 +212,10 @@ export const POST = withSchoolAuth<RouteContext>(
           schoolUserId: accountRows[0]?.id ?? null,
           name,
           relationship,
+          relationshipOther: relationship === 'other' ? relationshipOther : null,
           phone,
           email: readOptionalString(body.email),
-          cnic: readOptionalString(body.cnic),
+          cnic,
           occupation: readOptionalString(body.occupation),
           isPrimaryContact,
         })

@@ -105,6 +105,73 @@ constraint and appears in no grid — an accepted write nobody can see.
 
 ---
 
+---
+
+## RULE: every CNIC field is `CnicField`, and every stored CNIC is canonical
+
+**If a screen asks for a CNIC / Smart Card number, it uses
+`components/ui/CnicField.tsx`. If a route stores one, it puts it through
+`normalizeCnic` first.**
+
+Enforced by `npm run check-cnic`, which runs in CI on every push.
+
+| You are | Use |
+| --- | --- |
+| asking a person for their CNIC | `<CnicField />` |
+| asking for a CNIC **or** a B-Form (a student's own document) | `<NationalIdField />` |
+| writing the value to any column | `normalizeCnic(value)` |
+| comparing two of them | plain `===`, on canonicalised values |
+
+### This is not a formatting preference
+
+`student_guardians.cnic` is the key that decides **which enrolled children are
+siblings** — see `lib/siblings.ts`. A column holding `4210112345671` on one row
+and `42101-1234567-1` on another holds two different people as far as every
+query is concerned, and the two are *indistinguishable on screen* because both
+render as a masked field.
+
+So an unmasked `<Input label="CNIC">` does not produce an ugly value. It
+produces a family that silently stops being a family: the sibling card empties,
+the family voucher splits in two, and nothing anywhere reports an error.
+
+Before this rule there were four such inputs — the enrolment guardian step, the
+guardian panel, the public application form and the staff record — and only the
+*student's* own document had a mask. That is why the check exists rather than a
+note in a review.
+
+### Blank is always allowed
+
+No screen may refuse to record a person because the card is not to hand. An
+admissions desk with a queue in front of it will invent a number to get past a
+required field, and an invented CNIC is worse than an absent one now that the
+column decides who is related to whom. `cnicProblem` returns null for blank
+everywhere.
+
+---
+
+## RULE: a guardian is a person, and the first one is a parent
+
+Three rules, enforced on the form **and** in `parseGuardians` — the dropdown is
+a courtesy to the clerk, the server is the rule:
+
+1. **The first guardian must be Father, Mother or Sibling.** "Other" is the
+   absence of an answer to "who does the school hold responsible for this
+   child". `FIRST_GUARDIAN_RELATIONSHIPS` in `db/schema/student-guardians.ts`.
+2. **Father and Mother are each available once per student.** A second row
+   claiming either is a duplicate, and a duplicate is what splits one family in
+   two on the sibling lookup and the family voucher.
+   `SINGLETON_RELATIONSHIPS`, same file.
+3. **"Other" carries `relationship_other`** — the relation in the school's own
+   words. Required by the API whenever the relationship is `other`.
+
+The one documented exception is
+`POST /api/school/applications/[id]/convert`, which carries what the *applicant*
+wrote on the public form weeks ago. A one-click conversion must not fail because
+a parent described themselves as a guardian; the relationship is corrected on
+the profile in one click, and refusing would lose the admission instead.
+
+---
+
 ## Green build
 
 All six must pass before anything is merged:
@@ -115,6 +182,7 @@ npm run lint
 npm run check-loaders
 npm run check-forms
 npm run check-address-phone
+npm run check-cnic
 npm run check-sprint-periods
 npm run build
 ```
@@ -123,10 +191,11 @@ Plus whichever of the other `check-*` scripts covers the area you touched —
 `check-reports`, `check-dashboard`, `check-portals`, `check-provisioning`,
 `check-smtp`.
 
-`.github/workflows/ci.yml` runs the five that need no database —
-`check-loaders`, `check-forms`, `check-address-phone`, `check-theme` and
-`check-sprint-periods` — on every push and pull request, so the loader rule is
-enforced by the repository and not only by whoever remembers it. The rest execute against the real schema and stay on a
+`.github/workflows/ci.yml` runs the six that need no database —
+`check-loaders`, `check-forms`, `check-address-phone`, `check-cnic`,
+`check-theme` and `check-sprint-periods` — on every push and pull request, so
+the loader and CNIC rules are enforced by the repository and not only by
+whoever remembers them. The rest execute against the real schema and stay on a
 machine that holds the credentials.
 
 ### Building in a worktree

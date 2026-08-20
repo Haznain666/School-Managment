@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState, type FormEvent } from 'react';
 
 import { Button } from '@/components/ui/Button';
 import { Card, CardTitle } from '@/components/ui/Card';
+import { CnicField } from '@/components/ui/CnicField';
 import { Input } from '@/components/ui/Input';
 import { PhoneField } from '@/components/ui/PhoneField';
 import { Select } from '@/components/ui/Select';
@@ -304,15 +305,17 @@ export function ApplyForm({ branches, grades }: ApplyFormProps) {
           />
 
           <div className="sm:col-span-2">
-            <Input
-              label="CNIC"
-              hint="Optional."
-              placeholder="42101-1234567-1"
+            {/*
+              Optional, and worth asking for anyway: if this family already has
+              a child at the school, this number is what the admissions desk
+              will recognise them by when the application is converted. Same
+              field, same mask and same reveal as the enrolment screen.
+            */}
+            <CnicField
               value={guardianCnic}
               disabled={isSubmitting}
-              onChange={(event) => {
-                setGuardianCnic(event.target.value);
-              }}
+              hint="Optional — but it lets us recognise you if you already have a child here."
+              onChange={setGuardianCnic}
             />
           </div>
 
