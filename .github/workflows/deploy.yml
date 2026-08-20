@@ -175,62 +175,103 @@ jobs:
           if [ -d public ]; then cp -r public .next/standalone/public; fi
           echo "Artifact size: $(du -sh .next/standalone | cut -f1)"
 
+      # The step env vars carry the same names as the secrets they come from.
+      #
+      # They used to be SSH_PRIVATE_KEY / SSH_HOST / SSH_PORT, which is what a
+      # failing step prints — so the log said `SSH_HOST:` and the natural fix was
+      # to create a repository secret called SSH_HOST, which this workflow does
+      # not read. That happened on 2026-08-20 and cost two runs. One name for one
+      # thing, everywhere.
       - name: Authorise the deploy key
         env:
-          SSH_PRIVATE_KEY: ${{ secrets.HOSTINGER_SSH_KEY }}
-          SSH_HOST: ${{ secrets.HOSTINGER_HOST }}
-          SSH_PORT: ${{ secrets.HOSTINGER_PORT }}
+          HOSTINGER_SSH_KEY: ${{ secrets.HOSTINGER_SSH_KEY }}
+          HOSTINGER_HOST: ${{ secrets.HOSTINGER_HOST }}
+          HOSTINGER_PORT: ${{ secrets.HOSTINGER_PORT }}
         run: |
           mkdir -p ~/.ssh && chmod 700 ~/.ssh
-          printf '%s\n' "$SSH_PRIVATE_KEY" > ~/.ssh/id_deploy
+          printf '%s\n' "$HOSTINGER_SSH_KEY" > ~/.ssh/id_deploy
           chmod 600 ~/.ssh/id_deploy
+
+          port="${HOSTINGER_PORT:-22}"
+          echo "Scanning the host key on port $port."
+
           # Pin the host key rather than disabling checking, so this cannot be
           # pointed at an impostor by anyone who can influence DNS.
-          ssh-keyscan -p "${SSH_PORT:-22}" -H "$SSH_HOST" >> ~/.ssh/known_hosts 2>/dev/null
+          #
+          # stderr is NOT sent to /dev/null. It used to be, and that is why this
+          # step failed on 2026-08-20 with nothing but `exit code 1`: ssh-keyscan
+          # had said exactly what was wrong and the redirect threw it away. A
+          # diagnostic you have suppressed is a diagnostic you will spend an
+          # evening re-deriving.
+          if ! ssh-keyscan -T 10 -p "$port" -H "$HOSTINGER_HOST" >> ~/.ssh/known_hosts; then
+            echo "::error::ssh-keyscan could not read a host key from HOSTINGER_HOST on port $port."
+            echo ""
+            echo "The scan reached nothing. In order of likelihood:"
+            echo ""
+            echo "  1. The port is wrong. Hostinger shared hosting does NOT use 22 —"
+            echo "     it is commonly 65002. HOSTINGER_PORT is currently"
+            if [ -z "$HOSTINGER_PORT" ]; then
+              echo "     UNSET, so this tried 22. Check hPanel -> Advanced -> SSH Access"
+              echo "     for the real port and set HOSTINGER_PORT to it."
+            else
+              echo "     set, and this tried $port. Confirm that against hPanel ->"
+              echo "     Advanced -> SSH Access."
+            fi
+            echo ""
+            echo "  2. HOSTINGER_HOST holds something other than a bare hostname or IP."
+            echo "     No scheme, no username, no port suffix — not ssh://host, not"
+            echo "     user@host, not host:65002. Just the host."
+            echo ""
+            echo "  3. SSH is switched off for the account, or the runner's address"
+            echo "     is blocked. Both are settings in hPanel."
+            exit 1
+          fi
+
+          echo "Host key pinned."
 
       # --delete so a file removed from the repo also leaves the server, with
       # node_modules excluded: `standalone` carries only what it traced, and the
       # host must not accumulate a second, stale dependency tree.
       - name: Upload the artifact
         env:
-          SSH_HOST: ${{ secrets.HOSTINGER_HOST }}
-          SSH_USER: ${{ secrets.HOSTINGER_USER }}
-          SSH_PORT: ${{ secrets.HOSTINGER_PORT }}
-          DEPLOY_PATH: ${{ secrets.HOSTINGER_PATH }}
+          HOSTINGER_HOST: ${{ secrets.HOSTINGER_HOST }}
+          HOSTINGER_USER: ${{ secrets.HOSTINGER_USER }}
+          HOSTINGER_PORT: ${{ secrets.HOSTINGER_PORT }}
+          HOSTINGER_PATH: ${{ secrets.HOSTINGER_PATH }}
         run: |
           rsync -az --delete \
-            -e "ssh -i ~/.ssh/id_deploy -p ${SSH_PORT:-22}" \
+            -e "ssh -i ~/.ssh/id_deploy -p ${HOSTINGER_PORT:-22}" \
             .next/standalone/ \
-            "$SSH_USER@$SSH_HOST:$DEPLOY_PATH/"
+            "$HOSTINGER_USER@$HOSTINGER_HOST:$HOSTINGER_PATH/"
 
       # Also ships the diagnostics scripts, which are not part of `standalone`
       # and are wanted on the host precisely when something is wrong.
       - name: Upload the diagnostic scripts
         env:
-          SSH_HOST: ${{ secrets.HOSTINGER_HOST }}
-          SSH_USER: ${{ secrets.HOSTINGER_USER }}
-          SSH_PORT: ${{ secrets.HOSTINGER_PORT }}
-          DEPLOY_PATH: ${{ secrets.HOSTINGER_PATH }}
+          HOSTINGER_HOST: ${{ secrets.HOSTINGER_HOST }}
+          HOSTINGER_USER: ${{ secrets.HOSTINGER_USER }}
+          HOSTINGER_PORT: ${{ secrets.HOSTINGER_PORT }}
+          HOSTINGER_PATH: ${{ secrets.HOSTINGER_PATH }}
         run: |
           rsync -az \
-            -e "ssh -i ~/.ssh/id_deploy -p ${SSH_PORT:-22}" \
+            -e "ssh -i ~/.ssh/id_deploy -p ${HOSTINGER_PORT:-22}" \
             scripts/ \
-            "$SSH_USER@$SSH_HOST:$DEPLOY_PATH/scripts/"
+            "$HOSTINGER_USER@$HOSTINGER_HOST:$HOSTINGER_PATH/scripts/"
 
       - name: Restart the application
         env:
-          SSH_HOST: ${{ secrets.HOSTINGER_HOST }}
-          SSH_USER: ${{ secrets.HOSTINGER_USER }}
-          SSH_PORT: ${{ secrets.HOSTINGER_PORT }}
-          RESTART_COMMAND: ${{ secrets.HOSTINGER_RESTART_COMMAND }}
+          HOSTINGER_HOST: ${{ secrets.HOSTINGER_HOST }}
+          HOSTINGER_USER: ${{ secrets.HOSTINGER_USER }}
+          HOSTINGER_PORT: ${{ secrets.HOSTINGER_PORT }}
+          HOSTINGER_RESTART_COMMAND: ${{ secrets.HOSTINGER_RESTART_COMMAND }}
         run: |
-          if [ -z "$RESTART_COMMAND" ]; then
+          if [ -z "$HOSTINGER_RESTART_COMMAND" ]; then
             echo "::warning::HOSTINGER_RESTART_COMMAND is not set — the new code is"
             echo "::warning::uploaded but the OLD process is still running. Restart in hPanel."
             exit 0
           fi
-          ssh -i ~/.ssh/id_deploy -p "${SSH_PORT:-22}" \
-            "$SSH_USER@$SSH_HOST" "$RESTART_COMMAND"
+          ssh -i ~/.ssh/id_deploy -p "${HOSTINGER_PORT:-22}" \
+            "$HOSTINGER_USER@$HOSTINGER_HOST" "$HOSTINGER_RESTART_COMMAND"
 
       # A restart is not instant and a smoke test against a half-started server
       # reports a failure that is not real.

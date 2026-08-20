@@ -425,7 +425,7 @@ in that page — never into a chat, an issue, or a commit.
 | --- | --- |
 | `HOSTINGER_HOST` | SSH hostname or IP |
 | `HOSTINGER_USER` | SSH username |
-| `HOSTINGER_PORT` | SSH port (blank ⇒ 22) |
+| `HOSTINGER_PORT` | SSH port. Blank means 22 — **which is usually wrong on Hostinger shared hosting**, where SSH commonly listens on **65002**. hPanel → Advanced → SSH Access has the real one |
 | `HOSTINGER_SSH_KEY` | **private** key of a deploy keypair — generate a fresh one, do not reuse a personal key |
 | `HOSTINGER_PATH` | absolute path of the directory holding `server.js` |
 | `HOSTINGER_RESTART_COMMAND` | command that restarts the app; if blank the upload still happens and the workflow warns that the old process is still serving |
