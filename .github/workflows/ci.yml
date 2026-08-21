@@ -97,6 +97,19 @@ jobs:
         if: '!cancelled()'
         run: npm run check-sprint-periods
 
+      # The double-entry rules. Every failure this catches is silent: an
+      # unbalanced ledger does not throw, it just stops balancing, and a sign
+      # convention inverted in one place produces a profit and loss on which
+      # salaries appear to earn the school money — with every number on it
+      # looking entirely plausible. Nothing else in this pipeline would object.
+      #
+      # It also asserts that migration 0027's hand-written seed matches
+      # DEFAULT_CHART, which is the strongest thing a check with no database
+      # can say about the two copies of that list.
+      - name: Accounting — the ledger balances and the chart agrees with the migration
+        if: '!cancelled()'
+        run: npm run check-accounting
+
       # Build last: it repeats type checking internally, so running it after a
       # failed typecheck would only echo errors already reported above.
       #

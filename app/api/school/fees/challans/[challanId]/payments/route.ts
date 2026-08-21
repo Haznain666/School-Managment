@@ -1,9 +1,18 @@
 import { and, eq, sql } from 'drizzle-orm';
 
-import { feeChallans, feePayments, isPaymentMethod } from '@/db/schema';
+import { feeChallans, feePayments, isPaymentMethod, ledgerTransactions } from '@/db/schema';
+import { landingAccountFor, twoSidedLines } from '@/lib/accounting';
+import { schoolUserIdForUid } from '@/lib/accounting-queries';
 import { withSchoolAuth } from '@/lib/api-auth';
 import { apiFailure, apiSuccess, handleApiError, readJsonBody } from '@/lib/api-response';
-import { batch, db, type Tx } from '@/lib/drizzle';
+import { db, type Tx } from '@/lib/drizzle';
+import {
+  cashAccountForStaff,
+  loadSystemAccounts,
+  postTransaction,
+  requireSystemAccount,
+  LedgerError,
+} from '@/lib/ledger';
 import { settleEnrolmentIfFeePaid } from '@/lib/enrolment-fee-gate';
 import { challanStatusFor, remainingBalance } from '@/lib/fee-calculator';
 import { getChallanDetail } from '@/lib/fee-queries';
@@ -22,8 +31,8 @@ import { isUuid, readOptionalString } from '@/lib/validation';
  *
  *   1. The amount may not exceed what is still owed. A browser can send any
  *      number; the balance is read from the database and checked here.
- *   2. The payment row and the challan's running total go out through
- *      `batch()`, in one transaction, and the total is incremented *in SQL*. A
+ *   2. The payment row, the challan's running total and the ledger posting go
+ *      out in one transaction, and the total is incremented *in SQL*. A
  *      payment that recorded without moving `paid_amount` would leave a parent
  *      chased for money the school already has.
  *   3. The WhatsApp confirmation is fired *after* the commit and never awaited.
@@ -35,6 +44,29 @@ import { isUuid, readOptionalString } from '@/lib/validation';
  * them exceed the total. That is rare, visible (the challan shows more paid
  * than billed) and recoverable, whereas a lost payment is neither — which is
  * why (2) is the one made race-proof.
+ *
+ * ── The ledger posting, added in Sprint 13.5 ─────────────────────────────
+ * A fourth thing now holds, and it is inside the same transaction as (2): the
+ * payment posts to the school's books. Debit the account the money landed in,
+ * credit Fee Income.
+ *
+ * Which account it lands in is the whole of the per-staff cash design, and
+ * this route deliberately does not know about it: `cashAccountForStaff` answers
+ * with the clerk's own drawer if they have one and the office drawer if they
+ * do not. A cheque lands in `1020 Cheques in Hand` rather than the bank,
+ * because a cheque is not money until it clears and a school counting it as
+ * bank balance will overdraw on one that bounces.
+ *
+ * **It is not fired-and-forgotten like the WhatsApp confirmation.** A payment
+ * recorded without its posting understates the school's income silently, and
+ * silently is the problem: nothing on any screen would ever say so. So it
+ * commits with the payment or the payment does not happen.
+ *
+ * The one exception is a school with no chart of accounts — every school
+ * migrated by `0027` has one, and a school provisioned since gets one at
+ * creation, but a school that somehow has none must still be able to take a
+ * parent's money at the counter. That case posts nothing, says so in the
+ * response, and leaves `ledger_transaction_id` null.
  *
  * ── The fourth thing, added with the admission fee gate ──────────────────
  * A payment can be the one that confirms an admission. `settleEnrolmentIfFeePaid`
@@ -83,6 +115,56 @@ interface RecordPaymentBody {
   referenceNumber?: unknown;
   paymentDate?: unknown;
   notes?: unknown;
+}
+
+/**
+ * The two accounts a fee payment moves between, or null if the school has none.
+ *
+ * Separated out because the decision has three inputs and no side effects, and
+ * because it is where the per-staff cash rule actually lives: the money lands
+ * in the collector's own drawer when they have one, and in the office drawer
+ * when they do not. The route above does not know which happened, which is
+ * what lets a school switch the behaviour on for one clerk without anything in
+ * the fee module changing.
+ *
+ * Returns null rather than throwing when the chart is missing. A school with
+ * no accounts has to be able to take a parent's money; posting is what waits.
+ */
+async function resolvePosting(input: {
+  locationId: string;
+  systemAccounts: Awaited<ReturnType<typeof loadSystemAccounts>>;
+  collector: string | null;
+  paymentMethod: 'cash' | 'bank_transfer' | 'cheque';
+}): Promise<{ landingAccountId: string; incomeAccountId: string } | null> {
+  try {
+    const income = requireSystemAccount(input.systemAccounts, 'fee_income', 'Fee Income');
+    const landingKey = landingAccountFor(input.paymentMethod);
+    const landing = requireSystemAccount(
+      input.systemAccounts,
+      landingKey,
+      landingKey === 'bank'
+        ? 'Bank Account'
+        : landingKey === 'cheques_in_hand'
+          ? 'Cheques in Hand'
+          : 'Cash in Hand',
+    );
+
+    // Only cash sits in a person's drawer. A transfer is already at the bank
+    // and a cheque is a piece of paper the office files, so neither belongs to
+    // the individual who happened to key it in.
+    const account =
+      landingKey === 'cash_in_hand'
+        ? await cashAccountForStaff(input.locationId, input.collector, landing)
+        : landing;
+
+    return { landingAccountId: account.id, incomeAccountId: income.id };
+  } catch (error) {
+    if (error instanceof LedgerError) {
+      console.warn('[fees] payment not posted to the ledger:', error.message);
+      return null;
+    }
+    throw error;
+  }
 }
 
 export const POST = withSchoolAuth<RouteContext>(
@@ -155,24 +237,23 @@ export const POST = withSchoolAuth<RouteContext>(
 
       const delta = paiseToNumeric(amountPaise);
 
-      // Deferred until `batch()` opens the transaction: a Drizzle builder is
-      // bound to the session that created it, so these must be built on `tx`.
-      const statements: ((tx: Tx) => PromiseLike<unknown>)[] = [
-        (tx) =>
-          tx.insert(feePayments).values({
-            locationId: auth.locationId,
-            challanId,
-            amount: delta,
-            paymentMethod,
-            referenceNumber: readOptionalString(body.referenceNumber),
-            paymentDate,
-            collectedByUid: auth.uid,
-            notes: readOptionalString(body.notes),
-          }),
-        (tx) =>
-          tx
-            .update(feeChallans)
-            .set({
+      // Resolved before the transaction opens: two indexed reads that do not
+      // need to be inside it, and keeping them out shortens the window the
+      // challan row is held for.
+      const systemAccounts = await loadSystemAccounts(auth.locationId);
+      const collector = await schoolUserIdForUid(auth.locationId, auth.uid);
+
+      const posting = await resolvePosting({
+        locationId: auth.locationId,
+        systemAccounts,
+        collector,
+        paymentMethod,
+      });
+
+      const challanUpdate = (tx: Tx): PromiseLike<unknown> =>
+        tx
+          .update(feeChallans)
+          .set({
             // Incremented in SQL rather than written from the value read
             // above. Two clerks recording at the same moment would otherwise
             // each write `read + their own amount`, and the second would
@@ -187,17 +268,67 @@ export const POST = withSchoolAuth<RouteContext>(
               WHEN ${feeChallans.paidAmount} + ${delta} > 0 THEN 'partial'
               ELSE 'unpaid'
             END`,
-              updatedAt: new Date(),
-            })
-            .where(
-              and(
-                eq(feeChallans.id, challanId),
-                eq(feeChallans.locationId, auth.locationId),
-              ),
+            updatedAt: new Date(),
+          })
+          .where(
+            and(
+              eq(feeChallans.id, challanId),
+              eq(feeChallans.locationId, auth.locationId),
             ),
-      ];
+          );
 
-      await batch(db, (tx) => statements.map((statement) => statement(tx)));
+      // One transaction: the payment, the challan's running total, and the
+      // ledger posting. `batch()` used to open it; it is written out here
+      // because the posting has to read the id of the row it is linked to,
+      // which a list of independent statements cannot express.
+      const ledgerTransactionId = await db.transaction(async (tx) => {
+        const transactionId =
+          posting === null
+            ? null
+            : await postTransaction(tx, {
+                locationId: auth.locationId,
+                entryDate: paymentDate,
+                memo: `Fee received — ${challan.studentName} (${challan.challanNumber})`,
+                source: 'fee_payment',
+                referenceNumber: readOptionalString(body.referenceNumber),
+                createdByUid: auth.uid,
+                lines: twoSidedLines(
+                  posting.landingAccountId,
+                  posting.incomeAccountId,
+                  amountPaise,
+                ),
+              });
+
+        const [payment] = await tx
+          .insert(feePayments)
+          .values({
+            locationId: auth.locationId,
+            challanId,
+            amount: delta,
+            paymentMethod,
+            referenceNumber: readOptionalString(body.referenceNumber),
+            paymentDate,
+            collectedByUid: auth.uid,
+            notes: readOptionalString(body.notes),
+            ledgerTransactionId: transactionId,
+          })
+          .returning({ id: feePayments.id });
+
+        // `source_id` points at the payment, which does not exist until the
+        // line above. Set here rather than left null: the day book's "what
+        // caused this" link, and the guard that stops the `0027` backfill
+        // touching a payment that already has a posting, both read it.
+        if (transactionId !== null && payment !== undefined) {
+          await tx
+            .update(ledgerTransactions)
+            .set({ sourceId: payment.id })
+            .where(eq(ledgerTransactions.id, transactionId));
+        }
+
+        await challanUpdate(tx);
+
+        return transactionId;
+      });
 
       // Fired, not awaited. The money is already recorded; a slow or broken
       // GHL or SMTP must not turn a successful payment into a failed request.
@@ -228,6 +359,13 @@ export const POST = withSchoolAuth<RouteContext>(
             amount: paiseToNumeric(amountPaise),
             paymentMethod: body.paymentMethod,
             paymentDate,
+            /**
+             * Null only at a school with no chart of accounts. The receipt
+             * screen says so rather than staying quiet: a payment that did not
+             * reach the books is a reconciliation problem, and the person who
+             * can fix it is the one standing there.
+             */
+            ledgerTransactionId,
           },
           newStatus,
           newPaidAmount,

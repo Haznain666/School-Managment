@@ -6,6 +6,11 @@ import {
   admissionApplications,
   attendanceRecords,
   branches,
+  expenseCategories,
+  expenses,
+  ledgerAccounts,
+  ledgerEntries,
+  ledgerTransactions,
   examSubjects,
   exams,
   examTerms,
@@ -27,7 +32,17 @@ import {
   MONTH_NAMES,
 } from '@/db/schema';
 
+import {
+  ACCOUNT_TYPE_LABELS,
+  LEDGER_SOURCE_LABELS,
+  balancePaise,
+  isLedgerSource,
+  normalBalanceOf,
+  profitPaise,
+  type LedgerAccountType,
+} from './accounting';
 import { db } from './drizzle';
+import { fromPaise, toPaise } from './money';
 import {
   foldStudentTotals,
   readExamMarks,
@@ -1181,6 +1196,605 @@ async function monthlyRevenue(
   };
 }
 
+
+/* -----------------------------------------------------------------------------
+ * Sprint 13.5 — the seven financial statements.
+ *
+ * Every one of them reads `ledger_entries` joined to `ledger_transactions` for
+ * the date and to `ledger_accounts` for the head, and none of them reads the
+ * fee, payroll or expense tables for a figure. That is the point of having a
+ * ledger: one set of books, and a profit and loss that cannot disagree with a
+ * balance sheet because both are the same sum grouped differently.
+ *
+ * Arithmetic is in paise throughout and converted once, on the way into the
+ * row (`lib/money.ts`). A `numeric` column summed by Postgres arrives as a
+ * string; parsing it to a float and adding would lose a paisa per line, and a
+ * balance sheet that is out by four rupees is a balance sheet nobody trusts
+ * again.
+ * -------------------------------------------------------------------------- */
+
+interface LedgerTotalsRow {
+  accountId: string;
+  code: string;
+  name: string;
+  type: LedgerAccountType;
+  debitPaise: number;
+  creditPaise: number;
+}
+
+/**
+ * Debit and credit totals per account over a window, scoped to the caller.
+ *
+ * The shared read behind five of the seven. `from` is optional because a
+ * balance sheet is a position on a day rather than a period: it needs every
+ * entry ever posted up to the end date, and passing the range's start would
+ * silently turn it into a statement of the month's movement wearing a balance
+ * sheet's title.
+ */
+async function ledgerTotals(
+  scope: ReportScope,
+  window: { from?: string; to: string; branchId?: string },
+): Promise<LedgerTotalsRow[]> {
+  const conditions: SQL[] = [
+    eq(ledgerTransactions.locationId, scope.locationId),
+    lte(ledgerTransactions.entryDate, window.to),
+  ];
+  if (window.from !== undefined) {
+    conditions.push(gte(ledgerTransactions.entryDate, window.from));
+  }
+  if (window.branchId !== undefined) {
+    conditions.push(eq(ledgerTransactions.branchId, window.branchId));
+  }
+
+  const rows = await db
+    .select({
+      accountId: ledgerAccounts.id,
+      code: ledgerAccounts.code,
+      name: ledgerAccounts.name,
+      type: ledgerAccounts.type,
+      debit: SUM(sql`${ledgerEntries.debit}`),
+      credit: SUM(sql`${ledgerEntries.credit}`),
+    })
+    .from(ledgerEntries)
+    .innerJoin(ledgerTransactions, eq(ledgerTransactions.id, ledgerEntries.transactionId))
+    .innerJoin(ledgerAccounts, eq(ledgerAccounts.id, ledgerEntries.accountId))
+    .where(and(...conditions))
+    .groupBy(ledgerAccounts.id, ledgerAccounts.code, ledgerAccounts.name, ledgerAccounts.type)
+    .orderBy(asc(ledgerAccounts.code));
+
+  return rows.map((row) => ({
+    accountId: row.accountId,
+    code: row.code,
+    name: row.name,
+    type: row.type,
+    debitPaise: toPaise(row.debit),
+    creditPaise: toPaise(row.credit),
+  }));
+}
+
+/** Sums one type's balances, in paise. */
+function totalOfType(rows: readonly LedgerTotalsRow[], type: LedgerAccountType): number {
+  return rows
+    .filter((row) => row.type === type)
+    .reduce((total, row) => total + balancePaise(type, row), 0);
+}
+
+/* -----------------------------------------------------------------------------
+ * 10. Balance sheet.
+ * -------------------------------------------------------------------------- */
+
+async function balanceSheet(
+  scope: ReportScope,
+  params: ReportParams,
+): Promise<ReportResult> {
+  const { to } = range(params);
+  const totals = await ledgerTotals(scope, {
+    to,
+    branchId: effectiveBranch(scope, params),
+  });
+
+  const rows: ReportRow[] = [];
+
+  for (const type of ['asset', 'liability', 'equity'] as const) {
+    for (const account of totals.filter((row) => row.type === type)) {
+      const balance = balancePaise(type, account);
+      // A head that has never been posted to is left off. A balance sheet is
+      // read line by line, and a page of zeroes hides the four lines that are
+      // not zero.
+      if (balance === 0 && account.debitPaise === 0 && account.creditPaise === 0) continue;
+
+      rows.push({
+        section: ACCOUNT_TYPE_LABELS[type],
+        code: account.code,
+        account: account.name,
+        balance: fromPaise(balance),
+      });
+    }
+  }
+
+  const assets = totalOfType(totals, 'asset');
+  const liabilities = totalOfType(totals, 'liability');
+  const equity = totalOfType(totals, 'equity');
+  const profit = profitPaise(totalOfType(totals, 'income'), totalOfType(totals, 'expense'));
+
+  // Not closed out to a reserve — see the definition's caveat. Shown as its own
+  // line so that Assets = Liabilities + Equity holds on the page, visibly,
+  // rather than holding somewhere the reader has to take on trust.
+  rows.push({
+    section: 'Equity',
+    code: '',
+    account: 'Profit to date (not yet closed)',
+    balance: fromPaise(profit),
+  });
+
+  return {
+    rows,
+    totals: {
+      section: 'Assets = Liabilities + Equity',
+      code: '',
+      account: `${formatAmountPlain(assets)} = ${formatAmountPlain(liabilities + equity + profit)}`,
+      balance: fromPaise(assets),
+    },
+  };
+}
+
+/** Rupees, grouped, with no currency prefix — for the footer sentence above. */
+function formatAmountPlain(paise: number): string {
+  return new Intl.NumberFormat('en-PK', {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 2,
+  }).format(fromPaise(paise));
+}
+
+/* -----------------------------------------------------------------------------
+ * 11. Profit and loss.
+ * -------------------------------------------------------------------------- */
+
+async function profitLoss(scope: ReportScope, params: ReportParams): Promise<ReportResult> {
+  const { from, to } = range(params);
+  const totals = await ledgerTotals(scope, {
+    from,
+    to,
+    branchId: effectiveBranch(scope, params),
+  });
+
+  const rows: ReportRow[] = [];
+
+  for (const type of ['income', 'expense'] as const) {
+    for (const account of totals.filter((row) => row.type === type)) {
+      const balance = balancePaise(type, account);
+      if (balance === 0) continue;
+
+      rows.push({
+        section: type === 'income' ? 'Income' : 'Expenses',
+        code: account.code,
+        account: account.name,
+        amount: fromPaise(balance),
+      });
+    }
+  }
+
+  const income = totalOfType(totals, 'income');
+  const expense = totalOfType(totals, 'expense');
+
+  rows.push({ section: 'Income', code: '', account: 'Total income', amount: fromPaise(income) });
+  rows.push({
+    section: 'Expenses',
+    code: '',
+    account: 'Total expenses',
+    amount: fromPaise(expense),
+  });
+
+  return {
+    rows,
+    totals: {
+      section: 'Profit',
+      code: '',
+      account: income >= expense ? 'Surplus for the period' : 'Deficit for the period',
+      amount: fromPaise(profitPaise(income, expense)),
+    },
+  };
+}
+
+/* -----------------------------------------------------------------------------
+ * 12. Day book.
+ * -------------------------------------------------------------------------- */
+
+async function dayBook(scope: ReportScope, params: ReportParams): Promise<ReportResult> {
+  const { from, to } = range(params);
+  const branchId = effectiveBranch(scope, params);
+
+  const conditions: SQL[] = [
+    eq(ledgerTransactions.locationId, scope.locationId),
+    gte(ledgerTransactions.entryDate, from),
+    lte(ledgerTransactions.entryDate, to),
+  ];
+  if (branchId !== undefined) conditions.push(eq(ledgerTransactions.branchId, branchId));
+
+  // One row per transaction, with its largest debit and largest credit named
+  // and its side counts beside them. A join to the lines would give one row per
+  // *line*, and a CSV of half-entries is worse than a summary that says it is
+  // one — which the caveat does.
+  const rows = await db
+    .select({
+      id: ledgerTransactions.id,
+      entryDate: ledgerTransactions.entryDate,
+      memo: ledgerTransactions.memo,
+      source: ledgerTransactions.source,
+      reference: ledgerTransactions.referenceNumber,
+      reversesTransactionId: ledgerTransactions.reversesTransactionId,
+      amount: sql<string>`coalesce((
+        select sum(${ledgerEntries.debit}) from ${ledgerEntries}
+        where ${ledgerEntries.transactionId} = ${ledgerTransactions.id}
+      ), 0)`,
+      debitAccount: sql<string | null>`(
+        select ${ledgerAccounts.name} from ${ledgerEntries}
+        join ${ledgerAccounts} on ${ledgerAccounts.id} = ${ledgerEntries.accountId}
+        where ${ledgerEntries.transactionId} = ${ledgerTransactions.id}
+          and ${ledgerEntries.debit} > 0
+        order by ${ledgerEntries.debit} desc
+        limit 1
+      )`,
+      creditAccount: sql<string | null>`(
+        select ${ledgerAccounts.name} from ${ledgerEntries}
+        join ${ledgerAccounts} on ${ledgerAccounts.id} = ${ledgerEntries.accountId}
+        where ${ledgerEntries.transactionId} = ${ledgerTransactions.id}
+          and ${ledgerEntries.credit} > 0
+        order by ${ledgerEntries.credit} desc
+        limit 1
+      )`,
+      debitCount: sql<number>`(
+        select count(*)::int from ${ledgerEntries}
+        where ${ledgerEntries.transactionId} = ${ledgerTransactions.id}
+          and ${ledgerEntries.debit} > 0
+      )`,
+      creditCount: sql<number>`(
+        select count(*)::int from ${ledgerEntries}
+        where ${ledgerEntries.transactionId} = ${ledgerTransactions.id}
+          and ${ledgerEntries.credit} > 0
+      )`,
+      isReversed: sql<boolean>`exists (
+        select 1 from ${ledgerTransactions} as reversal
+        where reversal.reverses_transaction_id = ${ledgerTransactions.id}
+      )`,
+    })
+    .from(ledgerTransactions)
+    .where(and(...conditions))
+    .orderBy(desc(ledgerTransactions.entryDate), desc(ledgerTransactions.createdAt))
+    .limit(2000);
+
+  const withSplit = (name: string | null, count: number): string => {
+    if (name === null) return '—';
+    return count > 1 ? `${name} +${count - 1}` : name;
+  };
+
+  let total = 0;
+
+  const out = rows.map((row) => {
+    const amount = toPaise(row.amount);
+    total += amount;
+
+    return {
+      entryDate: row.entryDate,
+      // The strike-through cannot survive a CSV, so the marking is words. A
+      // reversed entry that looked ordinary in a spreadsheet is how a figure
+      // gets counted twice by somebody reconciling in Excel.
+      memo:
+        row.reversesTransactionId !== null
+          ? `${row.memo} [reversal]`
+          : row.isReversed
+            ? `${row.memo} [reversed]`
+            : row.memo,
+      source: isLedgerSource(row.source) ? LEDGER_SOURCE_LABELS[row.source] : row.source,
+      reference: row.reference ?? '',
+      debitAccount: withSplit(row.debitAccount, row.debitCount),
+      creditAccount: withSplit(row.creditAccount, row.creditCount),
+      amount: fromPaise(amount),
+    } satisfies ReportRow;
+  });
+
+  return {
+    rows: out,
+    totals: {
+      entryDate: '',
+      memo: `${out.length} ${out.length === 1 ? 'entry' : 'entries'}`,
+      source: '',
+      reference: '',
+      debitAccount: '',
+      creditAccount: '',
+      amount: fromPaise(total),
+    },
+  };
+}
+
+/* -----------------------------------------------------------------------------
+ * 13. Account summary, day by day.
+ * -------------------------------------------------------------------------- */
+
+async function accountSummary(
+  scope: ReportScope,
+  params: ReportParams,
+): Promise<ReportResult> {
+  const { from, to } = range(params);
+
+  const rows = await db
+    .select({
+      entryDate: ledgerTransactions.entryDate,
+      code: ledgerAccounts.code,
+      name: ledgerAccounts.name,
+      type: ledgerAccounts.type,
+      entries: sql<number>`count(*)::int`,
+      debit: SUM(sql`${ledgerEntries.debit}`),
+      credit: SUM(sql`${ledgerEntries.credit}`),
+    })
+    .from(ledgerEntries)
+    .innerJoin(ledgerTransactions, eq(ledgerTransactions.id, ledgerEntries.transactionId))
+    .innerJoin(ledgerAccounts, eq(ledgerAccounts.id, ledgerEntries.accountId))
+    .where(
+      and(
+        eq(ledgerTransactions.locationId, scope.locationId),
+        gte(ledgerTransactions.entryDate, from),
+        lte(ledgerTransactions.entryDate, to),
+      ),
+    )
+    .groupBy(
+      ledgerTransactions.entryDate,
+      ledgerAccounts.code,
+      ledgerAccounts.name,
+      ledgerAccounts.type,
+    )
+    .orderBy(desc(ledgerTransactions.entryDate), asc(ledgerAccounts.code));
+
+  let debits = 0;
+  let credits = 0;
+
+  const out = rows.map((row) => {
+    const debit = toPaise(row.debit);
+    const credit = toPaise(row.credit);
+    debits += debit;
+    credits += credit;
+
+    // Net, in the direction this account grows: a day's cash takings read
+    // positive and a day's payments out read negative, and an income account
+    // that earned 20,000 also reads positive.
+    const movement =
+      normalBalanceOf(row.type) === 'debit' ? debit - credit : credit - debit;
+
+    return {
+      entryDate: row.entryDate,
+      account: `${row.code} ${row.name}`,
+      entries: row.entries,
+      debit: fromPaise(debit),
+      credit: fromPaise(credit),
+      movement: fromPaise(movement),
+    } satisfies ReportRow;
+  });
+
+  return {
+    rows: out,
+    totals: {
+      entryDate: '',
+      account: `${out.length} account-days`,
+      entries: out.reduce((total, row) => total + Number(row.entries ?? 0), 0),
+      debit: fromPaise(debits),
+      credit: fromPaise(credits),
+      // Debits equal credits over any complete set of entries. A non-zero here
+      // means something was posted unbalanced, which the poster refuses — so it
+      // is a figure worth printing precisely because it should always be zero.
+      movement: fromPaise(debits - credits),
+    },
+  };
+}
+
+/* -----------------------------------------------------------------------------
+ * 14. Month by month.
+ * -------------------------------------------------------------------------- */
+
+async function monthlyAccounts(
+  scope: ReportScope,
+  params: ReportParams,
+): Promise<ReportResult> {
+  const year = params.year ?? new Date().getFullYear();
+  const from = `${year}-01-01`;
+  const to = `${year}-12-31`;
+
+  const rows = await db
+    .select({
+      month: sql<string>`to_char(${ledgerTransactions.entryDate}, 'YYYY-MM')`,
+      type: ledgerAccounts.type,
+      entries: sql<number>`count(distinct ${ledgerTransactions.id})::int`,
+      debit: SUM(sql`${ledgerEntries.debit}`),
+      credit: SUM(sql`${ledgerEntries.credit}`),
+    })
+    .from(ledgerEntries)
+    .innerJoin(ledgerTransactions, eq(ledgerTransactions.id, ledgerEntries.transactionId))
+    .innerJoin(ledgerAccounts, eq(ledgerAccounts.id, ledgerEntries.accountId))
+    .where(
+      and(
+        eq(ledgerTransactions.locationId, scope.locationId),
+        gte(ledgerTransactions.entryDate, from),
+        lte(ledgerTransactions.entryDate, to),
+        inArray(ledgerAccounts.type, ['income', 'expense']),
+      ),
+    )
+    .groupBy(sql`to_char(${ledgerTransactions.entryDate}, 'YYYY-MM')`, ledgerAccounts.type);
+
+  const byMonth = new Map<string, { income: number; expenses: number; entries: number }>();
+
+  for (const row of rows) {
+    const cell = byMonth.get(row.month) ?? { income: 0, expenses: 0, entries: 0 };
+    const balance =
+      row.type === 'income'
+        ? toPaise(row.credit) - toPaise(row.debit)
+        : toPaise(row.debit) - toPaise(row.credit);
+
+    if (row.type === 'income') cell.income += balance;
+    else cell.expenses += balance;
+
+    // Distinct transactions per type, so a transaction touching both an income
+    // and an expense head would be counted twice. It is a count for the eye
+    // rather than a figure anybody reconciles, and it is marked secondary.
+    cell.entries += row.entries;
+    byMonth.set(row.month, cell);
+  }
+
+  const totals = { income: 0, expenses: 0, entries: 0 };
+
+  // All twelve months, including the empty ones: a missing month reads as an
+  // oversight and a zero reads as a quiet month.
+  const out = Array.from({ length: 12 }, (_unused, index) => {
+    const key = `${year}-${String(index + 1).padStart(2, '0')}`;
+    const cell = byMonth.get(key) ?? { income: 0, expenses: 0, entries: 0 };
+
+    totals.income += cell.income;
+    totals.expenses += cell.expenses;
+    totals.entries += cell.entries;
+
+    return {
+      period: `${MONTH_NAMES[index] ?? key} ${year}`,
+      income: fromPaise(cell.income),
+      expenses: fromPaise(cell.expenses),
+      profit: fromPaise(profitPaise(cell.income, cell.expenses)),
+      entries: cell.entries,
+    } satisfies ReportRow;
+  });
+
+  return {
+    rows: out,
+    totals: {
+      period: String(year),
+      income: fromPaise(totals.income),
+      expenses: fromPaise(totals.expenses),
+      profit: fromPaise(profitPaise(totals.income, totals.expenses)),
+      entries: totals.entries,
+    },
+  };
+}
+
+/* -----------------------------------------------------------------------------
+ * 15. Expenses by category.
+ * -------------------------------------------------------------------------- */
+
+async function expenseDetail(
+  scope: ReportScope,
+  params: ReportParams,
+): Promise<ReportResult> {
+  const { from, to } = range(params);
+  const branchId = effectiveBranch(scope, params);
+
+  const conditions: SQL[] = [
+    eq(expenses.locationId, scope.locationId),
+    gte(expenses.expenseDate, from),
+    lte(expenses.expenseDate, to),
+    // Approved only. A draft is a request for money and a rejected one is a
+    // request that was refused; neither left the school.
+    eq(expenses.status, 'approved'),
+  ];
+  if (branchId !== undefined) conditions.push(eq(expenses.branchId, branchId));
+
+  const rows = await db
+    .select({
+      category: expenseCategories.name,
+      account: ledgerAccounts.name,
+      expenseDate: expenses.expenseDate,
+      payee: expenses.payee,
+      reference: expenses.referenceNumber,
+      paidFrom: sql<string>`(
+        select paid.name from ${ledgerAccounts} as paid
+        where paid.id = ${expenses.paidFromAccountId}
+      )`,
+      approvedBy: schoolUsers.name,
+      amount: expenses.amount,
+    })
+    .from(expenses)
+    .innerJoin(expenseCategories, eq(expenseCategories.id, expenses.categoryId))
+    .innerJoin(ledgerAccounts, eq(ledgerAccounts.id, expenseCategories.ledgerAccountId))
+    .leftJoin(schoolUsers, eq(schoolUsers.id, expenses.approvedBy))
+    .where(and(...conditions))
+    .orderBy(asc(expenseCategories.name), desc(expenses.expenseDate))
+    .limit(2000);
+
+  let total = 0;
+
+  const out = rows.map((row) => {
+    const amount = toPaise(row.amount);
+    total += amount;
+
+    return {
+      category: row.category,
+      account: row.account,
+      expenseDate: row.expenseDate,
+      payee: row.payee ?? '',
+      reference: row.reference ?? '',
+      paidFrom: row.paidFrom,
+      approvedBy: row.approvedBy ?? '',
+      amount: fromPaise(amount),
+    } satisfies ReportRow;
+  });
+
+  return {
+    rows: out,
+    totals: {
+      category: `${out.length} ${out.length === 1 ? 'expense' : 'expenses'}`,
+      account: '',
+      expenseDate: '',
+      payee: '',
+      reference: '',
+      paidFrom: '',
+      approvedBy: '',
+      amount: fromPaise(total),
+    },
+  };
+}
+
+/* -----------------------------------------------------------------------------
+ * 16. Income and expense summary.
+ * -------------------------------------------------------------------------- */
+
+async function incomeExpenseSummary(
+  scope: ReportScope,
+  params: ReportParams,
+): Promise<ReportResult> {
+  const { from, to } = range(params);
+  const totals = await ledgerTotals(scope, { from, to });
+
+  const income = totalOfType(totals, 'income');
+  const expense = totalOfType(totals, 'expense');
+
+  const rows: ReportRow[] = [];
+
+  for (const type of ['income', 'expense'] as const) {
+    const sideTotal = type === 'income' ? income : expense;
+
+    for (const account of totals.filter((row) => row.type === type)) {
+      const balance = balancePaise(type, account);
+      if (balance === 0) continue;
+
+      rows.push({
+        section: type === 'income' ? 'Income' : 'Expenses',
+        code: account.code,
+        account: account.name,
+        amount: fromPaise(balance),
+        // Share of its own side, not of the whole sheet. "Salaries are 62% of
+        // what we spend" is a sentence a head teacher can act on; "salaries
+        // are 31% of income plus expenses" is not a sentence at all.
+        share: rate(balance, sideTotal),
+      });
+    }
+  }
+
+  return {
+    rows,
+    totals: {
+      section: 'Net',
+      code: '',
+      account: income >= expense ? 'Surplus' : 'Deficit',
+      amount: fromPaise(profitPaise(income, expense)),
+      share: null,
+    },
+  };
+}
+
 /* -----------------------------------------------------------------------------
  * The runner.
  * -------------------------------------------------------------------------- */
@@ -1198,6 +1812,13 @@ const RUNNERS: Record<
   'leave-summary': leaveSummary,
   'enrollment-funnel': enrollmentFunnel,
   'monthly-revenue': monthlyRevenue,
+  'balance-sheet': balanceSheet,
+  'profit-loss': profitLoss,
+  'day-book': dayBook,
+  'account-summary': accountSummary,
+  'monthly-accounts': monthlyAccounts,
+  'expense-detail': expenseDetail,
+  'income-expense-summary': incomeExpenseSummary,
 };
 
 /**

@@ -66,10 +66,6 @@ export function schoolNav({ role, permissions, moduleFlags }: SchoolNavProps): {
     items.push({ label: 'Branches', href: '/dashboard/branches', icon: 'branches' });
   }
 
-  if (can('fees.write') && role === 'accountant') {
-    items.push({ label: 'Finance', href: '/dashboard/finance', icon: 'finance', placeholder: true });
-  }
-
   // Module-gated destinations that land on placeholders until the relevant
   // sprint builds them. They appear only once the module is on.
   const moduleNav: Array<{
@@ -226,6 +222,54 @@ export function schoolNav({ role, permissions, moduleFlags }: SchoolNavProps): {
       label: 'Payroll',
       icon: 'payroll',
       items: [{ label: 'Payroll Runs', href: '/dashboard/payroll', icon: 'payroll' }],
+    });
+  }
+
+  // Sprint 13.5. This replaces the `Finance` placeholder that pointed at
+  // `/dashboard/finance`, which never existed — it was shown to accountants
+  // only, and led to a 404 for the one role most likely to click it.
+  //
+  // Module-gated on `accounts`, which is the flag `lib/platform-modules.ts`
+  // has carried as "Accounts & Finance" since Sprint 2. `SPRINTS.md` §0.9 names
+  // a new `accounting` flag; adding one would be a second switch for one
+  // thing, plus a `school_modules` CHECK change, and a school with the old flag
+  // on and the new one off would see the module vanish.
+  //
+  // Cash Counters is gated on `accounting.settle` rather than `read`: it is the
+  // screen where somebody accepts a clerk's takings, and putting it in front of
+  // the clerk themselves is the control this permission exists to keep.
+  if (moduleFlags.accounts && can('accounting.read')) {
+    sections.push({
+      label: 'Accounting',
+      icon: 'accounting',
+      items: [
+        { label: 'Overview', href: '/dashboard/accounting', icon: 'dashboard' },
+        { label: 'Day Book', href: '/dashboard/accounting/day-book', icon: 'dayBook' },
+        { label: 'Expenses', href: '/dashboard/accounting/expenses', icon: 'expenses' },
+        ...(can('accounting.settle')
+          ? ([
+              {
+                label: 'Cash Counters',
+                href: '/dashboard/accounting/counters',
+                icon: 'cashCounters',
+              },
+            ] satisfies PortalNavItem[])
+          : []),
+        {
+          label: 'Chart of Accounts',
+          href: '/dashboard/accounting/accounts',
+          icon: 'chartOfAccounts',
+        },
+        ...(can('accounting.write')
+          ? ([
+              {
+                label: 'Expense Categories',
+                href: '/dashboard/accounting/categories',
+                icon: 'settings',
+              },
+            ] satisfies PortalNavItem[])
+          : []),
+      ],
     });
   }
 

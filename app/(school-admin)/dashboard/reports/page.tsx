@@ -36,7 +36,15 @@ export default async function ReportsIndexPage() {
 
   const available = reportsFor(permissions);
 
-  const groups: Array<ReportDefinition['group']> = ['Academics', 'Fees', 'People'];
+  // Accounting last, deliberately. It is the group with the fewest people
+  // holding its permission, so putting it above Fees would push the reports an
+  // ordinary administrator actually opens below the fold on a phone.
+  const groups: Array<ReportDefinition['group']> = [
+    'Academics',
+    'Fees',
+    'People',
+    'Accounting',
+  ];
 
   return (
     <div className="space-y-6">

@@ -207,6 +207,69 @@ is an operator for it.
 
 ---
 
+## RULE: the ledger is append-only, and everything that moves money posts to it
+
+**Nothing updates or deletes a row in `ledger_transactions` or
+`ledger_entries`. A correction is a reversing entry.**
+
+Enforced by `npm run check-accounting`, which runs in CI on every push.
+
+| You are | Do |
+| --- | --- |
+| writing to the ledger | `postTransaction(tx, …)` — the only door |
+| correcting a wrong entry | `reverseTransaction(tx, …)` — a mirror, both kept |
+| taking money in code | post it *in the same transaction* as the record of it |
+| reading a balance | `SUM` over the entries. There is no balance column |
+
+### Why it is not a style preference
+
+A parent disputing a figure in March is asking about a payment made in
+October, and the only answer a school can give is the entry as it was written
+plus everything that has happened to it since. A ledger that can be edited
+answers "it says 5,000 now", which is not an answer.
+
+Sprint 16 (JazzCash/Easypaisa and the parent wallet) and Sprint 20 (POS) both
+post here, and both carry real money in and out of a parent's balance. The rule
+has to hold *before* they arrive.
+
+### Every posting is inside the transaction that caused it
+
+A fee payment recorded without its posting understates the school's income, and
+understates it **silently** — nothing on any screen would ever say so. So the
+posting is not fired-and-forgotten like the WhatsApp confirmation beside it in
+`…/challans/[challanId]/payments/route.ts`. It commits with the payment or the
+payment does not happen.
+
+### Debits equal credits, in whole paise
+
+`lineProblem` in `lib/accounting.ts` is the check, and it runs in the poster,
+in the browser form, and in the check script. `ledger_entries_one_side_check`
+enforces the rest in the database. There is no code path that writes an
+unbalanced transaction, including the ones nobody has written yet.
+
+Money is integer paise throughout, exactly as `lib/money.ts` requires of the
+fee module. A balance sheet out by four rupees is a balance sheet nobody trusts
+again.
+
+### Income is recognised on receipt, not on billing
+
+A fee payment posts; raising a challan posts nothing. This is deliberate and
+migration `0027`'s header says why at length. The consequence to remember:
+**what is still owed is not in the ledger.** `1100 Fees Receivable` exists for
+opening balances entered by hand, and the authoritative answer to "how much is
+outstanding" stays in the fee module, which has a challan number attached to
+every rupee of it.
+
+### A cash payment lands in the drawer of whoever took it
+
+Not in office cash — that is a different fact, and a school where the two are
+the same number is a school where nobody can be short. `cashAccountForStaff`
+answers with the clerk's own account when they have one and the office drawer
+when they do not, so a school that has never opened a staff cash account
+behaves exactly as it did before Sprint 13.5.
+
+---
+
 ## RULE: background work is claimed, not checked
 
 **Anything a timer picks up is claimed with a conditional `UPDATE … RETURNING`,
@@ -234,7 +297,7 @@ announcement the school believes went out and nobody received.
 
 ## Green build
 
-All six must pass before anything is merged:
+All nine must pass before anything is merged:
 
 ```
 npm run typecheck
@@ -244,6 +307,7 @@ npm run check-forms
 npm run check-address-phone
 npm run check-cnic
 npm run check-sprint-periods
+npm run check-accounting
 npm run build
 ```
 
@@ -251,11 +315,11 @@ Plus whichever of the other `check-*` scripts covers the area you touched —
 `check-reports`, `check-dashboard`, `check-portals`, `check-provisioning`,
 `check-smtp`.
 
-`.github/workflows/ci.yml` runs the six that need no database —
+`.github/workflows/ci.yml` runs the seven that need no database —
 `check-loaders`, `check-forms`, `check-address-phone`, `check-cnic`,
-`check-theme` and `check-sprint-periods` — on every push and pull request, so
-the loader and CNIC rules are enforced by the repository and not only by
-whoever remembers them. The rest execute against the real schema and stay on a
+`check-theme`, `check-sprint-periods` and `check-accounting` — on every push and
+pull request, so the loader, CNIC and double-entry rules are enforced by the
+repository and not only by whoever remembers them. The rest execute against the real schema and stay on a
 machine that holds the credentials.
 
 ### Building in a worktree

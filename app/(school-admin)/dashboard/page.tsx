@@ -5,6 +5,7 @@ import {
   ClipboardCheck,
   GraduationCap,
   Receipt,
+  TrendingDown,
   TrendingUp,
   Users,
 } from 'lucide-react';
@@ -21,6 +22,7 @@ import {
   getCollectionTrend,
   getTodaySnapshot,
 } from '@/lib/dashboard-queries';
+import { getAccountingOverview } from '@/lib/accounting-queries';
 import { getFeeOverview } from '@/lib/fee-queries';
 import { formatPkr } from '@/lib/money';
 import { PLATFORM_MODULES } from '@/lib/platform-modules';
@@ -79,12 +81,32 @@ const MODULE_DESCRIPTIONS: Partial<Record<string, string>> = {
  * come from tables this product already writes to and a head teacher reads
  * them as trends rather than as numbers.
  *
- * **Income, expenditure and profit are not charted, and must not be.** They
- * need the accounting ledger from Sprint 13.5, which does not exist. A tile
- * showing `PKR 0` for a school that collected three lakh this morning is
- * confidently wrong with no way for the reader to tell, so those tiles use
- * `StatTile`'s `unavailable` state and say what they are waiting for.
+ * **Profit is the tile Sprint 13.5 answered.** It used to be the one that said
+ * it could not: profit needs the accounting ledger, and a tile reading `PKR 0`
+ * for a school that collected three lakh this morning is confidently wrong
+ * with no way for the reader to tell. The ledger exists now, so the tile shows
+ * income less expenses for the calendar month — but only where the Accounts &
+ * Finance module is on, the caller may read it, *and* the school has actually
+ * set up a chart of accounts. Where any of those is false it goes back to
+ * `StatTile`'s `unavailable` state and says which one, because the old
+ * reasoning has not changed: this is the screen a head teacher forms their
+ * impression of the product from.
  */
+/**
+ * The calendar month we are in, as two `YYYY-MM-DD` strings.
+ *
+ * Day zero of the next month is the last day of this one, which gets February
+ * right in a leap year without anybody having to think about it.
+ */
+function currentMonth(today = new Date()): { from: string; to: string } {
+  const year = today.getUTCFullYear();
+  const month = today.getUTCMonth();
+  return {
+    from: new Date(Date.UTC(year, month, 1)).toISOString().slice(0, 10),
+    to: new Date(Date.UTC(year, month + 1, 0)).toISOString().slice(0, 10),
+  };
+}
+
 export default async function SchoolDashboardPage() {
   const { claims, locationId } = await requireSchoolRole(ADMIN_PORTAL_ROLES);
 
@@ -107,14 +129,17 @@ export default async function SchoolDashboardPage() {
   // here can never lead somewhere the guard would bounce.
   const showAttendance = moduleFlags.academics && permissions.includes('academics.read');
   const showEnrolment = moduleFlags.admissions && permissions.includes('admissions.read');
+  const showAccounting = moduleFlags.accounts && permissions.includes('accounting.read');
 
-  const [fees, collectionTrend, today, attendanceTrend, classStrength] = await Promise.all([
-    showFees ? getFeeOverview(locationId) : null,
-    showFees ? getCollectionTrend(locationId) : null,
-    getTodaySnapshot(locationId),
-    showAttendance ? getAttendanceTrend(locationId) : null,
-    showEnrolment ? getClassStrength(locationId) : null,
-  ]);
+  const [fees, collectionTrend, today, attendanceTrend, classStrength, accounting] =
+    await Promise.all([
+      showFees ? getFeeOverview(locationId) : null,
+      showFees ? getCollectionTrend(locationId) : null,
+      getTodaySnapshot(locationId),
+      showAttendance ? getAttendanceTrend(locationId) : null,
+      showEnrolment ? getClassStrength(locationId) : null,
+      showAccounting ? getAccountingOverview(locationId, currentMonth()) : null,
+    ]);
 
   const totalStrength = classStrength?.reduce((sum, row) => sum + row.value, 0) ?? 0;
 
@@ -193,15 +218,32 @@ export default async function SchoolDashboardPage() {
         ) : null}
 
         {/*
-          The one tile that exists to say it cannot answer yet. See the
-          docblock: a zero here would be a lie, and this is the screen a head
-          teacher would form their impression of the product from.
+          Sprint 13.5 gave this tile an answer, and left the honest silence in
+          place for the cases where there still isn't one. See the docblock:
+          three separate conditions have to hold before a figure appears here,
+          and a zero would be a lie under any of them.
         */}
-        <StatTile
-          label="Profit this month"
-          icon={TrendingUp}
-          unavailable="Needs the accounting ledger, which arrives in a later sprint."
-        />
+        {accounting !== null && accounting.isSetUp ? (
+          <StatTile
+            label="Profit this month"
+            value={formatPkr(accounting.monthProfitPaise / 100)}
+            icon={accounting.monthProfitPaise >= 0 ? TrendingUp : TrendingDown}
+            deltaMeaning={accounting.monthProfitPaise >= 0 ? 'good' : 'bad'}
+            detail={`${formatPkr(accounting.monthIncomePaise / 100)} in, ${formatPkr(
+              accounting.monthExpensePaise / 100,
+            )} out`}
+          />
+        ) : (
+          <StatTile
+            label="Profit this month"
+            icon={TrendingUp}
+            unavailable={
+              showAccounting
+                ? 'This school has no chart of accounts yet.'
+                : 'Needs the Accounts & Finance module.'
+            }
+          />
+        )}
       </StatTileGrid>
 
       {collectionTrend !== null || attendanceTrend !== null ? (
