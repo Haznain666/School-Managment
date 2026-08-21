@@ -127,7 +127,8 @@ export function platformAdminEmailFor(locationId: string): string {
  * This mirrors `middleware.ts`'s own tenant resolution, and has to: a URL built
  * the other way round resolves to no school and lands on /school-not-found.
  *   · on the platform domain the school is a subdomain
- *   · anywhere else — a bare Vercel host, localhost — it travels as `?school=`
+ *   · anywhere else — localhost, any host off the platform domain — it
+ *     travels as `?school=`
  */
 export function buildHandoffUrl(
   token: string,

@@ -34,7 +34,7 @@ beaconhouse.platform.com
 | File storage | Firebase Storage |
 | Realtime | Firebase Realtime Database |
 | Background jobs | Firebase Functions (2nd gen) — scaffold only |
-| Deploy target | Vercel |
+| Deploy target | Hostinger (`output: 'standalone'`) |
 
 ---
 
@@ -218,10 +218,16 @@ and needs a callback route wired to it.
 
 ## Deployment note
 
-On Vercel, leave **Root Directory** at the repository root — the app lives
-there. Add a wildcard domain (`*.platform.com`) so school subdomains resolve,
-and set every variable from `.env.example` in the project settings.
+**The app is deployed on Hostinger**, as a long-lived Node process built with
+`output: 'standalone'`. `DEPLOYMENT.md` is the procedure; `STATE.md` carries the
+current state of the pipeline and its outstanding panel actions.
+
+Each school is reached at `<slug>.<PLATFORM_BASE_DOMAIN>`, and those hostnames
+are **parked domains** on the hosting account, not Hostinger "subdomains" — a
+subdomain builds a separate vhost whose requests never reach the Node process.
+See `lib/hostinger.ts`. Set every variable from `.env.example` in the hosting
+panel.
 
 Never commit `.env.local`. Next.js loads it at server start and it overwrites
-platform-injected variables, so a committed file — even one holding only empty
-keys — blanks every secret Vercel provides.
+variables injected by the host, so a committed file — even one holding only
+empty keys — blanks every secret the panel provides.

@@ -43,7 +43,8 @@ Sprint 14 is internal chat and is still ahead.
 ## Not a sprint, but it shipped
 
 Between Sprint 8 and Sprint 0 the platform moved underneath everything above:
-**Firebase Auth → Supabase Auth, Neon → Supabase Postgres, Vercel → Hostinger**,
+**Firebase Auth → Supabase Auth, Neon → Supabase Postgres, and the move to
+Hostinger**,
 and **GoHighLevel went from being the tenant key to an opt-in per-school
 integration**. There is no release note for it because a school sees nothing;
 `STATE.md` §3 and §5b–§5d are the record. It matters when reading the early

@@ -45,7 +45,9 @@ These are not style preferences. A deviation is a review defect.
 | GHL | opt-in per school. Every GHL call goes through `ghlLocationFor()`. A school without a sub-account is normal, not an error. |
 
 Dead APIs that appear in older documents and must never be used: `db.batch()`,
-anything Firebase, anything Neon, `@neondatabase/serverless`, Vercel-specific config.
+anything Firebase, anything Neon, `@neondatabase/serverless`, and any
+serverless-host-specific config. **This app is deployed on Hostinger**, as one
+long-lived Node process built with `output: 'standalone'`.
 
 ## Hard prohibitions
 
