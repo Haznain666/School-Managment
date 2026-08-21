@@ -1411,11 +1411,26 @@ async function dayBook(scope: ReportScope, params: ReportParams): Promise<Report
   ];
   if (branchId !== undefined) conditions.push(eq(ledgerTransactions.branchId, branchId));
 
-  // One row per transaction, with its largest debit and largest credit named
-  // and its side counts beside them. A join to the lines would give one row per
-  // *line*, and a CSV of half-entries is worse than a summary that says it is
-  // one — which the caveat does.
-  const rows = await db
+  // ── Two queries and a regroup, not one query with correlated sub-selects ──
+  //
+  // The first version of this read the amount and the two account names with
+  // five correlated sub-selects in the SELECT list, and it did not work.
+  // **Drizzle renders a column interpolated into a `sql` template unqualified
+  // when the outer query has a single table in its FROM**, and qualifies the
+  // same expression once a join is present — which is exactly why the
+  // near-identical sub-selects in `lib/accounting-queries.ts` are correct and
+  // these were not.
+  //
+  // Unqualified, `… from ledger_entries join ledger_accounts on "id" =
+  // "account_id"` is ambiguous and Postgres refuses it outright. The amount
+  // sub-select beside it did not even have the grace to fail: `where
+  // "transaction_id" = "id"` is a legal comparison of two `ledger_entries`
+  // columns that is simply never true. So the day book threw — and had it not
+  // thrown, it would have printed a column of zeroes.
+  //
+  // The regroup below is the shape `listDayBook` already uses, and it is immune
+  // to all of that: no interpolated column ever leaves the query it belongs to.
+  const transactions = await db
     .select({
       id: ledgerTransactions.id,
       entryDate: ledgerTransactions.entryDate,
@@ -1423,72 +1438,115 @@ async function dayBook(scope: ReportScope, params: ReportParams): Promise<Report
       source: ledgerTransactions.source,
       reference: ledgerTransactions.referenceNumber,
       reversesTransactionId: ledgerTransactions.reversesTransactionId,
-      amount: sql<string>`coalesce((
-        select sum(${ledgerEntries.debit}) from ${ledgerEntries}
-        where ${ledgerEntries.transactionId} = ${ledgerTransactions.id}
-      ), 0)`,
-      debitAccount: sql<string | null>`(
-        select ${ledgerAccounts.name} from ${ledgerEntries}
-        join ${ledgerAccounts} on ${ledgerAccounts.id} = ${ledgerEntries.accountId}
-        where ${ledgerEntries.transactionId} = ${ledgerTransactions.id}
-          and ${ledgerEntries.debit} > 0
-        order by ${ledgerEntries.debit} desc
-        limit 1
-      )`,
-      creditAccount: sql<string | null>`(
-        select ${ledgerAccounts.name} from ${ledgerEntries}
-        join ${ledgerAccounts} on ${ledgerAccounts.id} = ${ledgerEntries.accountId}
-        where ${ledgerEntries.transactionId} = ${ledgerTransactions.id}
-          and ${ledgerEntries.credit} > 0
-        order by ${ledgerEntries.credit} desc
-        limit 1
-      )`,
-      debitCount: sql<number>`(
-        select count(*)::int from ${ledgerEntries}
-        where ${ledgerEntries.transactionId} = ${ledgerTransactions.id}
-          and ${ledgerEntries.debit} > 0
-      )`,
-      creditCount: sql<number>`(
-        select count(*)::int from ${ledgerEntries}
-        where ${ledgerEntries.transactionId} = ${ledgerTransactions.id}
-          and ${ledgerEntries.credit} > 0
-      )`,
-      isReversed: sql<boolean>`exists (
-        select 1 from ${ledgerTransactions} as reversal
-        where reversal.reverses_transaction_id = ${ledgerTransactions.id}
-      )`,
     })
     .from(ledgerTransactions)
     .where(and(...conditions))
     .orderBy(desc(ledgerTransactions.entryDate), desc(ledgerTransactions.createdAt))
     .limit(2000);
 
-  const withSplit = (name: string | null, count: number): string => {
-    if (name === null) return '—';
-    return count > 1 ? `${name} +${count - 1}` : name;
+  if (transactions.length === 0) {
+    return {
+      rows: [],
+      totals: {
+        entryDate: '',
+        memo: 'No entries',
+        source: '',
+        reference: '',
+        debitAccount: '',
+        creditAccount: '',
+        amount: 0,
+      },
+    };
+  }
+
+  const ids = transactions.map((transaction) => transaction.id);
+
+  const lines = await db
+    .select({
+      transactionId: ledgerEntries.transactionId,
+      accountName: ledgerAccounts.name,
+      debit: ledgerEntries.debit,
+      credit: ledgerEntries.credit,
+    })
+    .from(ledgerEntries)
+    .innerJoin(ledgerAccounts, eq(ledgerAccounts.id, ledgerEntries.accountId))
+    .where(inArray(ledgerEntries.transactionId, ids));
+
+  // Which of these were cancelled by a later entry. A separate read rather than
+  // an `exists` sub-select, for the same reason as above.
+  const reversals = await db
+    .select({ reversesTransactionId: ledgerTransactions.reversesTransactionId })
+    .from(ledgerTransactions)
+    .where(
+      and(
+        eq(ledgerTransactions.locationId, scope.locationId),
+        inArray(ledgerTransactions.reversesTransactionId, ids),
+      ),
+    );
+
+  const reversed = new Set(
+    reversals.flatMap((row) =>
+      row.reversesTransactionId === null ? [] : [row.reversesTransactionId],
+    ),
+  );
+
+  interface Side {
+    names: string[];
+    total: number;
+  }
+
+  const debitsBy = new Map<string, Side>();
+  const creditsBy = new Map<string, Side>();
+
+  for (const line of lines) {
+    const debit = toPaise(line.debit);
+    const credit = toPaise(line.credit);
+
+    if (debit > 0) {
+      const side = debitsBy.get(line.transactionId) ?? { names: [], total: 0 };
+      side.names.push(line.accountName);
+      side.total += debit;
+      debitsBy.set(line.transactionId, side);
+    }
+    if (credit > 0) {
+      const side = creditsBy.get(line.transactionId) ?? { names: [], total: 0 };
+      side.names.push(line.accountName);
+      side.total += credit;
+      creditsBy.set(line.transactionId, side);
+    }
+  }
+
+  /** The first account of a side, and how many more there were. */
+  const describe = (side: Side | undefined): string => {
+    if (side === undefined || side.names.length === 0) return '—';
+    const [first, ...rest] = side.names;
+    return rest.length === 0 ? (first ?? '—') : `${first ?? '—'} +${rest.length}`;
   };
 
   let total = 0;
 
-  const out = rows.map((row) => {
-    const amount = toPaise(row.amount);
+  const out = transactions.map((transaction) => {
+    const debitSide = debitsBy.get(transaction.id);
+    const amount = debitSide?.total ?? 0;
     total += amount;
 
     return {
-      entryDate: row.entryDate,
+      entryDate: transaction.entryDate,
       // The strike-through cannot survive a CSV, so the marking is words. A
       // reversed entry that looked ordinary in a spreadsheet is how a figure
       // gets counted twice by somebody reconciling in Excel.
       memo:
-        row.reversesTransactionId !== null
-          ? `${row.memo} [reversal]`
-          : row.isReversed
-            ? `${row.memo} [reversed]`
-            : row.memo,
-      source: isLedgerSource(row.source) ? LEDGER_SOURCE_LABELS[row.source] : row.source,
-      reference: row.reference ?? '',
-      debitAccount: withSplit(row.debitAccount, row.debitCount),
-      creditAccount: withSplit(row.creditAccount, row.creditCount),
+        transaction.reversesTransactionId !== null
+          ? `${transaction.memo} [reversal]`
+          : reversed.has(transaction.id)
+            ? `${transaction.memo} [reversed]`
+            : transaction.memo,
+      source: isLedgerSource(transaction.source)
+        ? LEDGER_SOURCE_LABELS[transaction.source]
+        : transaction.source,
+      reference: transaction.reference ?? '',
+      debitAccount: describe(debitSide),
+      creditAccount: describe(creditsBy.get(transaction.id)),
       amount: fromPaise(amount),
     } satisfies ReportRow;
   });

@@ -5,11 +5,19 @@ resume without re-deriving context. Updated at the end of every development
 step, before the session ends.
 
 **Last updated:** 2026-08-21 (**Sprint 13.5 — Accounting: the ledger, expenses
-and per-staff cash — §5au**; 2026-08-20: Sprint 13.8 — sibling identity, §5as;
+and per-staff cash — §5au — then driven end to end against a real database and
+a real browser, which found the day book had never worked — §5av**; 2026-08-20: Sprint 13.8 — sibling identity, §5as;
 the announcement sweep, §5at; Sprint 13.7 — §5ar; 2026-08-19: §5aq, §5ap, §5ao,
 §5an, §5am, §5al, §5ai–§5ak)
 
-> ▶ **Migration `0027` is written and NOT applied.** Sprint 13.5's six tables,
+> ▶ **Migration `0027` is PROVEN but NOT DEPLOYED.** It was applied to a real
+> PostgreSQL 16 on 2026-08-21 — all 28 migrations in order, then the seed and
+> the backfill against a school seeded with three fee payments that predated it.
+> Cash, bank and cheque each landed in the right account, every entry kept the
+> payment's own date, the whole book balanced to the paisa, and a second run
+> wrote **0 rows**. It has **not** been run against production.
+>
+> Sprint 13.5's six tables,
 > the three accounting permission keys, the seeded chart of accounts and the
 > backfill of every fee payment ever recorded are all in
 > `db/migrations/0027_sprint135_accounting.sql`. No session here holds the
@@ -18,6 +26,20 @@ the announcement sweep, §5at; Sprint 13.7 — §5ar; 2026-08-19: §5aq, §5ap, 
 > The backfill is guarded on that column rather than on a date, so it will pick
 > those up whenever it is finally run. **Next free migration number after it is
 > `0028`.**
+
+> 🐛 **The day book threw on every call, and shipped that way — found and fixed
+> by QA on 2026-08-21, §5av.** `column reference "id" is ambiguous`. **Drizzle
+> renders a column interpolated into a `sql` template unqualified when the outer
+> query has a single table in its `FROM`**, and qualified once a join is present
+> — so five correlated sub-selects that are correct beside a join were bare
+> column names without one. One was ambiguous and Postgres refused it; the one
+> beside it compared two `ledger_entries` columns and would have printed a
+> column of zeroes had the query survived.
+>
+> ⚠ **`npm run check-reports` is the only thing in this repository that would
+> ever have said so — and it was failing for an unrelated reason.** It asserted
+> nine reports; 13.5 added seven and did not update the count. It needs a
+> database, so it is not in CI. **Run it after touching any runner.**
 
 > 🐛 **No scheduled announcement had ever been released, at any school, since
 > Sprint 11 — fixed 2026-08-20 (§5at).** `lib/announcement-queries.ts` compared
@@ -5820,6 +5842,132 @@ whenever.)
 screens exist and none has been seen.
 
 
+## 5av. Sprint 13.5, driven end to end — and the day book that never worked — 2026-08-21
+
+The sprint was merged (PR #22, `eec668f`) and then actually run. Both halves of
+that sentence matter: everything below was found **after** a green build, ten
+passing gates and a merge.
+
+### What was possible here that has not been possible before
+
+This container has **PostgreSQL 16 and Chromium**. Four sprints of "nothing was
+looked at" were not a discipline problem — no session had a database to look at
+anything *with*. It does now, and the recipe is worth keeping:
+
+```
+initdb under /var/lib/postgresql   (not the scratchpad — postgres cannot
+                                    traverse it, and pg_ctl fails on permissions)
+a self-signed cert in $PGDATA      (lib/postgres.ts hardcodes ssl: 'require';
+                                    postgres-js does not verify, so a
+                                    self-signed cert is enough)
+apply db/migrations/0*.sql in order with psql -v ON_ERROR_STOP=1
+```
+
+All 28 applied clean. That is the first time any session has proven a migration
+before shipping it.
+
+### 🐛 The day book threw on every call
+
+`/dashboard/reports/day-book` — the screen, the print sheet and the CSV —
+failed with `column reference "id" is ambiguous`.
+
+**The rule nobody had written down:** Drizzle renders a column interpolated
+into a `sql` template **unqualified** when the outer query has a single table
+in its `FROM`, and **qualified** once a join is present.
+
+The day-book runner read its amount and its two account names with five
+correlated sub-selects on a single-table query. They came out as bare `"id"`,
+`"debit"`, `"transaction_id"`. The near-identical sub-selects in
+`lib/accounting-queries.ts` — `listExpenses`, `listSettlements`,
+`listStaffCashAccounts`, `listExpenseCategories` — came out fully qualified and
+correct, because each sits beside a join. **The same construct, right in one
+file and wrong in the other, and neither file said why.** All four were checked
+against real data and all four are correct.
+
+One sub-select was ambiguous and Postgres refused it. The one beside it was
+worse and is the part to remember: `where "transaction_id" = "id"` is a legal
+comparison of two `ledger_entries` columns that is never true. **Had the query
+not thrown, the day book would have printed a column of zeroes and reported
+nothing wrong.**
+
+Fixed as two queries and a regroup — the shape `listDayBook` already used, in
+which no interpolated column ever leaves the query it belongs to.
+
+### 🐛 And the check that exists to catch this was itself red
+
+`scripts/check-reports.ts` executes every runner against a real schema. It is
+the only thing in this repository that could ever have found the above.
+
+It also asserted `REPORT_KEYS.length === 9`. Sprint 13.5 added seven and did not
+update it — so the check was failing for a reason that had nothing to do with
+the bug it was standing in front of, and the bug walked past it into a merge.
+
+It now asserts sixteen and names the seven statements. **It needs a database, so
+it is not in CI.** Run it after touching any runner. `check-dashboard` and
+`check-portals` were run too, and both pass.
+
+### What the run established
+
+Two schools were seeded: one carrying three fee payments — cash, bank transfer,
+cheque — recorded **before** `0027`, so the backfill was tested on data that
+predated it; and one with the module on and no chart.
+
+| | |
+| --- | --- |
+| The backfill | cash → `1000`, transfer → `1010`, **cheque → `1020` and not the bank**; each entry dated to the payment, not to the migration; all three payments linked |
+| Idempotency | seed and backfill re-run — **0 rows** on all five statements |
+| The book | debits = credits after every single operation |
+| The poster | one paisa out refused; another school's account ids refused with the same sentence a mistyped id gets |
+| Reversal | mirror written, original left standing and struck through, reversing twice refused, reversing a reversal refused |
+| Per-staff cash | a payment landed in the clerk's drawer, **not** the office safe; with no drawer open it fell back to the office exactly as before this sprint |
+| Settlement | 3,000 drawer settled at 2,500 — the 500 short named on screen *before* saving and still in the drawer after; over-settlement refused |
+| Constraints | `ledger_entries_one_side_check` and `expenses_posting_check` both refuse what the code would not write |
+| The statements | all seven ran, printed under `print` media, exported as CSV with `[reversed]` / `[reversal]` intact |
+| The balance sheet | **16,800 = 16,800** |
+| Permissions | an accountant: Cash Counters absent from the nav, direct URL bounced to `/dashboard`, `POST /settlements` **403** |
+| Module gate | screen closed, nav section gone, dashboard tile back to naming what it needs |
+| Empty state | one-click setup works; every screen then renders at zero |
+| Browser | twelve routes, **no console errors and no failed requests** |
+
+### The dashboard tile, in all three states
+
+It has said "Needs the accounting ledger" since Sprint 10.5. All three states
+were seen in a browser: a figure where the chart exists, "This school has no
+chart of accounts yet." where it does not, and "Needs the Accounts & Finance
+module." where the module is off. It renders an em-dash, never `PKR 0`.
+
+### ⚠ What the browser run could NOT do, and what that costs
+
+**Sign-in was stubbed.** Sign-in needs a Supabase project — GoTrue for the
+session and PostgREST for middleware's Edge-side tenant lookup — and there is
+none here. Three seams were stubbed locally: `getSchoolHeaders`,
+`readSchoolSession`, and middleware's slug resolution and session-presence
+check.
+
+**The stubs were reverted and are not in the repository.** `git status` was
+checked before committing and showed only the two real fixes.
+
+What that costs: everything *behind* the session is genuinely verified.
+**The sign-in path and middleware's real tenant resolution are not.**
+
+### Not a bug, but it will waste somebody's afternoon
+
+`DEV_FALLBACK_LOCATION_ID` is documented at length in `.env.example` and **no
+code reads it.** Anybody trying to run a tenant locally will set it, watch
+nothing happen, and go looking for the fault in their own setup. Pre-existing,
+unrelated to this sprint, and the reason the seams above had to be stubbed by
+hand.
+
+### Vercel is a deploy target, and this file has never mentioned it
+
+PR #22's checks included a **Vercel deployment that completed successfully**.
+Every deployment note in this file is about Hostinger, and §5-the-banner spent a
+day concluding the Hostinger rsync uploads somewhere the running app does not
+serve from. That conclusion may be correct and irrelevant: if Vercel is what
+serves the site, the Hostinger pipeline is dead weight. **Establish which origin
+actually answers before spending another session on the Hostinger deploy.**
+
+
 ## 6. Open items for the user
 
 1. ~~Install GitHub CLI~~ — **partly regressed.** Git has a stored credential
@@ -6146,6 +6294,7 @@ to `gte` anyway, so the pattern is no longer in the codebase to be copied.
 
 | Date | Session did | Next |
 | --- | --- | --- |
+| 2026-08-21 | **Sprint 13.5 merged, then actually run — and the day book had never worked** (§5av). PR #22 merged to `main` (`eec668f`) on a green CI. Then, for the first time in this project's history, a session had **PostgreSQL 16 and Chromium**: all 28 migrations applied in order, `0027`'s seed and backfill tested against a school seeded with three fee payments that **predated** it, and every screen driven in a browser. **The backfill is correct** — cash → `1000`, transfer → `1010`, cheque → `1020` and not the bank, each entry dated to the payment rather than to the migration, and a second run wrote **0 rows**. **The day book threw `column reference "id" is ambiguous` on every call**: Drizzle renders a column interpolated into a `sql` template **unqualified when the outer query has a single table in its FROM** and qualified once a join is present, so five correlated sub-selects that are correct beside a join were bare column names without one — and the one that did *not* throw compared two `ledger_entries` columns and would have printed a column of zeroes. Rewritten as two queries and a regroup. **`check-reports` is the only thing that could ever have caught it and was itself red**, asserting nine reports when 13.5 had added seven. 53 assertions through the application's own code, twelve routes in Chromium with **no console errors and no failed requests**, the balance sheet at **16,800 = 16,800**, the accountant's `POST /settlements` at **403**, all seven statements printing under `print` media and exporting as CSV. **Sign-in was stubbed** (no Supabase here) and the stubs reverted — everything behind the session is verified, the session itself is not. | **Apply `0027` to production.** It is proven and not deployed. **Establish which origin actually serves the site** — PR #22 ran a *Vercel* deployment that succeeded, and every deploy note in this file is about Hostinger; if Vercel serves it, the Hostinger pipeline is dead weight. Then real A4, still. Then Sprint 13.6 (i18n) on **`0028`**. |
 | 2026-08-21 | **Sprint 13.5 — Accounting: the ledger, expenses and per-staff cash** (§5au). The sprint this file has pointed at for six sessions. Six tables, one column, seven statements. **The column is the point**: `fee_payments.ledger_transaction_id`, posted in the *same database transaction* as the payment — a payment recorded without its posting understates income silently, and nothing on any screen would ever say so. `ledger_transactions` + `ledger_entries` are **append-only**; a correction is a mirrored reversing entry and both stay in the book, because Sprint 16's wallet and Sprint 20's POS post here and a ledger retrofitted under live money is the cost this sequencing exists to avoid. **Per-staff cash accounts**: a cash payment lands in the drawer of whoever took it, not the office safe, and their balance is what they owe the school right now; settling stores what the drawer *should* have held beside what was counted, and the short is **not** written off. `accounting.settle` is a third key and the `accountant` role deliberately does not hold it. **Two calls against the document, both written down**: `ledger_entries` gets a header table (one date and one cause, two or more sides), and the module flag is the existing `accounts` rather than a second `accounting`. Income is recognised on receipt, not on billing — `0027`'s header says why at length, because it is the decision somebody will otherwise reverse without knowing it was one. Seven reports added as catalogue declarations, so each gets screen, `PrintSheet` and CSV for free. The dashboard's "Needs the accounting ledger" tile answers now, and still says so where the module is off or the chart is unset. New `npm run check-accounting` — **121 assertions, in CI**, and verified by breaking two rules on purpose (five failures, four sections) and restoring them. All nine gates green including the build. | **Apply `0027`.** It is written and not run; no session here has the credentials, and until it runs the module has no tables. The backfill is guarded on the null column rather than a date, so it picks up whatever accumulated in the meantime. Then **look at something in a browser** — six new screens and this is the third sprint with nothing seen. Then Sprint 13.6 (internationalisation) on **`0028`**. |
 | 2026-08-21 | **Release notes, test cases, and a correction I owed the file.** Wrote `RELEASE-NOTES-ANNOUNCEMENT-SWEEP-AND-DEPLOY.md` (the sweep, the seven-process double-send, and the four separate faults the deploy pipeline took to complete) and `TEST-CASES-SPRINT-13.8.md` — 35 cases over the sibling rule, the enrolment lookup, the guardian rules, the CNIC field, the parent portal, the sweep, and the existing-data regressions. Marked 13.8's notes live. **Corrected this file's DNS claim: school portals were never broken.** I had probed `lgs.codexmill.com`; schools are `<slug>.schoolhub.codexmill.com`. `lgs.schoolhub.codexmill.com` resolves, serves the sign-in page, and answers 401 on the new sibling route while a nonsense path answers 404. No DNS change was needed or made. | Drive one scheduled announcement end to end on a school with no real parents — the send path past the atomic claim is still unexercised. Then the P1 test cases above, in a browser: nothing in 13.8 has been clicked. Then set `HOSTINGER_RESTART_COMMAND` and `PRODUCTION_URL` so deploys restart and verify themselves. |
 | 2026-08-20 | **The announcement sweep had never worked** (§5at). ~420 lines of one repeating error in the production log, reported as a possible dependency or recent-change problem; it is neither. `` sql`${announcements.scheduledAt} <= ${now}` `` passed a JS `Date` straight to postgres-js, because a raw template is the one construct with no column to map against. Every sweep since **Sprint 11** threw before reading a row, so **no scheduled announcement had ever been released at any school** — and this file had dismissed the error as "pre-existing and unrelated" three times. `lte(col, now)` maps it to an ISO string. Reproduced against the live database with the real query builder: byte-identical SQL, raw form fails 3/3, `lte` passes 3/3. **Found while fixing it:** the log's timestamps repeat at seven offsets a minute — seven scheduler processes — and `sendAnnouncement` guarded with a read-then-check, so the query fix alone would have sent every parent **seven copies** of every notice (`email_outbox` has no unique key). The send now claims its row with a conditional UPDATE and reverts on failure; seven simultaneous claims against the live table produced exactly one winner. Two rules added to CLAUDE.md. | Deploy is still blocked on the missing SSH secrets (see the banner) — this fix and 13.8 are both merged and neither is live. Then drive one scheduled announcement end to end on a school with no real parents, since the send path past the claim is still unexercised. |

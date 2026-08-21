@@ -1,7 +1,15 @@
 # Release notes — Sprint 13.5: Accounting
 
-**Status:** built 2026-08-21. Migration `0027_sprint135_accounting.sql` —
-**written and not yet applied.** Until it runs, the module has no tables.
+**Status:** shipped 2026-08-21, merged in [#22](https://github.com/Haznain666/School-Managment/pull/22).
+Migration `0027_sprint135_accounting.sql`.
+
+> ⚠ **`0027` has been proven, not deployed.** It was applied to a real
+> PostgreSQL 16 — all 28 migrations in order, then the seed and the backfill
+> against a school that already had three fee payments in it. It has **not**
+> been run against the production database, and until somebody does, the module
+> has no tables there. The backfill is guarded on
+> `fee_payments.ledger_transaction_id` being null rather than on a date, so it
+> will pick up whatever has accumulated in the meantime.
 
 The school's books. Six tables, one column on an existing table, seven printable
 statements, and one rule that everything else here exists to serve.
@@ -193,3 +201,75 @@ It also asserts that migration `0027`'s hand-written seed and `DEFAULT_CHART` in
 `lib/accounting.ts` describe the same fifteen accounts and eleven categories —
 the strongest thing a check with no database credentials can say about two
 copies of one list.
+
+---
+
+## What QA found, and the one thing it caught
+
+The sprint was driven end to end on 2026-08-21: every migration applied to a
+real Postgres, 53 assertions run against the resulting database through the
+application's own code, and every screen driven in Chromium.
+
+### 🐛 The day book was broken, in both directions at once
+
+`/dashboard/reports/day-book` threw `column reference "id" is ambiguous` on
+every call — the screen, the print sheet and the CSV alike.
+
+**Drizzle renders a column interpolated into a `sql` template unqualified when
+the outer query has a single table in its `FROM`, and qualified once a join is
+present.** The day-book runner read its amount and its two account names with
+five correlated sub-selects on a single-table query, so they came out as bare
+`"id"` and `"transaction_id"` — while the near-identical sub-selects in
+`lib/accounting-queries.ts`, which sit beside joins, came out correct. The same
+construct, right in one file and wrong in the other, for a reason neither file
+mentioned.
+
+One sub-select was ambiguous and Postgres refused it outright. The one beside it
+was worse: `where "transaction_id" = "id"` is a legal comparison of two
+`ledger_entries` columns that is never true, so **had the query not thrown, the
+day book would have printed a column of zeroes and said nothing.**
+
+Rewritten as two queries and a regroup — the shape `listDayBook` already used,
+which no interpolated column ever leaves.
+
+### 🐛 And the check that should have caught it was itself failing
+
+`scripts/check-reports.ts` executes every runner against a real schema. It also
+asserted that there were nine reports. Sprint 13.5 added seven and did not
+update the count, so the one check in this repository that could have found the
+day book was red for an unrelated reason — which is how the day book reached a
+merge.
+
+It now asserts sixteen, and asserts the seven financial statements by name.
+**It needs a database, so it is not in CI. Run it after touching any runner.**
+
+### What was actually verified
+
+| | |
+| --- | --- |
+| Migrations | all 28 applied in order to PostgreSQL 16 |
+| The backfill | three pre-`0027` payments posted to `1000`, `1010` and `1020` — the cheque **not** to the bank — each dated to the payment, not to the migration |
+| Idempotency | the seed and backfill re-run: **0 rows** written on all five statements |
+| The book | debits = credits after every operation, to the paisa |
+| The poster | one paisa out refused; another school's accounts refused |
+| Reversal | mirror written, original left standing and marked, reversing twice refused, reversing a reversal refused |
+| Per-staff cash | a payment landed in the clerk's drawer and not the office safe; with no drawer it fell back to the office, unchanged from before this sprint |
+| Settlement | short of 500 named **before** saving, left in the drawer after; over-settlement refused |
+| The statements | all seven ran, printed under `print` media, and exported as CSV with the `[reversed]` markers intact |
+| The balance sheet | **16,800 = 16,800** |
+| Permissions | an accountant's Cash Counters link absent, URL bounced, `POST /settlements` **403** |
+| The module gate | screen closed, nav section gone, dashboard tile back to naming what it needs |
+| The empty state | one-click setup, then every screen renders at zero |
+| Console | no errors and no failed requests across twelve routes |
+
+### What is still not verified
+
+- **Sign-in.** The browser run stubbed the two auth seams, because sign-in needs
+  a Supabase project this environment does not have. Everything behind the
+  session is verified; the session itself is not. The stubs were reverted and
+  are not in the repository.
+- **Real A4.** The sheets render under `print` media and produce sane PDFs.
+  Nobody has held one. This is still the item `STATE.md` has been carrying for
+  four sprints.
+- **Two people approving one expense at the same instant.** The row lock is in
+  the code and reasoned about; it has not been raced.

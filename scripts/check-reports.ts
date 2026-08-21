@@ -1,18 +1,28 @@
 /**
- * Executes every Sprint 12 report against the real database, and asserts the
- * CSV writer without one.
+ * Executes every report against the real database, and asserts the CSV writer
+ * without one.
  *
  *     npm run check-reports
  *
  * ── Why this exists ──────────────────────────────────────────────────────
  * The same reason `scripts/check-dashboard-queries.ts` does, and more sharply.
- * These nine queries carry hand-written SQL — `filter (where …)`,
+ * These sixteen queries carry hand-written SQL — `filter (where …)`,
  * `case when … end`, `to_char`, `extract(isodow …)`, a correlated subquery —
  * and TypeScript checks none of it. A typo inside a `sql` template compiles
  * perfectly and fails at the first request, which here means the report an
  * accountant opened to answer a board. Nothing else in this repo would catch
  * it before a browser did, and the portals still cannot be signed into from a
  * development machine (STATE.md §5d).
+ *
+ * ── It earned its keep on 2026-08-21 ─────────────────────────────────────
+ * Sprint 13.5's day book threw `column reference "id" is ambiguous` on every
+ * call, and this is the only check in the repository that would ever have said
+ * so. **Drizzle renders a column interpolated into a `sql` template unqualified
+ * when the outer query has a single table in its FROM**, and qualifies it once
+ * a join is present — so a correlated sub-select that is correct beside a join
+ * is ambiguous, or silently false, without one. Neither the type-checker, the
+ * build, nor the credential-free `check-accounting` can see any of that.
+ * Run this after touching any runner.
  *
  * Each runner is called once with a location id that matches no school. Every
  * report returns empty, no real school's data is read, and the SQL still has to
@@ -197,7 +207,21 @@ function checkPure(): number {
   );
 
   // ── The catalogue ─────────────────────────────────────────────────────
-  assert('nine reports, as the sprint specifies', REPORT_KEYS.length, 9);
+  // Nine from Sprint 12, seven financial statements from Sprint 13.5.
+  assert('sixteen reports across the two sprints', REPORT_KEYS.length, 16);
+  assert(
+    'the seven financial statements are all declared',
+    reportsFor(['accounting.read']).map((report) => report.key),
+    [
+      'balance-sheet',
+      'profit-loss',
+      'day-book',
+      'account-summary',
+      'monthly-accounts',
+      'expense-detail',
+      'income-expense-summary',
+    ],
+  );
   assert(
     'every report is answerable by a runner',
     REPORT_KEYS.every((key) => reportFor(key).columns.length > 0),
