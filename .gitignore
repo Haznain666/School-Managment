@@ -14,7 +14,7 @@ build/
 dist/
 
 # env — never commit these. A committed .env.local is loaded by @next/env at
-# server start and OVERWRITES platform-injected variables (Vercel, Docker, CI),
+# server start and OVERWRITES host-injected variables (the hosting panel, CI),
 # so an empty one silently blanks every secret. Use .env.example as the template.
 .env
 .env.production
@@ -25,9 +25,6 @@ dist/
 firebase-debug.log
 *-debug.log
 serviceAccountKey.json
-
-# vercel
-.vercel
 
 # editor / os
 .DS_Store

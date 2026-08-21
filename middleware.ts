@@ -232,9 +232,8 @@ function slugForRequest(request: NextRequest): SlugResolution {
   if (fromHost !== null) return { slug: fromHost, fromHost: true };
 
   /**
-   * Deployment hosts that are not part of the platform domain — a bare
-   * `*.vercel.app` preview or alias — have no subdomain to carry a tenant, so
-   * every school page would be unreachable on them. They fall back to
+   * A host that is not part of the platform domain has no subdomain to carry a
+   * tenant, so every school page would be unreachable on it. Those fall back to
    * `?school=`, the same mechanism development already uses.
    *
    * This cannot widen access on a real tenant host: `<slug>.platform.com`

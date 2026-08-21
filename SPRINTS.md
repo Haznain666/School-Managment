@@ -22,7 +22,7 @@ now false, and every one of them changes what gets built.
 | --- | --- | --- |
 | Firebase Auth | **Supabase Auth (GoTrue)** | Sprint 18's "restore `lib/otp.ts` WhatsApp path" targets deleted code |
 | Neon PostgreSQL | **Supabase Postgres** via Supavisor pooler | `db.batch()` no longer exists; use `batch(db, (tx) => …)` |
-| Vercel | **Hostinger**, `output: 'standalone'` | I-3 (Vercel env vars) is moot; no 60s serverless limit, but also no CDN or cron |
+| A serverless host | **Hostinger**, `output: 'standalone'` | I-3 is moot; no 60s function limit, but also no CDN or cron |
 | GHL as CRM backend | **GHL is opt-in per school** (`schools.ghl_location_id`, nullable) | Sprint 11 cannot be built on GHL; Sprint 10's "publish → GHL bulk email" cannot be the delivery path |
 | WhatsApp commented out with `/* WHATSAPP_DISABLED_START */` markers | **Gated behind the `whatsapp` flag in `school_modules`**, default off | Sprint 18 is ~70% already done, and differently |
 | `recharts` "already in stack" | **Not a dependency.** Deps are: `@supabase/*`, `bcryptjs`, `clsx`, `drizzle-orm`, `jose`, `next`, `node-vibrant`, `nodemailer`, `postgres`, `react*`, `server-only`, `sharp`, `tailwind-merge` | Sprint 12 must budget for the charting choice, not assume it |
@@ -393,7 +393,7 @@ Small, and it clears debt that would otherwise be re-discovered every sprint.
 | --- | --- |
 | I-1 Merge email-auth PR | **Cancelled.** Rebuilt on Supabase Auth; `STATE.md` §5d explains why. Branch stays unmerged as a parts bin. |
 | I-2 Supabase bucket public | **Keep** — still unverified |
-| I-3 Remove Firebase env vars from Vercel | **Moot** — no Vercel, no Firebase |
+| I-3 Remove Firebase env vars from the old host | **Moot** — that host is gone, and so is Firebase |
 | I-4 `/api/super-admin/diagnostics/storage` → `ok: true` | **Keep** |
 | I-5 Backfill `__drizzle_migrations` 0009/0010 | **Done** — database was rebuilt with full bookkeeping |
 | I-6 Delete stale branches | **Keep** — 4 merged branches + 4 worktrees to prune |
@@ -1011,8 +1011,9 @@ deliberate decision on `outputFileTracingRoot` before the first real deploy.
 `EXPLAIN ANALYZE` on the top 20 queries; indexes on `location_id + status`,
 `studentId + academicYearId`, `createdAt`; N+1 elimination in attendance and
 results reports; bundle analysis against <200 kB first load; Supabase Storage
-CDN. **Correction:** "Neon connection pooling / PgBouncer for Vercel serverless"
-is moot — tune the Supavisor pooler and the `postgres-js` pool size instead.
+CDN. **Correction:** the document's "Neon connection pooling / PgBouncer for
+serverless functions" is moot — this runs as one long-lived Node process on
+Hostinger, so tune the Supavisor pooler and the `postgres-js` pool size instead.
 
 ### Sprint 25 — Beta, pre-launch hardening & launch
 *Derives from: document Sprints 22–25, collapsed.*
