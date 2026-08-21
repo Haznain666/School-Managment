@@ -47,6 +47,18 @@ export const REPORT_KEYS = [
   'leave-summary',
   'enrollment-funnel',
   'monthly-revenue',
+  // Sprint 13.5 — the seven financial statements. They are declarations here
+  // and runners in `lib/report-queries.ts`, and that buys all three renderers:
+  // the screen, the `PrintSheet` and the CSV. A balance sheet that could be
+  // read on screen and not printed would be worth very little to a school
+  // taking one to a board meeting.
+  'balance-sheet',
+  'profit-loss',
+  'day-book',
+  'account-summary',
+  'monthly-accounts',
+  'expense-detail',
+  'income-expense-summary',
 ] as const;
 
 export type ReportKey = (typeof REPORT_KEYS)[number];
@@ -100,7 +112,7 @@ export interface ReportDefinition {
   /** The question the report answers, in the words somebody would ask it. */
   blurb: string;
   /** How the index groups them. */
-  group: 'Academics' | 'Fees' | 'People';
+  group: 'Academics' | 'Fees' | 'People' | 'Accounting';
   permission: Permission;
   filters: readonly ReportFilter[];
   columns: readonly ReportColumn[];
@@ -344,6 +356,176 @@ export const REPORTS: readonly ReportDefinition[] = [
       'Billed is by issue date and collected by payment date, so the two ' +
       'columns on one row are not the same money. Collection against a given ' +
       'month’s billing is the Fee collection report.',
+  },
+  /* ---------------------------------------------------------------------------
+   * Sprint 13.5 — the financial statements.
+   *
+   * All seven read `ledger_entries` and nothing else, which is the property
+   * that makes them worth having: a balance sheet assembled from the fee
+   * module, the payroll module and a spreadsheet is three modules' opinions,
+   * and the first thing anybody asks of it is why it does not balance.
+   *
+   * They are grouped under Accounting rather than Fees. An accountant reaching
+   * the index sees both groups, which is right — but "Fee collection" answers
+   * a question about children and "Profit and loss" answers one about the
+   * school, and putting them in one list makes both harder to find.
+   * ------------------------------------------------------------------------ */
+
+  {
+    key: 'balance-sheet',
+    title: 'Balance sheet',
+    blurb: 'What the school holds, what it owes, and what is left.',
+    group: 'Accounting',
+    permission: 'accounting.read',
+    filters: ['dateRange', 'branch'],
+    columns: [
+      { key: 'section', label: 'Section', kind: 'text' },
+      { key: 'code', label: 'Code', kind: 'text', secondary: true },
+      { key: 'account', label: 'Account', kind: 'text' },
+      { key: 'balance', label: 'Balance', kind: 'money' },
+    ],
+    caveat:
+      'As at the end date. The start date is ignored — a balance sheet is a ' +
+      'position on a day, not a period, and every entry up to that day counts ' +
+      'towards it. The period’s profit is shown as its own line under Equity ' +
+      'and is not closed out to a reserve: this product never runs a year-end, ' +
+      'deliberately, because a school that has never run one would otherwise ' +
+      'have a balance sheet that does not balance and nothing saying why.',
+  },
+
+  {
+    key: 'profit-loss',
+    title: 'Profit and loss',
+    blurb: 'What the school earned and what it spent, head by head.',
+    group: 'Accounting',
+    permission: 'accounting.read',
+    filters: ['dateRange', 'branch'],
+    columns: [
+      { key: 'section', label: 'Section', kind: 'text' },
+      { key: 'code', label: 'Code', kind: 'text', secondary: true },
+      { key: 'account', label: 'Account', kind: 'text' },
+      { key: 'amount', label: 'Amount', kind: 'money' },
+    ],
+    caveat:
+      'Income is counted when the money was received, not when it was billed ' +
+      '— see migration 0027 for why. So a term’s fees appear in the months ' +
+      'parents actually paid them, and what is still owed is not here at all: ' +
+      'that is Outstanding & aging, under Fees.',
+  },
+
+  {
+    key: 'day-book',
+    title: 'Day book',
+    blurb: 'Every entry in the books, newest first, with both sides.',
+    group: 'Accounting',
+    permission: 'accounting.read',
+    filters: ['dateRange', 'branch'],
+    landscape: true,
+    columns: [
+      { key: 'entryDate', label: 'Date', kind: 'date' },
+      { key: 'memo', label: 'Entry', kind: 'text' },
+      { key: 'source', label: 'Raised by', kind: 'text', secondary: true },
+      { key: 'reference', label: 'Reference', kind: 'text', secondary: true },
+      { key: 'debitAccount', label: 'Debit', kind: 'text' },
+      { key: 'creditAccount', label: 'Credit', kind: 'text' },
+      { key: 'amount', label: 'Amount', kind: 'money' },
+    ],
+    caveat:
+      'One line per entry. An entry with more than two sides — a split — shows ' +
+      'the largest of each side and the count beside it; open it in the ' +
+      'accounting screens to see every line. Reversed entries are still here ' +
+      'and are marked, beside the entry that reversed them: the ledger is ' +
+      'append-only, so a correction adds a line rather than removing one.',
+  },
+
+  {
+    key: 'account-summary',
+    title: 'Account summary, day by day',
+    blurb: 'One account’s movements, a line per day, with a running balance.',
+    group: 'Accounting',
+    permission: 'accounting.read',
+    filters: ['dateRange'],
+    columns: [
+      { key: 'entryDate', label: 'Date', kind: 'date' },
+      { key: 'account', label: 'Account', kind: 'text' },
+      { key: 'entries', label: 'Entries', kind: 'number', secondary: true },
+      { key: 'debit', label: 'In', kind: 'money' },
+      { key: 'credit', label: 'Out', kind: 'money' },
+      { key: 'movement', label: 'Net', kind: 'money' },
+    ],
+    caveat:
+      'Every account with movement in the range, a row per account per day. ' +
+      'In and Out are debit and credit — for cash and expenses that reads the ' +
+      'way it sounds, and for income and liabilities it is the other way ' +
+      'round, because that is what those accounts do when they grow.',
+  },
+
+  {
+    key: 'monthly-accounts',
+    title: 'Month by month',
+    blurb: 'Income, expenses and profit for each month of a year.',
+    group: 'Accounting',
+    permission: 'accounting.read',
+    filters: ['year'],
+    columns: [
+      { key: 'period', label: 'Month', kind: 'text' },
+      { key: 'income', label: 'Income', kind: 'money' },
+      { key: 'expenses', label: 'Expenses', kind: 'money' },
+      { key: 'profit', label: 'Profit', kind: 'money' },
+      { key: 'entries', label: 'Entries', kind: 'number', secondary: true },
+    ],
+    caveat:
+      'Twelve rows for a calendar year, including the months with nothing in ' +
+      'them — a missing month reads as an oversight, and a zero reads as a ' +
+      'quiet month. Profit is income less expenses over the ledger, so it ' +
+      'counts salaries and rent, which the fee module’s own reports cannot.',
+  },
+
+  {
+    key: 'expense-detail',
+    title: 'Expenses by category',
+    blurb: 'Every approved expense in the range, grouped by what it was for.',
+    group: 'Accounting',
+    permission: 'accounting.read',
+    filters: ['dateRange', 'branch'],
+    landscape: true,
+    columns: [
+      { key: 'category', label: 'Category', kind: 'text' },
+      { key: 'account', label: 'Account', kind: 'text', secondary: true },
+      { key: 'expenseDate', label: 'Date', kind: 'date' },
+      { key: 'payee', label: 'Paid to', kind: 'text' },
+      { key: 'reference', label: 'Bill no.', kind: 'text', secondary: true },
+      { key: 'paidFrom', label: 'Paid from', kind: 'text', secondary: true },
+      { key: 'approvedBy', label: 'Approved by', kind: 'text', secondary: true },
+      { key: 'amount', label: 'Amount', kind: 'money' },
+    ],
+    caveat:
+      'Approved expenses only. A draft is a request for money and a rejected ' +
+      'one is a request that was refused; neither is money that left the ' +
+      'school, and putting either on this sheet would overstate what the ' +
+      'school spent.',
+  },
+
+  {
+    key: 'income-expense-summary',
+    title: 'Income and expense summary',
+    blurb: 'One line per head, for the year, in the shape a tax return wants.',
+    group: 'Accounting',
+    permission: 'accounting.read',
+    filters: ['dateRange'],
+    columns: [
+      { key: 'section', label: 'Section', kind: 'text' },
+      { key: 'code', label: 'Code', kind: 'text' },
+      { key: 'account', label: 'Account', kind: 'text' },
+      { key: 'amount', label: 'Amount', kind: 'money' },
+      { key: 'share', label: 'Share', kind: 'percent' },
+    ],
+    caveat:
+      'The same figures as Profit and loss, with each head’s share of its own ' +
+      'side beside it. It exists as a separate sheet because this is the one ' +
+      'that gets handed to somebody outside the school, and a percentage ' +
+      'column is what stops the reader having to work out whether 1.2 million ' +
+      'in salaries is a lot.',
   },
 ];
 

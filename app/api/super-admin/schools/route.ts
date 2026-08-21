@@ -5,6 +5,7 @@ import type { NextRequest } from 'next/server';
 
 import { schools } from '@/db/schema';
 import { queueAccessEmail } from '@/lib/access-email';
+import { seedChartOfAccounts } from '@/lib/accounting-queries';
 import { apiFailure, apiSuccess, handleApiError, readJsonBody } from '@/lib/api-response';
 import { isPakistaniCity } from '@/lib/cities';
 import { db } from '@/lib/drizzle';
@@ -177,6 +178,27 @@ export async function POST(request: NextRequest) {
     const school = inserted[0];
     if (school === undefined) {
       return apiFailure('already_exists', 'That subdomain is already registered.', 409);
+    }
+
+    /**
+     * Give the school its books before anything can post to them.
+     *
+     * Sprint 13.5. The chart of accounts is what a fee payment lands in, so a
+     * school without one takes money that reaches no ledger — and the person
+     * who would discover that is a clerk at a counter, weeks later. Seeding it
+     * here is what makes migration `0027`'s backfill a one-off rather than a
+     * thing every new school needs.
+     *
+     * Like the administrator below, it does not fail the request: the school
+     * row is committed and useful, and an empty chart is recoverable in one
+     * click from the accounting screen. It is logged rather than swallowed
+     * silently, because a school that quietly has no books is exactly the state
+     * nobody would go looking for.
+     */
+    try {
+      await seedChartOfAccounts(school.locationId);
+    } catch (error) {
+      console.error('[super-admin] chart of accounts could not be seeded:', error);
     }
 
     /**

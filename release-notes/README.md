@@ -12,6 +12,7 @@ what is not there yet. They are not the engineering handover — that is
 | — | School & branch creation, fixed (not a sprint) | `0024` | [read](RELEASE-NOTES-SCHOOL-BRANCH-CREATION-FIXES.md) |
 | — | Panel chooser, school deletion, address autocomplete (not a sprint) | — | [read](RELEASE-NOTES-PANEL-CHOOSER-AND-SCHOOL-DELETION.md) |
 | — | Dashboard, deletion UI, branch delete, email delivery (not a sprint) | — | [read](RELEASE-NOTES-DASHBOARD-DELETION-AND-EMAIL.md) |
+| **13.5** | Accounting — the ledger, expenses and per-staff cash | `0027` **not applied** | [read](RELEASE-NOTES-SPRINT-13.5.md) |
 | **13.7** | Parent accounts, period schedules, colours, teacher calendar | `0025` | [read](RELEASE-NOTES-SPRINT-13.7.md) |
 | **13.8** | Sibling identity — the guardian CNIC becomes the key | `0026` | [read](RELEASE-NOTES-SPRINT-13.8.md) |
 | — | Announcement sweep & the deploy pipeline (not a sprint) | none | [read](RELEASE-NOTES-ANNOUNCEMENT-SWEEP-AND-DEPLOY.md) |

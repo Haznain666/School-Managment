@@ -25,18 +25,21 @@ gone.
 
 | | |
 | --- | --- |
-| Cases written | **330**, across 20 release notes |
+| Cases written | **365**, across 21 release notes |
 | Runnable now | the great majority — sign-in is no longer a blocker |
 | Blocked on a printer | every case marked **NEEDS PAPER** |
 | Blocked on a hosting-panel action | every case marked **NEEDS PANEL** |
 | Needs a second school with data | every case marked **NEEDS TENANCY** |
 | Already covered by a script | every case marked **AUTOMATED** — run those, don't click them |
 
-**Three sprints shipped without a single screen being looked at.** That is the
-backlog this suite exists to clear, and it is worth clearing before Sprint 13.5:
-13.5 is accounting, and putting a ledger on top of a fee module whose P1 cases
-have never been executed means a figure that disagrees cannot be traced to the
-sprint that broke it.
+**Four sprints shipped without a single screen being looked at.** That is the
+backlog this suite exists to clear, and Sprint 13.5 has now made it worse rather
+than waiting for it: the ledger sits on top of a fee module whose P1 cases have
+never been executed, so a figure that disagrees cannot be traced to the sprint
+that broke it. Run the fee cases *first*, then 13.5's.
+
+⚠ **Every 13.5 case is blocked until migration `0027` is applied.** The module
+has no tables before that. Mark them **NEEDS MIGRATION** when triaging.
 
 Start with the twelve-case shortlist below.
 
@@ -152,6 +155,7 @@ release-note claims:
 | Dashboard, deletion UI, branch delete, email | 16 | [read](TEST-CASES-DASHBOARD-DELETION-AND-EMAIL.md) |
 | Panel chooser & school deletion | 15 | [read](TEST-CASES-PANEL-CHOOSER-AND-SCHOOL-DELETION.md) |
 | School & branch creation fixes | 22 | [read](TEST-CASES-SCHOOL-BRANCH-CREATION-FIXES.md) |
+| Sprint 13.5 — Accounting | 35 | [read](TEST-CASES-SPRINT-13.5.md) |
 | Sprint 13.8 — Sibling identity & the announcement sweep | 35 | [read](TEST-CASES-SPRINT-13.8.md) |
 | Sprint 13 — Portals, installable app, two principals | 26 | [read](TEST-CASES-SPRINT-13.md) |
 | Sprint 12 — Reports & analytics | 20 | [read](TEST-CASES-SPRINT-12.md) |

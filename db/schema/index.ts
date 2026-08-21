@@ -94,3 +94,17 @@ export * from './announcements';
 export * from './principal-assignments';
 export * from './lesson-plans';
 export * from './notification-preferences';
+
+// Sprint 13.5 — accounting. The ledger comes before anything that moves money:
+// Sprint 16's parent wallet and Sprint 20's POS both post here, and a ledger
+// retrofitted under live money is the cost this ordering exists to avoid.
+//
+// `ledger-accounts` is exported before `ledger-entries` because an entry
+// references an account, and `expenses` and `cash-settlements` after both,
+// because each is a consumer of the ledger rather than part of it. Deleting
+// either of the last two would leave the school's books correct, which is the
+// test of whether the ledger is doing the work.
+export * from './ledger-accounts';
+export * from './ledger-entries';
+export * from './expenses';
+export * from './cash-settlements';

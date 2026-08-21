@@ -709,9 +709,29 @@ triples the review overhead for no benefit.
 
 ## Release 2 — Commercial Parity
 
-### Sprint 13.5 — Accounting: ledger, expenses, financial reports
+### Sprint 13.5 — Accounting: ledger, expenses, financial reports ✅ BUILT 2026-08-21
 *Added 2026-08-12 (§0.9). Derives from `ROADMAP.md` §2b and the competitor gap
-review §A. Migration: next free number (see `STATE.md`).*
+review §A. Migration `0027` — **written, not yet applied**; see `STATE.md` §5au.*
+
+**Built as specified, with two documented departures:**
+
+1. `ledger_entries` gained a header table, `ledger_transactions`. One date, one
+   memo and one cause per entry; two or more sides. Repeating the date per line
+   lets the two halves of a transaction fall on different days, and splits are
+   real here — payroll is one entry with a line per deduction head.
+2. **The module flag is the existing `accounts`, not a new `accounting`.**
+   `lib/platform-modules.ts` has carried "Accounts & Finance" since Sprint 2;
+   a second key would be two switches for one thing plus a `school_modules`
+   CHECK change, and a school with the old flag on and the new one off would
+   watch the module vanish on deploy.
+
+One decision the document did not specify and that a later sprint must not
+reverse by accident: **income is recognised when the money is received, not
+when it is billed.** A fee payment posts; raising a challan posts nothing. The
+accrual alternative would put eight hundred entries in the day book per bulk
+generation and would give the school two answers to "how much is outstanding".
+The fee module's answer, which has a challan number against every rupee, stays
+authoritative. `0027`'s header argues it in full.
 
 **Non-negotiable, and it comes before anything that moves money.** Sprints 16
 (payments/wallet) and 20 (POS) both post to the ledger this sprint creates.

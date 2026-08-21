@@ -1,10 +1,12 @@
 import {
   Banknote,
   BookOpen,
+  BookOpenCheck,
   Building2,
   CalendarDays,
   ClipboardCheck,
   ClipboardList,
+  Coins,
   FileBarChart,
   FileSpreadsheet,
   FileText,
@@ -15,6 +17,7 @@ import {
   Megaphone,
   MoveUpRight,
   Receipt,
+  Scale,
   ScrollText,
   Settings,
   Sliders,
@@ -85,6 +88,15 @@ export const NAV_ICONS = {
   leave: CalendarDays,
   staffRegister: ClipboardCheck,
   payroll: Wallet,
+
+  // Sprint 13.5. `ledger` is a pair of scales rather than a book: the thing
+  // being depicted is that the two sides are equal, which is the whole of what
+  // the module does.
+  accounting: Scale,
+  chartOfAccounts: Layers,
+  dayBook: BookOpenCheck,
+  expenses: Receipt,
+  cashCounters: Coins,
 
   announcements: Megaphone,
   children: Users,

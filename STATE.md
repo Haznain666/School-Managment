@@ -4,10 +4,20 @@
 resume without re-deriving context. Updated at the end of every development
 step, before the session ends.
 
-**Last updated:** 2026-08-20 (**Sprint 13.8 — sibling identity: the guardian
-CNIC becomes the key, and siblings are shown on five surfaces — §5as**; earlier
-the same day: Sprint 13.7 — §5ar; 2026-08-19: §5aq, §5ap, §5ao, §5an, §5am,
-§5al, §5ai–§5ak)
+**Last updated:** 2026-08-21 (**Sprint 13.5 — Accounting: the ledger, expenses
+and per-staff cash — §5au**; 2026-08-20: Sprint 13.8 — sibling identity, §5as;
+the announcement sweep, §5at; Sprint 13.7 — §5ar; 2026-08-19: §5aq, §5ap, §5ao,
+§5an, §5am, §5al, §5ai–§5ak)
+
+> ▶ **Migration `0027` is written and NOT applied.** Sprint 13.5's six tables,
+> the three accounting permission keys, the seeded chart of accounts and the
+> backfill of every fee payment ever recorded are all in
+> `db/migrations/0027_sprint135_accounting.sql`. No session here holds the
+> database credentials. **Until it runs, the accounting module has no tables**
+> and every fee payment taken carries a null `ledger_transaction_id`.
+> The backfill is guarded on that column rather than on a date, so it will pick
+> those up whenever it is finally run. **Next free migration number after it is
+> `0028`.**
 
 > 🐛 **No scheduled announcement had ever been released, at any school, since
 > Sprint 11 — fixed 2026-08-20 (§5at).** `lib/announcement-queries.ts` compared
@@ -426,7 +436,9 @@ the same day: Sprint 13.7 — §5ar; 2026-08-19: §5aq, §5ap, §5ao, §5an, §5
 > ~~**Next free migration number is `0024`.**~~ ~~Superseded — `0024` was taken
 > by the creation fixes on 2026-08-18. **`0025` is free.**~~ Superseded again —
 > `0025` was taken by Sprint 13.7 on 2026-08-20. **`0026` is free.** Sprint
-> 13.5 (accounting) is still the next sprint, and still needs one.
+> ~~13.5 (accounting) is still the next sprint, and still needs one.~~
+> Superseded — 13.5 was built on 2026-08-21 (§5au) and took `0027`. **`0028` is
+> free.** Sprint 13.6 (internationalisation) is next.
 
 > ✅ **`0022_sprint11_comms.sql` applied to the live database, 2026-08-15.**
 > Verified: 23 of 23 migrations applied, all three tables present, 12 indexes,
@@ -5659,6 +5671,155 @@ so none of the three could be read or changed from here.
 A school office behind one NAT'd connection could plausibly trip the same rule.
 Not investigated further.
 
+## 5au. Sprint 13.5 — Accounting: the ledger, expenses and per-staff cash — 2026-08-21
+
+**The sprint `STATE.md` has pointed at for six sessions.** Six tables, one
+column, seven reports and one rule that everything else in the module exists to
+serve.
+
+### The rule
+
+`ledger_transactions` and `ledger_entries` are **append-only**. Nothing in this
+application updates or deletes a row in either. A correction is
+`reverseTransaction` — a second transaction whose lines are the mirror of the
+first, carrying `reverses_transaction_id`, with both left in the book.
+
+That is not purity. A parent disputing a figure in March is asking about a
+payment made in October, and the only answer a school can give is the entry as
+it was written plus everything that has happened to it since. Sprint 16's parent
+wallet and Sprint 20's POS both post here, so the rule had to hold before real
+money arrives rather than be retrofitted underneath it — which is the whole
+reason `SPRINTS.md` §0.9 put accounting at 13.5 and not after payments.
+
+`postTransaction` in `lib/ledger.ts` is the only door. Every posting in the
+product goes through it, which is what makes the balance check true of the whole
+book rather than of the paths somebody remembered to check.
+
+### The column is the point of the sprint
+
+`fee_payments.ledger_transaction_id`. Money the school has already taken is now
+part of the same books as the money it spends, and the posting commits **in the
+same database transaction** as the payment — not fired-and-forgotten like the
+WhatsApp confirmation three lines below it. A payment recorded without its
+posting understates income *silently*, and nothing on any screen would ever say
+so.
+
+Migration `0027` backfills every fee payment ever recorded, dated to the payment
+rather than to the day the migration ran. Without that, the ledger opens empty
+at a school that has been taking money for a year, Cash in Hand reads zero, and
+the first person to look at a balance sheet concludes the module does not work.
+
+### Per-staff cash accounts, and the number they produce
+
+A cash payment does not land in the office safe. It lands in the drawer of
+whoever took it, and those are different facts — a school where they are the
+same number is a school where nobody can be short.
+
+Each person who takes money can be given their own asset account
+(`ledger_accounts.owner_user_id`). `cashAccountForStaff` answers with their
+drawer if they have one and the office drawer if they do not, so **a school that
+never opens one behaves exactly as it did before this sprint.** Their balance in
+between is what they owe the school right now, which is the number the
+competitor demonstrates and the number this design exists to produce.
+
+Settling stores two figures: what the drawer *should* have held and what was
+actually counted onto the desk. The difference is **not written off.** It stays
+in the clerk's account as a balance they are still carrying, and the form says
+so — writing it off is a decision a head teacher makes with a journal entry, not
+something a form does quietly at four in the afternoon.
+
+`accounting.settle` is a third permission for the same reason, and the
+`accountant` role deliberately does not hold it by default: a person who both
+takes money across a desk and accepts their own count is a control with nobody
+in it.
+
+### Two decisions taken against the sprint document, both deliberate
+
+1. **`ledger_entries` got a header table.** §13.5 names one table. A transaction
+   has exactly one date, one memo and one cause, and two or more sides;
+   repeating the date per line lets the two halves of one transaction fall on
+   different days. Splits are real here, not hypothetical — payroll is one
+   transaction with a line per deduction head.
+
+2. **The module flag is the existing `accounts`, not a new `accounting`.**
+   `lib/platform-modules.ts` has carried "Accounts & Finance" since Sprint 2.
+   A second key would be two switches for one thing plus a `school_modules`
+   CHECK change, and a school with the old flag on and the new one off would
+   watch the module disappear on deploy.
+
+### Income is recognised on receipt, not on billing
+
+A fee payment posts; raising a challan posts nothing. The accrual alternative —
+debit `1100 Fees Receivable` on issue, clear it on payment — would put eight
+hundred transactions in the day book every time a school bulk-generates a
+month's challans, and would give the school **two answers** to "how much is
+outstanding": the ledger's and the fee module's. The fee module's has a challan
+number attached to every rupee of it, so it stays authoritative and the
+aged-debt report still reads it. `1100` is seeded for opening balances entered
+by hand.
+
+This is written out at length in `0027`'s header, because it is the decision
+somebody will otherwise reverse in a later sprint without knowing it was one.
+
+### Seven statements, for the price of seven declarations
+
+Balance sheet, profit and loss, day book, day-by-day account summary,
+month-by-month, expenses by category, and the income/expense summary for tax.
+All seven are `lib/report-catalogue.ts` definitions plus runners, which is what
+Sprint 12's architecture buys: each gets the screen, the `PrintSheet` and the
+CSV with no third renderer written. A balance sheet that could be read on screen
+and not printed would be worth very little to a school taking one to a board
+meeting.
+
+Every one reads `ledger_entries` and nothing else. A balance sheet assembled
+from the fee module, the payroll module and a spreadsheet is three modules'
+opinions, and the first thing anybody asks of it is why it does not balance.
+
+### The dashboard tile that said it could not answer, now answers
+
+`StatTile`'s `unavailable` state has carried "Needs the accounting ledger" since
+Sprint 10.5. It shows a figure now — but only where the module is on, the caller
+holds `accounting.read`, **and** the school has actually set up a chart. Under
+any of those being false it goes back to saying so, because the original
+reasoning has not changed: a tile reading `PKR 0` for a school that collected
+three lakh this morning is confidently wrong with no way for the reader to tell.
+
+### `npm run check-accounting` — 121 assertions, in CI
+
+Every failure this module can have is **silent**. An unbalanced ledger does not
+throw, it stops balancing. A sign convention inverted in one place produces a
+profit and loss on which salaries appear to earn the school money, and every
+number on it is a plausible-looking number. There is nothing for a type-checker
+or a passing build to object to.
+
+So the rules are asserted: debits equal credits; a mirrored entry nets every
+account it touched to zero; income reads `+1,000` and not `−1,000`; a cheque
+lands in `1020` and not the bank; the balance-sheet identity holds and breaks
+when one paisa is added to one side. **The check was verified by breaking two
+rules on purpose** — `normalBalanceOf` for expenses and the cheque landing
+account — which produced five failures across four sections, and by restoring
+them.
+
+It also asserts that `0027`'s hand-written seed and `DEFAULT_CHART` describe the
+same fifteen accounts and eleven categories, which is the strongest thing a
+credential-free check can say about two copies of one list.
+
+### What has not been done
+
+**Migration `0027` has not been applied to the live database.** No session here
+holds the credentials. It is written, generated from the schema files so the
+snapshot cannot disagree with it, and its hand-written half is asserted by
+`check-accounting` — but the schools' books do not exist until somebody runs it,
+and until then every fee payment taken is a payment with a null
+`ledger_transaction_id` that no backfill will pick up retrospectively unless
+`0027` is run **before** enough of them accumulate to matter. (It will pick them
+up: the backfill is guarded on that column being null, not on a date. Run it
+whenever.)
+
+**Nothing has been looked at in a browser** — the third sprint running. Six new
+screens exist and none has been seen.
+
+
 ## 6. Open items for the user
 
 1. ~~Install GitHub CLI~~ — **partly regressed.** Git has a stored credential
@@ -5985,6 +6146,7 @@ to `gte` anyway, so the pattern is no longer in the codebase to be copied.
 
 | Date | Session did | Next |
 | --- | --- | --- |
+| 2026-08-21 | **Sprint 13.5 — Accounting: the ledger, expenses and per-staff cash** (§5au). The sprint this file has pointed at for six sessions. Six tables, one column, seven statements. **The column is the point**: `fee_payments.ledger_transaction_id`, posted in the *same database transaction* as the payment — a payment recorded without its posting understates income silently, and nothing on any screen would ever say so. `ledger_transactions` + `ledger_entries` are **append-only**; a correction is a mirrored reversing entry and both stay in the book, because Sprint 16's wallet and Sprint 20's POS post here and a ledger retrofitted under live money is the cost this sequencing exists to avoid. **Per-staff cash accounts**: a cash payment lands in the drawer of whoever took it, not the office safe, and their balance is what they owe the school right now; settling stores what the drawer *should* have held beside what was counted, and the short is **not** written off. `accounting.settle` is a third key and the `accountant` role deliberately does not hold it. **Two calls against the document, both written down**: `ledger_entries` gets a header table (one date and one cause, two or more sides), and the module flag is the existing `accounts` rather than a second `accounting`. Income is recognised on receipt, not on billing — `0027`'s header says why at length, because it is the decision somebody will otherwise reverse without knowing it was one. Seven reports added as catalogue declarations, so each gets screen, `PrintSheet` and CSV for free. The dashboard's "Needs the accounting ledger" tile answers now, and still says so where the module is off or the chart is unset. New `npm run check-accounting` — **121 assertions, in CI**, and verified by breaking two rules on purpose (five failures, four sections) and restoring them. All nine gates green including the build. | **Apply `0027`.** It is written and not run; no session here has the credentials, and until it runs the module has no tables. The backfill is guarded on the null column rather than a date, so it picks up whatever accumulated in the meantime. Then **look at something in a browser** — six new screens and this is the third sprint with nothing seen. Then Sprint 13.6 (internationalisation) on **`0028`**. |
 | 2026-08-21 | **Release notes, test cases, and a correction I owed the file.** Wrote `RELEASE-NOTES-ANNOUNCEMENT-SWEEP-AND-DEPLOY.md` (the sweep, the seven-process double-send, and the four separate faults the deploy pipeline took to complete) and `TEST-CASES-SPRINT-13.8.md` — 35 cases over the sibling rule, the enrolment lookup, the guardian rules, the CNIC field, the parent portal, the sweep, and the existing-data regressions. Marked 13.8's notes live. **Corrected this file's DNS claim: school portals were never broken.** I had probed `lgs.codexmill.com`; schools are `<slug>.schoolhub.codexmill.com`. `lgs.schoolhub.codexmill.com` resolves, serves the sign-in page, and answers 401 on the new sibling route while a nonsense path answers 404. No DNS change was needed or made. | Drive one scheduled announcement end to end on a school with no real parents — the send path past the atomic claim is still unexercised. Then the P1 test cases above, in a browser: nothing in 13.8 has been clicked. Then set `HOSTINGER_RESTART_COMMAND` and `PRODUCTION_URL` so deploys restart and verify themselves. |
 | 2026-08-20 | **The announcement sweep had never worked** (§5at). ~420 lines of one repeating error in the production log, reported as a possible dependency or recent-change problem; it is neither. `` sql`${announcements.scheduledAt} <= ${now}` `` passed a JS `Date` straight to postgres-js, because a raw template is the one construct with no column to map against. Every sweep since **Sprint 11** threw before reading a row, so **no scheduled announcement had ever been released at any school** — and this file had dismissed the error as "pre-existing and unrelated" three times. `lte(col, now)` maps it to an ISO string. Reproduced against the live database with the real query builder: byte-identical SQL, raw form fails 3/3, `lte` passes 3/3. **Found while fixing it:** the log's timestamps repeat at seven offsets a minute — seven scheduler processes — and `sendAnnouncement` guarded with a read-then-check, so the query fix alone would have sent every parent **seven copies** of every notice (`email_outbox` has no unique key). The send now claims its row with a conditional UPDATE and reverts on failure; seven simultaneous claims against the live table produced exactly one winner. Two rules added to CLAUDE.md. | Deploy is still blocked on the missing SSH secrets (see the banner) — this fix and 13.8 are both merged and neither is live. Then drive one scheduled announcement end to end on a school with no real parents, since the send path past the claim is still unexercised. |
 | 2026-08-20 | **Sprint 13.8 — sibling identity** (§5as). Six requests, one thing. **Nothing in this product linked one student to another**: "sibling" was derived in one file, `lib/family-challans.ts`, by grouping open challans on the primary guardian's phone, so the only screen that knew two children were related was the family voucher — and only for children billed that month. `student_guardians.cnic` becomes an identity key: **two students are siblings when they share a guardian, and two guardian rows are one person when they share a CNIC *or* a phone**, unioned transitively by a union-find so that promoting CNIC does not *split* the families that predate it. The enrolment form asks for the CNIC **first** and fills the card in from the record the school already holds, naming the children that person already guards. Three guardian rules (first must be Father/Mother/Sibling; Father and Mother once each; "Other" carries a written relation) enforced on the form and in `parseGuardians`. Siblings shown on the student profile, application review, challan detail, and as a **header dropdown in the parent portal** — the portal still scopes by `school_user_id`, never by the sibling rule. **Four raw `<Input label="CNIC">` boxes replaced** by one `CnicField`; production held a **32-character** value in that column, which is what an unmasked field produces. New `npm run check-cnic`, 36 assertions, in CI. `0026` applied and verified against the real schema — the junk value left at 32 characters rather than guessed at. | **Nothing was looked at** — still no screenshot of any new screen, now for two sprints running. Twenty minutes of clicking, then print one of each document on real A4. Then the **automatic sibling discount**: second children are detectable now and `student_concessions` still applies them by hand. Sprint 13.5 (accounting) on migration **`0027`**. |

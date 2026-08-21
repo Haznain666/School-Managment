@@ -11,6 +11,7 @@ import {
 } from 'drizzle-orm/pg-core';
 
 import { feeChallans } from './fee-challans';
+import { ledgerTransactions } from './ledger-entries';
 import { schools } from './schools';
 
 export const PAYMENT_METHODS = ['cash', 'bank_transfer', 'cheque'] as const;
@@ -53,6 +54,23 @@ export const feePayments = pgTable(
     /** Firebase uid of the staff member who took the money. */
     collectedByUid: text('collected_by_uid').notNull(),
     notes: text('notes'),
+    /**
+     * The ledger posting this payment produced (Sprint 13.5).
+     *
+     * Nullable, and it will stay nullable. Every payment taken from Sprint
+     * 13.5 onwards has one — the route posts it in the same transaction that
+     * records the payment, so a payment without a posting is not a state this
+     * code can produce. But rows exist from before the ledger did: migration
+     * `0027` backfills them into an opening posting where a chart of accounts
+     * could be established, and the schools where it could not are the reason
+     * this is not `notNull`. A payment whose posting cannot be found is a
+     * reconciliation problem; a fee module that refuses to load because of one
+     * is a worse one.
+     */
+    ledgerTransactionId: uuid('ledger_transaction_id').references(
+      () => ledgerTransactions.id,
+      { onDelete: 'set null' },
+    ),
     createdAt: timestamp('created_at', { withTimezone: true })
       .notNull()
       .defaultNow(),

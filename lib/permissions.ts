@@ -52,6 +52,9 @@ export const PERMISSIONS = [
   'settings.write',
   'principals.manage',
   'permissions.manage',
+  'accounting.read',
+  'accounting.write',
+  'accounting.settle',
 ] as const;
 
 export type Permission = (typeof PERMISSIONS)[number];
@@ -102,6 +105,11 @@ export const PERMISSION_GROUPS: readonly PermissionGroup[] = [
     permissions: ['comms.read', 'comms.write', 'comms.send'],
   },
   { key: 'hr', label: 'HR', permissions: ['hr.read', 'hr.write'] },
+  {
+    key: 'accounting',
+    label: 'Accounting',
+    permissions: ['accounting.read', 'accounting.write', 'accounting.settle'],
+  },
   { key: 'payroll', label: 'Payroll', permissions: ['payroll.read', 'payroll.write'] },
   {
     key: 'school',
@@ -144,6 +152,9 @@ export const PERMISSION_LABELS: Record<Permission, string> = {
   'settings.write': 'Edit the school profile, logo and colours',
   'principals.manage': 'Decide which principal runs which campus or division',
   'permissions.manage': 'Change what every role may do',
+  'accounting.read': 'See the ledger, expenses and the financial statements',
+  'accounting.write': 'Record expenses, post journal entries and edit the chart of accounts',
+  'accounting.settle': 'Take a fee counter’s cash in and settle their account',
 };
 
 export const PERMISSION_DESCRIPTIONS: Partial<Record<Permission, string>> = {
@@ -177,6 +188,19 @@ export const PERMISSION_DESCRIPTIONS: Partial<Record<Permission, string>> = {
   'principals.manage':
     'An assignment decides which students, staff and results a head can see. ' +
     'Whoever holds this can widen their own principal’s view of the school.',
+  'accounting.read':
+    'The whole of the school’s money — what it earns, what it spends, what it ' +
+    'holds and what every fee counter is carrying. Narrower than it looks: it ' +
+    'shows totals and heads, not any individual child’s fee record.',
+  'accounting.write':
+    'Includes approving an expense, which posts money out of a cash or bank ' +
+    'account and cannot be edited afterwards — only reversed, in the open. ' +
+    'Grant it to whoever the school would hold answerable for a wrong figure.',
+  'accounting.settle':
+    'The other side of a fee counter. Whoever holds this counts the clerk’s ' +
+    'takings and accepts them, so it should not be the clerk — a person who ' +
+    'both takes money and settles their own account is a control with nobody ' +
+    'in it.',
 };
 
 /**
@@ -277,6 +301,10 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<UserRole, readonly Permission[]> =
     'comms.send',
     'hr.read',
     'payroll.read',
+    // The same reasoning as `payroll.read` directly above: seeing what the
+    // school earns and spends is a head's job, running the books is not.
+    // `accounting.write` and `accounting.settle` are deliberately absent.
+    'accounting.read',
     'settings.read',
   ],
 
@@ -333,11 +361,22 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<UserRole, readonly Permission[]> =
     'results.enter',
   ],
 
+  // Sprint 13.5 gives the accountant the module named after them, and stops
+  // one step short of the whole of it.
+  //
+  // `accounting.settle` is the step. An accountant at a fee counter is the
+  // person whose takings get settled, and a person who both takes money across
+  // a desk and accepts their own count is a control with nobody in it. The
+  // bursar or head accepts it, which by default means `school_admin`. A school
+  // with one office and one person in it grants it to them in one click —
+  // Sprint 8's whole purpose — and does so having read the sentence under it.
   accountant: [
     'admissions.read',
     'fees.read',
     'fees.write',
     'payroll.read',
+    'accounting.read',
+    'accounting.write',
     'settings.read',
   ],
 

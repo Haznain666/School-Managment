@@ -230,7 +230,11 @@ function Showcase() {
         <StatTile
           label="Profit this month"
           icon={AlertTriangle}
-          unavailable="Needs the accounting ledger (Sprint 13.5)."
+          // The example this state was written for — a profit tile with no
+          // ledger under it — was answered by Sprint 13.5. The state itself is
+          // not going anywhere: a school with the Accounts & Finance module
+          // switched off is still exactly this, and a zero would still be a lie.
+          unavailable="Needs the Accounts & Finance module."
         />
       </StatTileGrid>
 
