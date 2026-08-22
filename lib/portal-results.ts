@@ -178,6 +178,10 @@ export interface StudentExamRow {
  * `is_published` here is the *exam*'s publication — Sprint 9's datesheet
  * announcement — not the term's. An unannounced exam is withheld, because a
  * datesheet a school has not released is not a promise it has made.
+ *
+ * An archived exam is withheld for the same reason and more strongly: the term
+ * or the datesheet it came from has been deleted, and a family still being
+ * shown the date of a paper the school has cancelled would turn up for it.
  */
 export async function listStudentExams(
   locationId: string,
@@ -214,6 +218,7 @@ export async function listStudentExams(
         eq(exams.locationId, locationId),
         eq(exams.sectionId, enrolment[0].sectionId),
         eq(exams.isPublished, true),
+        isNull(exams.archivedAt),
       ),
     )
     .orderBy(asc(exams.examDate));

@@ -166,10 +166,29 @@ export function ScheduleManager({
           body,
         });
       } else {
-        await schoolFetch(`/api/school/exam-schedules/${editingId}`, {
-          method: 'PATCH',
-          body,
-        });
+        const result = await schoolFetch<{
+          archived: {
+            grades: number;
+            exams: number;
+            papers: number;
+            papersWithMarks: number;
+          };
+        }>(`/api/school/exam-schedules/${editingId}`, { method: 'PATCH', body });
+
+        // Taking a class off a datesheet archives what it had already
+        // generated. That is a consequence a clerk has to be told about in the
+        // same breath as the save, because the marks are still there and only
+        // they can say whether removing the class was meant to hide them.
+        if (result.archived.grades > 0 && result.archived.exams > 0) {
+          setNotice(
+            `${result.archived.grades} class${result.archived.grades === 1 ? '' : 'es'} removed: ` +
+              `${result.archived.exams} exam${result.archived.exams === 1 ? '' : 's'} and ` +
+              `${result.archived.papers} paper${result.archived.papers === 1 ? '' : 's'} archived with them` +
+              (result.archived.papersWithMarks > 0
+                ? ` — ${result.archived.papersWithMarks} of those papers carried marks, which are kept.`
+                : '.'),
+          );
+        }
       }
 
       setIsCreating(false);

@@ -1,6 +1,7 @@
-import { and, eq, inArray, isNull, sql } from 'drizzle-orm';
+import { and, countDistinct, eq, inArray, isNull, sql } from 'drizzle-orm';
 
 import {
+  examResults,
   examScheduleGrades,
   examScheduleSubjects,
   examSchedules,
@@ -35,6 +36,21 @@ import { isUuid } from '@/lib/validation';
  * would create a second Maths paper beside the one already carrying marks. So
  * a subject that stays keeps its row and is updated in place; only a subject
  * genuinely removed from the datesheet is archived.
+ *
+ * ── A class taken off a datesheet takes its exams with it ────────────────
+ * Archiving only the `exam_schedule_grades` row leaves the exams and papers
+ * this schedule generated for that class fully live: `schedule_id` still set,
+ * `archived_at` still null, and `generate` — which walks the schedule's
+ * *current* grades — will never look at them again. Worse, the class is now
+ * free of `exam_schedule_grades_term_grade_idx`, so it can be put on a second
+ * datesheet in the same term and generated a second time; and
+ * `getSectionReportCards` selects by term and section with no schedule filter,
+ * so every subject would appear twice, `available` would double and every
+ * child's percentage would halve. The exams and their papers are therefore
+ * archived in the same transaction as the grade row. Papers carrying marks are
+ * archived, never deleted, and the response says how many of them there were —
+ * the person who dropped the class is the only one who can decide whether that
+ * was intended, and they will not find out any other way.
  *
  * ── DELETE archives the grade rows too ───────────────────────────────────
  * Same reason the term does it: `exam_schedule_grades_term_grade_idx` says a
@@ -164,12 +180,77 @@ export const PATCH = withSchoolAuth<RouteContext>(
 
       const now = new Date();
       const keptGrades = new Set(input.gradeIds);
-      const droppedGrades = currentGrades
-        .filter((row) => !keptGrades.has(row.gradeId))
-        .map((row) => row.id);
+      const droppedGradeRows = currentGrades.filter(
+        (row) => !keptGrades.has(row.gradeId),
+      );
+      const droppedGrades = droppedGradeRows.map((row) => row.id);
       const addedGrades = input.gradeIds.filter(
         (gradeId) => !currentGrades.some((row) => row.gradeId === gradeId),
       );
+
+      // What this schedule generated for the classes being dropped. Read
+      // before the transaction opens so the statements below are pure writes;
+      // nothing else can attach an exam to this schedule for a grade that is
+      // leaving it, because only `generate` writes one and it needs the same
+      // `exams.write` permission this request is holding.
+      const orphanExamIds: string[] = [];
+      let orphanPapers = 0;
+      let orphanPapersWithMarks = 0;
+
+      if (droppedGradeRows.length > 0) {
+        const examRows = await db
+          .select({ id: exams.id })
+          .from(exams)
+          .where(
+            and(
+              eq(exams.locationId, auth.locationId),
+              eq(exams.scheduleId, scheduleId),
+              inArray(
+                exams.gradeId,
+                droppedGradeRows.map((row) => row.gradeId),
+              ),
+              isNull(exams.archivedAt),
+            ),
+          );
+
+        orphanExamIds.push(...examRows.map((row) => row.id));
+
+        if (orphanExamIds.length > 0) {
+          const paperRows = await db
+            .select({ id: examSubjects.id })
+            .from(examSubjects)
+            .where(
+              and(
+                eq(examSubjects.locationId, auth.locationId),
+                inArray(examSubjects.examId, orphanExamIds),
+                isNull(examSubjects.archivedAt),
+              ),
+            );
+
+          orphanPapers = paperRows.length;
+
+          if (paperRows.length > 0) {
+            const counted = await db
+              .select({
+                examSubjectId: examResults.examSubjectId,
+                value: countDistinct(examResults.id),
+              })
+              .from(examResults)
+              .where(
+                and(
+                  eq(examResults.locationId, auth.locationId),
+                  inArray(
+                    examResults.examSubjectId,
+                    paperRows.map((row) => row.id),
+                  ),
+                ),
+              )
+              .groupBy(examResults.examSubjectId);
+
+            orphanPapersWithMarks = counted.filter((row) => row.value > 0).length;
+          }
+        }
+      }
 
       const existingSubject = new Map(
         currentSubjects.map((row) => [row.subjectId, row.id] as const),
@@ -208,6 +289,35 @@ export const PATCH = withSchoolAuth<RouteContext>(
               and(
                 eq(examScheduleGrades.locationId, auth.locationId),
                 inArray(examScheduleGrades.id, droppedGrades),
+              ),
+            ),
+        );
+      }
+
+      // Same transaction as the grade row above, deliberately: a committed
+      // grade removal with the exams left behind is the state that lets one
+      // cohort be examined twice.
+      if (orphanExamIds.length > 0) {
+        statements.push((tx) =>
+          tx
+            .update(exams)
+            .set({ archivedAt: now, updatedAt: now })
+            .where(
+              and(
+                eq(exams.locationId, auth.locationId),
+                inArray(exams.id, orphanExamIds),
+              ),
+            ),
+        );
+        statements.push((tx) =>
+          tx
+            .update(examSubjects)
+            .set({ archivedAt: now, updatedAt: now })
+            .where(
+              and(
+                eq(examSubjects.locationId, auth.locationId),
+                inArray(examSubjects.examId, orphanExamIds),
+                isNull(examSubjects.archivedAt),
               ),
             ),
         );
@@ -282,6 +392,12 @@ export const PATCH = withSchoolAuth<RouteContext>(
       return apiSuccess({
         schedule: await getExamSchedule(auth.locationId, scheduleId),
         mechanism: checked.mechanism,
+        archived: {
+          grades: droppedGrades.length,
+          exams: orphanExamIds.length,
+          papers: orphanPapers,
+          papersWithMarks: orphanPapersWithMarks,
+        },
       });
     } catch (error) {
       return handleApiError(error);

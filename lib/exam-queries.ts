@@ -381,6 +381,28 @@ export async function getExamTerm(
 // Exams and their papers
 // -----------------------------------------------------------------------------
 
+/**
+ * ── Who honours `archived_at`, and who must not ──────────────────────────
+ *
+ * Sprint 14 gave `exams` and `exam_subjects` a soft delete, written by three
+ * paths: archiving a term, archiving a datesheet, and dropping a class or a
+ * subject from one. A soft delete nobody reads is not a delete at all — until
+ * 2026-08-22 pressing Delete on a term left every one of its papers live *and
+ * writable*, because the results route authorises through `teacherOwnsPaper`
+ * and loads through `getExamPaper` and neither looked at the column. A teacher
+ * could still save marks against a term the school had deleted.
+ *
+ * So every reader below that *lists a paper to work on, or authorises a write
+ * to one* filters archived rows out: `listExams`, `getExamDetail`,
+ * `listExamPapers`, `getExamPaper`, `getTabulation` (through the first two),
+ * `listTeacherPapers`, `teacherOwnsPaper`, and `listStudentExams` in
+ * `lib/portal-results.ts`.
+ *
+ * `getSectionReportCards` is the reader that thinks about it differently, and
+ * its own docblock says how: an issued card must keep rendering exactly as it
+ * was issued, so what it excludes is decided by what archiving *meant*, not by
+ * the column being present.
+ */
 export interface ExamRow {
   id: string;
   termId: string;
@@ -421,7 +443,10 @@ export async function listExams(
     gradeId?: string | undefined;
   } = {},
 ): Promise<ExamRow[]> {
-  const conditions: SQL[] = [eq(exams.locationId, locationId)];
+  const conditions: SQL[] = [
+    eq(exams.locationId, locationId),
+    isNull(exams.archivedAt),
+  ];
   if (filters.termId !== undefined && filters.termId !== '') {
     conditions.push(eq(exams.termId, filters.termId));
   }
@@ -441,7 +466,10 @@ export async function listExams(
     .innerJoin(examTerms, eq(examTerms.id, exams.termId))
     .innerJoin(grades, eq(grades.id, exams.gradeId))
     .innerJoin(sections, eq(sections.id, exams.sectionId))
-    .leftJoin(examSubjects, eq(examSubjects.examId, exams.id))
+    .leftJoin(
+      examSubjects,
+      and(eq(examSubjects.examId, exams.id), isNull(examSubjects.archivedAt)),
+    )
     .where(and(...conditions))
     .groupBy(exams.id, examTerms.id, grades.id, sections.id)
     .orderBy(asc(exams.examDate), asc(exams.title));
@@ -483,7 +511,13 @@ export async function getExamDetail(
     .innerJoin(examTerms, eq(examTerms.id, exams.termId))
     .innerJoin(grades, eq(grades.id, exams.gradeId))
     .innerJoin(sections, eq(sections.id, exams.sectionId))
-    .where(and(eq(exams.locationId, locationId), eq(exams.id, examId)))
+    .where(
+      and(
+        eq(exams.locationId, locationId),
+        eq(exams.id, examId),
+        isNull(exams.archivedAt),
+      ),
+    )
     .limit(1);
 
   const row = rows[0];
@@ -526,7 +560,11 @@ export async function listExamPapers(
     .innerJoin(subjects, eq(subjects.id, examSubjects.subjectId))
     .leftJoin(examResults, eq(examResults.examSubjectId, examSubjects.id))
     .where(
-      and(eq(examSubjects.locationId, locationId), eq(examSubjects.examId, examId)),
+      and(
+        eq(examSubjects.locationId, locationId),
+        eq(examSubjects.examId, examId),
+        isNull(examSubjects.archivedAt),
+      ),
     )
     .groupBy(examSubjects.id, subjects.id)
     .orderBy(asc(examSubjects.orderIndex), asc(subjects.name));
@@ -591,6 +629,11 @@ export async function getExamPaper(
       and(
         eq(examSubjects.locationId, locationId),
         eq(examSubjects.id, examSubjectId),
+        // An archived paper is not loadable, and this is the query the marks
+        // screen and the results route both go through. Without it, deleting a
+        // term left every paper in it writable.
+        isNull(examSubjects.archivedAt),
+        isNull(exams.archivedAt),
       ),
     )
     .limit(1);
@@ -824,17 +867,28 @@ export function resultPicker<T extends CountingResultRow>(
 
 export interface TabulationCell {
   examSubjectId: string;
+  /** Null in descriptor mode. A descriptor paper is not out of anything. */
   marks: number | null;
   isAbsent: boolean;
   isResit: boolean;
   /** False when the paper's marks have not been published yet. */
   isPublished: boolean;
+  /**
+   * Below the pass mark, or carrying the grade's failing descriptor. The two
+   * mechanisms answer the same question — is this subject a problem — which is
+   * why it is one field rather than two.
+   */
   isFail: boolean;
+  /** Descriptor mode: what this subject earned. Null in marks mode. */
+  subcategory: ReportCardSubcategory | null;
+  /** The subject-wise comment, in both mechanisms. `exam_results.remarks`. */
+  comment: string | null;
 }
 
 export interface TabulationRow {
   student: RosterStudent;
   cells: TabulationCell[];
+  /** All three are zero in descriptor mode and must not be drawn there. */
   obtained: number;
   available: number;
   percentage: number;
@@ -853,6 +907,10 @@ export interface Tabulation {
   bands: GradingBandRow[];
   /** True when at least one paper is still unpublished. */
   hasUnpublished: boolean;
+  /** Which grid to draw. Resolved from the grade's criteria. */
+  mechanism: PromotionMechanism;
+  /** Whether descriptors are painted. Read at render time, never stored. */
+  colorCodingEnabled: boolean;
 }
 
 /**
@@ -860,6 +918,17 @@ export interface Tabulation {
  *
  * Unpublished papers are included and flagged, because reviewing them is the
  * point of the sheet. Nothing here is reachable without `exams.read`.
+ *
+ * ── A descriptor class gets a descriptor grid ────────────────────────────
+ * `generate` writes `max_marks = 1` on a descriptor paper because the column is
+ * NOT NULL with a `> 0` CHECK, and it says in its own docblock that the value
+ * is never to be read. This function read it: until 2026-08-22 a descriptor
+ * class tabulated as 0 out of n on every child, which `assignPositions` then
+ * turned into a class of joint firsts — a sheet a principal would have acted
+ * on. So the mechanism is resolved here, and in descriptor mode there are no
+ * marks, no totals, no percentage, no grade and no position on any row. What
+ * is left is what a descriptor class actually has: the sub-category and the
+ * comment each child earned per subject, side by side across the class.
  */
 export async function getTabulation(
   locationId: string,
@@ -870,9 +939,14 @@ export async function getTabulation(
 
   const paperIds = exam.papers.map((paper) => paper.id);
 
-  const [roster, bands, results] = await Promise.all([
+  const [roster, bands, criteria, subcategories, settings, results] = await Promise.all([
     listSectionRoster(locationId, exam.sectionId, exam.academicYearId),
     bandsForTerm(locationId, exam.termId),
+    resolveGradeCriteria(locationId, exam.academicYearId, exam.gradeId),
+    // Archived descriptors included: this sheet reports what was awarded, and
+    // one retired since would otherwise empty the cell it was awarded in.
+    listResultSubcategories(locationId, { includeArchived: true }),
+    getExamSettings(locationId),
     paperIds.length === 0
       ? Promise.resolve([])
       : db
@@ -882,6 +956,8 @@ export async function getTabulation(
             attempt: examResults.attempt,
             marksObtained: examResults.marksObtained,
             isAbsent: examResults.isAbsent,
+            subcategoryId: examResults.subcategoryId,
+            remarks: examResults.remarks,
           })
           .from(examResults)
           .where(
@@ -892,34 +968,56 @@ export async function getTabulation(
           ),
   ]);
 
+  const isDescriptors = criteria.mechanism === 'descriptors';
+  const subcategoryById = new Map(
+    subcategories.map((entry) => [entry.id, entry] as const),
+  );
+
   const pick = resultPicker(results);
 
   const rows: TabulationRow[] = roster.map((student) => {
     const cells: TabulationCell[] = exam.papers.map((paper) => {
       const candidate = pick(paper, student.studentProfileId);
-      const marks = toMark(candidate?.marksObtained);
+      const marks = isDescriptors ? null : toMark(candidate?.marksObtained);
+      const descriptorId = candidate?.subcategoryId ?? null;
 
       return {
         examSubjectId: paper.id,
         marks,
         isAbsent: candidate?.isAbsent ?? false,
-        isResit: (candidate?.attempt ?? ATTEMPT_ORIGINAL) === ATTEMPT_RESIT,
+        isResit:
+          !isDescriptors &&
+          (candidate?.attempt ?? ATTEMPT_ORIGINAL) === ATTEMPT_RESIT,
         isPublished: paper.resultsStatus === 'published',
-        isFail: marks !== null && marks < paper.passingMarks,
+        isFail: isDescriptors
+          ? descriptorId !== null && descriptorId === criteria.failingSubcategoryId
+          : marks !== null && marks < paper.passingMarks,
+        subcategory: isDescriptors
+          ? descriptorId === null
+            ? null
+            : (subcategoryById.get(descriptorId) ?? null)
+          : null,
+        comment: candidate?.remarks ?? null,
       };
     });
 
     // An absent paper still counts towards what was available: a percentage
     // that shrank its own denominator would reward missing your weakest paper.
-    const available = exam.papers.reduce((sum, paper) => sum + paper.maxMarks, 0);
-    const obtained = cells.reduce((sum, cell) => sum + (cell.marks ?? 0), 0);
+    // Both are zero in descriptor mode, where `max_marks` is the placeholder 1
+    // that `generate` wrote and that nothing may read.
+    const available = isDescriptors
+      ? 0
+      : exam.papers.reduce((sum, paper) => sum + paper.maxMarks, 0);
+    const obtained = isDescriptors
+      ? 0
+      : cells.reduce((sum, cell) => sum + (cell.marks ?? 0), 0);
 
     return {
       student,
       cells,
       obtained,
       available,
-      percentage: percentageOf(obtained, available),
+      percentage: isDescriptors ? 0 : percentageOf(obtained, available),
       grade: null,
       gpa: null,
       absentCount: cells.filter((cell) => cell.isAbsent).length,
@@ -928,18 +1026,24 @@ export async function getTabulation(
     };
   });
 
-  const positions = assignPositions(rows, (row) =>
-    row.absentCount > 0 ? null : row.obtained,
-  );
+  if (!isDescriptors) {
+    const positions = assignPositions(rows, (row) =>
+      row.absentCount > 0 ? null : row.obtained,
+    );
 
-  for (const row of rows) {
-    row.position = positions.get(row) ?? null;
-    const band = resolveBand(row.percentage, bands);
-    row.grade = band?.label ?? null;
-    row.gpa = band?.gpa ?? null;
+    for (const row of rows) {
+      row.position = positions.get(row) ?? null;
+      const band = resolveBand(row.percentage, bands);
+      row.grade = band?.label ?? null;
+      row.gpa = band?.gpa ?? null;
+    }
+
+    rows.sort((a, b) => b.obtained - a.obtained);
   }
-
-  rows.sort((a, b) => b.obtained - a.obtained);
+  // A descriptor class keeps the roster's own order — by roll number — and
+  // takes no positions at all. Ranking children whose results are words would
+  // mean ordering the words, and no school has asked this product to decide
+  // that "Exceeding" beats "Satisfactory" by one. Same rule as the report card.
 
   return {
     exam,
@@ -947,6 +1051,8 @@ export async function getTabulation(
     rows,
     bands,
     hasUnpublished: exam.papers.some((paper) => paper.resultsStatus !== 'published'),
+    mechanism: criteria.mechanism,
+    colorCodingEnabled: settings.colorCodingEnabled,
   };
 }
 
@@ -1051,6 +1157,21 @@ export interface ReportCard {
  * Only published papers appear. An unpublished term is still renderable — the
  * print page marks it a preview — because the person checking a term before
  * publishing it needs to see exactly what a parent will get.
+ *
+ * ── Archived papers: excluded here, and that is a decision ───────────────
+ * Every other reader excludes an archived row because it must not be *worked
+ * on*. This one is the document a parent keeps, so the question is different:
+ * a card must reprint as it was issued. It still excludes archived papers,
+ * because of what the three archiving paths actually mean — a subject dropped
+ * from the datesheet, a datesheet withdrawn, a term deleted. All three are the
+ * school saying that paper is not part of this term's card. None of them is a
+ * tidy-up whose side effect would be to blank a column.
+ *
+ * What archiving never touches is `student_term_results`: the mechanism, the
+ * overall row and the promotion decision are frozen there at compute time, so
+ * the judgement on an issued card survives its term being deleted even though
+ * the subject rows do not. The two together are why this reader can afford to
+ * be strict.
  *
  * ── Two sheets, decided per grade ────────────────────────────────────────
  * `marks_grades` fills the marks columns and leaves every descriptor null;
@@ -1453,6 +1574,8 @@ export async function listTeacherPapers(
       and(
         eq(examSubjects.locationId, locationId),
         eq(examTerms.academicYearId, academicYearId),
+        isNull(examSubjects.archivedAt),
+        isNull(exams.archivedAt),
       ),
     )
     .orderBy(asc(exams.examDate), asc(subjects.name));
@@ -1489,6 +1612,10 @@ export async function teacherOwnsPaper(
       and(
         eq(examSubjects.locationId, locationId),
         eq(examSubjects.id, examSubjectId),
+        // This is an authorisation answer, so it is false for an archived
+        // paper: nobody owns a paper the school has withdrawn.
+        isNull(examSubjects.archivedAt),
+        isNull(exams.archivedAt),
       ),
     )
     .limit(1);

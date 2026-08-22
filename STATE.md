@@ -12,6 +12,26 @@ database.**; 2026-08-21: Sprint 13.5 — §5au, driven end to end — §5av;
 2026-08-20: Sprint 13.8 — sibling identity, §5as; the announcement sweep, §5at;
 Sprint 13.7 — §5ar; 2026-08-19: §5aq, §5ap, §5ao, §5an, §5am, §5al, §5ai–§5ak)
 
+> ✅ **Migration `0029` is APPLIED to the live database — 2026-08-22.** The
+> bookkeeping table held 29 rows before and **30** after. Verified against the
+> real schema rather than trusting the success message: seven tables created,
+> ten columns added, `exam_terms.start_date`/`end_date` now nullable, the four
+> default result sub-categories seeded for the one existing school,
+> `results.promotion` present in the `role_permissions` CHECK, and
+> `exam_schedule_grades_term_grade_idx` partial on `archived_at IS NULL` — the
+> last of those is what lets an archived schedule release its grades instead of
+> locking them out of the term for good.
+>
+> **`0029` had to go in before the merge, not after.** `app/(teacher)/layout.tsx`
+> awaits `listClassTeacherSections`, which reads `sections.class_teacher_id`. A
+> layout runs on every page of the teacher portal and that call is unguarded, so
+> deploying Sprint 14 against the old schema would have 500'd the whole portal —
+> §5aw again, one module over. The migration is expand-only, so applying it
+> while the *old* code was still live cost nothing: the running build did not
+> know these tables existed.
+>
+> **Next free migration number is `0030`.**
+
 > ✅ **Migrations `0027` and `0028` are APPLIED to the live database —
 > 2026-08-22.** `npx drizzle-kit migrate` against the pooler host on port
 > **5432** (session mode — 6543 is what the app uses and will not do DDL; see
@@ -33,7 +53,8 @@ Sprint 13.7 — §5ar; 2026-08-19: §5aq, §5ap, §5ao, §5an, §5am, §5al, §5
 > `'notice'`, not deleted**: they are the school's record of what it told which
 > parent and when.
 >
-> **Next free migration number is `0029`.**
+> ~~Next free migration number is `0029`.~~ **`0029` is taken — see the Sprint 14
+> banner above. The next free number is `0030`.**
 
 > ✅ **Deploying is automatic, and the SSH secrets are dead — 2026-08-22.**
 > hPanel has this site connected to the repository with **Auto-deployment on**,
