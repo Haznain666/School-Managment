@@ -547,6 +547,8 @@ export interface ExamPaperContext extends ExamPaperRow {
   sectionId: string;
   sectionLabel: string;
   academicYearId: string;
+  /** Which class sits it — the key to the mechanism this paper is marked by. */
+  gradeId: string;
 }
 
 /** One paper with everything the marks screen has to show above the list. */
@@ -575,6 +577,7 @@ export async function getExamPaper(
       academicYearId: examTerms.academicYearId,
       sectionId: sections.id,
       sectionName: sections.name,
+      gradeId: grades.id,
       gradeName: grades.name,
       gradeDisplayName: grades.displayName,
     })
@@ -662,10 +665,12 @@ export async function listSectionRoster(
 // -----------------------------------------------------------------------------
 
 export interface MarksSheetStudent extends RosterStudent {
-  /** The mark for the attempt being entered. */
+  /** The mark for the attempt being entered. Always null in descriptor mode. */
   marksObtained: number | null;
   isAbsent: boolean;
   remarks: string | null;
+  /** Descriptor mode: the performance descriptor this child earned. */
+  subcategoryId: string | null;
   /** The original sitting, shown for reference while entering a re-sit. */
   originalMarks: number | null;
   originalAbsent: boolean;
@@ -674,6 +679,17 @@ export interface MarksSheetStudent extends RosterStudent {
 export interface MarksSheet {
   paper: ExamPaperContext;
   attempt: number;
+  /**
+   * Which sheet this is, resolved from the *grade's* criteria.
+   *
+   * The screen and the save route both read it from here rather than deciding
+   * for themselves, because the two disagreeing means a teacher typing marks
+   * into a class whose report card has no marks column.
+   */
+  mechanism: PromotionMechanism;
+  /** The descriptors on offer. Empty in marks mode, where none are. */
+  subcategories: ResultSubcategoryRow[];
+  colorCodingEnabled: boolean;
   students: MarksSheetStudent[];
 }
 
@@ -685,7 +701,14 @@ export async function getMarksSheet(
   const paper = await getExamPaper(locationId, examSubjectId);
   if (paper === null) return null;
 
-  const [roster, results] = await Promise.all([
+  const criteria = await resolveGradeCriteria(
+    locationId,
+    paper.academicYearId,
+    paper.gradeId,
+  );
+  const isDescriptorMode = criteria.mechanism === 'descriptors';
+
+  const [roster, results, subcategories, settings] = await Promise.all([
     listSectionRoster(locationId, paper.sectionId, paper.academicYearId),
     db
       .select({
@@ -694,6 +717,7 @@ export async function getMarksSheet(
         marksObtained: examResults.marksObtained,
         isAbsent: examResults.isAbsent,
         remarks: examResults.remarks,
+        subcategoryId: examResults.subcategoryId,
       })
       .from(examResults)
       .where(
@@ -702,6 +726,10 @@ export async function getMarksSheet(
           eq(examResults.examSubjectId, examSubjectId),
         ),
       ),
+    isDescriptorMode
+      ? listResultSubcategories(locationId)
+      : Promise.resolve<ResultSubcategoryRow[]>([]),
+    getExamSettings(locationId),
   ]);
 
   const forAttempt = new Map(
@@ -718,16 +746,23 @@ export async function getMarksSheet(
   return {
     paper,
     attempt,
+    mechanism: criteria.mechanism,
+    subcategories,
+    colorCodingEnabled: settings.colorCodingEnabled,
     students: roster.map((student) => {
       const mine = forAttempt.get(student.studentProfileId);
       const first = original.get(student.studentProfileId);
 
       return {
         ...student,
-        marksObtained: toMark(mine?.marksObtained),
+        // Not merely hidden on the screen: a grade moved to descriptors after
+        // marks were entered would otherwise hand the old marks back to a
+        // sheet that has no column for them and no way to clear them.
+        marksObtained: isDescriptorMode ? null : toMark(mine?.marksObtained),
         isAbsent: mine?.isAbsent ?? false,
         remarks: mine?.remarks ?? null,
-        originalMarks: toMark(first?.marksObtained),
+        subcategoryId: isDescriptorMode ? (mine?.subcategoryId ?? null) : null,
+        originalMarks: isDescriptorMode ? null : toMark(first?.marksObtained),
         originalAbsent: first?.isAbsent ?? false,
       };
     }),

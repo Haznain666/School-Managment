@@ -108,6 +108,7 @@ interface MarkRecordBody {
   marksObtained?: unknown;
   isAbsent?: unknown;
   remarks?: unknown;
+  subcategoryId?: unknown;
 }
 
 interface SaveMarksBody {
@@ -120,6 +121,7 @@ interface ParsedMark {
   marksObtained: string | null;
   isAbsent: boolean;
   remarks: string | null;
+  subcategoryId: string | null;
 }
 
 export const POST = withSchoolAuth<RouteContext>(
@@ -177,6 +179,12 @@ export const POST = withSchoolAuth<RouteContext>(
         (sheet?.students ?? []).map((student) => student.studentProfileId),
       );
 
+      // Which sheet this is, from the grade's criteria and not from the shape
+      // of the payload. The two mechanisms are alternatives, and a client that
+      // posted both would otherwise decide for the school which one applied.
+      const isDescriptorMode = sheet?.mechanism === 'descriptors';
+      const offered = new Set((sheet?.subcategories ?? []).map((row) => row.id));
+
       const parsed: ParsedMark[] = [];
 
       for (const raw of body.records as MarkRecordBody[]) {
@@ -191,6 +199,49 @@ export const POST = withSchoolAuth<RouteContext>(
 
         const isAbsent = raw.isAbsent === true;
         const marks = toMark(raw.marksObtained);
+        const remarks = readOptionalString(raw.remarks);
+        const subcategoryId =
+          raw.subcategoryId === undefined ||
+          raw.subcategoryId === null ||
+          raw.subcategoryId === ''
+            ? null
+            : raw.subcategoryId;
+
+        if (isDescriptorMode) {
+          if (marks !== null) {
+            return apiFailure(
+              'invalid_body',
+              'This class is judged on performance descriptors, which carry no marks.',
+              400,
+            );
+          }
+          if (subcategoryId !== null && !offered.has(subcategoryId as string)) {
+            return apiFailure('invalid_body', 'That sub-category was not found.', 400);
+          }
+          if (!isAbsent && subcategoryId === null && remarks === null) {
+            // Nothing said about this child yet. Skipped rather than written
+            // blank, for the same reason an empty marks box is.
+            continue;
+          }
+
+          parsed.push({
+            studentProfileId,
+            marksObtained: null,
+            isAbsent,
+            remarks,
+            // A child who was not there earned no descriptor.
+            subcategoryId: isAbsent ? null : (subcategoryId as string | null),
+          });
+          continue;
+        }
+
+        if (subcategoryId !== null) {
+          return apiFailure(
+            'invalid_body',
+            'This class is marked, and a marks sheet has no sub-category column.',
+            400,
+          );
+        }
 
         if (isAbsent) {
           // Absence and a mark are contradictory, and the CHECK constraint
@@ -200,7 +251,8 @@ export const POST = withSchoolAuth<RouteContext>(
             studentProfileId,
             marksObtained: null,
             isAbsent: true,
-            remarks: readOptionalString(raw.remarks),
+            remarks,
+            subcategoryId: null,
           });
           continue;
         }
@@ -223,7 +275,8 @@ export const POST = withSchoolAuth<RouteContext>(
           studentProfileId,
           marksObtained: markToNumeric(marks),
           isAbsent: false,
-          remarks: readOptionalString(raw.remarks),
+          remarks,
+          subcategoryId: null,
         });
       }
 
@@ -248,6 +301,7 @@ export const POST = withSchoolAuth<RouteContext>(
             marksObtained: record.marksObtained,
             isAbsent: record.isAbsent,
             remarks: record.remarks,
+            subcategoryId: record.subcategoryId,
             enteredBy: enteredBy?.id ?? null,
           })
           .onConflictDoUpdate({
@@ -261,6 +315,7 @@ export const POST = withSchoolAuth<RouteContext>(
               marksObtained: record.marksObtained,
               isAbsent: record.isAbsent,
               remarks: record.remarks,
+              subcategoryId: record.subcategoryId,
               enteredBy: enteredBy?.id ?? null,
               updatedAt: new Date(),
             },
