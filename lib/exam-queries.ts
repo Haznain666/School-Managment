@@ -2176,6 +2176,49 @@ export async function listClassTeacherSections(
     );
 }
 
+/**
+ * Every active class in a year, for whoever holds `results.promotion`.
+ *
+ * The admin counterpart to `listClassTeacherSections`, and the reason it exists
+ * is that promotion authority has two independent sources. A teacher's comes
+ * from `sections.class_teacher_id` and reaches exactly their own classes; a
+ * head's comes from the permission key and reaches all of them. Until this
+ * function existed the *only* screen that could create a `student_term_results`
+ * row was the class teacher's, so a school that had not named any class
+ * teachers could not produce a promotion status at all — the sprint's headline
+ * feature, unreachable for the three roles the key was created for.
+ *
+ * `branchId` narrows to one campus for a branch admin, and is null for a school
+ * admin or a principal who runs the whole school.
+ */
+export async function listAllSectionsForYear(
+  locationId: string,
+  academicYearId: string,
+  branchId: string | null,
+): Promise<ClassTeacherSection[]> {
+  const conditions: SQL[] = [
+    eq(sections.locationId, locationId),
+    eq(sections.academicYearId, academicYearId),
+    eq(sections.isActive, true),
+  ];
+  if (branchId !== null) conditions.push(eq(grades.branchId, branchId));
+
+  return db
+    .select({
+      sectionId: sections.id,
+      sectionName: sections.name,
+      gradeId: grades.id,
+      gradeName: sql<string>`coalesce(${grades.displayName}, ${grades.name})`,
+      academicYearId: academicYears.id,
+      academicYearName: academicYears.name,
+    })
+    .from(sections)
+    .innerJoin(grades, eq(grades.id, sections.gradeId))
+    .innerJoin(academicYears, eq(academicYears.id, sections.academicYearId))
+    .where(and(...conditions))
+    .orderBy(asc(grades.sortOrder), asc(sections.name));
+}
+
 /** Staff who may be offered in a section's class-teacher picker. */
 export async function listClassTeacherCandidates(
   locationId: string,

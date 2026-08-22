@@ -67,6 +67,16 @@ export default async function ExamsOverviewPage() {
             >
               Promotion criteria
             </Link>
+            {/* Hidden from a role that cannot act on it — but the page refuses
+                them as well. A link is not a permission. */}
+            {permissions.includes('results.promotion') ? (
+              <Link
+                href="/dashboard/exams/promotions"
+                className="text-brand-primary hover:underline"
+              >
+                Promotions
+              </Link>
+            ) : null}
             <Link
               href="/dashboard/exams/settings"
               className="text-brand-primary hover:underline"
