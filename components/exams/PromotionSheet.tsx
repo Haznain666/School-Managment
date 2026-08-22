@@ -14,7 +14,7 @@ import {
   PROMOTION_STATUS_LABELS,
   type PromotionStatus,
 } from '@/db/schema/student-term-results';
-import type { SectionTermResults } from '@/lib/exam-queries';
+import type { SectionTermResults, SectionTermStudent } from '@/lib/exam-queries';
 import { formatPercentage } from '@/lib/grading';
 import { schoolErrorMessage, schoolFetch } from '@/lib/school-client';
 
@@ -58,6 +58,24 @@ interface OverrideDraft {
   finalStatus: PromotionStatus;
   reason: string;
   overallSubcategoryId: string;
+}
+
+/**
+ * What a draft has to differ from before a reason becomes compulsory.
+ *
+ * The **stored** computed status, because that is what the override endpoint
+ * judges against. `computedStatus` on the row is recomputed on every read so
+ * the teacher can see what today's rules say, and the two part company as soon
+ * as marks or criteria change after the last recompute. Gating this form on the
+ * live value while the server gated on the stored one meant the sheet said "no
+ * reason is needed", enabled Save, and the request came back 422 asking for a
+ * reason there was no box to type into.
+ *
+ * Falls back to the live value before the first recompute, when there is no
+ * stored row and the endpoint refuses the write anyway.
+ */
+function basisFor(entry: SectionTermStudent): PromotionStatus {
+  return entry.storedComputedStatus ?? entry.computedStatus;
 }
 
 export function PromotionSheet({
@@ -313,7 +331,7 @@ export function PromotionSheet({
                       </label>
                     ) : null}
 
-                    {draft.finalStatus === entry.computedStatus ? (
+                    {draft.finalStatus === basisFor(entry) ? (
                       <p className="text-xs text-ink-muted">
                         This matches what the rules decided, so no reason is
                         needed — and any reason already recorded is cleared.
@@ -344,7 +362,7 @@ export function PromotionSheet({
                         size="sm"
                         isLoading={busy === `save:${studentId}`}
                         disabled={
-                          draft.finalStatus !== entry.computedStatus &&
+                          draft.finalStatus !== basisFor(entry) &&
                           draft.reason.trim().length < OVERRIDE_REASON_MIN
                         }
                         onClick={() => {

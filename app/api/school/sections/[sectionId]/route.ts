@@ -115,11 +115,26 @@ export const PATCH = withSchoolAuth<RouteContext>(
             return apiFailure('invalid_body', 'Choose a class teacher, or none.', 400);
           }
 
-          const candidates = await listClassTeacherCandidates(auth.locationId, null);
+          /*
+           * Scoped to the caller's own campus, exactly as the picker on the
+           * GET is.
+           *
+           * This passed `null` until 2026-08-22 — school-wide — while the GET
+           * that builds the dropdown filtered by `auth.branchId`. School-level
+           * tenancy held, but the campus boundary did not: a branch admin could
+           * PATCH in the id of a class teacher employed at a campus they do not
+           * run, and thereby hand that person promotion-override authority over
+           * a class of theirs. The picker would never show who it was, because
+           * the GET filters them out.
+           */
+          const candidates = await listClassTeacherCandidates(
+            auth.locationId,
+            auth.branchId,
+          );
           if (!candidates.some((row) => row.id === body.classTeacherId)) {
             return apiFailure(
               'invalid_body',
-              'That member of staff is not marked as a class teacher on their staff record.',
+              'That member of staff is not marked as a class teacher on their staff record, or is not at this campus.',
               400,
             );
           }

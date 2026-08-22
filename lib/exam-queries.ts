@@ -2311,6 +2311,20 @@ export interface SectionTermStudent {
   failedSubjectCount: number;
   /** The rules' answer, recomputed on every read so it is never stale. */
   computedStatus: PromotionStatus;
+  /**
+   * The answer as it stands on the row — what the override endpoint judges against.
+   *
+   * Normally identical to `computedStatus`. They part company when marks or
+   * criteria change after the last recompute, and that gap was a trap: the
+   * sheet compared the teacher's draft against the *live* value and hid the
+   * reason box when they matched, while the route compared against the *stored*
+   * one and returned 422. The teacher was told no reason was needed and then
+   * refused for not giving one, with no field on screen to type it into.
+   *
+   * So the form gates the reason box on this, and shows `computedStatus` and
+   * its `reasons` as the current guidance. Null before the first recompute.
+   */
+  storedComputedStatus: PromotionStatus | null;
   reasons: string[];
   /** The school's answer. Equal to `computedStatus` until somebody overrides. */
   finalStatus: PromotionStatus;
@@ -2431,6 +2445,7 @@ export async function getSectionTermResults(
       attendancePercentage,
       failedSubjectCount: card.failedCount,
       computedStatus: outcome.status,
+      storedComputedStatus: record?.computedStatus ?? null,
       reasons: outcome.reasons,
       finalStatus: record?.finalStatus ?? outcome.status,
       overrideReason: record?.overrideReason ?? null,
