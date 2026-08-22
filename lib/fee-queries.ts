@@ -856,8 +856,8 @@ export async function getChallanDetail(
  * The contact details a fee notice can travel on.
  *
  * `email` is nullable and often is null — which is the whole reason
- * `/api/school/fees/reminders` counts the guardians it cannot reach when a
- * school has WhatsApp switched off.
+ * `/api/school/fees/reminders` counts the guardians it cannot reach. Email is
+ * the only channel, so no address means no notice.
  */
 export interface PrimaryGuardian {
   name: string;

@@ -4,37 +4,31 @@ import { and, eq } from 'drizzle-orm';
 
 import { schools } from '@/db/schema';
 
-import { isWhatsAppEnabled } from './channels';
 import type { Database } from './drizzle';
 import { enqueueEmail } from './email-outbox';
 import { smtpConfigured } from './email-sender';
-import { findOrCreateContact, sendWhatsAppMessage } from './ghl-client';
 import { formatAmount } from './money';
-import { isValidPhone, normalizePhone } from './phone';
 
 /**
  * Fee notices to guardians (Sprint 5).
  *
- * ── Two channels, one switch ─────────────────────────────────────────────
- * WhatsApp when the school has bought it, email otherwise. The choice is per
- * school and lives in `lib/channels.ts`; nothing here decides policy, it only
- * reads the answer.
- *
- * Both are attempted when both are available, because a fee notice is the one
- * message a school most wants to have landed, and the two channels fail
- * independently.
+ * ── One channel ──────────────────────────────────────────────────────────
+ * **Email.** This file was `lib/ghl-fees.ts` and sent over WhatsApp through
+ * GoHighLevel when a school had bought the add-on, falling back to email
+ * otherwise. WhatsApp was removed from the platform on 2026-08-22, and with it
+ * the only reason this module knew what GoHighLevel was — hence the rename.
  *
  * ── The guardian nobody can reach ────────────────────────────────────────
- * A guardian with no email at a school with WhatsApp off receives nothing.
- * That is a real and currently common state, so it is *counted and reported*
- * by `/api/school/fees/reminders` rather than logged and forgotten. This
- * module does not decide what to do about it — it cannot, being unawaited —
- * but `canReachGuardian` below is the single definition of "reachable" that
- * the route counts with, so the report and the sending cannot disagree.
+ * A guardian with no email address receives nothing. That is a real and
+ * currently common state, so it is *counted and reported* by
+ * `/api/school/fees/reminders` rather than logged and forgotten. This module
+ * does not decide what to do about it — it cannot, being unawaited — but
+ * `canReachGuardian` below is the single definition of "reachable" that the
+ * route counts with, so the report and the sending cannot disagree.
  *
  * ── On failure ───────────────────────────────────────────────────────────
  * Nothing in this file may throw, and nothing in this file may block. Taking a
- * parent's cash and then failing the request because GoHighLevel was slow would
+ * parent's cash and then failing the request because a mail host was slow would
  * lose the school the payment record and leave the parent holding a receipt for
  * nothing. Both functions therefore catch everything, log a warning, and
  * return — and their callers invoke them as `void send(...).catch(...)` *after*
@@ -56,16 +50,16 @@ export interface GuardianContact {
  *
  * Shared with `/api/school/fees/reminders` so the count it reports and the
  * sends that actually happen are decided by the same rule.
+ *
+ * The phone number is deliberately not consulted. Nothing on this platform
+ * sends to one, so a guardian with a perfect mobile and no address is
+ * unreachable, and the report must say so rather than implying a channel that
+ * does not exist.
  */
-export function canReachGuardian(
-  guardian: GuardianContact,
-  whatsAppEnabled: boolean,
-): boolean {
-  const byWhatsApp = whatsAppEnabled && isValidPhone(guardian.phone);
-  const byEmail =
-    guardian.email !== null && guardian.email.trim() !== '' && smtpConfigured();
-
-  return byWhatsApp || byEmail;
+export function canReachGuardian(guardian: GuardianContact): boolean {
+  return (
+    guardian.email !== null && guardian.email.trim() !== '' && smtpConfigured()
+  );
 }
 
 /** The school's own name, for signing the message. Null when it cannot be read. */
@@ -83,80 +77,51 @@ async function schoolNameFor(
 }
 
 /**
- * Delivers one notice on every channel available to this school.
+ * Queues one notice.
  *
- * Each channel is tried inside its own try/catch: WhatsApp failing must not
- * stop the email, and neither may throw into an unawaited caller.
- *
- * Returns true when at least one channel accepted the message — which for
- * email now means the outbox accepted it, not that a mail server did. The
- * reminders route has always reported this count as "queued", which was a
- * slight overstatement of an unawaited send and is now exactly right.
+ * Returns true when the outbox accepted the message — not that a mail server
+ * did. The reminders route has always reported this count as "queued", which
+ * was a slight overstatement of an unawaited send and is now exactly right.
  */
 async function notifyGuardian(
-  db: Database,
   locationId: string,
   guardian: GuardianContact,
   subject: string,
   message: string,
 ): Promise<boolean> {
-  let delivered = false;
-
-  if (await isWhatsAppEnabled(locationId)) {
-    if (!isValidPhone(guardian.phone)) {
-      console.warn(
-        `[ghl-fees] skipping WhatsApp for ${guardian.name} at ${locationId}: unusable phone number.`,
-      );
-    } else {
-      try {
-        const contact = await findOrCreateContact(db, locationId, {
-          phone: normalizePhone(guardian.phone),
-          name: guardian.name,
-          email: guardian.email ?? undefined,
-        });
-
-        await sendWhatsAppMessage(db, locationId, contact.contactId, message);
-        delivered = true;
-      } catch (error) {
-        console.warn(`[ghl-fees] WhatsApp failed for ${guardian.name} at ${locationId}:`, error);
-      }
-    }
-  }
-
   const email = guardian.email;
 
-  if (email !== null && email.trim() !== '' && smtpConfigured()) {
-    try {
-      // ── Why the outbox matters most here ─────────────────────────────
-      // This is the one path that was already a fan-out: "send all
-      // reminders" over a defaulters list of two hundred, each send taking
-      // up to ~103 seconds against `smtp.titan.email`. Unawaited, that was
-      // two hundred SMTP connections opened from inside one request and
-      // racing the process's lifetime — the last of them would not have
-      // finished for hours, if the process lived that long. Queued, it is
-      // two hundred INSERTs and a drainer that works through them at a rate
-      // the mail host will tolerate.
-      await enqueueEmail({
-        locationId,
-        to: email.trim(),
-        subject,
-        text: message,
-      });
-      delivered = true;
-    } catch (error) {
-      console.warn(`[ghl-fees] could not queue email for ${guardian.name} at ${locationId}:`, error);
-    }
-  }
-
-  if (!delivered) {
-    // Not an error: a school may legitimately have neither channel for this
+  if (email === null || email.trim() === '' || !smtpConfigured()) {
+    // Not an error: a school may legitimately hold no address for this
     // guardian. The route is what tells the admin how many of these there were.
-    console.info(
-      `[ghl-fees] no channel available for ${guardian.name} at ${locationId}`,
-    );
+    console.info(`[fee-notices] no address for ${guardian.name} at ${locationId}`);
+    return false;
   }
 
-  return delivered;
+  try {
+    // ── Why the outbox matters most here ───────────────────────────────
+    // This is the one path that was already a fan-out: "send all reminders"
+    // over a defaulters list of two hundred, each send taking up to ~103
+    // seconds against `smtp.titan.email`. Unawaited, that was two hundred
+    // SMTP connections opened from inside one request and racing the
+    // process's lifetime — the last of them would not have finished for
+    // hours, if the process lived that long. Queued, it is two hundred
+    // INSERTs and a drainer that works through them at a rate the mail host
+    // will tolerate.
+    await enqueueEmail({
+      locationId,
+      to: email.trim(),
+      subject,
+      text: message,
+    });
+    return true;
+  } catch (error) {
+    console.warn(
+      `[fee-notices] could not queue email for ${guardian.name} at ${locationId}:`,
+      error,
+    );
+    return false;
+  }
 }
 
 export interface FeeReminderParams {
@@ -175,7 +140,7 @@ export interface FeeReminderParams {
  * Reminds a guardian that a challan is overdue.
  *
  * Never throws. Called for each row of the defaulters report, including from a
- * "send all" loop, so a single bad number must not stop the rest going out.
+ * "send all" loop, so a single bad address must not stop the rest going out.
  */
 export async function sendFeeReminder(
   db: Database,
@@ -192,7 +157,6 @@ export async function sendFeeReminder(
       `${params.dueDate}. Please pay at your nearest bank. - ${schoolName}`;
 
     await notifyGuardian(
-      db,
       locationId,
       params.guardian,
       `Fee challan ${params.challanNumber} is overdue — ${schoolName}`,
@@ -200,13 +164,13 @@ export async function sendFeeReminder(
     );
 
     console.info(
-      `[ghl-fees] fee reminder sent for challan ${params.challanNumber} at ${locationId}`,
+      `[fee-notices] fee reminder queued for challan ${params.challanNumber} at ${locationId}`,
     );
   } catch (error) {
     // The challan is unchanged and the report still shows it as overdue; the
     // school can send again. Nothing here is worth failing a request over.
     console.warn(
-      `[ghl-fees] fee reminder failed for challan ${params.challanNumber} at ${locationId}:`,
+      `[fee-notices] fee reminder failed for challan ${params.challanNumber} at ${locationId}:`,
       error,
     );
   }
@@ -242,7 +206,6 @@ export async function sendPaymentConfirmation(
       `Thank you. - ${schoolName}`;
 
     await notifyGuardian(
-      db,
       locationId,
       params.guardian,
       `Payment received for challan ${params.challanNumber} — ${schoolName}`,
@@ -250,11 +213,11 @@ export async function sendPaymentConfirmation(
     );
 
     console.info(
-      `[ghl-fees] payment confirmation sent for challan ${params.challanNumber} at ${locationId}`,
+      `[fee-notices] payment confirmation queued for challan ${params.challanNumber} at ${locationId}`,
     );
   } catch (error) {
     console.warn(
-      `[ghl-fees] payment confirmation failed for challan ${params.challanNumber} at ${locationId}:`,
+      `[fee-notices] payment confirmation failed for challan ${params.challanNumber} at ${locationId}:`,
       error,
     );
   }

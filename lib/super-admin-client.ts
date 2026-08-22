@@ -40,6 +40,39 @@ function isAuthEndpoint(path: string): boolean {
   return path.startsWith('/api/super-admin/auth/');
 }
 
+/**
+ * The message shown when a response is not the JSON envelope at all.
+ *
+ * ── Why it is not just "Unexpected response." ────────────────────────────
+ * That is what it used to say, and it is what an operator was left holding on
+ * the Super Admin sign-in screen with no other way into the platform. It named
+ * nothing: not the status, not whether the request had even reached the
+ * application. A 502 from the host while the Node process restarts, a 504 on a
+ * slow first request and a genuine crash all presented identically, and the
+ * only difference that matters — "wait and try again" versus "something is
+ * broken" — was the one it hid.
+ *
+ * Every route in this application answers with `{ ok, data | error }`. So
+ * anything that does not parse as JSON did not come from a route, and the
+ * status code is the whole of what is known about it. Saying so, and saying
+ * which of the two it probably is, is the difference between an operator
+ * retrying and an operator filing a bug against the login form.
+ */
+function unparseableResponseMessage(status: number): string {
+  if (status === 0) {
+    return 'The server could not be reached. Check your connection and try again.';
+  }
+
+  // 502/503/504 are the reverse proxy answering for an application that is not
+  // there — restarting, deploying, or briefly overloaded. Retrying genuinely
+  // does work, so say so rather than implying a defect.
+  if (status === 502 || status === 503 || status === 504) {
+    return `The server is not responding (${status}). It may be restarting — try again in a moment.`;
+  }
+
+  return `The server returned an unexpected response (${status}). Nothing was changed.`;
+}
+
 async function parse<T>(response: Response, path: string): Promise<T> {
   // A 401 means the 8-hour session lapsed. Bounce to login rather than
   // surfacing a confusing error inside the panel. Not for the auth routes,
@@ -57,7 +90,11 @@ async function parse<T>(response: Response, path: string): Promise<T> {
   try {
     payload = (await response.json()) as ApiEnvelope<T>;
   } catch {
-    throw new SuperAdminApiError(response.status, 'invalid_response', 'Unexpected response.');
+    throw new SuperAdminApiError(
+      response.status,
+      'invalid_response',
+      unparseableResponseMessage(response.status),
+    );
   }
 
   if (!response.ok || payload.ok !== true || payload.data === undefined) {

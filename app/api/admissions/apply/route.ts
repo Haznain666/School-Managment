@@ -17,9 +17,7 @@ import { normalizeCnic } from '@/lib/national-id';
 import { verifyCaptcha } from '@/lib/admissions-captcha';
 import { db } from '@/lib/drizzle';
 import { createGuardianGHLContact } from '@/lib/ghl-admissions';
-import { isWhatsAppEnabled } from '@/lib/channels';
 import { sendEmail, smtpConfigured } from '@/lib/email-sender';
-import { sendWhatsAppMessage } from '@/lib/ghl-client';
 import { InvalidPhoneError, normalizePhone } from '@/lib/phone';
 import { SCHOOL_LOCATION_HEADER } from '@/lib/school-context';
 import { getSchoolBranding } from '@/lib/school-tenant';
@@ -282,18 +280,15 @@ export async function POST(request: NextRequest) {
         `Thank you for applying to ${schoolName}. We have received your application for ${studentName}. ` +
         `Your reference is ${applicationReference(application.id)}. Our admissions team will be in touch.`;
 
-      // The GHL contact is created either way: it is the school's record of
-      // an enquiry, not a side effect of messaging. Only the message itself
-      // is behind the add-on.
-      const contactId = await createGuardianGHLContact(db, locationId, {
+      // The GHL contact is still created where a school has connected one: it
+      // is the school's record of an enquiry, not a side effect of messaging,
+      // and it is what an admissions workflow in their CRM keys off. Nothing
+      // is sent through it — the acknowledgement below is the message.
+      await createGuardianGHLContact(db, locationId, {
         name: guardianName,
         phone: guardianPhone,
         email: guardianEmail ?? undefined,
       });
-
-      if (await isWhatsAppEnabled(locationId)) {
-        await sendWhatsAppMessage(db, locationId, contactId, message);
-      }
 
       if (guardianEmail !== null && guardianEmail !== '' && smtpConfigured()) {
         await sendEmail(guardianEmail, `Application received — ${schoolName}`, message);

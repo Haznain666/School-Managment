@@ -17,7 +17,7 @@ import type { Database } from './drizzle';
  * bcrypt hash at rest.
  *
  * The plaintext code exists in exactly one place — the return value of
- * `createOTPSession`, on its way to WhatsApp. It is never logged, never
+ * `createOTPSession`, on its way to the invitee's mailbox. It is never logged, never
  * returned from an API route, and never stored.
  */
 

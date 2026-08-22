@@ -15,7 +15,7 @@ export const OTP_PURPOSES = ['login', 'invite_acceptance'] as const;
 export type OtpPurpose = (typeof OTP_PURPOSES)[number];
 
 /**
- * auth_otp_sessions — one-time passcodes sent over WhatsApp.
+ * auth_otp_sessions — one-time passcodes, emailed.
  *
  * The passcode itself is never stored: only a bcrypt hash, exactly as a
  * password would be. A leaked database therefore does not hand over live

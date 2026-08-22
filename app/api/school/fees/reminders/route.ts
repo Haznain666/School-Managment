@@ -5,19 +5,18 @@ import { withSchoolAuth } from '@/lib/api-auth';
 import { apiFailure, apiSuccess, handleApiError, readJsonBody } from '@/lib/api-response';
 import { db } from '@/lib/drizzle';
 import { primaryGuardiansFor } from '@/lib/fee-queries';
-import { canReachGuardian, sendFeeReminder } from '@/lib/ghl-fees';
-import { isWhatsAppEnabled } from '@/lib/channels';
+import { canReachGuardian, sendFeeReminder } from '@/lib/fee-notices';
 import { toPaise } from '@/lib/money';
 import { isUuid } from '@/lib/validation';
 
 /**
  * POST /api/school/fees/reminders
  *
- * Sends an overdue-fee WhatsApp to the primary guardian of each named challan.
+ * Emails an overdue-fee notice to the primary guardian of each named challan.
  *
  * ── On not blocking ──────────────────────────────────────────────────────
  * "Send all reminders" on a defaulters list of two hundred cannot be two
- * hundred awaited round trips to GoHighLevel — the request would time out long
+ * hundred awaited round trips to a mail host — the request would time out long
  * before the last message went. The sends are therefore fired and not awaited,
  * and the response reports how many were *queued*, which is the honest word for
  * what has happened by the time it returns.
@@ -97,11 +96,6 @@ export const POST = withSchoolAuth(
         owing.map((row) => row.studentProfileId),
       );
 
-      // Read once for the whole loop rather than per challan. `isWhatsAppEnabled`
-      // is request-memoised anyway, but asking here also lets the count below
-      // be computed without touching the database three hundred times.
-      const whatsAppEnabled = await isWhatsAppEnabled(auth.locationId);
-
       let queued = 0;
       let noGuardian = 0;
       let unreachable = 0;
@@ -114,12 +108,12 @@ export const POST = withSchoolAuth(
         }
 
         // ── Why this is counted and returned ─────────────────────────────
-        // With WhatsApp off, a guardian with no email address receives
-        // nothing at all. That is a supported configuration, not a bug — but
+        // Email is the only channel, so a guardian with no address on file
+        // receives nothing at all. That is a supported state, not a bug — but
         // a school that sends three hundred reminders and reaches two hundred
         // and sixty parents needs to be told so at send time, not to discover
         // it when the fees do not arrive.
-        if (!canReachGuardian(guardian, whatsAppEnabled)) {
+        if (!canReachGuardian(guardian)) {
           unreachable += 1;
           continue;
         }
@@ -144,7 +138,6 @@ export const POST = withSchoolAuth(
         skipped: rows.length - owing.length,
         noGuardian,
         unreachable,
-        whatsAppEnabled,
       });
     } catch (error) {
       return handleApiError(error);

@@ -171,26 +171,6 @@ export async function POST(request: NextRequest) {
         );
     }
 
-    // WhatsApp is delivered through the school's own GoHighLevel sub-account,
-    // so switching it on for a school that has none produces a channel that
-    // cannot send. Reported, not refused: the operator may well be connecting
-    // GHL next, and refusing would make the order of two independent steps
-    // matter. `lib/ghl-fees.ts` already falls back to email meanwhile.
-    const turningOnWhatsApp = updates.some(
-      (update) => update.key === 'whatsapp' && update.enabled,
-    );
-
-    const whatsappWithoutGhl = turningOnWhatsApp
-      ? found
-          .filter(
-            (school) =>
-              disconnectGhl ||
-              school.ghlLocationId === null ||
-              school.ghlLocationId === '',
-          )
-          .map((school) => school.name)
-      : [];
-
     return apiSuccess({
       applied: found.length,
       flagsPerSchool: updates.length,
@@ -198,7 +178,6 @@ export async function POST(request: NextRequest) {
       disconnectedGhl: disconnectGhl ? wereConnected.length : 0,
       schools: found.map((school) => ({ id: school.id, name: school.name })),
       missing,
-      warnings: { whatsappWithoutGhl },
     });
   } catch (error) {
     return handleApiError(error);

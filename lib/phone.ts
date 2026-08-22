@@ -1,11 +1,14 @@
 /**
  * Pakistani phone number handling.
  *
- * Phone numbers are the primary identity on this platform — invitations and
- * one-time passcodes both travel over WhatsApp — so they are normalised to a
- * single canonical form (E.164) before they are stored or compared. Without
- * that, `0300-1234567`, `+92 300 1234567` and `923001234567` would be three
- * different users.
+ * A guardian's number is still an identity: `student_guardians.phone` is
+ * unique per student and is what a sibling lookup and a family voucher agree
+ * on. So it is normalised to a single canonical form (E.164) before it is
+ * stored or compared — without that, `0300-1234567`, `+92 300 1234567` and
+ * `923001234567` would be three different people.
+ *
+ * It is no longer a *channel*. Invitations and sign-in codes go by email, and
+ * nothing on this platform sends to a phone number.
  */
 
 /** Canonical Pakistani mobile: `+92` followed by ten digits. */

@@ -26,7 +26,7 @@ import { schoolErrorMessage, schoolFetch } from '@/lib/school-client';
  *   1. Outstanding — who owes what, right now.
  *   2. Collection — what came in, month by month.
  *   3. Defaulters — who has been overdue long enough to chase, with a
- *      one-click WhatsApp reminder.
+ *      one-click emailed reminder.
  *
  * Guardian numbers arrive from the server already masked. The reminder endpoint
  * reads the real number itself, so nothing here needs the full one — and a
@@ -431,7 +431,7 @@ function DefaultersSection({
       header={
         <CardTitle
           title="Defaulters"
-          description="Overdue long enough to chase. Reminders go out over WhatsApp."
+          description="Overdue long enough to chase. Reminders go out by email."
           action={
             canSendReminders && withGuardian.length > 0 ? (
               <Button
@@ -440,7 +440,7 @@ function DefaultersSection({
                 onClick={() => {
                   if (
                     window.confirm(
-                      `Send a WhatsApp reminder to ${withGuardian.length} guardian${
+                      `Email a reminder to ${withGuardian.length} guardian${
                         withGuardian.length === 1 ? '' : 's'
                       }?`,
                     )

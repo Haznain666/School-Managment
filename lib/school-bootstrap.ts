@@ -157,10 +157,9 @@ export async function createFirstSchoolAdmin(
   } catch (error) {
     if (error instanceof InvalidPhoneError) {
       // Only malformed numbers land here. `lib/phone.ts` validates the shape
-      // `+92` + ten digits and cannot tell a mobile from a landline, so a
-      // school's landline *will* be accepted above and simply never receive a
-      // WhatsApp passcode. Nothing here can detect that; the operator sees the
-      // account on the Users tab and can add a reachable one beside it.
+      // `+92` + ten digits and cannot tell a mobile from a landline — which
+      // no longer matters, because nothing is sent to this number. It is a
+      // contact detail on the record; the sign-in code goes to the address.
       return {
         status: 'skipped',
         reason: `"${rawPhone}" is not a valid Pakistani phone number, so no administrator account was created. Add one from the school's Users tab.`,

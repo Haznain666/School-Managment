@@ -14,6 +14,10 @@ import { db } from '@/lib/drizzle';
 import { buildInviteUrl } from '@/lib/invite-links';
 import { InviteDeliveryError, sendInvite } from '@/lib/invite-sender';
 import { isValidEmail, normalizeEmail } from '@/lib/password-strength';
+import {
+  hasCompletePhoneOfAnyKind,
+  normalisePhoneOfAnyKind,
+} from '@/lib/phone-formats';
 import { isUuid, readString } from '@/lib/validation';
 import { BRANCH_REQUIRED_ROLES, isUserRole } from '@/types/school-auth';
 
@@ -23,17 +27,12 @@ import { BRANCH_REQUIRED_ROLES, isUserRole } from '@/types/school-auth';
  * GET  pending invitations (not yet accepted, not yet expired)
  * POST create and deliver an invitation
  *
- * The invite is only recorded after delivery succeeds on at least one channel,
- * so the pending list never shows an invitation nobody actually received.
+ * The invite is only recorded after the email is queued, so the pending list
+ * never shows an invitation that was never going anywhere.
  */
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
-
-/** Loose E.164-ish check: 7–15 digits, optional leading +. */
-function isPlausiblePhone(phone: string): boolean {
-  return /^\+?[0-9\s-]{7,20}$/.test(phone) && phone.replace(/\D/g, '').length >= 7;
-}
 
 export const GET = withSchoolAuth(
   async (_request, auth) => {
@@ -47,7 +46,6 @@ export const GET = withSchoolAuth(
           role: schoolInvitations.role,
           branchId: schoolInvitations.branchId,
           branchName: branches.name,
-          whatsappSent: schoolInvitations.whatsappSent,
           emailSent: schoolInvitations.emailSent,
           expiresAt: schoolInvitations.expiresAt,
           createdAt: schoolInvitations.createdAt,
@@ -88,21 +86,39 @@ export const POST = withSchoolAuth(
       }
 
       const name = readString(body.name);
-      const phone = readString(body.phone);
       const email = normalizeEmail(readString(body.email));
 
       if (name === '') {
         return apiFailure('invalid_body', 'Name is required.', 400);
       }
-      if (!isPlausiblePhone(phone)) {
-        return apiFailure('invalid_body', 'Enter a valid phone number.', 400);
+
+      // ── The phone check, and the bug it replaced ───────────────────────
+      // This used to be a hand-rolled `/^\+?[0-9\s-]{7,20}$/`, which has no
+      // brackets in it. Every number this application's own form produces has
+      // brackets in it — the mask writes `(021) 4442222` — so a landline
+      // entered through the UI was refused with "Enter a valid phone number"
+      // and there was no way to type one that passed. That is exactly the
+      // divergence `components/ui/PhoneField.tsx` warns about: the client and
+      // the server have to import the *same* rules or one accepts what the
+      // other refuses. Both now come from `lib/phone-formats.ts`.
+      //
+      // Either mask is accepted. A landline is fine: nothing is sent to this
+      // number, the invitation goes to the address below.
+      const phone = normalisePhoneOfAnyKind(readString(body.phone));
+
+      if (!hasCompletePhoneOfAnyKind(phone)) {
+        return apiFailure(
+          'invalid_body',
+          'Enter a complete phone number — a mobile as (0321) 123-4567, or a landline as (021) 3456789.',
+          400,
+        );
       }
-      // ── Why the address is required now ────────────────────────────────
-      // It used to be the optional fallback to a WhatsApp invitation. Under
-      // Supabase Auth the address *is* the identity — it is what the account
-      // is keyed by and where the sign-in code goes — so an invitation
-      // without one can never be accepted. Refusing it here beats letting an
-      // admin create it and the invitee discover it at the last step.
+      // ── Why the address is required ────────────────────────────────────
+      // It is the only channel. Under Supabase Auth the address is also the
+      // identity — it is what the account is keyed by and where the sign-in
+      // code goes — so an invitation without one can never be accepted.
+      // Refusing it here beats letting an admin create it and the invitee
+      // discover it at the last step.
       if (!isValidEmail(email)) {
         return apiFailure('invalid_body', 'Enter a valid email address.', 400);
       }
@@ -176,12 +192,10 @@ export const POST = withSchoolAuth(
           branchId,
           invitedByUid: auth.uid,
           token,
-          whatsappSent: delivery.whatsappSent,
           // Records that the message was queued, not that SMTP accepted it —
           // see the note in the resend route. The UI reads this as
           // "Email queued".
           emailSent: delivery.emailQueued,
-          whatsappMessageId: delivery.whatsappMessageId,
           expiresAt: inviteExpiryFromNow(),
         })
         .returning({
@@ -190,7 +204,6 @@ export const POST = withSchoolAuth(
           phone: schoolInvitations.phone,
           role: schoolInvitations.role,
           expiresAt: schoolInvitations.expiresAt,
-          whatsappSent: schoolInvitations.whatsappSent,
           emailSent: schoolInvitations.emailSent,
         });
 

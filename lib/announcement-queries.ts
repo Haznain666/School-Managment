@@ -19,7 +19,6 @@ import {
   resolveAudience,
   type AudienceMember,
 } from './announcement-audience';
-import { isWhatsAppEnabled } from './channels';
 import { db } from './drizzle';
 import { enqueueEmail } from './email-outbox';
 import { filterByEmailPreference } from './notification-preferences';
@@ -822,15 +821,4 @@ export async function listDueAnnouncements(now: Date = new Date()): Promise<
       ),
     )
     .limit(50);
-}
-
-/**
- * Whether this school has the paid WhatsApp add-on on.
- *
- * Re-exported through `lib/channels.ts` rather than answered here, so the
- * announcement path and the fee-reminder path cannot come to different
- * conclusions about the same school.
- */
-export async function whatsAppEnabled(locationId: string): Promise<boolean> {
-  return isWhatsAppEnabled(locationId);
 }

@@ -7,7 +7,6 @@ import { Button } from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { PageHeader } from '@/components/ui/PageHeader';
-import { isWhatsAppEnabled } from '@/lib/channels';
 import { requireSchoolPermission } from '@/lib/school-guard';
 import { listBranchOptions } from '@/lib/school-queries';
 
@@ -66,27 +65,17 @@ export default async function InviteStaffPage() {
     );
   }
 
-  /**
-   * The description has to match what actually happens.
-   *
-   * It read "goes out over WhatsApp, with email as a fallback" long after that
-   * reversed: email is the channel the account is keyed by and the one that
-   * must work, and WhatsApp is a per-school add-on that most schools do not
-   * have (`lib/invite-sender.ts`). Telling an administrator their invitation
-   * went over WhatsApp when the school has no such integration is how "I sent
-   * it and they never got it" becomes a support conversation.
+  /*
+   * The description has to match what actually happens, and now there is only
+   * one thing that can happen. It once read "goes out over WhatsApp, with
+   * email as a fallback", then became a per-school conditional; the channel it
+   * was conditional on no longer exists, so neither does the conditional.
    */
-  const whatsapp = await isWhatsAppEnabled(locationId);
-
   return (
     <div className="max-w-3xl space-y-6">
       <PageHeader
         title="Invite staff"
-        description={
-          whatsapp
-            ? 'The invitation goes out by email and over WhatsApp. The link is valid for 72 hours.'
-            : 'The invitation goes out by email. The link is valid for 72 hours.'
-        }
+        description="The invitation goes out by email. The link is valid for 72 hours."
       />
 
       <InviteForm branches={branches} />

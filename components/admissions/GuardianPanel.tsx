@@ -25,8 +25,9 @@ import { schoolErrorMessage, schoolFetch } from '@/lib/school-client';
  *
  * Both manual actions live here rather than in a settings screen because this
  * is where an admin notices the problem: a guardian showing "Not in GHL" is
- * exactly the row whose WhatsApp will not arrive, and one showing "Welcome not
- * sent" is exactly the parent who is about to ring and say they cannot log in.
+ * exactly the row missing from the school's own CRM, and one showing "Welcome
+ * not sent" is exactly the parent who is about to ring and say they cannot log
+ * in.
  *
  * ── The three portal states, and why they are three ──────────────────────
  * "No portal account" used to be the only thing this panel could say, and it

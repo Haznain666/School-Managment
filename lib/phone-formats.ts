@@ -125,7 +125,7 @@ export const MOBILE_HINT = 'Format (xxxx) xxx-xxxx, e.g. (0321) 123-4567.';
  *
  * A leading `92` or `+92` is rewritten to the national `0` trunk form first, so
  * pasting `+92 321 1234567` — which is how a number arrives from a contact card
- * or a WhatsApp export — lands as `(0321) 123-4567` rather than being rejected
+ * or an exported contact list — lands as `(0321) 123-4567` rather than being rejected
  * for having the wrong first digit.
  */
 export function formatMobile(input: string): string {
@@ -255,6 +255,45 @@ export function hasCompletePhoneDigits(kind: PhoneKind, value: string): boolean 
   return kind === 'mobile'
     ? hasCompleteMobileDigits(value)
     : hasCompleteLandlineDigits(value);
+}
+
+/* -----------------------------------------------------------------------------
+ * Either mask — for a field that takes whichever the person actually has
+ * -------------------------------------------------------------------------- */
+
+/**
+ * Normalises a value under whichever mask it belongs to.
+ *
+ * The server's counterpart to what `PhoneField` does on every keystroke, so a
+ * number typed through the form and the same number posted by an API client
+ * are stored identically. Idempotent: a value already in display form comes
+ * back unchanged.
+ */
+export function normalisePhoneOfAnyKind(value: string): string {
+  const trimmed = value.trim();
+  if (trimmed === '') return '';
+  return formatPhoneOfKind(detectPhoneKind(trimmed), trimmed);
+}
+
+/**
+ * True when `value` is a complete number under *either* mask.
+ *
+ * ── Why this is not `isValidPhoneOfKind` with a guess at the kind ────────
+ * The per-kind validators answer `true` for an empty string, because every
+ * field they were written for is optional. This one answers `false`, because
+ * the callers are the routes where the column is `NOT NULL` — an empty value
+ * there is the failure, not the default.
+ *
+ * ── Why digits and not shape ─────────────────────────────────────────────
+ * A server must accept `0213456789` from a caller that never saw the mask, and
+ * then normalise it. Refusing on shape would make the API usable only by this
+ * application's own forms. Pair it with `normalisePhoneOfAnyKind` and the
+ * stored value is in display form either way.
+ */
+export function hasCompletePhoneOfAnyKind(value: string): boolean {
+  const trimmed = value.trim();
+  if (trimmed === '') return false;
+  return hasCompletePhoneDigits(detectPhoneKind(trimmed), trimmed);
 }
 
 /** Placeholder and hint for `kind`, so a caller never hard-codes either. */

@@ -817,7 +817,7 @@ export async function syncEnrollmentToGhl(
     await Promise.all(writes);
 
     // The welcome workflow goes to the guardian, not the child: they are who
-    // reads the WhatsApp.
+    // the school corresponds with.
     const primaryContactId =
       primary === undefined ? undefined : sync.guardianContactIds[primary.id];
 

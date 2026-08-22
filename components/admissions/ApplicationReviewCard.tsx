@@ -18,8 +18,8 @@ import { schoolErrorMessage, schoolFetch } from '@/lib/school-client';
 /**
  * The decision panel on an application.
  *
- * Accept, reject or waitlist, with the option of telling the family over
- * WhatsApp in the same action — a decision the applicant never hears about is
+ * Accept, reject or waitlist, with the option of emailing the family in the
+ * same action — a decision the applicant never hears about is
  * not much of a decision. The notification is opt-in per action rather than
  * automatic, because a school reviewing a backlog of fifty should not send
  * fifty messages by accident.
@@ -89,7 +89,7 @@ export function ApplicationReviewCard({
 
       setNotice(
         notify && !result.notified
-          ? 'Decision saved. The WhatsApp message could not be sent — check the school’s GoHighLevel connection.'
+          ? 'Decision saved. The email could not be sent — the school may hold no address for this guardian.'
           : 'Decision saved.',
       );
       router.refresh();
@@ -186,7 +186,7 @@ export function ApplicationReviewCard({
               setNotify(event.target.checked);
             }}
           />
-          Send the guardian a WhatsApp about this decision
+          Email the guardian about this decision
         </label>
 
         <Button

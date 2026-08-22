@@ -11,9 +11,7 @@ import { apiFailure, apiSuccess, handleApiError, readJsonBody } from '@/lib/api-
 import { getApplicationDetail } from '@/lib/admissions-queries';
 import { db } from '@/lib/drizzle';
 import { createGuardianGHLContact } from '@/lib/ghl-admissions';
-import { isWhatsAppEnabled } from '@/lib/channels';
 import { sendEmail, smtpConfigured } from '@/lib/email-sender';
-import { sendWhatsAppMessage } from '@/lib/ghl-client';
 import { getSchoolBranding } from '@/lib/school-tenant';
 import { isUuid, readBoolean, readOptionalString } from '@/lib/validation';
 
@@ -59,7 +57,7 @@ export const GET = withSchoolAuth<RouteContext>(
 interface UpdateApplicationBody {
   status?: unknown;
   statusReason?: unknown;
-  /** Send the applicant a WhatsApp about the decision. Default: no. */
+  /** Email the applicant about the decision. Default: no. */
   notifyGuardian?: unknown;
 }
 
@@ -158,10 +156,9 @@ export const PATCH = withSchoolAuth<RouteContext>(
       let notified = false;
 
       if (readBoolean(body.notifyGuardian, false)) {
-        // Never blocks the decision: the status change is the record, the
-        // The message is a courtesy on top of it, on whichever channels the
-        // school has: WhatsApp when the add-on is bought, email when there is
-        // an address. `notified` says whether at least one landed.
+        // Never blocks the decision: the status change is the record. The
+        // message is a courtesy on top of it, emailed where the school holds
+        // an address. `notified` says whether it was sent.
         try {
           const branding = await getSchoolBranding(auth.locationId);
           const message = decisionMessage(body.status, {
@@ -171,16 +168,11 @@ export const PATCH = withSchoolAuth<RouteContext>(
           });
 
           if (message !== null) {
-            const contactId = await createGuardianGHLContact(db, auth.locationId, {
+            await createGuardianGHLContact(db, auth.locationId, {
               name: existing.guardianName,
               phone: existing.guardianPhone,
               email: existing.guardianEmail ?? undefined,
             });
-
-            if (await isWhatsAppEnabled(auth.locationId)) {
-              await sendWhatsAppMessage(db, auth.locationId, contactId, message);
-              notified = true;
-            }
 
             const guardianEmail = existing.guardianEmail;
             if (guardianEmail !== null && guardianEmail !== '' && smtpConfigured()) {

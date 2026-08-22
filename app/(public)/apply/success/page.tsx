@@ -80,7 +80,7 @@ export default async function ApplySuccessPage({
                 at <span className="font-mono">{phone}</span>
               </>
             )}{' '}
-            via WhatsApp regarding the next steps.
+            by email regarding the next steps.
           </p>
 
           {ref === undefined || ref === '' ? null : (

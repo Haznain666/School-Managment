@@ -13,7 +13,6 @@ import { cn } from '@/lib/utils';
 import {
   MAX_SCHOOLS_PER_APPLY,
   modulesInPhase,
-  PLATFORM_CHANNELS,
   PLATFORM_INTEGRATIONS,
   PLATFORM_MODULE_PHASES,
   type BulkFlagBaseline,
@@ -59,7 +58,6 @@ interface ApplyResult {
   disconnectedGhl: number;
   schools: { id: string; name: string }[];
   missing: string[];
-  warnings: { whatsappWithoutGhl: string[] };
 }
 
 export interface BulkModuleManagerProps {
@@ -415,28 +413,6 @@ export function BulkModuleManager({ schools }: BulkModuleManagerProps) {
       <Card
         header={
           <CardTitle
-            title="Channels"
-            description="How these schools’ messages reach people. Email always works and is never switched off."
-          />
-        }
-      >
-        {rowsFor(PLATFORM_CHANNELS)}
-
-        {positionOf('whatsapp', baselineOf('whatsapp')).value === 'on' &&
-        states.length > 0 ? (
-          <p className="mt-3 rounded-lg bg-status-warning-subtle px-3 py-2 text-sm text-status-warning-onSubtle">
-            WhatsApp is delivered through each school’s own GoHighLevel
-            sub-account.{' '}
-            {ghlConnectedCount === states.length
-              ? 'All of the selected schools have one connected.'
-              : `${states.length - ghlConnectedCount} of the ${states.length} selected schools have not connected one, and will keep sending by email until they do.`}
-          </p>
-        ) : null}
-      </Card>
-
-      <Card
-        header={
-          <CardTitle
             title="Integrations"
             description="Third-party accounts. Not a simple switch — see below."
           />
@@ -510,14 +486,6 @@ export function BulkModuleManager({ schools }: BulkModuleManagerProps) {
               {result.missing.length} selected school
               {result.missing.length === 1 ? '' : 's'} no longer exist and
               {result.missing.length === 1 ? ' was' : ' were'} skipped.
-            </p>
-          ) : null}
-
-          {result.warnings.whatsappWithoutGhl.length > 0 ? (
-            <p className="text-status-warning-onSubtle">
-              WhatsApp is on but not connected to GoHighLevel at:{' '}
-              {result.warnings.whatsappWithoutGhl.join(', ')}. These will keep
-              sending by email until each one is connected.
             </p>
           ) : null}
         </div>

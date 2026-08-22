@@ -6,7 +6,6 @@ import { apiFailure, apiSuccess, handleApiError, readJsonBody } from '@/lib/api-
 import { db } from '@/lib/drizzle';
 import {
   isSchoolFlagKey,
-  toChannelFlags,
   toModuleFlags,
   type SchoolFlagKey,
 } from '@/lib/platform-modules';
@@ -17,18 +16,18 @@ import { isUuid } from '@/lib/validation';
 /**
  * /api/super-admin/schools/[schoolId]/modules
  *
- * GET   current on/off state for every module and channel
+ * GET   current on/off state for every module
  * PATCH bulk update — an array of { module_key, is_enabled }
  *
  * Rows are upserted rather than assumed to exist, so a school provisioned
  * before a module was added to the catalogue still toggles cleanly.
  *
- * ── Channels ride the same route ─────────────────────────────────────────
- * `whatsapp` is a delivery channel rather than a product module, and renders
- * in its own section of the school page — but it is stored in the same table
- * and written through the same upsert, so it is accepted here too. The
- * response separates them (`modules` and `channels`) because the two UIs read
- * different halves; `rows` still carries everything.
+ * ── There used to be a second half to this ───────────────────────────────
+ * `school_modules` also held one delivery-channel flag, which this route
+ * accepted and returned separately as `channels`. `0028` removed it along with
+ * the channel it named, so what is stored, written and returned here is
+ * modules and nothing else. `isSchoolFlagKey` is the single gate on what may
+ * be written, and it now answers exactly `isPlatformModuleKey`.
  */
 
 export const runtime = 'nodejs';
@@ -70,7 +69,6 @@ export async function GET(_request: NextRequest, context: RouteContext) {
 
     return apiSuccess({
       modules: toModuleFlags(rows),
-      channels: toChannelFlags(rows),
       rows,
     });
   } catch (error) {
@@ -161,7 +159,6 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
     return apiSuccess({
       updated: updates.length,
       modules: toModuleFlags(rows),
-      channels: toChannelFlags(rows),
     });
   } catch (error) {
     return handleApiError(error);
