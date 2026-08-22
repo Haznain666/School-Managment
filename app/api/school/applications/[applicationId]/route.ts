@@ -11,7 +11,8 @@ import { apiFailure, apiSuccess, handleApiError, readJsonBody } from '@/lib/api-
 import { getApplicationDetail } from '@/lib/admissions-queries';
 import { db } from '@/lib/drizzle';
 import { createGuardianGHLContact } from '@/lib/ghl-admissions';
-import { sendEmail, smtpConfigured } from '@/lib/email-sender';
+import { smtpConfigured } from '@/lib/email-sender';
+import { enqueueEmail } from '@/lib/email-outbox';
 import { getSchoolBranding } from '@/lib/school-tenant';
 import { isUuid, readBoolean, readOptionalString } from '@/lib/validation';
 
@@ -174,13 +175,19 @@ export const PATCH = withSchoolAuth<RouteContext>(
               email: existing.guardianEmail ?? undefined,
             });
 
+            // Queued, not sent — same reasoning as the public apply route.
+            // A clerk working through a backlog of fifty decisions must not
+            // wait on an SMTP handshake per decision, and `notified` now
+            // means "accepted for delivery", which is the strongest claim
+            // anything in this codebase makes about an email.
             const guardianEmail = existing.guardianEmail;
             if (guardianEmail !== null && guardianEmail !== '' && smtpConfigured()) {
-              await sendEmail(
-                guardianEmail,
-                `Update on your application — ${branding?.name ?? 'your school'}`,
-                message,
-              );
+              await enqueueEmail({
+                locationId: auth.locationId,
+                to: guardianEmail,
+                subject: `Update on your application — ${branding?.name ?? 'your school'}`,
+                text: message,
+              });
               notified = true;
             }
           }

@@ -173,11 +173,16 @@ export function ApplyForm({ branches, grades }: ApplyFormProps) {
         },
       );
 
+      // The number is deliberately not carried across.
+      //
+      // The success page used to print it back — "we will contact <name> at
+      // <number>" — which stopped being true when admissions moved to email,
+      // and was never a good reason to put a guardian's mobile in a URL that
+      // lands in browser history and in any referrer the page emits.
       const query = new URLSearchParams({
         ref: result.applicationId,
         student: studentName,
         guardian: guardianName,
-        phone: guardianPhone,
       });
 
       router.push(withSchoolParam(`/apply/success?${query.toString()}`));
@@ -284,10 +289,13 @@ export function ApplyForm({ branches, grades }: ApplyFormProps) {
           <PhoneField
             label="Phone number"
             required
-            // Identity: `/api/admissions/apply` normalises this and
-            // `/api/admissions/check` looks an application up by it.
+            // Still `identity`, and for a reason that survives WhatsApp:
+            // `/api/admissions/apply` normalises this through `normalizePhone`
+            // and `/api/admissions/check` looks an existing application up by
+            // it, so it has to be a number that canonicalises — a landline
+            // does not. Nothing is *sent* to it.
             identity
-            hint="We will contact you on this number about the application."
+            hint="Used to find your application if you come back. We reply by email."
             value={guardianPhone}
             disabled={isSubmitting}
             onChange={setGuardianPhone}

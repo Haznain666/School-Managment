@@ -143,8 +143,9 @@ export async function createGuardianGHLContact(
  * It does not deliver a message. It hands a contact to an automation the
  * school built inside their own GoHighLevel, and what that automation does —
  * an email, a tag, a task for a human — is decided there and is not visible
- * from here. This platform's own messages all go out over `email_outbox` and
- * never touch GoHighLevel.
+ * from here. No message this platform sends goes through GoHighLevel — every
+ * one of them leaves over SMTP, and all but the invite setup code (which has
+ * somebody waiting on it) is queued through `email_outbox` first.
  */
 export async function triggerAdmissionWelcomeWorkflow(
   locationId: string,

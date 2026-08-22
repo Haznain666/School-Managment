@@ -17,7 +17,8 @@ import { normalizeCnic } from '@/lib/national-id';
 import { verifyCaptcha } from '@/lib/admissions-captcha';
 import { db } from '@/lib/drizzle';
 import { createGuardianGHLContact } from '@/lib/ghl-admissions';
-import { sendEmail, smtpConfigured } from '@/lib/email-sender';
+import { smtpConfigured } from '@/lib/email-sender';
+import { enqueueEmail } from '@/lib/email-outbox';
 import { InvalidPhoneError, normalizePhone } from '@/lib/phone';
 import { SCHOOL_LOCATION_HEADER } from '@/lib/school-context';
 import { getSchoolBranding } from '@/lib/school-tenant';
@@ -290,8 +291,22 @@ export async function POST(request: NextRequest) {
         email: guardianEmail ?? undefined,
       });
 
+      // Queued, not sent.
+      //
+      // This is a *public* form. `lib/email-sender.ts` allows 15s to connect,
+      // 15s to greet and 20s on the socket, so a slow or refusing mail host
+      // put that in front of a parent who had just pressed "Submit
+      // application" — on the one screen where the school is being judged by
+      // someone who has not chosen it yet. The outbox drains every 30s, has
+      // retries, and records a failure the school can see. The blocking send
+      // had none of that and only ever logged a warning nobody reads.
       if (guardianEmail !== null && guardianEmail !== '' && smtpConfigured()) {
-        await sendEmail(guardianEmail, `Application received — ${schoolName}`, message);
+        await enqueueEmail({
+          locationId,
+          to: guardianEmail,
+          subject: `Application received — ${schoolName}`,
+          text: message,
+        });
       }
     } catch (error) {
       console.warn('[apply] confirmation message could not be sent:', error);

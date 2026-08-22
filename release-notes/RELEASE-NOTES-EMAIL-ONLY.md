@@ -129,6 +129,24 @@ quote rather than as a blank refusal.
 
 ---
 
+## Also fixed, after a QA pass
+
+- **The application success page** told a parent their school would contact
+  them *"at (0321) 123-4567 by email"*. The number is gone from that sentence —
+  and out of the address bar, where it should not have been.
+- **The phone field on the public form** said "we will contact you on this
+  number". It now says what the number is actually for: finding your
+  application if you come back. We reply by email.
+- **A dashboard figure that cannot be read now says so** instead of quietly
+  disappearing. A missing tile looks identical to a module you have not bought.
+- **Very short phone numbers are refused again.** The fix above had
+  accidentally allowed a four-digit entry through; a landline now needs its
+  area code plus at least four digits, as it always did.
+- **The public application form and the accept/reject decision no longer wait
+  on the mail server** before replying. Both hand the message to the outbox,
+  which retries and records failures — so a slow mail host no longer keeps a
+  parent waiting on the submit button.
+
 ## For the record
 
 - Migration `0028` removes the WhatsApp columns and flags. **Announcement

@@ -263,12 +263,17 @@ export default async function SchoolDashboardPage() {
           />
         ) : null}
 
-        {showFees && fees !== null ? (
+        {showFees ? (
           <StatTile
             label="Outstanding this month"
-            value={formatPkr(fees.outstandingThisMonth)}
+            value={fees === null ? undefined : formatPkr(fees.outstandingThisMonth)}
+            unavailable={fees === null ? 'The fee figures could not be read.' : undefined}
             icon={Receipt}
-            detail={`${fees.overdueCount.toLocaleString()} challans past due`}
+            detail={
+              fees === null
+                ? undefined
+                : `${fees.overdueCount.toLocaleString()} challans past due`
+            }
           />
         ) : null}
 
@@ -303,9 +308,27 @@ export default async function SchoolDashboardPage() {
         )}
       </StatTileGrid>
 
-      {collectionTrend !== null || attendanceTrend !== null ? (
+      {/*
+        The card stays even when its read failed, and says so.
+
+        Dropping it was the original behaviour and it is the wrong failure: a
+        dashboard missing its collection chart looks exactly like a dashboard
+        for a school that has no fee module, and an administrator has no way to
+        tell "this is not for you" from "this broke". `optional()` above says
+        the tile should fall back to an unavailable state; these two cards are
+        the same rule at card size.
+      */}
+      {showFees || showAttendance ? (
         <div className="grid gap-5 lg:grid-cols-2">
-          {collectionTrend === null ? null : (
+          {!showFees ? null : collectionTrend === null ? (
+            <Card
+              header={
+                <CardTitle title="Fee collection" description="Payments received per month" />
+              }
+            >
+              <ChartUnavailable />
+            </Card>
+          ) : (
             <Card
               header={
                 <CardTitle title="Fee collection" description="Payments received per month" />
@@ -323,7 +346,15 @@ export default async function SchoolDashboardPage() {
             </Card>
           )}
 
-          {attendanceTrend === null ? null : (
+          {!showAttendance ? null : attendanceTrend === null ? (
+            <Card
+              header={
+                <CardTitle title="Attendance" description="Monthly rate across the school" />
+              }
+            >
+              <ChartUnavailable />
+            </Card>
+          ) : (
             <Card
               header={
                 <CardTitle title="Attendance" description="Monthly rate across the school" />
@@ -400,6 +431,15 @@ export default async function SchoolDashboardPage() {
         </div>
       </section>
     </div>
+  );
+}
+
+/** Stands in for a chart whose data could not be read. */
+function ChartUnavailable() {
+  return (
+    <p className="py-8 text-center text-sm text-ink-muted">
+      This chart could not be loaded. Everything else on this page is current.
+    </p>
   );
 }
 

@@ -6143,6 +6143,64 @@ Two changes, so that the next occurrence diagnoses itself:
 
 ---
 
+---
+
+### QA, and the five things it found
+
+A QA agent audited the tree end to end against a running server and the real
+database: all 14 gates re-run independently, **all 152 routes swept
+unauthenticated across GET and POST — 304 requests, zero HTML error pages and
+zero 500s**, tenancy grepped for a `locationId` read from any request (there is
+none), and the migrations verified by querying `pg_constraint` directly.
+
+It sent the work back, and it was right to. Two of the five were **my own
+misses in this sprint's own subject matter**:
+
+1. **`/apply/success` printed a phone number and said "by email" in one
+   sentence** — *"will contact Ahmed Raza at (0321) 123-4567 by email"*. I had
+   fixed the trailing clause and left the fragment before it. The number came
+   through the query string on every real submission, so it was wrong every
+   time, on the last screen a prospective parent sees. **Fixed by dropping the
+   fragment and no longer putting the number in the URL at all** — it landed in
+   browser history and in any referrer the page emitted, for no benefit.
+2. **`ApplyForm`'s phone hint still read "We will contact you on this
+   number"** — one field below the paragraph I had just changed to say email.
+   Now: *"Used to find your application if you come back. We reply by email."*
+   The field keeps `identity`, and for a reason that survives WhatsApp:
+   `/api/admissions/check` looks an existing application up by the normalised
+   number, so it has to be one that canonicalises.
+
+The other three were pre-existing, and two of them were the new code not
+following its own docblock:
+
+3. **Two dashboard reads deleted their tile instead of showing `unavailable`.**
+   `optional()`'s docblock states the rule; "Outstanding this month" and the
+   fee-collection card did not follow it, so a failed read produced a dashboard
+   that looked complete and was missing a number. Both now say so, and the two
+   chart cards render a `ChartUnavailable` stand-in rather than vanishing —
+   a missing card is indistinguishable from a module the school has not bought.
+4. **The new phone check accepted `1234`**, stored as `(123) 4`.
+   `hasCompleteLandlineDigits` required only `digits.length > 3`, where the
+   regex it replaced required seven characters — so the fix had quietly
+   loosened the floor on a column that is `NOT NULL` and unique per school.
+   `LANDLINE_MIN_SUBSCRIBER_DIGITS = 4` restores it. **Six new assertions in
+   `check-address-phone` now pin both the reported bug and this floor** (40, up
+   from 32).
+5. **Three routes still sent SMTP synchronously inside the request** — the
+   public apply form, the application decision, and the invite setup code —
+   while `lib/ghl-admissions.ts` asserted the opposite as current behaviour.
+   `lib/email-sender.ts` allows 15s to connect, 15s to greet and 20s on the
+   socket, so a slow host sat in front of a parent pressing "Submit
+   application". The first two are now queued through `email_outbox`. **The
+   third is deliberately still blocking and now says why**: somebody is
+   waiting for that code, and queueing would trade a bounded ~20s for an
+   unbounded-to-30s drain *and* discard the failure signal.
+
+> **What QA could not do, and it is the same gap as last time:** everything
+> behind a sign-in. It does not enter passwords either. The dashboard change,
+> the invite form end to end, the modules page with its Channels section
+> removed and `PendingInvitesTable` are all still unclicked.
+
 ### What this is worth knowing for
 
 Three of the four faults were **documentation that had outlived its subject**.

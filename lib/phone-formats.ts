@@ -40,12 +40,29 @@ function digitsOf(value: string): string {
  * Landline — (xxx) xxxxxxxxxx
  * -------------------------------------------------------------------------- */
 
-/** Area code digits, then up to this many subscriber digits. */
+/** Area code digits, then between these many subscriber digits. */
 const LANDLINE_AREA_DIGITS = 3;
 const LANDLINE_MAX_SUBSCRIBER_DIGITS = 10;
+/**
+ * The floor, and why there is one.
+ *
+ * There was not, and `digits.length > LANDLINE_AREA_DIGITS` alone accepted
+ * `1234` — stored, after masking, as `(123) 4`. That is not a number anybody
+ * can ring, and on the staff-invitation path it lands in `school_users.phone`,
+ * which is `NOT NULL` and unique per school: two people typo'd the same way
+ * collide on a constraint rather than on anything a clerk can read.
+ *
+ * Four is the smallest subscriber part worth accepting and makes the total
+ * seven digits, which is exactly the floor the hand-rolled regex in
+ * `POST /api/school/invitations` used to enforce before it was replaced by
+ * this module. Deliberately not six or eight: Pakistani exchanges genuinely
+ * vary, and a validator that refuses a real small-town number is a worse
+ * failure than one that accepts an implausibly short one.
+ */
+const LANDLINE_MIN_SUBSCRIBER_DIGITS = 4;
 
 export const LANDLINE_PLACEHOLDER = '(021) 3456789';
-export const LANDLINE_HINT = 'Format (xxx) xxxxxxxxxx — a 3-digit area code, then up to 10 digits.';
+export const LANDLINE_HINT = 'Format (xxx) xxxxxxxxxx — a 3-digit area code, then 4 to 10 digits.';
 
 /**
  * Formats as it is typed, discarding anything that is not a digit.
@@ -84,7 +101,7 @@ export function hasCompleteLandlineDigits(value: string): boolean {
 
   const digits = digitsOf(trimmed);
   return (
-    digits.length > LANDLINE_AREA_DIGITS &&
+    digits.length >= LANDLINE_AREA_DIGITS + LANDLINE_MIN_SUBSCRIBER_DIGITS &&
     digits.length <= LANDLINE_AREA_DIGITS + LANDLINE_MAX_SUBSCRIBER_DIGITS
   );
 }
@@ -309,5 +326,5 @@ export function phoneHintOfKind(kind: PhoneKind): string {
 export function phoneErrorOfKind(kind: PhoneKind): string {
   return kind === 'mobile'
     ? 'Enter eleven digits, e.g. (0321) 123-4567.'
-    : 'Incomplete landline number — a 3-digit area code, then up to 10 digits.';
+    : 'Incomplete landline number — a 3-digit area code, then 4 to 10 digits.';
 }

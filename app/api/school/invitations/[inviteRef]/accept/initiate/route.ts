@@ -115,6 +115,16 @@ export async function POST(_request: NextRequest, context: RouteContext) {
       inviteToken: inviteRef,
     });
 
+    // ── The one send in this codebase that is deliberately NOT queued ────
+    // Everything else goes through `email_outbox`, because nothing else has
+    // somebody sitting in front of it waiting for the message to arrive. This
+    // one does: the invitee has just pressed a button that says a code is
+    // coming, and the code expires. Queueing would trade a bounded ~20s worst
+    // case on the transport for an unbounded-to-30s drain delay *and* throw
+    // away the failure signal — the drainer's failure lands on an outbox row
+    // nobody is watching, while this `await` can tell them the code did not go.
+    //
+    // Revisit if the drain interval ever drops to a few seconds.
     await sendEmail(
       email.trim(),
       `Your ${school.name} setup code`,
