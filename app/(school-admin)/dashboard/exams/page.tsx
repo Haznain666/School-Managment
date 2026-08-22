@@ -3,14 +3,13 @@ import Link from 'next/link';
 
 import { BarChart } from '@/components/charts/BarChart';
 import { ExamScheduler } from '@/components/exams/ExamScheduler';
-import { TermManager } from '@/components/exams/TermManager';
 import { Card, CardTitle } from '@/components/ui/Card';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { listAdmissionsBranches, listGrades, listSections } from '@/lib/admissions-queries';
 import { gradeLabels, sectionLabel } from '@/lib/class-labels';
 import { listAcademicYearOptions } from '@/lib/academics-queries';
 import { getRecentExamOutcomes, type ExamOutcome } from '@/lib/dashboard-queries';
-import { listExamTerms, listExams, listGradingSchemes } from '@/lib/exam-queries';
+import { listExamTerms, listExams } from '@/lib/exam-queries';
 import { requireSchoolPermission } from '@/lib/school-guard';
 
 export const metadata: Metadata = {
@@ -21,10 +20,12 @@ export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 
 /**
- * The Exams overview: terms above, scheduled exams below.
+ * The Exams overview: the exams a school has scheduled, and how they went.
  *
- * Terms come first because nothing else can exist without one, and the order
- * of the two cards is the order a school sets this up in.
+ * Terms moved to a screen of their own in Sprint 14, when a term stopped being
+ * a name and two dates and became the thing the datesheets hang off. Setting
+ * one up is now a page, not a card, and this screen links to it rather than
+ * carrying half of it.
  *
  * Every read is scoped to the caller's own school — the location id comes from
  * their verified session, so there is no request parameter that could widen it.
@@ -32,12 +33,11 @@ export const runtime = 'nodejs';
 export default async function ExamsOverviewPage() {
   const { locationId, permissions } = await requireSchoolPermission('exams.read');
 
-  const [terms, exams, years, schemes, sections, grades, branches, outcomes] =
+  const [terms, exams, years, sections, grades, branches, outcomes] =
     await Promise.all([
       listExamTerms(locationId),
       listExams(locationId),
       listAcademicYearOptions(locationId),
-      listGradingSchemes(locationId),
       listSections(locationId, {}),
       listGrades(locationId),
       listAdmissionsBranches(locationId),
@@ -54,7 +54,25 @@ export default async function ExamsOverviewPage() {
         title="Exams &amp; results"
         description="Terms, datesheets, marks, and the documents a school hands out afterwards."
         actions={
-          <div className="flex flex-nowrap gap-4 whitespace-nowrap text-sm font-medium">
+          <div className="flex flex-wrap gap-4 text-sm font-medium">
+            <Link
+              href="/dashboard/exams/terms"
+              className="text-brand-primary hover:underline"
+            >
+              Terms &amp; datesheets
+            </Link>
+            <Link
+              href="/dashboard/exams/criteria"
+              className="text-brand-primary hover:underline"
+            >
+              Promotion criteria
+            </Link>
+            <Link
+              href="/dashboard/exams/settings"
+              className="text-brand-primary hover:underline"
+            >
+              Exam settings
+            </Link>
             <Link
               href="/dashboard/exams/report-cards"
               className="text-brand-primary hover:underline"
@@ -88,14 +106,6 @@ export default async function ExamsOverviewPage() {
           </Link>
         </Card>
       ) : null}
-
-      <TermManager
-        terms={terms}
-        academicYears={years}
-        gradingSchemes={schemes.filter((scheme) => scheme.isActive)}
-        canWrite={permissions.includes('exams.write')}
-        canPublish={permissions.includes('exams.publish')}
-      />
 
       <ExamScheduler
         terms={terms}
