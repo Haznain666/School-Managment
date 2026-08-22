@@ -58,13 +58,17 @@ export function ReportCardSummary({ card }: { card: ReportCard }) {
             <Figure label="Papers missed" value={String(card.absentCount)} />
           </div>
         ) : (
+          // The mean of the subject percentages, matching the printed card and
+          // the Result history table below — and matching what the promotion
+          // decision was actually taken on. Printing the ratio here put two
+          // different percentages for one term on one screen.
           <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
-            <Figure label="Percentage" value={formatPercentage(card.percentage)} />
+            <Figure label="Percentage" value={formatPercentage(card.meanPercentage)} />
             <Figure
               label="Total"
               value={`${formatMark(card.obtained)} / ${formatMark(card.available)}`}
             />
-            <Figure label="Grade" value={card.grade ?? '—'} />
+            <Figure label="Grade" value={card.overallGradeLabel ?? '—'} />
             <Figure
               label="Position"
               value={

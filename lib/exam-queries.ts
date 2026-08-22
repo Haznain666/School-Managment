@@ -1332,7 +1332,6 @@ export async function getSectionReportCards(
     const available = subjectRows.reduce((sum, row) => sum + row.maxMarks, 0);
     const obtained = subjectRows.reduce((sum, row) => sum + (row.marks ?? 0), 0);
     const percentage = percentageOf(obtained, available);
-    const band = resolveBand(percentage, bands);
 
     // The arithmetic mean of the subject percentages, which is what promotion
     // is judged on and is deliberately not the same number as `percentage`
@@ -1342,6 +1341,21 @@ export async function getSectionReportCards(
       : overallPercentage(
           subjectRows.flatMap((row) => (row.percentage === null ? [] : [row.percentage])),
         );
+
+    /*
+     * The band — and so the GPA and the printed remark — is resolved from the
+     * MEAN, not from the ratio of totals.
+     *
+     * Both numbers are real and both stay on the card: `obtained / available`
+     * is what the child scored, and the mean is what the school judges. But
+     * only one of them may be turned into a letter, because a card carrying
+     * "48.3% · C" in one box and "65.0% · B" in another is a card a parent
+     * brings to the office. Until 2026-08-22 it resolved from `percentage`
+     * while the history table and the promotion engine used the mean, and the
+     * two diverge whenever papers carry different maxima — which is normal, not
+     * exotic: Mathematics out of 100 beside Art out of 20.
+     */
+    const band = mean === null ? null : resolveBand(mean, bands);
 
     const overallDescriptorId = record?.overallSubcategoryId ?? null;
 

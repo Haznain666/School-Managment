@@ -186,14 +186,26 @@ export function ReportCardDocument({
                 ))
               )}
             </tbody>
+            {/* The percentage here is the MEAN of the subject percentages, not
+                the ratio of totals, because that is what the school's promotion
+                rules are applied to and a card must not print one figure while
+                the decision beneath it was taken on another. The two differ
+                whenever papers carry different maxima — Maths out of 100 beside
+                Art out of 20 gives 48.3% one way and 65.0% the other — and
+                until 2026-08-22 the card printed the ratio while the history
+                table three inches below it printed the mean.
+
+                The marks column still totals honestly: obtained out of
+                available is a real fact and stays. It simply is not what the
+                percentage is computed from. */}
             <tfoot>
               <tr className="font-bold">
                 <Td className="text-left">Total</Td>
                 <Td>{formatMark(card.available)}</Td>
                 <Td>—</Td>
                 <Td>{formatMark(card.obtained)}</Td>
-                <Td>{formatPercentage(card.percentage)}</Td>
-                <Td>{card.grade ?? '—'}</Td>
+                <Td>{formatPercentage(card.meanPercentage)}</Td>
+                <Td>{card.overallGradeLabel ?? '—'}</Td>
                 <Td className="text-left">—</Td>
               </tr>
             </tfoot>
@@ -223,7 +235,10 @@ export function ReportCardDocument({
                       : `${ordinal(card.position)} of ${card.classSize}`
                   }
                 />
-                <Field label="Grade" value={card.grade ?? '—'} />
+                {/* The same letter the table's Total row carries, from the same
+                    mean. Two grades for one term on one sheet is worse than
+                    either of them being wrong. */}
+                <Field label="Grade" value={card.overallGradeLabel ?? '—'} />
                 <Field
                   label="GPA"
                   value={card.gpa === null ? '—' : card.gpa.toFixed(2)}
