@@ -4,9 +4,10 @@
 resume without re-deriving context. Updated at the end of every development
 step, before the session ends.
 
-**Last updated:** 2026-08-22 (**WhatsApp removed from the platform, the invite
-form's phone field unblocked, the dashboard outage, and the login error that
-named nothing — §5aw. `0027` and `0028` are both APPLIED to the live
+**Last updated:** 2026-08-22 (**The deploy was never blocked and the probe that
+would have said so was gitignored — §5ax**; WhatsApp removed from the platform,
+the invite form's phone field unblocked, the dashboard outage, and the login
+error that named nothing — §5aw. `0027` and `0028` are both APPLIED to the live
 database.**; 2026-08-21: Sprint 13.5 — §5au, driven end to end — §5av;
 2026-08-20: Sprint 13.8 — sibling identity, §5as; the announcement sweep, §5at;
 Sprint 13.7 — §5ar; 2026-08-19: §5aq, §5ap, §5ao, §5an, §5am, §5al, §5ai–§5ak)
@@ -33,6 +34,25 @@ Sprint 13.7 — §5ar; 2026-08-19: §5aq, §5ap, §5ao, §5an, §5am, §5al, §5
 > parent and when.
 >
 > **Next free migration number is `0029`.**
+
+> ✅ **Deploying is automatic, and the SSH secrets are dead — 2026-08-22.**
+> hPanel has this site connected to the repository with **Auto-deployment on**,
+> branch `main`, root `./`. The merge `17099d4` built at 16:52 in 2m29s, state
+> Completed, and the live HTML carries `<!--17099d4dec24-->`.
+>
+> `HOSTINGER_SSH_KEY`, `HOSTINGER_HOST`, `HOSTINGER_PORT`, `HOSTINGER_PATH` and
+> `HOSTINGER_USERNAME` are leftovers from the rsync workflow that #24 deleted.
+> **Nothing reads them.** This file said for two days that the deploy was
+> blocked on them; it was not, and saying so cost a session.
+>
+> `deploy.yml` is now *Verify the live deployment* and does not deploy. The
+> three secrets it reads — `PRODUCTION_URL`, `HOSTINGER_API_TOKEN`,
+> `HOSTINGER_USER` — are set. **Only `SMOKE_SUPER_ADMIN_EMAIL` and
+> `SMOKE_SUPER_ADMIN_PASSWORD` are missing**, and only the smoke-test step uses
+> them.
+>
+> **Still do the cache purge after every deploy.** Prerendered pages ship
+> `s-maxage=31536000`.
 
 > 🐛 **The day book threw on every call, and shipped that way — found and fixed
 > by QA on 2026-08-21, §5av.** `column reference "id" is ambiguous`. **Drizzle
@@ -6213,6 +6233,91 @@ the thing to check.
 
 ---
 
+## 5ax. The deploy was never blocked, and the probe that would have said so was gitignored — 2026-08-22
+
+Reported as *"first lets resolve the Hostinger_SSH issue"*. There is no
+Hostinger SSH issue. There has not been one since 2026-08-21, and the belief
+that there was cost this session an hour and cost the previous one a wrong
+statement to the user.
+
+### What is actually true
+
+hPanel shows this site **connected to GitHub with auto-deployment on**, branch
+`main`, root directory `./`, framework Next.js, Node 22.x. The last deployment
+reads: state **Completed**, commit **`17099d4`** — the WhatsApp-removal merge —
+deployed **2026-08-22 16:52** in 2m29s. The live HTML opens with
+`<!--17099d4dec24-->`, because `generateBuildId` makes the build id the commit
+sha. **It had been live for hours before anybody looked.**
+
+`.github/workflows/deploy.yml` was renamed *Verify the live deployment* by #24
+and no longer deploys anything; the rsync-over-SSH steps were deleted with it.
+The five `HOSTINGER_SSH_*` / `HOSTINGER_HOST` / `HOSTINGER_PORT` /
+`HOSTINGER_PATH` / `HOSTINGER_USERNAME` secrets survive in the repository and
+are read by nothing. The three the workflow does read are all set. The only
+genuinely missing secrets are `SMOKE_SUPER_ADMIN_EMAIL` and
+`SMOKE_SUPER_ADMIN_PASSWORD`, used by one step.
+
+> **Why this file was wrong.** The banner was written on 2026-08-20, when it was
+> accurate: the workflow *was* SSH-based and the secrets *were* absent. #24
+> replaced the mechanism the next day and nothing updated the banner, so a
+> statement that had been carefully verified became a statement that was
+> confidently false — and it read exactly as authoritative either way. This is
+> the same failure §5aw is about, one level up: **documentation that outlived
+> its subject, believed because it was specific.**
+
+### The real bug, found while disproving the false one
+
+`GET /api/internal/build` — the route the verification workflow exists to
+read — **404s on production**, on a build that is otherwise correct.
+
+`.gitignore` line 13:
+
+```
+# production
+build/
+dist/
+```
+
+A bare directory pattern in gitignore matches **at any depth**. So `build/`
+also matched `app/api/internal/build/`, which is an App Router segment and not
+build output. The route was written on 2026-08-21 and **has never been
+committed**. It existed on the machine that wrote it — `npm run build` compiled
+it, every local check passed — and it did not exist in the repository, so
+Hostinger, which builds from GitHub, never received it.
+
+The consequence is the whole point of the workflow: **its "Confirm which commit
+is live" step could never have passed on any deploy**, and the error it printed
+on failure blamed the deployment rather than the missing file:
+
+> *"/api/internal/build did not answer. The running build predates that route,
+> so Hostinger has not deployed a commit from 2026-08-21 or later."*
+
+That message is what a stale deploy looks like. It is also what a file that was
+never committed looks like, and nothing distinguished them.
+
+Both patterns are anchored to the repository root now — `/build/`, `/dist/` —
+which is the only place either tool writes.
+
+### The gate, and why CI structurally could not be it
+
+An ignored file is **absent from a fresh checkout**, so CI cannot notice what
+it never received. Every gate ran green against a tree that was missing a route
+and had no way to know. The mistake is made on a developer's machine and can
+only be caught there.
+
+`npm run check-loaders` now walks every `route.ts` / `page.tsx` / `layout.tsx`
+on disk and asks `git ls-files --error-unmatch` whether it is tracked. 237
+assertions, up from 236. In CI everything present is tracked, so it costs one
+process and passes; locally it fails and names the file and the command that
+explains it. **Verified by planting a route in an ignored directory** — it
+fails, and prints `git check-ignore -v <path>`.
+
+> Only one file in the repository was affected. `git status --ignored` across
+> the whole tree, minus the legitimate entries, returns exactly
+> `app/api/internal/build/`.
+
+---
+
 ## 6. Open items for the user
 
 1. ~~Install GitHub CLI~~ — **partly regressed.** Git has a stored credential
@@ -6431,10 +6536,12 @@ blank.
 
 ### What was NOT done
 
-* ⛔ **It is not deployed.** See the banner at the top of this file: the deploy
-  workflow's three SSH secrets are absent from the repository, and there is no
-  auto-deploy on push. Merged, pushed, CI green, migration applied — and the
-  live build id did not move.
+* ⛔ **It was not deployed at the time.** ~~The deploy workflow's three SSH
+  secrets are absent and there is no auto-deploy on push.~~ **Superseded
+  2026-08-22 — see §5ax.** Hostinger auto-deploys from GitHub on every push to
+  `main` and has done throughout; the SSH secrets belong to a workflow that no
+  longer exists. What was actually true on the day is the second sentence: the
+  live build id did not move, and nobody established why.
 * **Nothing was looked at in a browser.** Same as §5ar: no screenshot of the
   sibling card, the CNIC lookup or the header switcher exists. The layouts are
   unseen. This is the next thing worth doing.
@@ -6539,7 +6646,8 @@ to `gte` anyway, so the pattern is no longer in the codebase to be copied.
 
 | Date | Session did | Next |
 | --- | --- | --- |
-| 2026-08-22 | **WhatsApp removed from the platform, and three faults underneath it** (§5aw). Four reports, one session. **WhatsApp is gone, not gated** — `lib/channels.ts`, `ChannelToggleList`, `sendWhatsAppMessage`, `PLATFORM_CHANNELS` and the whole channel-vs-module distinction deleted; `lib/ghl-fees.ts` rewritten as `lib/fee-notices.ts` with no GHL import left in it. GHL survives as contact sync only. `0028` drops the two invitation columns and the `school_modules` row, and **re-labels** `announcement_recipients.channel = 'whatsapp'` to `'notice'` rather than deleting the school's own delivery record. **The invite form had never accepted a formatted number**: the route validated with `/^\+?[0-9\s-]{7,20}$/`, which has no brackets in it, against a client that masks every value into `(021) 444444` — so it refused its own form's output, and `identity` on the PhoneField refused a landline besides. Both now import `lib/phone-formats.ts`, the rule `PhoneField`'s own docblock already stated. **The dashboard outage was `0027`**: `getAccountingOverview` counting a `ledger_transactions` that did not exist, inside a `Promise.all`, so one tile took the students count, the staff count, three charts and every quick action with it. `0027` and `0028` are **both applied to the live database now** — 27 rows of bookkeeping before, 29 after — and each optional read is wrapped so the page degrades one tile at a time. **"Unexpected response."** was the login route being the one route on this surface with no `try`/`catch`; probing the live endpoint with a wrong address returns a correct 401 JSON, so the report was a transient the message refused to name. Both client helpers now report the status and distinguish 502/503/504 from a defect. All nine gates green, plus all five database-backed checks — `check-reports` had been failing on the same missing tables and now passes. | **Nothing here has been clicked in a browser** — the sign-in needs a password and no session may type one, so the invite form, the dashboard and the bulk-modules page are verified by query and by build, not by eye. Twenty minutes with a real login is the next thing worth doing. Then deploy: this is merged but **`HOSTINGER_SSH_*` is still missing**, so pushing to `main` does not ship it (see the banner). Then the automatic sibling discount. |
+| 2026-08-22 | **The deploy was never blocked, and the probe that would have said so was gitignored** (§5ax). Asked to fix "the Hostinger SSH issue". There is none: hPanel has auto-deployment on from GitHub, and it built `17099d4` at 16:52 in 2m29s, Completed — the WhatsApp merge had been live for hours. The five `HOSTINGER_SSH_*` secrets are leftovers from the rsync workflow #24 deleted and are read by nothing; the three `deploy.yml` actually reads are all set. **This file had said the opposite for two days**, accurately on 2026-08-20 and falsely from 2026-08-21, which is the §5aw failure one level up. **The real bug, found while disproving the false one:** `.gitignore` line 13 was a bare `build/`, which matches at any depth and therefore matched `app/api/internal/build/` — an App Router segment, not build output. `/api/internal/build` has never been committed, so Hostinger never had it and production 404s it, and the verification workflow's "which commit is live" step **could never have passed on any deploy** — its failure message blamed the deployment. Both patterns anchored to the root. **CI structurally cannot catch this** (an ignored file is absent from a fresh checkout), so `check-loaders` now asks git whether each route file on disk is tracked — 237 assertions, proven against a planted route in an ignored directory. Cache purged in hPanel. | Set `SMOKE_SUPER_ADMIN_EMAIL` and `SMOKE_SUPER_ADMIN_PASSWORD` — the only secrets genuinely missing — then run *Verify the live deployment* and watch it pass for the first time. Then the twenty minutes of clicking that three sprints have now deferred. |
+| 2026-08-22 | **WhatsApp removed from the platform, and three faults underneath it** (§5aw). Four reports, one session. **WhatsApp is gone, not gated** — `lib/channels.ts`, `ChannelToggleList`, `sendWhatsAppMessage`, `PLATFORM_CHANNELS` and the whole channel-vs-module distinction deleted; `lib/ghl-fees.ts` rewritten as `lib/fee-notices.ts` with no GHL import left in it. GHL survives as contact sync only. `0028` drops the two invitation columns and the `school_modules` row, and **re-labels** `announcement_recipients.channel = 'whatsapp'` to `'notice'` rather than deleting the school's own delivery record. **The invite form had never accepted a formatted number**: the route validated with `/^\+?[0-9\s-]{7,20}$/`, which has no brackets in it, against a client that masks every value into `(021) 444444` — so it refused its own form's output, and `identity` on the PhoneField refused a landline besides. Both now import `lib/phone-formats.ts`, the rule `PhoneField`'s own docblock already stated. **The dashboard outage was `0027`**: `getAccountingOverview` counting a `ledger_transactions` that did not exist, inside a `Promise.all`, so one tile took the students count, the staff count, three charts and every quick action with it. `0027` and `0028` are **both applied to the live database now** — 27 rows of bookkeeping before, 29 after — and each optional read is wrapped so the page degrades one tile at a time. **"Unexpected response."** was the login route being the one route on this surface with no `try`/`catch`; probing the live endpoint with a wrong address returns a correct 401 JSON, so the report was a transient the message refused to name. Both client helpers now report the status and distinguish 502/503/504 from a defect. All nine gates green, plus all five database-backed checks — `check-reports` had been failing on the same missing tables and now passes. | **Nothing here has been clicked in a browser** — the sign-in needs a password and no session may type one, so the invite form, the dashboard and the bulk-modules page are verified by query and by build, not by eye. Twenty minutes with a real login is the next thing worth doing. ~~Then deploy: `HOSTINGER_SSH_*` is still missing.~~ **Wrong — see §5ax.** It deployed by itself; Hostinger's GitHub connection has auto-deployment on. Then the automatic sibling discount. |
 | 2026-08-21 | **Sprint 13.5 merged, then actually run — and the day book had never worked** (§5av). PR #22 merged to `main` (`eec668f`) on a green CI. Then, for the first time in this project's history, a session had **PostgreSQL 16 and Chromium**: all 28 migrations applied in order, `0027`'s seed and backfill tested against a school seeded with three fee payments that **predated** it, and every screen driven in a browser. **The backfill is correct** — cash → `1000`, transfer → `1010`, cheque → `1020` and not the bank, each entry dated to the payment rather than to the migration, and a second run wrote **0 rows**. **The day book threw `column reference "id" is ambiguous` on every call**: Drizzle renders a column interpolated into a `sql` template **unqualified when the outer query has a single table in its FROM** and qualified once a join is present, so five correlated sub-selects that are correct beside a join were bare column names without one — and the one that did *not* throw compared two `ledger_entries` columns and would have printed a column of zeroes. Rewritten as two queries and a regroup. **`check-reports` is the only thing that could ever have caught it and was itself red**, asserting nine reports when 13.5 had added seven. 53 assertions through the application's own code, twelve routes in Chromium with **no console errors and no failed requests**, the balance sheet at **16,800 = 16,800**, the accountant's `POST /settlements` at **403**, all seven statements printing under `print` media and exporting as CSV. **Sign-in was stubbed** (no Supabase here) and the stubs reverted — everything behind the session is verified, the session itself is not. | **Apply `0027` to production.** It is proven and not deployed. Then real A4, still. Then Sprint 13.6 (i18n) on **`0028`**. |
 | 2026-08-21 | **Sprint 13.5 — Accounting: the ledger, expenses and per-staff cash** (§5au). The sprint this file has pointed at for six sessions. Six tables, one column, seven statements. **The column is the point**: `fee_payments.ledger_transaction_id`, posted in the *same database transaction* as the payment — a payment recorded without its posting understates income silently, and nothing on any screen would ever say so. `ledger_transactions` + `ledger_entries` are **append-only**; a correction is a mirrored reversing entry and both stay in the book, because Sprint 16's wallet and Sprint 20's POS post here and a ledger retrofitted under live money is the cost this sequencing exists to avoid. **Per-staff cash accounts**: a cash payment lands in the drawer of whoever took it, not the office safe, and their balance is what they owe the school right now; settling stores what the drawer *should* have held beside what was counted, and the short is **not** written off. `accounting.settle` is a third key and the `accountant` role deliberately does not hold it. **Two calls against the document, both written down**: `ledger_entries` gets a header table (one date and one cause, two or more sides), and the module flag is the existing `accounts` rather than a second `accounting`. Income is recognised on receipt, not on billing — `0027`'s header says why at length, because it is the decision somebody will otherwise reverse without knowing it was one. Seven reports added as catalogue declarations, so each gets screen, `PrintSheet` and CSV for free. The dashboard's "Needs the accounting ledger" tile answers now, and still says so where the module is off or the chart is unset. New `npm run check-accounting` — **121 assertions, in CI**, and verified by breaking two rules on purpose (five failures, four sections) and restoring them. All nine gates green including the build. | **Apply `0027`.** It is written and not run; no session here has the credentials, and until it runs the module has no tables. The backfill is guarded on the null column rather than a date, so it picks up whatever accumulated in the meantime. Then **look at something in a browser** — six new screens and this is the third sprint with nothing seen. Then Sprint 13.6 (internationalisation) on **`0028`**. |
 | 2026-08-21 | **Release notes, test cases, and a correction I owed the file.** Wrote `RELEASE-NOTES-ANNOUNCEMENT-SWEEP-AND-DEPLOY.md` (the sweep, the seven-process double-send, and the four separate faults the deploy pipeline took to complete) and `TEST-CASES-SPRINT-13.8.md` — 35 cases over the sibling rule, the enrolment lookup, the guardian rules, the CNIC field, the parent portal, the sweep, and the existing-data regressions. Marked 13.8's notes live. **Corrected this file's DNS claim: school portals were never broken.** I had probed `lgs.codexmill.com`; schools are `<slug>.schoolhub.codexmill.com`. `lgs.schoolhub.codexmill.com` resolves, serves the sign-in page, and answers 401 on the new sibling route while a nonsense path answers 404. No DNS change was needed or made. | Drive one scheduled announcement end to end on a school with no real parents — the send path past the atomic claim is still unexercised. Then the P1 test cases above, in a browser: nothing in 13.8 has been clicked. Then set `HOSTINGER_RESTART_COMMAND` and `PRODUCTION_URL` so deploys restart and verify themselves. |
