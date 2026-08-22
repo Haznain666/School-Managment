@@ -182,7 +182,21 @@ jobs:
       # answer rather than the random string Next would otherwise produce. Read
       # from a route handler, which cannot be prerendered or cached — the check
       # this replaces read a CDN-cached page and was therefore meaningless.
+      # Runs even when the purge failed, and that is the point.
+      #
+      # On 2026-08-22 the purge died on a 401 from Hostinger's API — an expired
+      # token, nothing to do with the deployment — and this step was skipped.
+      # So the run reported "failure" without ever answering the question the
+      # whole workflow exists to answer, and the one number a person actually
+      # wanted was the one thing missing from the log.
+      #
+      # The two are independent: which commit is serving requests is read from
+      # `/api/internal/build`, a route handler that is never cached and never
+      # touches the purge. A stale edge cannot make this answer wrong, only the
+      # prerendered pages around it. So it reports regardless, and the job still
+      # fails overall because the purge's own step already failed.
       - name: Confirm which commit is live
+        if: ${{ !cancelled() }}
         env:
           PRODUCTION_URL: ${{ secrets.PRODUCTION_URL }}
           EXPECTED: ${{ inputs.expected_sha }}
