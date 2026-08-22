@@ -108,3 +108,19 @@ export * from './ledger-accounts';
 export * from './ledger-entries';
 export * from './expenses';
 export * from './cash-settlements';
+
+// Sprint 14 — exam terms, per-grade datesheets, promotion criteria and the
+// judgement a term ends in. Dependency order again, and it is worth reading in
+// it: a term holds schedules, a schedule names the grades that sit it and the
+// papers they sit, and `student_term_results` is what the whole thing is for.
+//
+// `result-subcategories` comes first because three of the others reference it —
+// a descriptor is picked on a paper, named as the failing one in a grade's
+// criteria, and awarded overall on a term result.
+export * from './result-subcategories';
+export * from './school-exam-settings';
+export * from './exam-schedules';
+export * from './exam-schedule-grades';
+export * from './exam-schedule-subjects';
+export * from './grade-promotion-criteria';
+export * from './student-term-results';

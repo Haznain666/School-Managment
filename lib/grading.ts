@@ -90,6 +90,73 @@ export function resolveBand(
   return null;
 }
 
+/** The letter a school gives a mark that falls under every band it configured. */
+export const FAIL_GRADE_LABEL = 'U';
+
+/** What a school with no grading scheme at all prints in a grade column. */
+export const NO_GRADE_LABEL = '—';
+
+export interface ResolvedGrade {
+  /** The band's label, `U` on a fail, or a dash when nothing is configured. */
+  label: string;
+  isFail: boolean;
+  band: ResolvedBand | null;
+}
+
+/**
+ * A percentage as the letter a report card prints — fail included.
+ *
+ * ── Why this wraps `resolveBand` instead of changing it ──────────────────
+ * `resolveBand` returns null below every band and that is the right answer to
+ * the question it asks: "which of the school's own bands is this?" A school
+ * whose lowest band starts at 33 has said what it thinks of 20%, and inventing
+ * an F for it would be putting words in the school's mouth. Sprint 9's callers
+ * depend on that and keep it.
+ *
+ * But a *promotion* has to be decided one way or the other, and "no band" is
+ * not a decision. So this is the layer that turns the null into `U` — and only
+ * when the school has bands at all. With none configured, "this school does not
+ * grade" is still the honest answer and the dash survives.
+ */
+export function resolveGrade(
+  percentage: number,
+  bands: readonly ResolvedBand[],
+): ResolvedGrade {
+  if (bands.length === 0) {
+    return { label: NO_GRADE_LABEL, isFail: false, band: null };
+  }
+
+  const band = resolveBand(percentage, bands);
+  if (band === null) return { label: FAIL_GRADE_LABEL, isFail: true, band: null };
+
+  return { label: band.label, isFail: false, band };
+}
+
+/**
+ * The overall percentage: the ARITHMETIC MEAN of the subject percentages.
+ *
+ * Not total-obtained over total-available, which is what Sprint 9's report card
+ * computes and keeps computing. The product owner asked for the mean of the
+ * percentages, and the two differ whenever papers carry different maxima —
+ * which is normal, and is the point: a 20-mark Art paper should not count a
+ * fifth of what a 100-mark Mathematics paper counts towards whether a child
+ * moves up.
+ *
+ * Absent papers contribute no percentage and are simply not in the list the
+ * caller passes, matching the policy in `lib/exam-queries.ts` that an absence
+ * takes no position in class. Returns null for an empty list — a child with no
+ * marks at all has no overall percentage, and zero would read as one.
+ */
+export function overallPercentage(
+  subjectPercentages: readonly number[],
+): number | null {
+  const usable = subjectPercentages.filter((value) => Number.isFinite(value));
+  if (usable.length === 0) return null;
+
+  const total = usable.reduce((sum, value) => sum + value, 0);
+  return Math.round((total / usable.length) * 10) / 10;
+}
+
 /**
  * Bands highest first — the order they are shown and resolved in.
  *

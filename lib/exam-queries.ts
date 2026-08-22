@@ -1,39 +1,72 @@
 import 'server-only';
 
-import { and, asc, eq, gte, inArray, lte, sql, type SQL } from 'drizzle-orm';
+import {
+  and,
+  asc,
+  countDistinct,
+  desc,
+  eq,
+  gte,
+  inArray,
+  isNull,
+  lte,
+  ne,
+  sql,
+  type SQL,
+} from 'drizzle-orm';
 
 import {
   academicYears,
   attendanceRecords,
   ATTEMPT_ORIGINAL,
   ATTEMPT_RESIT,
+  DEFAULT_EXAM_SETTINGS,
   examResults,
+  examScheduleGrades,
+  examScheduleSubjects,
+  examSchedules,
   examSubjects,
   examTerms,
   exams,
   gradeLabel,
+  gradePromotionCriteria,
   gradingBands,
   gradingSchemes,
   grades,
+  resultSubcategories,
+  schoolExamSettings,
   schoolUsers,
   sections,
+  staff,
   studentEnrollments,
   studentProfiles,
+  studentTermResults,
   subjects,
   timetableEntries,
+  type PromotionMechanism,
+  type PromotionStatus,
   type ResitStatus,
   type ResultStatus,
 } from '@/db/schema';
 
-import { db } from './drizzle';
+import { academicYearBounds } from './academics-queries';
+import { db, type Database, type Tx } from './drizzle';
 import {
   assignPositions,
+  overallPercentage,
   percentageOf,
   resolveBand,
+  resolveGrade,
   sortBands,
   toMark,
   type ResolvedBand,
 } from './grading';
+import {
+  computeDescriptorPromotion,
+  computeMarksPromotion,
+  DEFAULT_CRITERIA,
+  type CriteriaRow,
+} from './promotion-criteria';
 
 /**
  * Tenant-scoped reads for the Exams module.
@@ -188,40 +221,139 @@ export interface ExamTermRow {
   name: string;
   academicYearId: string;
   academicYearName: string;
-  startDate: string;
-  endDate: string;
+  /** The optional envelope the school typed. Null = derived from schedules. */
+  startDate: string | null;
+  endDate: string | null;
+  /**
+   * The window everything actually uses: the term's own dates when it has
+   * them, otherwise the earliest start and latest end across its schedules,
+   * otherwise the academic year. Never null, so no caller has to invent one.
+   */
+  windowStart: string;
+  windowEnd: string;
+  sequenceOrder: number;
   gradingSchemeId: string | null;
   isPublished: boolean;
+  isArchived: boolean;
   examCount: number;
+  scheduleCount: number;
 }
 
+const TERM_SELECTION = {
+  id: examTerms.id,
+  name: examTerms.name,
+  academicYearId: examTerms.academicYearId,
+  academicYearName: academicYears.name,
+  startDate: examTerms.startDate,
+  endDate: examTerms.endDate,
+  sequenceOrder: examTerms.sequenceOrder,
+  gradingSchemeId: examTerms.gradingSchemeId,
+  isPublished: examTerms.isPublished,
+  archivedAt: examTerms.archivedAt,
+  yearStartMonth: academicYears.startMonth,
+  yearStartYear: academicYears.startYear,
+  yearEndMonth: academicYears.endMonth,
+  yearEndYear: academicYears.endYear,
+  scheduleStart: sql<string | null>`min(${examSchedules.startDate})`,
+  scheduleEnd: sql<string | null>`max(coalesce(${examSchedules.endDate}, ${examSchedules.startDate}))`,
+  examCount: countDistinct(exams.id),
+  scheduleCount: countDistinct(examSchedules.id),
+} as const;
+
+/**
+ * A term row, with the window resolved once so nothing downstream has to.
+ *
+ * Sprint 14 made the term's own dates optional — the authoritative ones moved
+ * to the schedules, where they can differ per grade. That leaves three possible
+ * answers to "when is this term", and the attendance summary on a report card
+ * needs exactly one of them. The order is: what the school typed, then what its
+ * schedules say, then the academic year. The last is a floor rather than a
+ * guess: a term with neither dates nor schedules has not been set up, and
+ * counting a year's attendance for it is the least wrong thing available.
+ */
+function toTermRow(row: {
+  id: string;
+  name: string;
+  academicYearId: string;
+  academicYearName: string;
+  startDate: string | null;
+  endDate: string | null;
+  sequenceOrder: number;
+  gradingSchemeId: string | null;
+  isPublished: boolean;
+  archivedAt: Date | null;
+  yearStartMonth: number;
+  yearStartYear: number;
+  yearEndMonth: number;
+  yearEndYear: number;
+  scheduleStart: string | null;
+  scheduleEnd: string | null;
+  examCount: number;
+  scheduleCount: number;
+}): ExamTermRow {
+  const bounds = academicYearBounds({
+    startMonth: row.yearStartMonth,
+    startYear: row.yearStartYear,
+    endMonth: row.yearEndMonth,
+    endYear: row.yearEndYear,
+  });
+
+  return {
+    id: row.id,
+    name: row.name,
+    academicYearId: row.academicYearId,
+    academicYearName: row.academicYearName,
+    startDate: row.startDate,
+    endDate: row.endDate,
+    windowStart: row.startDate ?? row.scheduleStart ?? bounds.start,
+    windowEnd: row.endDate ?? row.scheduleEnd ?? bounds.end,
+    sequenceOrder: row.sequenceOrder,
+    gradingSchemeId: row.gradingSchemeId,
+    isPublished: row.isPublished,
+    isArchived: row.archivedAt !== null,
+    examCount: row.examCount,
+    scheduleCount: row.scheduleCount,
+  };
+}
+
+/**
+ * The terms of a year, in the order the school reads them.
+ *
+ * `sequence_order` and not the start date, because the dates are optional now
+ * and a list that reordered itself the moment somebody blanked one would be a
+ * list nobody trusts. Archived terms are excluded unless asked for: archiving
+ * is what "Delete" does, and a deleted term reappearing in a picker is the
+ * whole reason schools distrust soft deletion.
+ */
 export async function listExamTerms(
   locationId: string,
-  filters: { academicYearId?: string | undefined } = {},
+  filters: {
+    academicYearId?: string | undefined;
+    includeArchived?: boolean | undefined;
+  } = {},
 ): Promise<ExamTermRow[]> {
   const conditions: SQL[] = [eq(examTerms.locationId, locationId)];
   if (filters.academicYearId !== undefined && filters.academicYearId !== '') {
     conditions.push(eq(examTerms.academicYearId, filters.academicYearId));
   }
+  if (filters.includeArchived !== true) {
+    conditions.push(isNull(examTerms.archivedAt));
+  }
 
-  return db
-    .select({
-      id: examTerms.id,
-      name: examTerms.name,
-      academicYearId: examTerms.academicYearId,
-      academicYearName: academicYears.name,
-      startDate: examTerms.startDate,
-      endDate: examTerms.endDate,
-      gradingSchemeId: examTerms.gradingSchemeId,
-      isPublished: examTerms.isPublished,
-      examCount: sql<number>`count(${exams.id})`.mapWith(Number),
-    })
+  const rows = await db
+    .select(TERM_SELECTION)
     .from(examTerms)
     .innerJoin(academicYears, eq(academicYears.id, examTerms.academicYearId))
-    .leftJoin(exams, eq(exams.termId, examTerms.id))
+    .leftJoin(exams, and(eq(exams.termId, examTerms.id), isNull(exams.archivedAt)))
+    .leftJoin(
+      examSchedules,
+      and(eq(examSchedules.termId, examTerms.id), isNull(examSchedules.archivedAt)),
+    )
     .where(and(...conditions))
-    .groupBy(examTerms.id, academicYears.name)
-    .orderBy(asc(examTerms.startDate));
+    .groupBy(examTerms.id, academicYears.id)
+    .orderBy(asc(examTerms.sequenceOrder), asc(examTerms.name));
+
+  return rows.map(toTermRow);
 }
 
 export async function getExamTerm(
@@ -229,23 +361,20 @@ export async function getExamTerm(
   termId: string,
 ): Promise<ExamTermRow | null> {
   const rows = await db
-    .select({
-      id: examTerms.id,
-      name: examTerms.name,
-      academicYearId: examTerms.academicYearId,
-      academicYearName: academicYears.name,
-      startDate: examTerms.startDate,
-      endDate: examTerms.endDate,
-      gradingSchemeId: examTerms.gradingSchemeId,
-      isPublished: examTerms.isPublished,
-      examCount: sql<number>`0`.mapWith(Number),
-    })
+    .select(TERM_SELECTION)
     .from(examTerms)
     .innerJoin(academicYears, eq(academicYears.id, examTerms.academicYearId))
+    .leftJoin(exams, and(eq(exams.termId, examTerms.id), isNull(exams.archivedAt)))
+    .leftJoin(
+      examSchedules,
+      and(eq(examSchedules.termId, examTerms.id), isNull(examSchedules.archivedAt)),
+    )
     .where(and(eq(examTerms.locationId, locationId), eq(examTerms.id, termId)))
+    .groupBy(examTerms.id, academicYears.id)
     .limit(1);
 
-  return rows[0] ?? null;
+  const row = rows[0];
+  return row === undefined ? null : toTermRow(row);
 }
 
 // -----------------------------------------------------------------------------
@@ -790,9 +919,17 @@ export async function getTabulation(
 // Report cards
 // -----------------------------------------------------------------------------
 
+/** A descriptor as a report card needs it: the label, and the colour to paint. */
+export interface ReportCardSubcategory {
+  id: string;
+  label: string;
+  colorHex: string | null;
+}
+
 export interface ReportCardSubject {
   subjectName: string;
   examTitle: string;
+  /** Zero in descriptor mode. There is nothing for a descriptor to be out of. */
   maxMarks: number;
   passingMarks: number;
   marks: number | null;
@@ -801,6 +938,10 @@ export interface ReportCardSubject {
   isFail: boolean;
   percentage: number | null;
   grade: string | null;
+  /** Descriptor mode: the performance descriptor this subject earned. */
+  subcategory: ReportCardSubcategory | null;
+  /** The subject-wise comment, in both mechanisms. `exam_results.remarks`. */
+  comment: string | null;
 }
 
 export interface ReportCardAttendance {
@@ -812,6 +953,24 @@ export interface ReportCardAttendance {
   percentage: number;
 }
 
+/**
+ * The promotion decision printed on a card, when one has been computed.
+ *
+ * Null means nobody has run the term's results yet — which is not the same as
+ * "not promoted", and the card says nothing rather than guessing. The override
+ * reason is on the card deliberately: the product owner asked for the reason a
+ * status was changed to be visible to every relevant party *including parents*,
+ * and a report card is the document a parent actually keeps.
+ */
+export interface ReportCardPromotion {
+  mechanism: PromotionMechanism;
+  computedStatus: PromotionStatus;
+  finalStatus: PromotionStatus;
+  isOverridden: boolean;
+  overrideReason: string | null;
+  overriddenAt: string | null;
+}
+
 export interface ReportCard {
   student: RosterStudent;
   termName: string;
@@ -821,6 +980,10 @@ export interface ReportCard {
   endDate: string;
   gradeName: string;
   sectionName: string;
+  /** Which sheet this is. Frozen on the term result when one exists. */
+  mechanism: PromotionMechanism;
+  /** Whether descriptors are painted. Read at render time, never stored. */
+  colorCodingEnabled: boolean;
   subjects: ReportCardSubject[];
   obtained: number;
   available: number;
@@ -828,6 +991,13 @@ export interface ReportCard {
   grade: string | null;
   gpa: number | null;
   remark: string | null;
+  /** The mean of the subject percentages — what promotion is judged on. */
+  meanPercentage: number | null;
+  /** The mean as a letter, `U` on a fail. Null in descriptor mode. */
+  overallGradeLabel: string | null;
+  /** Descriptor mode: the class teacher's overall judgement. */
+  overallSubcategory: ReportCardSubcategory | null;
+  promotion: ReportCardPromotion | null;
   position: number | null;
   classSize: number;
   absentCount: number;
@@ -846,6 +1016,15 @@ export interface ReportCard {
  * Only published papers appear. An unpublished term is still renderable — the
  * print page marks it a preview — because the person checking a term before
  * publishing it needs to see exactly what a parent will get.
+ *
+ * ── Two sheets, decided per grade ────────────────────────────────────────
+ * `marks_grades` fills the marks columns and leaves every descriptor null;
+ * `descriptors` does the exact opposite and reports zero marks available, so
+ * no percentage, no letter grade and no position appears anywhere on the card.
+ * The mechanism comes from the frozen `student_term_results.mechanism` where
+ * the term has been computed, and from the grade's current criteria where it
+ * has not — so a card issued under descriptors keeps rendering as one after
+ * the school switches the class to marks next year.
  */
 export async function getSectionReportCards(
   locationId: string,
@@ -859,6 +1038,7 @@ export async function getSectionReportCards(
     .select({
       sectionName: sections.name,
       academicYearId: sections.academicYearId,
+      gradeId: sections.gradeId,
       gradeName: grades.name,
       gradeDisplayName: grades.displayName,
     })
@@ -888,16 +1068,28 @@ export async function getSectionReportCards(
         eq(examSubjects.locationId, locationId),
         eq(exams.termId, termId),
         eq(exams.sectionId, sectionId),
+        isNull(examSubjects.archivedAt),
         // A report card only ever reads published papers.
         eq(examSubjects.resultsStatus, 'published'),
       ),
     )
     .orderBy(asc(exams.examDate), asc(examSubjects.orderIndex), asc(subjects.name));
 
-  const [roster, bands] = await Promise.all([
+  const [roster, bands, criteria, subcategories, settings, stored] = await Promise.all([
     listSectionRoster(locationId, sectionId, section.academicYearId),
     bandsForTerm(locationId, termId),
+    resolveGradeCriteria(locationId, section.academicYearId, section.gradeId),
+    listResultSubcategories(locationId, { includeArchived: true }),
+    getExamSettings(locationId),
+    listSectionTermResultRows(locationId, termId, sectionId),
   ]);
+
+  const subcategoryById = new Map(
+    subcategories.map((entry) => [entry.id, entry] as const),
+  );
+  const storedByStudent = new Map(
+    stored.map((row) => [row.studentProfileId, row] as const),
+  );
 
   const paperIds = papers.map((paper) => paper.id);
 
@@ -911,6 +1103,8 @@ export async function getSectionReportCards(
             attempt: examResults.attempt,
             marksObtained: examResults.marksObtained,
             isAbsent: examResults.isAbsent,
+            subcategoryId: examResults.subcategoryId,
+            remarks: examResults.remarks,
           })
           .from(examResults)
           .where(
@@ -919,17 +1113,46 @@ export async function getSectionReportCards(
               inArray(examResults.examSubjectId, paperIds),
             ),
           ),
-    getTermAttendance(locationId, sectionId, term.startDate, term.endDate),
+    // The resolved window, not the term's own columns — those are optional
+    // from Sprint 14 on, and a null here would count no attendance at all and
+    // print 0% on every card in the class without saying why.
+    getTermAttendance(locationId, sectionId, term.windowStart, term.windowEnd),
   ]);
 
   const pick = resultPicker(results);
 
   const cards: ReportCard[] = roster.map((student) => {
+    const record = storedByStudent.get(student.studentProfileId);
+    // Frozen where it exists, current where it does not. See the docblock.
+    const mechanism: PromotionMechanism = record?.mechanism ?? criteria.mechanism;
+    const isDescriptors = mechanism === 'descriptors';
+
     const subjectRows: ReportCardSubject[] = papers.map((paper) => {
+      const candidate = pick(paper, student.studentProfileId);
+      const comment = candidate?.remarks ?? null;
+      const descriptorId = candidate?.subcategoryId ?? null;
+
+      if (isDescriptors) {
+        return {
+          subjectName: paper.subjectName,
+          examTitle: paper.examTitle,
+          maxMarks: 0,
+          passingMarks: 0,
+          marks: null,
+          isAbsent: candidate?.isAbsent ?? false,
+          isResit: false,
+          isFail:
+            descriptorId !== null && descriptorId === criteria.failingSubcategoryId,
+          percentage: null,
+          grade: null,
+          subcategory:
+            descriptorId === null ? null : (subcategoryById.get(descriptorId) ?? null),
+          comment,
+        };
+      }
+
       const maxMarks = toMark(paper.maxMarks) ?? 0;
       const passingMarks = toMark(paper.passingMarks) ?? 0;
-
-      const candidate = pick(paper, student.studentProfileId);
       const marks = toMark(candidate?.marksObtained);
       const percentage = marks === null ? null : percentageOf(marks, maxMarks);
 
@@ -945,6 +1168,8 @@ export async function getSectionReportCards(
         percentage,
         grade:
           percentage === null ? null : (resolveBand(percentage, bands)?.label ?? null),
+        subcategory: null,
+        comment,
       };
     });
 
@@ -953,18 +1178,31 @@ export async function getSectionReportCards(
     const percentage = percentageOf(obtained, available);
     const band = resolveBand(percentage, bands);
 
+    // The arithmetic mean of the subject percentages, which is what promotion
+    // is judged on and is deliberately not the same number as `percentage`
+    // above — see `overallPercentage` in lib/grading.ts.
+    const mean = isDescriptors
+      ? null
+      : overallPercentage(
+          subjectRows.flatMap((row) => (row.percentage === null ? [] : [row.percentage])),
+        );
+
+    const overallDescriptorId = record?.overallSubcategoryId ?? null;
+
     return {
       student,
       termName: term.name,
       termIsPublished: term.isPublished,
       academicYearName: term.academicYearName,
-      startDate: term.startDate,
-      endDate: term.endDate,
+      startDate: term.windowStart,
+      endDate: term.windowEnd,
       gradeName: gradeLabel({
         name: section.gradeName,
         displayName: section.gradeDisplayName,
       }),
       sectionName: section.sectionName,
+      mechanism,
+      colorCodingEnabled: settings.colorCodingEnabled,
       subjects: subjectRows,
       obtained,
       available,
@@ -972,6 +1210,24 @@ export async function getSectionReportCards(
       grade: band?.label ?? null,
       gpa: band?.gpa ?? null,
       remark: band?.remark ?? null,
+      meanPercentage: mean,
+      overallGradeLabel:
+        isDescriptors || mean === null ? null : resolveGrade(mean, bands).label,
+      overallSubcategory:
+        overallDescriptorId === null
+          ? null
+          : (subcategoryById.get(overallDescriptorId) ?? null),
+      promotion:
+        record === undefined
+          ? null
+          : {
+              mechanism: record.mechanism,
+              computedStatus: record.computedStatus,
+              finalStatus: record.finalStatus,
+              isOverridden: record.finalStatus !== record.computedStatus,
+              overrideReason: record.overrideReason,
+              overriddenAt: record.overriddenAt?.toISOString() ?? null,
+            },
       position: null,
       classSize: roster.length,
       absentCount: subjectRows.filter((row) => row.isAbsent).length,
@@ -982,6 +1238,10 @@ export async function getSectionReportCards(
     };
   });
 
+  // `available === 0` is every descriptor card, so a descriptor class takes no
+  // positions at all. That is the intent, not a side effect: ranking children
+  // whose results are words would mean ordering the words, and no school has
+  // asked this product to decide that "Exceeding" beats "Satisfactory" by one.
   const positions = assignPositions(cards, (card) =>
     card.absentCount > 0 || card.available === 0 ? null : card.obtained,
   );
@@ -1199,4 +1459,1108 @@ export async function teacherOwnsPaper(
     .limit(1);
 
   return rows[0] !== undefined;
+}
+
+// -----------------------------------------------------------------------------
+// Sprint 14 — sub-categories, settings, criteria
+// -----------------------------------------------------------------------------
+
+export interface ResultSubcategoryRow {
+  id: string;
+  label: string;
+  colorHex: string | null;
+  sortOrder: number;
+  isArchived: boolean;
+}
+
+/**
+ * A school's performance descriptors, best first.
+ *
+ * `includeArchived` exists for exactly one caller shape: anything *rendering a
+ * result that has already been issued*. An archived descriptor still has to
+ * draw on the report card it was awarded on — hiding it would empty a column on
+ * a document a parent is holding. Pickers take the default and offer only what
+ * is current.
+ */
+export async function listResultSubcategories(
+  locationId: string,
+  options: { includeArchived?: boolean | undefined } = {},
+): Promise<ResultSubcategoryRow[]> {
+  const conditions: SQL[] = [eq(resultSubcategories.locationId, locationId)];
+  if (options.includeArchived !== true) {
+    conditions.push(isNull(resultSubcategories.archivedAt));
+  }
+
+  const rows = await db
+    .select({
+      id: resultSubcategories.id,
+      label: resultSubcategories.label,
+      colorHex: resultSubcategories.colorHex,
+      sortOrder: resultSubcategories.sortOrder,
+      archivedAt: resultSubcategories.archivedAt,
+    })
+    .from(resultSubcategories)
+    .where(and(...conditions))
+    .orderBy(asc(resultSubcategories.sortOrder), asc(resultSubcategories.label));
+
+  return rows.map((row) => ({
+    id: row.id,
+    label: row.label,
+    colorHex: row.colorHex,
+    sortOrder: row.sortOrder,
+    isArchived: row.archivedAt !== null,
+  }));
+}
+
+/**
+ * How many issued results a sub-category appears on.
+ *
+ * The number that goes in the sentence when a school tries to delete one. A
+ * warning that says "this is in use" and nothing else is a warning nobody can
+ * act on; "used on 412 subject results and 38 term results" is a decision.
+ */
+export async function subcategoryUsage(
+  locationId: string,
+  subcategoryId: string,
+): Promise<{ subjectResults: number; termResults: number }> {
+  const [subjectRows, termRows] = await Promise.all([
+    db
+      .select({ value: countDistinct(examResults.id) })
+      .from(examResults)
+      .where(
+        and(
+          eq(examResults.locationId, locationId),
+          eq(examResults.subcategoryId, subcategoryId),
+        ),
+      ),
+    db
+      .select({ value: countDistinct(studentTermResults.id) })
+      .from(studentTermResults)
+      .where(
+        and(
+          eq(studentTermResults.locationId, locationId),
+          eq(studentTermResults.overallSubcategoryId, subcategoryId),
+        ),
+      ),
+  ]);
+
+  return {
+    subjectResults: subjectRows[0]?.value ?? 0,
+    termResults: termRows[0]?.value ?? 0,
+  };
+}
+
+export interface ExamSettings {
+  colorCodingEnabled: boolean;
+  teachersCanViewLegacyResults: boolean;
+}
+
+/**
+ * The school's two exam-wide switches, defaulted.
+ *
+ * A missing row is the ordinary case — nothing creates one at provisioning —
+ * so this never joins and never assumes. `DEFAULT_EXAM_SETTINGS` lives beside
+ * the column defaults in the schema file so the two cannot drift.
+ */
+export async function getExamSettings(locationId: string): Promise<ExamSettings> {
+  const rows = await db
+    .select({
+      colorCodingEnabled: schoolExamSettings.colorCodingEnabled,
+      teachersCanViewLegacyResults: schoolExamSettings.teachersCanViewLegacyResults,
+    })
+    .from(schoolExamSettings)
+    .where(eq(schoolExamSettings.locationId, locationId))
+    .limit(1);
+
+  return rows[0] ?? { ...DEFAULT_EXAM_SETTINGS };
+}
+
+/** A criteria row with its grade attached, for the criteria screen. */
+export interface GradeCriteriaRow extends CriteriaRow {
+  gradeId: string;
+  gradeName: string;
+  /** False when this grade has no row and is running on `DEFAULT_CRITERIA`. */
+  isConfigured: boolean;
+}
+
+function toCriteriaRow(row: {
+  mechanism: PromotionMechanism;
+  gradingSchemeId: string | null;
+  minOverallPercentage: string | null;
+  maxFailedSubjects: number | null;
+  failingSubcategoryId: string | null;
+  maxFailingSubjects: number | null;
+  minAttendancePercentage: string | null;
+}): CriteriaRow {
+  return {
+    mechanism: row.mechanism,
+    gradingSchemeId: row.gradingSchemeId,
+    minOverallPercentage: toMark(row.minOverallPercentage),
+    maxFailedSubjects: row.maxFailedSubjects,
+    failingSubcategoryId: row.failingSubcategoryId,
+    maxFailingSubjects: row.maxFailingSubjects,
+    minAttendancePercentage: toMark(row.minAttendancePercentage),
+  };
+}
+
+const CRITERIA_SELECTION = {
+  mechanism: gradePromotionCriteria.mechanism,
+  gradingSchemeId: gradePromotionCriteria.gradingSchemeId,
+  minOverallPercentage: gradePromotionCriteria.minOverallPercentage,
+  maxFailedSubjects: gradePromotionCriteria.maxFailedSubjects,
+  failingSubcategoryId: gradePromotionCriteria.failingSubcategoryId,
+  maxFailingSubjects: gradePromotionCriteria.maxFailingSubjects,
+  minAttendancePercentage: gradePromotionCriteria.minAttendancePercentage,
+} as const;
+
+/**
+ * How one grade is judged this year — its row, or the default.
+ *
+ * Never null. A grade with no row is not misconfigured: it falls back to
+ * `DEFAULT_CRITERIA`, which is marks and grades with no thresholds, which is
+ * exactly how the product behaved before this table existed.
+ */
+export async function resolveGradeCriteria(
+  locationId: string,
+  academicYearId: string,
+  gradeId: string,
+): Promise<CriteriaRow> {
+  const rows = await db
+    .select(CRITERIA_SELECTION)
+    .from(gradePromotionCriteria)
+    .where(
+      and(
+        eq(gradePromotionCriteria.locationId, locationId),
+        eq(gradePromotionCriteria.academicYearId, academicYearId),
+        eq(gradePromotionCriteria.gradeId, gradeId),
+      ),
+    )
+    .limit(1);
+
+  const row = rows[0];
+  return row === undefined ? { ...DEFAULT_CRITERIA } : toCriteriaRow(row);
+}
+
+/** Every grade of a year with the criteria it is judged by. Drives the screen. */
+export async function listGradeCriteria(
+  locationId: string,
+  academicYearId: string,
+): Promise<GradeCriteriaRow[]> {
+  const rows = await db
+    .select({
+      gradeId: grades.id,
+      gradeName: grades.name,
+      gradeDisplayName: grades.displayName,
+      sortOrder: grades.sortOrder,
+      criteriaId: gradePromotionCriteria.id,
+      ...CRITERIA_SELECTION,
+    })
+    .from(grades)
+    .leftJoin(
+      gradePromotionCriteria,
+      and(
+        eq(gradePromotionCriteria.gradeId, grades.id),
+        eq(gradePromotionCriteria.locationId, locationId),
+        eq(gradePromotionCriteria.academicYearId, academicYearId),
+      ),
+    )
+    .where(and(eq(grades.locationId, locationId), eq(grades.isActive, true)))
+    .orderBy(asc(grades.sortOrder), asc(grades.name));
+
+  return rows.map((row) => {
+    const configured = row.criteriaId !== null && row.mechanism !== null;
+
+    const criteria = configured
+      ? toCriteriaRow({
+          mechanism: row.mechanism as PromotionMechanism,
+          gradingSchemeId: row.gradingSchemeId,
+          minOverallPercentage: row.minOverallPercentage,
+          maxFailedSubjects: row.maxFailedSubjects,
+          failingSubcategoryId: row.failingSubcategoryId,
+          maxFailingSubjects: row.maxFailingSubjects,
+          minAttendancePercentage: row.minAttendancePercentage,
+        })
+      : { ...DEFAULT_CRITERIA };
+
+    return {
+      ...criteria,
+      gradeId: row.gradeId,
+      gradeName: gradeLabel({ name: row.gradeName, displayName: row.gradeDisplayName }),
+      isConfigured: configured,
+    };
+  });
+}
+
+/**
+ * The bands a grade's results are lettered against.
+ *
+ * The criteria row names a scheme; where it does not, the school's default
+ * applies — the same resolution `bandsForTerm` performs for a term, and
+ * deliberately so. A grade and its term disagreeing about what 79% is called
+ * would put two different letters on one child's paperwork.
+ */
+export async function bandsForCriteria(
+  locationId: string,
+  criteria: CriteriaRow,
+): Promise<GradingBandRow[]> {
+  const schemes = await listGradingSchemes(locationId);
+
+  const scheme =
+    (criteria.gradingSchemeId === null
+      ? undefined
+      : schemes.find((candidate) => candidate.id === criteria.gradingSchemeId)) ??
+    schemes.find((candidate) => candidate.isDefault && candidate.isActive);
+
+  return scheme?.bands ?? [];
+}
+
+// -----------------------------------------------------------------------------
+// Sprint 14 — schedules
+// -----------------------------------------------------------------------------
+
+export interface ExamScheduleSubjectRow {
+  id: string;
+  subjectId: string;
+  subjectName: string;
+  subjectCode: string | null;
+  examDate: string;
+  startTime: string | null;
+  durationMinutes: number | null;
+  maxMarks: number | null;
+  passingMarks: number | null;
+  orderIndex: number;
+}
+
+export interface ExamScheduleRow {
+  id: string;
+  termId: string;
+  name: string;
+  startDate: string;
+  endDate: string | null;
+  gradeIds: string[];
+  gradeNames: string[];
+  subjects: ExamScheduleSubjectRow[];
+  /** Papers already generated from this schedule, across every section. */
+  generatedPaperCount: number;
+}
+
+/**
+ * A term's datesheets, with their grades and their papers.
+ *
+ * Three queries and a join in Node rather than one query with two left joins:
+ * a schedule with four grades and eight subjects would come back as
+ * thirty-two rows, and every consumer would have to de-duplicate it. The
+ * counts here are small enough that the round trips are cheaper than the
+ * cartesian product.
+ */
+export async function listExamSchedules(
+  locationId: string,
+  termId: string,
+): Promise<ExamScheduleRow[]> {
+  const scheduleRows = await db
+    .select({
+      id: examSchedules.id,
+      termId: examSchedules.termId,
+      name: examSchedules.name,
+      startDate: examSchedules.startDate,
+      endDate: examSchedules.endDate,
+    })
+    .from(examSchedules)
+    .where(
+      and(
+        eq(examSchedules.locationId, locationId),
+        eq(examSchedules.termId, termId),
+        isNull(examSchedules.archivedAt),
+      ),
+    )
+    .orderBy(asc(examSchedules.startDate), asc(examSchedules.name));
+
+  if (scheduleRows.length === 0) return [];
+
+  const scheduleIds = scheduleRows.map((row) => row.id);
+
+  const [gradeRows, subjectRows, paperRows] = await Promise.all([
+    db
+      .select({
+        scheduleId: examScheduleGrades.scheduleId,
+        gradeId: grades.id,
+        gradeName: grades.name,
+        gradeDisplayName: grades.displayName,
+        sortOrder: grades.sortOrder,
+      })
+      .from(examScheduleGrades)
+      .innerJoin(grades, eq(grades.id, examScheduleGrades.gradeId))
+      .where(
+        and(
+          eq(examScheduleGrades.locationId, locationId),
+          inArray(examScheduleGrades.scheduleId, scheduleIds),
+          isNull(examScheduleGrades.archivedAt),
+        ),
+      )
+      .orderBy(asc(grades.sortOrder)),
+    db
+      .select({
+        id: examScheduleSubjects.id,
+        scheduleId: examScheduleSubjects.scheduleId,
+        subjectId: subjects.id,
+        subjectName: subjects.name,
+        subjectCode: subjects.code,
+        examDate: examScheduleSubjects.examDate,
+        startTime: examScheduleSubjects.startTime,
+        durationMinutes: examScheduleSubjects.durationMinutes,
+        maxMarks: examScheduleSubjects.maxMarks,
+        passingMarks: examScheduleSubjects.passingMarks,
+        orderIndex: examScheduleSubjects.orderIndex,
+      })
+      .from(examScheduleSubjects)
+      .innerJoin(subjects, eq(subjects.id, examScheduleSubjects.subjectId))
+      .where(
+        and(
+          eq(examScheduleSubjects.locationId, locationId),
+          inArray(examScheduleSubjects.scheduleId, scheduleIds),
+          isNull(examScheduleSubjects.archivedAt),
+        ),
+      )
+      .orderBy(
+        asc(examScheduleSubjects.examDate),
+        asc(examScheduleSubjects.orderIndex),
+        asc(subjects.name),
+      ),
+    db
+      .select({
+        scheduleId: exams.scheduleId,
+        papers: countDistinct(examSubjects.id),
+      })
+      .from(exams)
+      .innerJoin(examSubjects, eq(examSubjects.examId, exams.id))
+      .where(
+        and(
+          eq(exams.locationId, locationId),
+          inArray(exams.scheduleId, scheduleIds),
+          isNull(examSubjects.archivedAt),
+        ),
+      )
+      .groupBy(exams.scheduleId),
+  ]);
+
+  const papersBySchedule = new Map(
+    paperRows.flatMap((row) =>
+      row.scheduleId === null ? [] : [[row.scheduleId, row.papers] as const],
+    ),
+  );
+
+  return scheduleRows.map((schedule) => {
+    const mine = gradeRows.filter((row) => row.scheduleId === schedule.id);
+
+    return {
+      ...schedule,
+      gradeIds: mine.map((row) => row.gradeId),
+      gradeNames: mine.map((row) =>
+        gradeLabel({ name: row.gradeName, displayName: row.gradeDisplayName }),
+      ),
+      subjects: subjectRows
+        .filter((row) => row.scheduleId === schedule.id)
+        .map((row) => ({
+          id: row.id,
+          subjectId: row.subjectId,
+          subjectName: row.subjectName,
+          subjectCode: row.subjectCode,
+          examDate: row.examDate,
+          startTime: row.startTime,
+          durationMinutes: row.durationMinutes,
+          maxMarks: toMark(row.maxMarks),
+          passingMarks: toMark(row.passingMarks),
+          orderIndex: row.orderIndex,
+        })),
+      generatedPaperCount: papersBySchedule.get(schedule.id) ?? 0,
+    };
+  });
+}
+
+/** One schedule, resolved the same way as the list. Null when archived or foreign. */
+export async function getExamSchedule(
+  locationId: string,
+  scheduleId: string,
+): Promise<ExamScheduleRow | null> {
+  const rows = await db
+    .select({ termId: examSchedules.termId })
+    .from(examSchedules)
+    .where(
+      and(
+        eq(examSchedules.locationId, locationId),
+        eq(examSchedules.id, scheduleId),
+        isNull(examSchedules.archivedAt),
+      ),
+    )
+    .limit(1);
+
+  const term = rows[0];
+  if (term === undefined) return null;
+
+  const schedules = await listExamSchedules(locationId, term.termId);
+  return schedules.find((schedule) => schedule.id === scheduleId) ?? null;
+}
+
+/**
+ * Which grades are already spoken for in a term, and by which schedule.
+ *
+ * The route calls this before saving so the clerk gets "Class 4 already sits
+ * the Junior schedule" instead of a unique-constraint violation rendered as a
+ * 500. `exceptScheduleId` is the schedule being edited — its own grades are not
+ * a conflict with itself.
+ */
+export async function gradesTakenInTerm(
+  locationId: string,
+  termId: string,
+  exceptScheduleId?: string,
+): Promise<Map<string, { scheduleId: string; scheduleName: string }>> {
+  const conditions: SQL[] = [
+    eq(examScheduleGrades.locationId, locationId),
+    eq(examScheduleGrades.termId, termId),
+    isNull(examScheduleGrades.archivedAt),
+  ];
+  if (exceptScheduleId !== undefined) {
+    conditions.push(ne(examScheduleGrades.scheduleId, exceptScheduleId));
+  }
+
+  const rows = await db
+    .select({
+      gradeId: examScheduleGrades.gradeId,
+      scheduleId: examSchedules.id,
+      scheduleName: examSchedules.name,
+    })
+    .from(examScheduleGrades)
+    .innerJoin(examSchedules, eq(examSchedules.id, examScheduleGrades.scheduleId))
+    .where(and(...conditions, isNull(examSchedules.archivedAt)));
+
+  return new Map(
+    rows.map((row) => [
+      row.gradeId,
+      { scheduleId: row.scheduleId, scheduleName: row.scheduleName },
+    ]),
+  );
+}
+
+// -----------------------------------------------------------------------------
+// Sprint 14 — class teachers
+// -----------------------------------------------------------------------------
+
+/** A section this member of staff is the class teacher of. */
+export interface ClassTeacherSection {
+  sectionId: string;
+  sectionName: string;
+  gradeId: string;
+  gradeName: string;
+  academicYearId: string;
+  academicYearName: string;
+}
+
+/**
+ * Whether this member of staff owns that class.
+ *
+ * The authority behind every promotion override a teacher may make. It is a
+ * per-section question and not a role question, which is why
+ * `results.promotion` is deliberately not granted to `teacher`: a role key
+ * would hand every teacher in the school every class in it.
+ */
+export async function isClassTeacherOfSection(
+  locationId: string,
+  staffId: string,
+  sectionId: string,
+): Promise<boolean> {
+  const rows = await db
+    .select({ id: sections.id })
+    .from(sections)
+    .where(
+      and(
+        eq(sections.locationId, locationId),
+        eq(sections.id, sectionId),
+        eq(sections.classTeacherId, staffId),
+      ),
+    )
+    .limit(1);
+
+  return rows[0] !== undefined;
+}
+
+/** Every class this member of staff is the class teacher of, newest year first. */
+export async function listClassTeacherSections(
+  locationId: string,
+  staffId: string,
+): Promise<ClassTeacherSection[]> {
+  return db
+    .select({
+      sectionId: sections.id,
+      sectionName: sections.name,
+      gradeId: grades.id,
+      gradeName: sql<string>`coalesce(${grades.displayName}, ${grades.name})`,
+      academicYearId: academicYears.id,
+      academicYearName: academicYears.name,
+    })
+    .from(sections)
+    .innerJoin(grades, eq(grades.id, sections.gradeId))
+    .innerJoin(academicYears, eq(academicYears.id, sections.academicYearId))
+    .where(
+      and(
+        eq(sections.locationId, locationId),
+        eq(sections.classTeacherId, staffId),
+        eq(sections.isActive, true),
+      ),
+    )
+    .orderBy(
+      desc(academicYears.startYear),
+      asc(grades.sortOrder),
+      asc(sections.name),
+    );
+}
+
+/** Staff who may be offered in a section's class-teacher picker. */
+export async function listClassTeacherCandidates(
+  locationId: string,
+  branchId: string | null,
+): Promise<Array<{ id: string; name: string; designation: string | null }>> {
+  const conditions: SQL[] = [
+    eq(staff.locationId, locationId),
+    eq(staff.isClassTeacher, true),
+    eq(staff.status, 'active'),
+  ];
+  if (branchId !== null) conditions.push(eq(staff.branchId, branchId));
+
+  return db
+    .select({
+      id: staff.id,
+      name: sql<string>`${staff.firstName} || ' ' || ${staff.lastName}`,
+      designation: staff.designation,
+    })
+    .from(staff)
+    .where(and(...conditions))
+    .orderBy(asc(staff.firstName), asc(staff.lastName));
+}
+
+// -----------------------------------------------------------------------------
+// Sprint 14 — the term result
+// -----------------------------------------------------------------------------
+
+interface StoredTermResultRow {
+  studentProfileId: string;
+  mechanism: PromotionMechanism;
+  overallPercentage: string | null;
+  overallGradeLabel: string | null;
+  overallSubcategoryId: string | null;
+  computedStatus: PromotionStatus;
+  finalStatus: PromotionStatus;
+  overrideReason: string | null;
+  overriddenAt: Date | null;
+}
+
+/** The stored judgements for one class in one term. Used by the card and the sheet. */
+export async function listSectionTermResultRows(
+  locationId: string,
+  termId: string,
+  sectionId: string,
+): Promise<StoredTermResultRow[]> {
+  return db
+    .select({
+      studentProfileId: studentTermResults.studentProfileId,
+      mechanism: studentTermResults.mechanism,
+      overallPercentage: studentTermResults.overallPercentage,
+      overallGradeLabel: studentTermResults.overallGradeLabel,
+      overallSubcategoryId: studentTermResults.overallSubcategoryId,
+      computedStatus: studentTermResults.computedStatus,
+      finalStatus: studentTermResults.finalStatus,
+      overrideReason: studentTermResults.overrideReason,
+      overriddenAt: studentTermResults.overriddenAt,
+    })
+    .from(studentTermResults)
+    .where(
+      and(
+        eq(studentTermResults.locationId, locationId),
+        eq(studentTermResults.termId, termId),
+        eq(studentTermResults.sectionId, sectionId),
+      ),
+    );
+}
+
+/** One student's line on the class teacher's promotion screen. */
+export interface SectionTermStudent {
+  student: RosterStudent;
+  subjects: ReportCardSubject[];
+  meanPercentage: number | null;
+  overallGradeLabel: string | null;
+  overallSubcategoryId: string | null;
+  attendancePercentage: number | null;
+  failedSubjectCount: number;
+  /** The rules' answer, recomputed on every read so it is never stale. */
+  computedStatus: PromotionStatus;
+  reasons: string[];
+  /** The school's answer. Equal to `computedStatus` until somebody overrides. */
+  finalStatus: PromotionStatus;
+  overrideReason: string | null;
+  overriddenAt: string | null;
+  isOverridden: boolean;
+  /** False until the term has been computed for this child at least once. */
+  hasRecord: boolean;
+}
+
+export interface SectionTermResults {
+  term: ExamTermRow;
+  sectionId: string;
+  sectionName: string;
+  gradeId: string;
+  gradeName: string;
+  academicYearId: string;
+  classTeacherId: string | null;
+  mechanism: PromotionMechanism;
+  criteria: CriteriaRow;
+  /** Active descriptors, for the overall picker. Best first. */
+  subcategories: ResultSubcategoryRow[];
+  colorCodingEnabled: boolean;
+  students: SectionTermStudent[];
+}
+
+/**
+ * Attendance as a promotion input, which is not the same as attendance as a
+ * statistic.
+ *
+ * A child whose class never had its register taken has no attendance
+ * percentage, and `getTermAttendance` reports that as 0% because zero present
+ * out of zero days is what the arithmetic says. Failing a promotion on it would
+ * be failing a child for the school's own omission, so an empty register
+ * becomes null and the rule is simply not applied.
+ */
+function attendanceForPromotion(attendance: ReportCardAttendance): number | null {
+  const marked =
+    attendance.present + attendance.absent + attendance.late + attendance.excused;
+  return marked === 0 ? null : attendance.percentage;
+}
+
+/**
+ * One class's term, judged.
+ *
+ * Built on top of `getSectionReportCards` on purpose: the promotion screen and
+ * the report card must not be able to disagree about how many subjects a child
+ * failed. There is one computation of a term's results in this codebase and
+ * this is the layer that decides what it *means*.
+ *
+ * `computedStatus` is recomputed here on every read rather than being taken
+ * from the stored row. A school that lowers the pass bar in March must see the
+ * effect of it before pressing recompute, not after — and the stored row is
+ * still what the report card prints, so nothing changes underneath a parent
+ * until somebody deliberately recomputes.
+ */
+export async function getSectionTermResults(
+  locationId: string,
+  termId: string,
+  sectionId: string,
+): Promise<SectionTermResults | null> {
+  const term = await getExamTerm(locationId, termId);
+  if (term === null) return null;
+
+  const sectionRows = await db
+    .select({
+      sectionName: sections.name,
+      academicYearId: sections.academicYearId,
+      gradeId: sections.gradeId,
+      gradeName: grades.name,
+      gradeDisplayName: grades.displayName,
+      classTeacherId: sections.classTeacherId,
+    })
+    .from(sections)
+    .innerJoin(grades, eq(grades.id, sections.gradeId))
+    .where(and(eq(sections.locationId, locationId), eq(sections.id, sectionId)))
+    .limit(1);
+
+  const section = sectionRows[0];
+  if (section === undefined) return null;
+
+  const [cards, criteria, subcategories, settings, stored] = await Promise.all([
+    getSectionReportCards(locationId, termId, sectionId),
+    resolveGradeCriteria(locationId, section.academicYearId, section.gradeId),
+    listResultSubcategories(locationId),
+    getExamSettings(locationId),
+    listSectionTermResultRows(locationId, termId, sectionId),
+  ]);
+
+  const storedByStudent = new Map(
+    stored.map((row) => [row.studentProfileId, row] as const),
+  );
+
+  const students: SectionTermStudent[] = cards.map((card) => {
+    const record = storedByStudent.get(card.student.studentProfileId);
+    const attendancePercentage = attendanceForPromotion(card.attendance);
+
+    const outcome =
+      criteria.mechanism === 'descriptors'
+        ? computeDescriptorPromotion({
+            failingSubjectCount: card.subjects.filter((row) => row.isFail).length,
+            attendancePercentage,
+            criteria,
+          })
+        : computeMarksPromotion({
+            overallPercentage: card.meanPercentage,
+            failedSubjectCount: card.failedCount,
+            attendancePercentage,
+            criteria,
+          });
+
+    return {
+      student: card.student,
+      subjects: card.subjects,
+      meanPercentage: card.meanPercentage,
+      overallGradeLabel: card.overallGradeLabel,
+      overallSubcategoryId: record?.overallSubcategoryId ?? null,
+      attendancePercentage,
+      failedSubjectCount: card.failedCount,
+      computedStatus: outcome.status,
+      reasons: outcome.reasons,
+      finalStatus: record?.finalStatus ?? outcome.status,
+      overrideReason: record?.overrideReason ?? null,
+      overriddenAt: record?.overriddenAt?.toISOString() ?? null,
+      isOverridden: record !== undefined && record.finalStatus !== record.computedStatus,
+      hasRecord: record !== undefined,
+    };
+  });
+
+  return {
+    term,
+    sectionId,
+    sectionName: section.sectionName,
+    gradeId: section.gradeId,
+    gradeName: gradeLabel({
+      name: section.gradeName,
+      displayName: section.gradeDisplayName,
+    }),
+    academicYearId: section.academicYearId,
+    classTeacherId: section.classTeacherId,
+    mechanism: criteria.mechanism,
+    criteria,
+    subcategories,
+    colorCodingEnabled: settings.colorCodingEnabled,
+    students,
+  };
+}
+
+/**
+ * Recomputes a class's term and writes it down.
+ *
+ * ── An existing override survives ────────────────────────────────────────
+ * If a row already carries a `final_status` that differs from what the rules
+ * said, it keeps it — together with the reason, who set it and when. That is
+ * the whole point of an override: a head who decided in March that a child
+ * moves up must not have that reversed by a clerk pressing "recompute" in
+ * April, silently, on a class of forty.
+ *
+ * The one case where an override is dropped is when the recomputation now
+ * *agrees* with it. The status is then no longer a departure from the rules,
+ * and the CHECK constraint refuses a reason on a row that matches — correctly,
+ * because a reason explaining a decision the rules now make on their own is a
+ * comment on a parent's portal about nothing.
+ *
+ * Everything is written in one transaction, statements built on `tx`. A
+ * half-recomputed class is a class where some children were judged by the old
+ * criteria and some by the new, and nothing on any screen would say so.
+ */
+export async function computeSectionTermResults(
+  locationId: string,
+  termId: string,
+  sectionId: string,
+  runner: Database | Tx = db,
+): Promise<{ written: number; overridesKept: number; mechanism: PromotionMechanism }> {
+  const sheet = await getSectionTermResults(locationId, termId, sectionId);
+  if (sheet === null) return { written: 0, overridesKept: 0, mechanism: 'marks_grades' };
+
+  const stored = await listSectionTermResultRows(locationId, termId, sectionId);
+  const storedByStudent = new Map(
+    stored.map((row) => [row.studentProfileId, row] as const),
+  );
+
+  let overridesKept = 0;
+
+  const values = sheet.students.map((entry) => {
+    const record = storedByStudent.get(entry.student.studentProfileId);
+
+    const hadOverride =
+      record !== undefined && record.finalStatus !== record.computedStatus;
+    // Kept only while it is still a departure from what the rules say.
+    const keepOverride = hadOverride && record.finalStatus !== entry.computedStatus;
+    if (keepOverride) overridesKept += 1;
+
+    return {
+      locationId,
+      termId,
+      studentProfileId: entry.student.studentProfileId,
+      sectionId,
+      gradeId: sheet.gradeId,
+      academicYearId: sheet.academicYearId,
+      mechanism: sheet.mechanism,
+      overallPercentage:
+        entry.meanPercentage === null ? null : entry.meanPercentage.toFixed(2),
+      overallGradeLabel: entry.overallGradeLabel,
+      overallSubcategoryId: entry.overallSubcategoryId,
+      computedStatus: entry.computedStatus,
+      finalStatus: keepOverride ? record.finalStatus : entry.computedStatus,
+      overrideReason: keepOverride ? record.overrideReason : null,
+      computedAt: new Date(),
+      updatedAt: new Date(),
+    };
+  });
+
+  if (values.length === 0) {
+    return { written: 0, overridesKept: 0, mechanism: sheet.mechanism };
+  }
+
+  await runner
+    .insert(studentTermResults)
+    .values(values)
+    .onConflictDoUpdate({
+      target: [
+        studentTermResults.locationId,
+        studentTermResults.termId,
+        studentTermResults.studentProfileId,
+      ],
+      set: {
+        sectionId: sql`excluded.section_id`,
+        gradeId: sql`excluded.grade_id`,
+        academicYearId: sql`excluded.academic_year_id`,
+        mechanism: sql`excluded.mechanism`,
+        overallPercentage: sql`excluded.overall_percentage`,
+        overallGradeLabel: sql`excluded.overall_grade_label`,
+        overallSubcategoryId: sql`excluded.overall_subcategory_id`,
+        computedStatus: sql`excluded.computed_status`,
+        finalStatus: sql`excluded.final_status`,
+        overrideReason: sql`excluded.override_reason`,
+        computedAt: sql`excluded.computed_at`,
+        updatedAt: sql`excluded.updated_at`,
+      },
+    });
+
+  return { written: values.length, overridesKept, mechanism: sheet.mechanism };
+}
+
+/** One term in a student's own history, as the portals show it. */
+export interface StudentTermHistoryRow {
+  termId: string;
+  termName: string;
+  academicYearId: string;
+  academicYearName: string;
+  gradeName: string;
+  sectionName: string;
+  mechanism: PromotionMechanism;
+  overallPercentage: number | null;
+  overallGradeLabel: string | null;
+  overallSubcategory: ReportCardSubcategory | null;
+  finalStatus: PromotionStatus;
+  isOverridden: boolean;
+  overrideReason: string | null;
+  termIsPublished: boolean;
+}
+
+/**
+ * Every term this child has a judgement for, newest first.
+ *
+ * ── Unpublished terms are withheld from families and not from the office ──
+ * `publishedOnly` defaults to true, which is what both portals pass. A term
+ * the school has not published has no report card as far as a family is
+ * concerned (Sprint 9), and a promotion status is the most consequential thing
+ * on the card — leaking it early would tell a parent their child has been held
+ * back before the school has said so.
+ *
+ * ── The override reason travels with the row ─────────────────────────────
+ * Deliberately. The product owner asked for the reason a status was changed to
+ * be visible to every relevant party including parents, so it is part of the
+ * payload rather than something the admin screens alone can see.
+ */
+export async function listStudentTermHistory(
+  locationId: string,
+  studentProfileId: string,
+  options: { publishedOnly?: boolean | undefined; academicYearId?: string | undefined } = {},
+): Promise<StudentTermHistoryRow[]> {
+  const conditions: SQL[] = [
+    eq(studentTermResults.locationId, locationId),
+    eq(studentTermResults.studentProfileId, studentProfileId),
+    isNull(examTerms.archivedAt),
+  ];
+  if (options.publishedOnly !== false) {
+    conditions.push(eq(examTerms.isPublished, true));
+  }
+  if (options.academicYearId !== undefined && options.academicYearId !== '') {
+    conditions.push(eq(studentTermResults.academicYearId, options.academicYearId));
+  }
+
+  const rows = await db
+    .select({
+      termId: studentTermResults.termId,
+      termName: examTerms.name,
+      termIsPublished: examTerms.isPublished,
+      sequenceOrder: examTerms.sequenceOrder,
+      academicYearId: studentTermResults.academicYearId,
+      academicYearName: academicYears.name,
+      yearStartYear: academicYears.startYear,
+      gradeName: grades.name,
+      gradeDisplayName: grades.displayName,
+      sectionName: sections.name,
+      mechanism: studentTermResults.mechanism,
+      overallPercentage: studentTermResults.overallPercentage,
+      overallGradeLabel: studentTermResults.overallGradeLabel,
+      subcategoryId: resultSubcategories.id,
+      subcategoryLabel: resultSubcategories.label,
+      subcategoryColor: resultSubcategories.colorHex,
+      computedStatus: studentTermResults.computedStatus,
+      finalStatus: studentTermResults.finalStatus,
+      overrideReason: studentTermResults.overrideReason,
+    })
+    .from(studentTermResults)
+    .innerJoin(examTerms, eq(examTerms.id, studentTermResults.termId))
+    .innerJoin(academicYears, eq(academicYears.id, studentTermResults.academicYearId))
+    .innerJoin(grades, eq(grades.id, studentTermResults.gradeId))
+    .innerJoin(sections, eq(sections.id, studentTermResults.sectionId))
+    .leftJoin(
+      resultSubcategories,
+      eq(resultSubcategories.id, studentTermResults.overallSubcategoryId),
+    )
+    .where(and(...conditions))
+    .orderBy(desc(academicYears.startYear), desc(examTerms.sequenceOrder));
+
+  return rows.map((row) => ({
+    termId: row.termId,
+    termName: row.termName,
+    academicYearId: row.academicYearId,
+    academicYearName: row.academicYearName,
+    gradeName: gradeLabel({ name: row.gradeName, displayName: row.gradeDisplayName }),
+    sectionName: row.sectionName,
+    mechanism: row.mechanism,
+    overallPercentage: toMark(row.overallPercentage),
+    overallGradeLabel: row.overallGradeLabel,
+    overallSubcategory:
+      row.subcategoryId === null
+        ? null
+        : {
+            id: row.subcategoryId,
+            label: row.subcategoryLabel ?? '',
+            colorHex: row.subcategoryColor,
+          },
+    finalStatus: row.finalStatus,
+    isOverridden: row.finalStatus !== row.computedStatus,
+    overrideReason: row.overrideReason,
+    termIsPublished: row.termIsPublished,
+  }));
+}
+
+// -----------------------------------------------------------------------------
+// Sprint 14 — the teacher's datesheet
+// -----------------------------------------------------------------------------
+
+/** One row of the datesheet a teacher sees for a class they teach. */
+export interface TeacherScheduleRow {
+  termId: string;
+  termName: string;
+  scheduleId: string;
+  scheduleName: string;
+  scheduleStart: string;
+  scheduleEnd: string | null;
+  subjectName: string;
+  examDate: string;
+  startTime: string | null;
+  durationMinutes: number | null;
+  maxMarks: number | null;
+  gradeName: string;
+  mechanism: PromotionMechanism;
+}
+
+/**
+ * The datesheet rows for the subjects this teacher actually teaches.
+ *
+ * Narrowed by the timetable, exactly as `listTeacherPapers` is: a teacher's
+ * exam screen is their own week, not the school's. A teacher timetabled to
+ * three classes sees three grades' rows and no others, so a maths teacher does
+ * not have to read past the whole senior school to find their Thursday.
+ *
+ * Max marks are carried for display and are null in descriptor mode, where
+ * there is nothing for a paper to be out of.
+ */
+export async function listTeacherScheduleRows(
+  locationId: string,
+  teacherId: string,
+  academicYearId: string,
+): Promise<TeacherScheduleRow[]> {
+  const rows = await db
+    .selectDistinct({
+      termId: examTerms.id,
+      termName: examTerms.name,
+      sequenceOrder: examTerms.sequenceOrder,
+      scheduleId: examSchedules.id,
+      scheduleName: examSchedules.name,
+      scheduleStart: examSchedules.startDate,
+      scheduleEnd: examSchedules.endDate,
+      subjectName: subjects.name,
+      examDate: examScheduleSubjects.examDate,
+      startTime: examScheduleSubjects.startTime,
+      durationMinutes: examScheduleSubjects.durationMinutes,
+      maxMarks: examScheduleSubjects.maxMarks,
+      gradeName: grades.name,
+      gradeDisplayName: grades.displayName,
+      mechanism: gradePromotionCriteria.mechanism,
+    })
+    .from(examScheduleSubjects)
+    .innerJoin(examSchedules, eq(examSchedules.id, examScheduleSubjects.scheduleId))
+    .innerJoin(examTerms, eq(examTerms.id, examSchedules.termId))
+    .innerJoin(subjects, eq(subjects.id, examScheduleSubjects.subjectId))
+    .innerJoin(
+      examScheduleGrades,
+      and(
+        eq(examScheduleGrades.scheduleId, examSchedules.id),
+        isNull(examScheduleGrades.archivedAt),
+      ),
+    )
+    .innerJoin(grades, eq(grades.id, examScheduleGrades.gradeId))
+    .innerJoin(sections, eq(sections.gradeId, grades.id))
+    // The timetable is what makes a subject "theirs". Same rule as marks entry.
+    .innerJoin(
+      timetableEntries,
+      and(
+        eq(timetableEntries.sectionId, sections.id),
+        eq(timetableEntries.subjectId, subjects.id),
+        eq(timetableEntries.teacherId, teacherId),
+        eq(timetableEntries.locationId, locationId),
+      ),
+    )
+    .leftJoin(
+      gradePromotionCriteria,
+      and(
+        eq(gradePromotionCriteria.gradeId, grades.id),
+        eq(gradePromotionCriteria.locationId, locationId),
+        eq(gradePromotionCriteria.academicYearId, academicYearId),
+      ),
+    )
+    .where(
+      and(
+        eq(examScheduleSubjects.locationId, locationId),
+        eq(examTerms.academicYearId, academicYearId),
+        eq(sections.academicYearId, academicYearId),
+        isNull(examScheduleSubjects.archivedAt),
+        isNull(examSchedules.archivedAt),
+        isNull(examTerms.archivedAt),
+      ),
+    )
+    .orderBy(
+      asc(examTerms.sequenceOrder),
+      asc(examScheduleSubjects.examDate),
+      asc(subjects.name),
+    );
+
+  return rows.map((row) => ({
+    termId: row.termId,
+    termName: row.termName,
+    scheduleId: row.scheduleId,
+    scheduleName: row.scheduleName,
+    scheduleStart: row.scheduleStart,
+    scheduleEnd: row.scheduleEnd,
+    subjectName: row.subjectName,
+    examDate: row.examDate,
+    startTime: row.startTime,
+    durationMinutes: row.durationMinutes,
+    maxMarks: toMark(row.maxMarks),
+    gradeName: gradeLabel({ name: row.gradeName, displayName: row.gradeDisplayName }),
+    mechanism: row.mechanism ?? DEFAULT_CRITERIA.mechanism,
+  }));
 }

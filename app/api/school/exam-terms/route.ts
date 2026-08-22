@@ -1,23 +1,31 @@
-import { and, eq } from 'drizzle-orm';
+import { and, eq, isNull, sql } from 'drizzle-orm';
 
-import { examTerms } from '@/db/schema';
+import { examTerms, TERM_NAME_MAX } from '@/db/schema';
 import { withSchoolAuth } from '@/lib/api-auth';
 import { apiFailure, apiSuccess, handleApiError, readJsonBody } from '@/lib/api-response';
+import { academicYearBounds } from '@/lib/academics-queries';
 import { getAcademicYear } from '@/lib/admissions-queries';
 import { db } from '@/lib/drizzle';
 import { getGradingScheme, listExamTerms } from '@/lib/exam-queries';
-import { isIsoDate, isUuid, readString } from '@/lib/validation';
+import { isUuid, readOptionalDate, readString } from '@/lib/validation';
 
 /**
  * /api/school/exam-terms
  *
- * GET  the terms of a year, with how many exams each holds
+ * GET  the terms of a year, with how many schedules and exams each holds
  * POST open a new term
  *
  * A term is the unit a report card is issued for, so everything downstream —
- * exams, papers, marks — is filed against one. The academic year is taken from
- * the body and validated against the caller's own school below; the tenant
- * itself only ever comes from the session.
+ * schedules, exams, papers, marks — is filed against one. The academic year is
+ * taken from the body and validated against the caller's own school below; the
+ * tenant itself only ever comes from the session.
+ *
+ * ── The dates are optional from Sprint 14 ────────────────────────────────
+ * The authoritative window lives on each schedule, where it differs per grade.
+ * What is sent here is an envelope for calendar views, and a school that leaves
+ * it blank gets the window derived from its schedules. Where it *is* sent it
+ * must fall inside the academic year — a term outside its own session is a term
+ * whose attendance summary counts the wrong days.
  */
 
 export const runtime = 'nodejs';
@@ -32,6 +40,7 @@ export const GET = withSchoolAuth(
       return apiSuccess({
         terms: await listExamTerms(auth.locationId, {
           academicYearId: academicYearId === '' ? undefined : academicYearId,
+          includeArchived: url.searchParams.get('includeArchived') === 'true',
         }),
       });
     } catch (error) {
@@ -58,17 +67,31 @@ export const POST = withSchoolAuth(
       }
 
       const name = readString(body.name);
-      if (name === '' || name.length > 80) {
-        return apiFailure('invalid_body', 'Enter a term name of 80 characters or fewer.', 400);
+      if (name === '' || name.length > TERM_NAME_MAX) {
+        return apiFailure(
+          'invalid_body',
+          `Enter a term name of ${TERM_NAME_MAX} characters or fewer.`,
+          400,
+        );
       }
       if (!isUuid(body.academicYearId)) {
         return apiFailure('invalid_body', 'Choose an academic year.', 400);
       }
-      if (!isIsoDate(body.startDate) || !isIsoDate(body.endDate)) {
-        return apiFailure('invalid_body', 'Choose a start and an end date.', 400);
+
+      const startDate = readOptionalDate(body.startDate);
+      const endDate = readOptionalDate(body.endDate);
+      if (startDate === undefined || endDate === undefined) {
+        return apiFailure('invalid_body', 'Enter dates as YYYY-MM-DD, or leave them blank.', 400);
       }
-      if (body.endDate < body.startDate) {
+      if (startDate !== null && endDate !== null && endDate < startDate) {
         return apiFailure('invalid_body', 'The term must end after it starts.', 400);
+      }
+      if (startDate === null && endDate !== null) {
+        return apiFailure(
+          'invalid_body',
+          'A term with an end date needs a start date too.',
+          400,
+        );
       }
 
       const schemeId =
@@ -97,8 +120,21 @@ export const POST = withSchoolAuth(
         return apiFailure('not_found', 'That grading scheme was not found.', 404);
       }
 
+      const bounds = academicYearBounds(year);
+      for (const date of [startDate, endDate]) {
+        if (date === null) continue;
+        if (date < bounds.start || date > bounds.end) {
+          return apiFailure(
+            'invalid_body',
+            `The ${year.name} session runs ${bounds.start} to ${bounds.end}. A term outside it would summarise the wrong days' attendance.`,
+            400,
+          );
+        }
+      }
+
       // The unique index would surface a duplicate as a 500, so it is looked up
-      // first and reported as the conflict it is.
+      // first and reported as the conflict it is. Archived terms are excluded,
+      // matching the partial index: archiving "First Term" frees the name.
       const clash = await db
         .select({ id: examTerms.id })
         .from(examTerms)
@@ -107,6 +143,7 @@ export const POST = withSchoolAuth(
             eq(examTerms.locationId, auth.locationId),
             eq(examTerms.academicYearId, body.academicYearId),
             eq(examTerms.name, name),
+            isNull(examTerms.archivedAt),
           ),
         )
         .limit(1);
@@ -115,6 +152,20 @@ export const POST = withSchoolAuth(
         return apiFailure('duplicate', `There is already a "${name}" in that year.`, 409);
       }
 
+      // New terms land at the end of the school's own reading order. Computed
+      // rather than defaulted to 0, which would put every new term joint first
+      // and let the list arrange itself.
+      const last = await db
+        .select({ highest: sql<number | null>`max(${examTerms.sequenceOrder})` })
+        .from(examTerms)
+        .where(
+          and(
+            eq(examTerms.locationId, auth.locationId),
+            eq(examTerms.academicYearId, body.academicYearId),
+            isNull(examTerms.archivedAt),
+          ),
+        );
+
       const created = await db
         .insert(examTerms)
         .values({
@@ -122,8 +173,9 @@ export const POST = withSchoolAuth(
           locationId: auth.locationId,
           academicYearId: body.academicYearId,
           name,
-          startDate: body.startDate,
-          endDate: body.endDate,
+          startDate,
+          endDate,
+          sequenceOrder: (last[0]?.highest ?? 0) + 1,
           gradingSchemeId: schemeId,
         })
         .returning({ id: examTerms.id });

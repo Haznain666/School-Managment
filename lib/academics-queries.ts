@@ -868,3 +868,34 @@ export async function listAcademicYearOptions(
     .where(eq(academicYears.locationId, locationId))
     .orderBy(sql`${academicYears.startYear} desc, ${academicYears.startMonth} desc`);
 }
+
+/**
+ * The first and last calendar day of an academic year.
+ *
+ * `academic_years` stores month/year pairs rather than dates, because a Pakistani
+ * school's session is "April to March" or "August to July" and nobody types the
+ * day (Sprint 4, Decision 2). Everything that has to *compare* a date against
+ * the session — a schedule's exam day, a term's window — needs real dates, and
+ * every one of them was deriving its own until Sprint 14. Deriving it twice is
+ * how one screen accepts a date another refuses.
+ *
+ * The end is the last day of the end month, computed as "day 0 of the following
+ * month", which is the one arithmetic that is right in February of a leap year
+ * without a table of month lengths. Both are UTC, matching how `isIsoDate`
+ * parses the values these are compared with.
+ */
+export function academicYearBounds(year: {
+  startMonth: number;
+  startYear: number;
+  endMonth: number;
+  endYear: number;
+}): { start: string; end: string } {
+  const start = new Date(Date.UTC(year.startYear, year.startMonth - 1, 1));
+  // Day 0 of the month *after* the end month is the last day of the end month.
+  const end = new Date(Date.UTC(year.endYear, year.endMonth, 0));
+
+  return {
+    start: start.toISOString().slice(0, 10),
+    end: end.toISOString().slice(0, 10),
+  };
+}
