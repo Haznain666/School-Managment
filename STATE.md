@@ -6326,7 +6326,7 @@ rounds of questions. Migration **`0029_sprint14_exam_terms_promotion.sql`** —
 
 Phases 1 and 2 (schema, migration, the rule layer) landed in `3e182ea`. Phases
 3, 4 and 5 — the API, the admin screens and the portals — are `7953f99`,
-`8d41d1c` and `f0d0c2d`.
+`8d41d1c` and `341527f`.
 
 ### What a term is now
 
