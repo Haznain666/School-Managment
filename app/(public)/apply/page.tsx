@@ -124,9 +124,9 @@ export default async function ApplyPage() {
         ) : (
           <>
             <p className="mb-6 text-sm text-ink-muted">
-              Fill this in and our admissions team will contact you on WhatsApp
-              about the next steps. Nothing here is a commitment — you can talk to
-              us before deciding anything.
+              Fill this in and our admissions team will email you about the next
+              steps. Nothing here is a commitment — you can talk to us before
+              deciding anything.
             </p>
 
             <ApplyForm

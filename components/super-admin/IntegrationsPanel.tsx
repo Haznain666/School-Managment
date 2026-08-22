@@ -146,14 +146,14 @@ export function IntegrationsPanel({ schoolId }: IntegrationsPanelProps) {
 
         {connected ? (
           <p className="text-sm text-ink-muted">
-            Contact sync and — when the WhatsApp channel is on — message
-            delivery run through this sub-account.
+            Contact sync runs through this sub-account. No message this
+            platform sends goes through it — everything is emailed.
           </p>
         ) : (
           <p className="text-sm text-ink-muted">
-            This school works fully without GoHighLevel. Anything that would
-            have gone to it is skipped, and the WhatsApp channel cannot send
-            until it is connected.
+            This school works fully without GoHighLevel. Contact sync is
+            skipped; nothing else changes, because nothing this platform sends
+            goes through it.
           </p>
         )}
 

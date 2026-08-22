@@ -107,6 +107,46 @@ function currentMonth(today = new Date()): { from: string; to: string } {
   };
 }
 
+/**
+ * Runs one of the optional reads and turns a failure into an absent tile.
+ *
+ * ── The outage this exists for ───────────────────────────────────────────
+ * On 2026-08-22 the whole dashboard rendered as "Could not load the dashboard"
+ * with a digest and nothing else, at a school where every screen behind it
+ * worked. The cause was one query: `getAccountingOverview` counting
+ * `ledger_transactions`, a table migration `0027` creates and which had never
+ * been applied to that database. `Promise.all` rejects on the first rejection,
+ * so one missing table for one tile took the students count, the staff count,
+ * three charts and every quick action with it.
+ *
+ * A dashboard is the screen a head teacher forms their impression of the
+ * product from, and it is assembled from six independent reads that have
+ * nothing to do with each other. It should degrade one tile at a time.
+ *
+ * ── What is deliberately *not* wrapped ───────────────────────────────────
+ * `getDashboardCounts`, `getModuleFlags` and `permissionsForRole`. If those
+ * fail there is no page — no counts, no idea which modules are on, no idea
+ * what the caller may see — and rendering an empty frame would say "your
+ * school has nothing in it", which is worse than an error. They still throw.
+ *
+ * The failure is logged with the location id so it is findable, and the tile
+ * falls back to its `unavailable` state rather than to a zero. A zero here is
+ * indistinguishable from a real zero and is how a school comes to believe it
+ * collected nothing today.
+ */
+async function optional<T>(
+  label: string,
+  locationId: string,
+  read: () => Promise<T>,
+): Promise<T | null> {
+  try {
+    return await read();
+  } catch (error) {
+    console.error(`[dashboard] ${label} failed for ${locationId}:`, error);
+    return null;
+  }
+}
+
 export default async function SchoolDashboardPage() {
   const { claims, locationId } = await requireSchoolRole(ADMIN_PORTAL_ROLES);
 
@@ -133,12 +173,22 @@ export default async function SchoolDashboardPage() {
 
   const [fees, collectionTrend, today, attendanceTrend, classStrength, accounting] =
     await Promise.all([
-      showFees ? getFeeOverview(locationId) : null,
-      showFees ? getCollectionTrend(locationId) : null,
-      getTodaySnapshot(locationId),
-      showAttendance ? getAttendanceTrend(locationId) : null,
-      showEnrolment ? getClassStrength(locationId) : null,
-      showAccounting ? getAccountingOverview(locationId, currentMonth()) : null,
+      showFees ? optional('fee overview', locationId, () => getFeeOverview(locationId)) : null,
+      showFees
+        ? optional('collection trend', locationId, () => getCollectionTrend(locationId))
+        : null,
+      optional('today snapshot', locationId, () => getTodaySnapshot(locationId)),
+      showAttendance
+        ? optional('attendance trend', locationId, () => getAttendanceTrend(locationId))
+        : null,
+      showEnrolment
+        ? optional('class strength', locationId, () => getClassStrength(locationId))
+        : null,
+      showAccounting
+        ? optional('accounting overview', locationId, () =>
+            getAccountingOverview(locationId, currentMonth()),
+          )
+        : null,
     ]);
 
   const totalStrength = classStrength?.reduce((sum, row) => sum + row.value, 0) ?? 0;
@@ -176,7 +226,8 @@ export default async function SchoolDashboardPage() {
         {showFees ? (
           <StatTile
             label="Collected today"
-            value={formatPkr(today.collectedToday)}
+            value={today === null ? undefined : formatPkr(today.collectedToday)}
+            unavailable={today === null ? 'Today’s figures could not be read.' : undefined}
             icon={Banknote}
             detail="Payments received today"
             visual={
@@ -197,23 +248,32 @@ export default async function SchoolDashboardPage() {
             // `null` means no register has been taken yet, which at 8am is a
             // different statement from 0% and must not be drawn as one.
             value={
-              today.attendanceRateToday === null ? undefined : `${today.attendanceRateToday}%`
+              today === null || today.attendanceRateToday === null
+                ? undefined
+                : `${today.attendanceRateToday}%`
             }
             unavailable={
-              today.attendanceRateToday === null
-                ? 'No register taken yet today.'
-                : undefined
+              today === null
+                ? 'Today’s figures could not be read.'
+                : today.attendanceRateToday === null
+                  ? 'No register taken yet today.'
+                  : undefined
             }
             detail="Present or late, of everyone marked"
           />
         ) : null}
 
-        {showFees && fees !== null ? (
+        {showFees ? (
           <StatTile
             label="Outstanding this month"
-            value={formatPkr(fees.outstandingThisMonth)}
+            value={fees === null ? undefined : formatPkr(fees.outstandingThisMonth)}
+            unavailable={fees === null ? 'The fee figures could not be read.' : undefined}
             icon={Receipt}
-            detail={`${fees.overdueCount.toLocaleString()} challans past due`}
+            detail={
+              fees === null
+                ? undefined
+                : `${fees.overdueCount.toLocaleString()} challans past due`
+            }
           />
         ) : null}
 
@@ -238,17 +298,37 @@ export default async function SchoolDashboardPage() {
             label="Profit this month"
             icon={TrendingUp}
             unavailable={
-              showAccounting
-                ? 'This school has no chart of accounts yet.'
-                : 'Needs the Accounts & Finance module.'
+              !showAccounting
+                ? 'Needs the Accounts & Finance module.'
+                : accounting === null
+                  ? 'The accounts could not be read.'
+                  : 'This school has no chart of accounts yet.'
             }
           />
         )}
       </StatTileGrid>
 
-      {collectionTrend !== null || attendanceTrend !== null ? (
+      {/*
+        The card stays even when its read failed, and says so.
+
+        Dropping it was the original behaviour and it is the wrong failure: a
+        dashboard missing its collection chart looks exactly like a dashboard
+        for a school that has no fee module, and an administrator has no way to
+        tell "this is not for you" from "this broke". `optional()` above says
+        the tile should fall back to an unavailable state; these two cards are
+        the same rule at card size.
+      */}
+      {showFees || showAttendance ? (
         <div className="grid gap-5 lg:grid-cols-2">
-          {collectionTrend === null ? null : (
+          {!showFees ? null : collectionTrend === null ? (
+            <Card
+              header={
+                <CardTitle title="Fee collection" description="Payments received per month" />
+              }
+            >
+              <ChartUnavailable />
+            </Card>
+          ) : (
             <Card
               header={
                 <CardTitle title="Fee collection" description="Payments received per month" />
@@ -266,7 +346,15 @@ export default async function SchoolDashboardPage() {
             </Card>
           )}
 
-          {attendanceTrend === null ? null : (
+          {!showAttendance ? null : attendanceTrend === null ? (
+            <Card
+              header={
+                <CardTitle title="Attendance" description="Monthly rate across the school" />
+              }
+            >
+              <ChartUnavailable />
+            </Card>
+          ) : (
             <Card
               header={
                 <CardTitle title="Attendance" description="Monthly rate across the school" />
@@ -343,6 +431,15 @@ export default async function SchoolDashboardPage() {
         </div>
       </section>
     </div>
+  );
+}
+
+/** Stands in for a chart whose data could not be read. */
+function ChartUnavailable() {
+  return (
+    <p className="py-8 text-center text-sm text-ink-muted">
+      This chart could not be loaded. Everything else on this page is current.
+    </p>
   );
 }
 

@@ -28,8 +28,14 @@ import { schools } from './schools';
  * their membership of *one* school, which is why the same address can be a
  * teacher at one school and a parent at another. See `lib/school-auth.ts`.
  *
- * Phone is required rather than email because invitations go out over WhatsApp;
- * email is the optional fallback channel.
+ * ── Phone is required, and is not a channel ──────────────────────────────
+ * `phone` is `NOT NULL` and unique per school because it predates Supabase
+ * Auth, when invitations went out over WhatsApp and the number was the
+ * identity. It is neither now: invitations and sign-in codes go to `email`,
+ * and nothing on this platform sends to a phone number. The column stays
+ * required because 60-odd rows and every import path depend on it, and it
+ * stays unique per tenant because two staff records sharing a number is still
+ * a data-entry mistake worth catching.
  */
 export const schoolUsers = pgTable(
   'school_users',
@@ -49,7 +55,7 @@ export const schoolUsers = pgTable(
      */
     authUserId: text('auth_user_id'),
     email: text('email'),
-    /** Required: the WhatsApp channel for invitations. */
+    /** A contact detail. Required, unique per school, never sent to. */
     phone: text('phone').notNull(),
     name: text('name').notNull(),
     role: text('role').notNull(),

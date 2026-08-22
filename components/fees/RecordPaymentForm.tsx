@@ -200,7 +200,7 @@ export function RecordPaymentForm({
         </div>
 
         <p className="mt-3 text-xs text-ink-muted">
-          The guardian is sent a WhatsApp confirmation once this is saved. If that
+          The guardian is emailed a confirmation once this is saved. If that
           message fails, the payment is still recorded.
         </p>
       </Card>

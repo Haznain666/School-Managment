@@ -40,12 +40,29 @@ function digitsOf(value: string): string {
  * Landline — (xxx) xxxxxxxxxx
  * -------------------------------------------------------------------------- */
 
-/** Area code digits, then up to this many subscriber digits. */
+/** Area code digits, then between these many subscriber digits. */
 const LANDLINE_AREA_DIGITS = 3;
 const LANDLINE_MAX_SUBSCRIBER_DIGITS = 10;
+/**
+ * The floor, and why there is one.
+ *
+ * There was not, and `digits.length > LANDLINE_AREA_DIGITS` alone accepted
+ * `1234` — stored, after masking, as `(123) 4`. That is not a number anybody
+ * can ring, and on the staff-invitation path it lands in `school_users.phone`,
+ * which is `NOT NULL` and unique per school: two people typo'd the same way
+ * collide on a constraint rather than on anything a clerk can read.
+ *
+ * Four is the smallest subscriber part worth accepting and makes the total
+ * seven digits, which is exactly the floor the hand-rolled regex in
+ * `POST /api/school/invitations` used to enforce before it was replaced by
+ * this module. Deliberately not six or eight: Pakistani exchanges genuinely
+ * vary, and a validator that refuses a real small-town number is a worse
+ * failure than one that accepts an implausibly short one.
+ */
+const LANDLINE_MIN_SUBSCRIBER_DIGITS = 4;
 
 export const LANDLINE_PLACEHOLDER = '(021) 3456789';
-export const LANDLINE_HINT = 'Format (xxx) xxxxxxxxxx — a 3-digit area code, then up to 10 digits.';
+export const LANDLINE_HINT = 'Format (xxx) xxxxxxxxxx — a 3-digit area code, then 4 to 10 digits.';
 
 /**
  * Formats as it is typed, discarding anything that is not a digit.
@@ -84,7 +101,7 @@ export function hasCompleteLandlineDigits(value: string): boolean {
 
   const digits = digitsOf(trimmed);
   return (
-    digits.length > LANDLINE_AREA_DIGITS &&
+    digits.length >= LANDLINE_AREA_DIGITS + LANDLINE_MIN_SUBSCRIBER_DIGITS &&
     digits.length <= LANDLINE_AREA_DIGITS + LANDLINE_MAX_SUBSCRIBER_DIGITS
   );
 }
@@ -125,7 +142,7 @@ export const MOBILE_HINT = 'Format (xxxx) xxx-xxxx, e.g. (0321) 123-4567.';
  *
  * A leading `92` or `+92` is rewritten to the national `0` trunk form first, so
  * pasting `+92 321 1234567` — which is how a number arrives from a contact card
- * or a WhatsApp export — lands as `(0321) 123-4567` rather than being rejected
+ * or an exported contact list — lands as `(0321) 123-4567` rather than being rejected
  * for having the wrong first digit.
  */
 export function formatMobile(input: string): string {
@@ -257,6 +274,45 @@ export function hasCompletePhoneDigits(kind: PhoneKind, value: string): boolean 
     : hasCompleteLandlineDigits(value);
 }
 
+/* -----------------------------------------------------------------------------
+ * Either mask — for a field that takes whichever the person actually has
+ * -------------------------------------------------------------------------- */
+
+/**
+ * Normalises a value under whichever mask it belongs to.
+ *
+ * The server's counterpart to what `PhoneField` does on every keystroke, so a
+ * number typed through the form and the same number posted by an API client
+ * are stored identically. Idempotent: a value already in display form comes
+ * back unchanged.
+ */
+export function normalisePhoneOfAnyKind(value: string): string {
+  const trimmed = value.trim();
+  if (trimmed === '') return '';
+  return formatPhoneOfKind(detectPhoneKind(trimmed), trimmed);
+}
+
+/**
+ * True when `value` is a complete number under *either* mask.
+ *
+ * ── Why this is not `isValidPhoneOfKind` with a guess at the kind ────────
+ * The per-kind validators answer `true` for an empty string, because every
+ * field they were written for is optional. This one answers `false`, because
+ * the callers are the routes where the column is `NOT NULL` — an empty value
+ * there is the failure, not the default.
+ *
+ * ── Why digits and not shape ─────────────────────────────────────────────
+ * A server must accept `0213456789` from a caller that never saw the mask, and
+ * then normalise it. Refusing on shape would make the API usable only by this
+ * application's own forms. Pair it with `normalisePhoneOfAnyKind` and the
+ * stored value is in display form either way.
+ */
+export function hasCompletePhoneOfAnyKind(value: string): boolean {
+  const trimmed = value.trim();
+  if (trimmed === '') return false;
+  return hasCompletePhoneDigits(detectPhoneKind(trimmed), trimmed);
+}
+
 /** Placeholder and hint for `kind`, so a caller never hard-codes either. */
 export function phonePlaceholderOfKind(kind: PhoneKind): string {
   return kind === 'mobile' ? MOBILE_PLACEHOLDER : LANDLINE_PLACEHOLDER;
@@ -270,5 +326,5 @@ export function phoneHintOfKind(kind: PhoneKind): string {
 export function phoneErrorOfKind(kind: PhoneKind): string {
   return kind === 'mobile'
     ? 'Enter eleven digits, e.g. (0321) 123-4567.'
-    : 'Incomplete landline number — a 3-digit area code, then up to 10 digits.';
+    : 'Incomplete landline number — a 3-digit area code, then 4 to 10 digits.';
 }

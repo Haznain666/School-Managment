@@ -409,7 +409,7 @@ export async function exchangeGhlAuthorizationCode(code: string): Promise<GhlTok
 }
 
 // -----------------------------------------------------------------------------
-// Agency-key contact and WhatsApp messaging (Sprint 3)
+// Agency-key contact sync (Sprint 3)
 // -----------------------------------------------------------------------------
 
 /**
@@ -604,44 +604,3 @@ export async function findOrCreateContact(
   return { contactId };
 }
 
-export interface GhlMessageRef {
-  messageId: string;
-}
-
-interface SendMessageResponse {
-  messageId?: string;
-  msg?: { id?: string };
-  conversationId?: string;
-}
-
-/**
- * Sends a WhatsApp message to a contact.
- *
- * GHL creates or reuses the conversation itself when a message is posted with
- * `type: 'WhatsApp'`, so there is no separate conversation call.
- */
-export async function sendWhatsAppMessage(
-  db: Database,
-  locationId: string,
-  contactId: string,
-  messageText: string,
-): Promise<GhlMessageRef> {
-  await validateSchool(db, locationId);
-
-  const sent = await agencyFetch<SendMessageResponse>('/conversations/messages', {
-    method: 'POST',
-    body: {
-      type: 'WhatsApp',
-      contactId,
-      locationId,
-      message: messageText,
-    },
-  });
-
-  const messageId = sent.messageId ?? sent.msg?.id ?? sent.conversationId;
-  if (typeof messageId !== 'string' || messageId === '') {
-    throw new GhlAgencyError(502, 'GHL did not return a message id.');
-  }
-
-  return { messageId };
-}

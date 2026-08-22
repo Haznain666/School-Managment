@@ -49,7 +49,9 @@ import {
   detectPhoneKind,
   formatPhoneOfKind,
   hasCompletePhoneDigits,
+  hasCompletePhoneOfAnyKind,
   isValidPhoneOfKind,
+  normalisePhoneOfAnyKind,
   phoneErrorOfKind,
   phoneHintOfKind,
   phonePlaceholderOfKind,
@@ -139,6 +141,50 @@ ok(
   hasCompletePhoneDigits('landline', '0213456789') &&
     !hasCompletePhoneDigits('landline', '021'),
   'the digits-only check is the one the server asks, and ignores the brackets',
+);
+ok(
+  !hasCompletePhoneDigits('landline', '1234'),
+  'four digits is not a landline — it masks to "(123) 4", which nobody can ring',
+);
+ok(
+  hasCompletePhoneDigits('landline', '0213456'),
+  'seven digits is — the floor the invitation route used to enforce by regex',
+);
+
+/* -----------------------------------------------------------------------------
+ * Either mask — the pair `POST /api/school/invitations` validates with
+ *
+ * These exist because that route used to carry its own hand-rolled
+ * `/^\+?[0-9\s-]{7,20}$/`, which has no brackets in it and therefore refused
+ * every value this application's own mask produces. The rule is that the
+ * client and the server import the same module; these assertions are what
+ * stops a third copy appearing.
+ * -------------------------------------------------------------------------- */
+
+ok(
+  hasCompletePhoneOfAnyKind('(021) 444444'),
+  'a landline typed through the mask is accepted — the reported bug, in the reported shape',
+);
+ok(
+  hasCompletePhoneOfAnyKind('(0321) 123-4567'),
+  'so is a mobile typed through the mask',
+);
+ok(
+  !hasCompletePhoneOfAnyKind(''),
+  'blank is refused — unlike the per-kind checks, because the column is NOT NULL',
+);
+ok(
+  !hasCompletePhoneOfAnyKind('1234'),
+  'and so is a number too short to ring',
+);
+ok(
+  normalisePhoneOfAnyKind('0213456789') === '(021) 3456789' &&
+    normalisePhoneOfAnyKind('+92 321 1234567') === '(0321) 123-4567',
+  'an unmasked value from an API client normalises into the display form',
+);
+ok(
+  normalisePhoneOfAnyKind('(0321) 123-4567') === '(0321) 123-4567',
+  'and normalising an already-normalised value changes nothing',
 );
 
 /* -----------------------------------------------------------------------------

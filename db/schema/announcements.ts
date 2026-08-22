@@ -28,8 +28,8 @@ import { schools } from './schools';
  * The original plan built this entirely on GoHighLevel Conversations. GHL is
  * now opt-in per school (`STATE.md`), so the notice board on the four portals
  * is the delivery that always happens, and email over `email_outbox` is the
- * push that happens when the sender asks for it. WhatsApp is a paid per-school
- * add-on and is reached only when `school_modules.whatsapp` is on. A school
+ * push that happens when the sender asks for it. Those are the only two
+ * channels: WhatsApp was removed from the platform on 2026-08-22. A school
  * that has connected nothing still gets working announcements.
  *
  * ── Why the audience is jsonb and not three nullable columns ─────────────
@@ -145,7 +145,7 @@ export const announcements = pgTable(
 );
 
 /** The ways an announcement can reach somebody. */
-export const DELIVERY_CHANNELS = ['notice', 'email', 'whatsapp'] as const;
+export const DELIVERY_CHANNELS = ['notice', 'email'] as const;
 export type DeliveryChannel = (typeof DELIVERY_CHANNELS)[number];
 
 /**
@@ -229,7 +229,7 @@ export const announcementRecipients = pgTable(
     ),
     check(
       'announcement_recipients_channel_check',
-      sql`${table.channel} IN ('notice', 'email', 'whatsapp')`,
+      sql`${table.channel} IN ('notice', 'email')`,
     ),
     check(
       'announcement_recipients_status_check',

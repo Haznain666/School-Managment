@@ -28,13 +28,12 @@ export default async function ApplySuccessPage({
     ref?: string;
     student?: string;
     guardian?: string;
-    phone?: string;
   }>;
 }) {
   const school = await getCurrentSchoolBranding();
   const brandStyle = paletteToCSSVars(school?.palette ?? null) as unknown as CSSProperties;
 
-  const { ref, student, guardian, phone } = await searchParams;
+  const { ref, student, guardian } = await searchParams;
 
   const studentName = student ?? 'your child';
   const guardianName = guardian ?? 'you';
@@ -73,14 +72,8 @@ export default async function ApplySuccessPage({
             We have received your application for{' '}
             <strong className="text-ink">{studentName}</strong>. Our
             admissions team will contact{' '}
-            <strong className="text-ink">{guardianName}</strong>
-            {phone === undefined || phone === '' ? null : (
-              <>
-                {' '}
-                at <span className="font-mono">{phone}</span>
-              </>
-            )}{' '}
-            via WhatsApp regarding the next steps.
+            <strong className="text-ink">{guardianName}</strong> by email
+            regarding the next steps.
           </p>
 
           {ref === undefined || ref === '' ? null : (

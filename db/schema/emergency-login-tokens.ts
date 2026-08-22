@@ -9,7 +9,7 @@ export const EMERGENCY_TOKEN_TTL_MINUTES = 15;
 /**
  * emergency_login_tokens — platform-issued, single-use sign-in links.
  *
- * The last line of defence: if WhatsApp and email have both failed for a
+ * The last line of defence: if email has failed for a
  * school, a platform administrator can hand one user a link that signs them in
  * as themselves. It bypasses passcode delivery entirely, so it is deliberately
  * the most constrained credential in the system — fifteen minutes, one use,

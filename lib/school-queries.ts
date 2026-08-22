@@ -610,9 +610,10 @@ export async function getDashboardCounts(locationId: string): Promise<DashboardC
         and(
           eq(schoolModules.locationId, locationId),
           eq(schoolModules.isEnabled, true),
-          // Channels share this table but are not modules, and counting
-          // WhatsApp as one would quietly inflate every school's headline
-          // "modules enabled" figure by one.
+          // This table once also held delivery-channel flags, which are not
+          // modules and would have inflated every school's headline "modules
+          // enabled" figure. `0028` removed the last of them; the filter stays,
+          // because the table is still keyed by an open text column.
           inArray(schoolModules.moduleKey, [...PLATFORM_MODULE_KEYS]),
         ),
       ),

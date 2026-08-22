@@ -34,9 +34,19 @@ export const schoolInvitations = pgTable(
       .notNull()
       .references(() => schools.locationId, { onDelete: 'cascade' }),
     name: text('name').notNull(),
-    /** Optional email fallback channel. */
+    /**
+     * Where the invitation goes. The only channel there is.
+     *
+     * Nullable in the column because rows predate the rule; the API has
+     * refused a blank address since Stage 4 and refuses one now.
+     */
     email: text('email'),
-    /** Required WhatsApp channel. */
+    /**
+     * A contact detail, not a channel and not an identity.
+     *
+     * Nothing is sent here. It is `NOT NULL` because `school_users.phone` is,
+     * and the accepted invitation writes one from the other.
+     */
     phone: text('phone').notNull(),
     role: text('role').notNull(),
     branchId: uuid('branch_id').references(() => branches.id, {
@@ -45,10 +55,13 @@ export const schoolInvitations = pgTable(
     invitedByUid: text('invited_by_uid').notNull(),
     /** 32 random bytes, hex encoded. This is the credential. */
     token: text('token').notNull().unique(),
-    whatsappSent: boolean('whatsapp_sent').notNull().default(false),
+    /**
+     * The invitation email reached `email_outbox`.
+     *
+     * Not "SMTP accepted it" — the drainer discovers that later and records it
+     * on the outbox row. The UI says "Email queued" for exactly this reason.
+     */
     emailSent: boolean('email_sent').notNull().default(false),
-    /** GHL message id, for delivery tracking. */
-    whatsappMessageId: text('whatsapp_message_id'),
     expiresAt: timestamp('expires_at', { withTimezone: true }).notNull(),
     acceptedAt: timestamp('accepted_at', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),

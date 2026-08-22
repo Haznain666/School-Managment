@@ -24,7 +24,6 @@ interface PendingInvite {
   email: string | null;
   role: string;
   branchName: string | null;
-  whatsappSent: boolean;
   emailSent: boolean;
   expiresAt: string;
 }
@@ -153,9 +152,6 @@ export function PendingInvitesTable() {
                   </TableCell>
                   <TableCell>
                     <div className="flex gap-1">
-                      {invite.whatsappSent ? (
-                        <Badge variant="success">WhatsApp</Badge>
-                      ) : null}
                       {/*
                         "queued", not "sent": the message is handed to the
                         outbox and delivered outside the request, so at the
@@ -166,7 +162,7 @@ export function PendingInvitesTable() {
                       {invite.emailSent ? (
                         <Badge variant="neutral">Email queued</Badge>
                       ) : null}
-                      {!invite.whatsappSent && !invite.emailSent ? (
+                      {!invite.emailSent ? (
                         <Badge variant="danger">Not delivered</Badge>
                       ) : null}
                     </div>

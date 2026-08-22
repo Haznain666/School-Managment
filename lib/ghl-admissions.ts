@@ -13,7 +13,7 @@ import { findOrCreateContact, ghlFetch, GhlAgencyError } from './ghl-client';
  *
  * Enrolling a student mirrors two people into the school's CRM: the child, so
  * the school has a record to attach fee and attendance automations to, and the
- * primary guardian, because they are who actually receives the WhatsApp.
+ * primary guardian, because they are who the school actually corresponds with.
  *
  * ── On failure ───────────────────────────────────────────────────────────
  * None of this may block an enrolment. A school whose GHL connection has
@@ -139,19 +139,13 @@ export async function createGuardianGHLContact(
  * deployment, and a school that has not built the workflow should simply not
  * get one rather than see enrolments fail. Never throws.
  *
- * ── Deliberately NOT behind the WhatsApp switch ──────────────────────────
- * Every other send path in this codebase checks `isWhatsAppEnabled` first.
- * This one cannot, because it does not send anything: it hands a contact to
- * an automation the school built inside GoHighLevel, and what that automation
- * does — WhatsApp, email, a tag, a task for a human — is not visible from
- * here. Gating it would switch off email and tagging for schools that never
- * bought WhatsApp.
- *
- * The consequence worth knowing: a school whose workflow sends WhatsApp can
- * still send WhatsApp through it with the add-on switched off. Closing that
- * would mean either reading the workflow definition over the GHL API or
- * requiring one workflow per channel, and neither is worth it until a school
- * actually has such a workflow.
+ * ── This is a trigger, not a send ────────────────────────────────────────
+ * It does not deliver a message. It hands a contact to an automation the
+ * school built inside their own GoHighLevel, and what that automation does —
+ * an email, a tag, a task for a human — is decided there and is not visible
+ * from here. No message this platform sends goes through GoHighLevel — every
+ * one of them leaves over SMTP, and all but the invite setup code (which has
+ * somebody waiting on it) is queued through `email_outbox` first.
  */
 export async function triggerAdmissionWelcomeWorkflow(
   locationId: string,

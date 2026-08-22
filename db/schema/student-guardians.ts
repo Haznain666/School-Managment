@@ -123,7 +123,7 @@ export const studentGuardians = pgTable(
      * before this existed has it null, and those rows are not rewritten.
      */
     relationshipOther: text('relationship_other'),
-    /** E.164, normalised by `lib/phone.ts`. The WhatsApp channel. */
+    /** E.164, normalised by `lib/phone.ts`. A contact detail, not a channel. */
     phone: text('phone').notNull(),
     email: text('email'),
     /**

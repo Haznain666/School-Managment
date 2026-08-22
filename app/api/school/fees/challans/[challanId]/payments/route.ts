@@ -16,7 +16,7 @@ import {
 import { settleEnrolmentIfFeePaid } from '@/lib/enrolment-fee-gate';
 import { challanStatusFor, remainingBalance } from '@/lib/fee-calculator';
 import { getChallanDetail } from '@/lib/fee-queries';
-import { sendPaymentConfirmation } from '@/lib/ghl-fees';
+import { sendPaymentConfirmation } from '@/lib/fee-notices';
 import { formatAmount, paiseToNumeric, toPaise } from '@/lib/money';
 import { isUuid, readOptionalString } from '@/lib/validation';
 
@@ -35,8 +35,8 @@ import { isUuid, readOptionalString } from '@/lib/validation';
  *      out in one transaction, and the total is incremented *in SQL*. A
  *      payment that recorded without moving `paid_amount` would leave a parent
  *      chased for money the school already has.
- *   3. The WhatsApp confirmation is fired *after* the commit and never awaited.
- *      GoHighLevel being slow or down must not fail a request that has already
+ *   3. The emailed confirmation is fired *after* the commit and never awaited.
+ *      A slow or refusing mail host must not fail a request that has already
  *      taken a parent's cash.
  *
  * The overpayment check in (1) still reads the balance before writing, so two
@@ -57,7 +57,7 @@ import { isUuid, readOptionalString } from '@/lib/validation';
  * because a cheque is not money until it clears and a school counting it as
  * bank balance will overdraw on one that bounces.
  *
- * **It is not fired-and-forgotten like the WhatsApp confirmation.** A payment
+ * **It is not fired-and-forgotten like the emailed confirmation.** A payment
  * recorded without its posting understates the school's income silently, and
  * silently is the problem: nothing on any screen would ever say so. So it
  * commits with the payment or the payment does not happen.
@@ -70,7 +70,7 @@ import { isUuid, readOptionalString } from '@/lib/validation';
  *
  * ── The fourth thing, added with the admission fee gate ──────────────────
  * A payment can be the one that confirms an admission. `settleEnrolmentIfFeePaid`
- * is awaited, unlike the WhatsApp confirmation above, and the difference is
+ * is awaited, unlike the emailed confirmation above, and the difference is
  * deliberate: the clerk taking the money is the person who will be asked "so
  * are they enrolled now?", and the response says so. It is bounded — two
  * indexed reads and, at most, one write per guardian — and it swallows its own

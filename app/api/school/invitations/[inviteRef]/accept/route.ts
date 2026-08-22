@@ -13,11 +13,11 @@ import { isUserRole } from '@/types/school-auth';
 /**
  * POST /api/school/invitations/[inviteRef]/accept
  *
- * Completes a signup: verifies the WhatsApp passcode, then creates the
- * Firebase account, stamps the tenant claims onto it, and records the member.
+ * Completes a signup: verifies the emailed passcode, then creates the
+ * account, stamps the tenant claims onto it, and records the member.
  *
  * Unauthenticated by design — the invite token plus possession of the invited
- * handset are jointly the credential. There is no password anywhere in this
+ * mailbox are jointly the credential. There is no password anywhere in this
  * flow, which is why these accounts have nothing to reset.
  *
  * Next.js requires sibling dynamic segments to share one name, so `accept`,
@@ -47,7 +47,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
       return apiFailure('invalid_body', 'Enter your full name.', 400);
     }
     if (otp === '') {
-      return apiFailure('invalid_body', 'Enter the code from WhatsApp.', 400);
+      return apiFailure('invalid_body', 'Enter the code we emailed you.', 400);
     }
 
     const rows = await db

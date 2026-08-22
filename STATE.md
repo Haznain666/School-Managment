@@ -4,28 +4,35 @@
 resume without re-deriving context. Updated at the end of every development
 step, before the session ends.
 
-**Last updated:** 2026-08-21 (**Sprint 13.5 — Accounting: the ledger, expenses
-and per-staff cash — §5au — then driven end to end against a real database and
-a real browser, which found the day book had never worked — §5av**; 2026-08-20: Sprint 13.8 — sibling identity, §5as;
-the announcement sweep, §5at; Sprint 13.7 — §5ar; 2026-08-19: §5aq, §5ap, §5ao,
-§5an, §5am, §5al, §5ai–§5ak)
+**Last updated:** 2026-08-22 (**WhatsApp removed from the platform, the invite
+form's phone field unblocked, the dashboard outage, and the login error that
+named nothing — §5aw. `0027` and `0028` are both APPLIED to the live
+database.**; 2026-08-21: Sprint 13.5 — §5au, driven end to end — §5av;
+2026-08-20: Sprint 13.8 — sibling identity, §5as; the announcement sweep, §5at;
+Sprint 13.7 — §5ar; 2026-08-19: §5aq, §5ap, §5ao, §5an, §5am, §5al, §5ai–§5ak)
 
-> ▶ **Migration `0027` is PROVEN but NOT DEPLOYED.** It was applied to a real
-> PostgreSQL 16 on 2026-08-21 — all 28 migrations in order, then the seed and
-> the backfill against a school seeded with three fee payments that predated it.
-> Cash, bank and cheque each landed in the right account, every entry kept the
-> payment's own date, the whole book balanced to the paisa, and a second run
-> wrote **0 rows**. It has **not** been run against production.
+> ✅ **Migrations `0027` and `0028` are APPLIED to the live database —
+> 2026-08-22.** `npx drizzle-kit migrate` against the pooler host on port
+> **5432** (session mode — 6543 is what the app uses and will not do DDL; see
+> §5c). The bookkeeping table held 27 rows before and 29 after.
 >
-> Sprint 13.5's six tables,
-> the three accounting permission keys, the seeded chart of accounts and the
-> backfill of every fee payment ever recorded are all in
-> `db/migrations/0027_sprint135_accounting.sql`. No session here holds the
-> database credentials. **Until it runs, the accounting module has no tables**
-> and every fee payment taken carries a null `ledger_transaction_id`.
-> The backfill is guarded on that column rather than on a date, so it will pick
-> those up whenever it is finally run. **Next free migration number after it is
-> `0028`.**
+> `0027` is Sprint 13.5's accounting schema: six tables, the three accounting
+> permission keys, the seeded chart of accounts, and the backfill of every fee
+> payment ever recorded. Until this ran, **the accounting module had no tables**
+> — and that is not a quiet absence. `getAccountingOverview` is called by the
+> **school-admin dashboard**, inside a `Promise.all`, so the missing
+> `ledger_transactions` threw and took the entire dashboard down with it: the
+> screen an administrator lands on rendered as "Could not load the dashboard"
+> and a digest, at a school where every screen behind it worked. See §5aw.
+>
+> `0028` removes WhatsApp from the database — the `school_modules` row and its
+> CHECK constraint, `school_invitations.whatsapp_sent` and
+> `whatsapp_message_id`, and the `'whatsapp'` value on
+> `announcement_recipients.channel`. Delivery-log rows are **re-labelled to
+> `'notice'`, not deleted**: they are the school's record of what it told which
+> parent and when.
+>
+> **Next free migration number is `0029`.**
 
 > 🐛 **The day book threw on every call, and shipped that way — found and fixed
 > by QA on 2026-08-21, §5av.** `column reference "id" is ambiguous`. **Drizzle
@@ -5959,6 +5966,253 @@ unrelated to this sprint, and the reason the seams above had to be stubbed by
 hand.
 
 
+## 5aw. WhatsApp leaves the platform, and three faults it was sitting on top of — 2026-08-22
+
+Four reports in one session. Three of them turned out to be the same shape: a
+thing that had been true once, was documented as still being true, and was not.
+
+---
+
+### 1. WhatsApp is gone. Every invitation and every notification is email.
+
+The instruction was unambiguous — *"REMOVE WHATSAPP INVITE AND NOTIFICATION FROM
+EVERYWHERE. ALL THE INVITES WILL GO ON EMAIL ONLY"* — and it does not reverse a
+decision so much as finish one this file has been circling since GHL became
+opt-in. Sprint 11 already made the notice board and email the default delivery
+path. WhatsApp survived as a paid per-school add-on behind
+`school_modules.whatsapp`, and the survival was costing more than the feature
+was worth: **every send path in the codebase carried a branch for it**, every
+screen carried a sentence about it, and no school on the platform had it on.
+
+**What was deleted, not disabled:**
+
+| Gone | Was |
+| --- | --- |
+| `lib/channels.ts` | the per-school gate, `isWhatsAppEnabled` |
+| `components/super-admin/ChannelToggleList.tsx` | the switch on the school page |
+| `sendWhatsAppMessage` in `lib/ghl-client.ts` | the only thing that posted to GHL Conversations |
+| `PLATFORM_CHANNELS`, `PlatformChannelKey`, `toChannelFlags`, `emptyChannelFlags` | the channel-vs-module distinction, whose only member was WhatsApp |
+| `lib/ghl-fees.ts` | rewritten as `lib/fee-notices.ts`, email only, no GHL import left in it |
+| the Channels card on the bulk-modules page, and its `whatsappWithoutGhl` warning | |
+
+`lib/channels.ts` opened with a docblock arguing that a gate beats a deletion,
+because *"commented-out or deleted code cannot be switched back on by a Super
+Admin at three in the afternoon"*. That argument was right while WhatsApp was a
+product the platform sold. It is exactly wrong now: **a flag left behind is a
+flag somebody turns on, against sending code that no longer exists.** So the
+flag went with the code.
+
+**What deliberately survived:**
+
+- **GoHighLevel itself.** It is an opt-in CRM integration and it still does
+  contact sync and workflow triggers. What a school's own GHL workflow does
+  with a contact is decided inside GHL and is not this platform's business.
+  `triggerAdmissionWelcomeWorkflow` used to carry a long note explaining why it
+  alone was not behind the WhatsApp switch; it now simply says it is a trigger
+  and not a send.
+- **`school_users.phone` and `student_guardians.phone`**, both still `NOT NULL`
+  and unique. A guardian's number is still an identity key — `lib/siblings.ts`
+  unions on it — it is just no longer a *channel*. Every docblock claiming
+  otherwise was corrected rather than deleted.
+- **`announcement_recipients` rows with `channel = 'whatsapp'`.** Re-labelled to
+  `'notice'` by `0028`, never deleted. A school answering *"did you tell us
+  about the closure"* in March needs the October row whatever carried it. The
+  unique index is `(announcement_id, school_user_id, channel)`, so a recipient
+  holding both a `notice` row and a `whatsapp` row would have collided on the
+  rewrite — those are deleted first, and the `notice` row, the one that was
+  actually read, survives.
+
+---
+
+### 2. The invite form could not accept a landline. Nor anything else it produced.
+
+Reported as *"I was getting invalid mobile number error"*, with a screenshot of
+`(021) 444444` rejected under **"Enter a valid phone number."**
+
+`POST /api/school/invitations` validated with a hand-rolled regex:
+
+```ts
+/^\+?[0-9\s-]{7,20}$/
+```
+
+There are no brackets in that character class. **Every number the application's
+own form produces has brackets in it** — `components/ui/PhoneField.tsx` masks as
+you type and writes `(021) 444444` — so the server refused the client's own
+output, and there was no string an operator could type that both the mask would
+produce and the regex would accept. The only reason any invitation had ever been
+sent is that a mobile typed as `(0321) 123-4567` fails the same way, which
+means **this route had been refusing every invitation with a formatted number**.
+
+`PhoneField`'s own docblock had already written the rule this broke: *"the forms
+import them in the browser and the API routes import them on the server, and the
+two must agree exactly or the client accepts what the server refuses."* The
+route now imports the same module — `normalisePhoneOfAnyKind` then
+`hasCompletePhoneOfAnyKind`, both added to `lib/phone-formats.ts`, both
+accepting either mask and normalising to display form so an API client that
+never saw the mask can still post `0213456789`.
+
+**The second half of the bug was upstream of that.** The form passed `identity`
+to `PhoneField`, which refuses a landline outright with *"This number identifies
+the person on the platform, so it has to be a mobile — invitations and sign-in
+codes are sent to it."* Neither clause is true any more: the account is keyed by
+the email address, and nothing is sent to this number at all. A school office
+whose only number for a new bursar is the desk landline could not complete the
+form. `identity` is gone from that field, and the hint now says what the number
+is for — the school's own records.
+
+> The phone is still required, because `school_users.phone` is `NOT NULL` and
+> unique per school. That is a schema fact, not a channel: the column predates
+> Supabase Auth and 60-odd rows depend on it. It stays unique per tenant because
+> two staff sharing a number is still a data-entry mistake worth catching.
+
+---
+
+### 3. The dashboard was down because a migration had never been run — and one tile took the page with it
+
+Reported as a screenshot: the school-admin nav rendered, the school name and the
+signed-in user rendered, and the content area said **"Could not load the
+dashboard"** with a digest.
+
+Reproduced in twenty minutes by running the page's six reads against the live
+database directly. Five returned. The sixth:
+
+```
+Failed query: select count(*)::int from "ledger_transactions"
+              where "ledger_transactions"."location_id" = $1
+```
+
+`ledger_transactions` is created by `0027`, which had never been applied. The
+banner at the top of this file said so in as many words and had said so since
+2026-08-21 — what nobody had connected is that **the accounting tile is not
+optional in the sense that matters.** `Promise.all` rejects on the first
+rejection, so one missing table for one tile took the students count, the staff
+count, three charts and every quick action down with it.
+
+**Two fixes, and both were needed.**
+
+`0027` is now applied (see the banner). That is the root cause and it is gone.
+
+But `app/(school-admin)/dashboard/page.tsx` now also wraps each of the six
+optional reads in `optional(label, locationId, read)` — a catch that logs with
+the location id and returns `null`, so the tile falls back to `StatTile`'s
+`unavailable` state and the other five still render. **A dashboard is assembled
+from six independent reads that have nothing to do with each other, and it
+should degrade one tile at a time.**
+
+What is deliberately *not* wrapped: `getDashboardCounts`, `getModuleFlags` and
+`permissionsForRole`. If those fail there is no page — no counts, no idea which
+modules are on, no idea what the caller may see — and an empty frame would say
+*"your school has nothing in it"*, which is worse than an error.
+
+And the fallback is `unavailable`, never a zero. A zero here is
+indistinguishable from a real zero, and is how a school comes to believe it
+collected nothing today.
+
+---
+
+### 4. "Unexpected response." — the error that named nothing
+
+Reported as a screenshot of the Super Admin sign-in with a plain
+**"Unexpected response."** under the password box.
+
+That string comes from one place in each client helper: the `catch` around
+`response.json()`. It fires when the response is **not the JSON envelope at
+all** — which, since every route in this application answers `{ ok, data |
+error }`, means the request never reached a route. A 502 from the host while the
+Node process restarts, a 504 on a slow first request, and a genuine crash all
+presented identically, and the one difference that matters — *wait and try
+again* versus *something is broken* — was the one it hid.
+
+> **The live endpoint was not reproducibly broken.** Probed on 2026-08-22 with a
+> deliberately wrong address: `POST /api/super-admin/auth/login` answered **401
+> JSON**, `"Incorrect email or password."`, and the sign-in page rendered it
+> correctly. Whatever produced the screenshot was transient — almost certainly
+> the process restarting under it. Which is the point: **it should have said
+> so.**
+
+Two changes, so that the next occurrence diagnoses itself:
+
+- `app/api/super-admin/auth/login/route.ts` had **no `try`/`catch` at all** —
+  alone on this surface. Any throw in it (`signSuperAdminJWT`, the cookie write,
+  a module-load failure) produced Next's HTML 500. It now returns the envelope
+  through `handleApiError` like every other route.
+- `lib/school-client.ts` and `lib/super-admin-client.ts` now report the status:
+  502/503/504 become *"The server is not responding (502). It may be restarting
+  — try again in a moment."*, a status of 0 becomes *"The server could not be
+  reached."*, and anything else names the code and says nothing was changed.
+
+---
+
+---
+
+### QA, and the five things it found
+
+A QA agent audited the tree end to end against a running server and the real
+database: all 14 gates re-run independently, **all 152 routes swept
+unauthenticated across GET and POST — 304 requests, zero HTML error pages and
+zero 500s**, tenancy grepped for a `locationId` read from any request (there is
+none), and the migrations verified by querying `pg_constraint` directly.
+
+It sent the work back, and it was right to. Two of the five were **my own
+misses in this sprint's own subject matter**:
+
+1. **`/apply/success` printed a phone number and said "by email" in one
+   sentence** — *"will contact Ahmed Raza at (0321) 123-4567 by email"*. I had
+   fixed the trailing clause and left the fragment before it. The number came
+   through the query string on every real submission, so it was wrong every
+   time, on the last screen a prospective parent sees. **Fixed by dropping the
+   fragment and no longer putting the number in the URL at all** — it landed in
+   browser history and in any referrer the page emitted, for no benefit.
+2. **`ApplyForm`'s phone hint still read "We will contact you on this
+   number"** — one field below the paragraph I had just changed to say email.
+   Now: *"Used to find your application if you come back. We reply by email."*
+   The field keeps `identity`, and for a reason that survives WhatsApp:
+   `/api/admissions/check` looks an existing application up by the normalised
+   number, so it has to be one that canonicalises.
+
+The other three were pre-existing, and two of them were the new code not
+following its own docblock:
+
+3. **Two dashboard reads deleted their tile instead of showing `unavailable`.**
+   `optional()`'s docblock states the rule; "Outstanding this month" and the
+   fee-collection card did not follow it, so a failed read produced a dashboard
+   that looked complete and was missing a number. Both now say so, and the two
+   chart cards render a `ChartUnavailable` stand-in rather than vanishing —
+   a missing card is indistinguishable from a module the school has not bought.
+4. **The new phone check accepted `1234`**, stored as `(123) 4`.
+   `hasCompleteLandlineDigits` required only `digits.length > 3`, where the
+   regex it replaced required seven characters — so the fix had quietly
+   loosened the floor on a column that is `NOT NULL` and unique per school.
+   `LANDLINE_MIN_SUBSCRIBER_DIGITS = 4` restores it. **Six new assertions in
+   `check-address-phone` now pin both the reported bug and this floor** (40, up
+   from 32).
+5. **Three routes still sent SMTP synchronously inside the request** — the
+   public apply form, the application decision, and the invite setup code —
+   while `lib/ghl-admissions.ts` asserted the opposite as current behaviour.
+   `lib/email-sender.ts` allows 15s to connect, 15s to greet and 20s on the
+   socket, so a slow host sat in front of a parent pressing "Submit
+   application". The first two are now queued through `email_outbox`. **The
+   third is deliberately still blocking and now says why**: somebody is
+   waiting for that code, and queueing would trade a bounded ~20s for an
+   unbounded-to-30s drain *and* discard the failure signal.
+
+> **What QA could not do, and it is the same gap as last time:** everything
+> behind a sign-in. It does not enter passwords either. The dashboard change,
+> the invite form end to end, the modules page with its Channels section
+> removed and `PendingInvitesTable` are all still unclicked.
+
+### What this is worth knowing for
+
+Three of the four faults were **documentation that had outlived its subject**.
+The regex, the `identity` flag and the WhatsApp branches were all written when
+the phone number *was* the identity and WhatsApp *was* the channel, and each one
+was carrying a comment that confidently explained the world it was written in.
+The comments are why nobody looked. A rule worth taking from it: when a
+statement in a docblock is the reason not to check something, the docblock is
+the thing to check.
+
+---
+
 ## 6. Open items for the user
 
 1. ~~Install GitHub CLI~~ — **partly regressed.** Git has a stored credential
@@ -6285,6 +6539,7 @@ to `gte` anyway, so the pattern is no longer in the codebase to be copied.
 
 | Date | Session did | Next |
 | --- | --- | --- |
+| 2026-08-22 | **WhatsApp removed from the platform, and three faults underneath it** (§5aw). Four reports, one session. **WhatsApp is gone, not gated** — `lib/channels.ts`, `ChannelToggleList`, `sendWhatsAppMessage`, `PLATFORM_CHANNELS` and the whole channel-vs-module distinction deleted; `lib/ghl-fees.ts` rewritten as `lib/fee-notices.ts` with no GHL import left in it. GHL survives as contact sync only. `0028` drops the two invitation columns and the `school_modules` row, and **re-labels** `announcement_recipients.channel = 'whatsapp'` to `'notice'` rather than deleting the school's own delivery record. **The invite form had never accepted a formatted number**: the route validated with `/^\+?[0-9\s-]{7,20}$/`, which has no brackets in it, against a client that masks every value into `(021) 444444` — so it refused its own form's output, and `identity` on the PhoneField refused a landline besides. Both now import `lib/phone-formats.ts`, the rule `PhoneField`'s own docblock already stated. **The dashboard outage was `0027`**: `getAccountingOverview` counting a `ledger_transactions` that did not exist, inside a `Promise.all`, so one tile took the students count, the staff count, three charts and every quick action with it. `0027` and `0028` are **both applied to the live database now** — 27 rows of bookkeeping before, 29 after — and each optional read is wrapped so the page degrades one tile at a time. **"Unexpected response."** was the login route being the one route on this surface with no `try`/`catch`; probing the live endpoint with a wrong address returns a correct 401 JSON, so the report was a transient the message refused to name. Both client helpers now report the status and distinguish 502/503/504 from a defect. All nine gates green, plus all five database-backed checks — `check-reports` had been failing on the same missing tables and now passes. | **Nothing here has been clicked in a browser** — the sign-in needs a password and no session may type one, so the invite form, the dashboard and the bulk-modules page are verified by query and by build, not by eye. Twenty minutes with a real login is the next thing worth doing. Then deploy: this is merged but **`HOSTINGER_SSH_*` is still missing**, so pushing to `main` does not ship it (see the banner). Then the automatic sibling discount. |
 | 2026-08-21 | **Sprint 13.5 merged, then actually run — and the day book had never worked** (§5av). PR #22 merged to `main` (`eec668f`) on a green CI. Then, for the first time in this project's history, a session had **PostgreSQL 16 and Chromium**: all 28 migrations applied in order, `0027`'s seed and backfill tested against a school seeded with three fee payments that **predated** it, and every screen driven in a browser. **The backfill is correct** — cash → `1000`, transfer → `1010`, cheque → `1020` and not the bank, each entry dated to the payment rather than to the migration, and a second run wrote **0 rows**. **The day book threw `column reference "id" is ambiguous` on every call**: Drizzle renders a column interpolated into a `sql` template **unqualified when the outer query has a single table in its FROM** and qualified once a join is present, so five correlated sub-selects that are correct beside a join were bare column names without one — and the one that did *not* throw compared two `ledger_entries` columns and would have printed a column of zeroes. Rewritten as two queries and a regroup. **`check-reports` is the only thing that could ever have caught it and was itself red**, asserting nine reports when 13.5 had added seven. 53 assertions through the application's own code, twelve routes in Chromium with **no console errors and no failed requests**, the balance sheet at **16,800 = 16,800**, the accountant's `POST /settlements` at **403**, all seven statements printing under `print` media and exporting as CSV. **Sign-in was stubbed** (no Supabase here) and the stubs reverted — everything behind the session is verified, the session itself is not. | **Apply `0027` to production.** It is proven and not deployed. Then real A4, still. Then Sprint 13.6 (i18n) on **`0028`**. |
 | 2026-08-21 | **Sprint 13.5 — Accounting: the ledger, expenses and per-staff cash** (§5au). The sprint this file has pointed at for six sessions. Six tables, one column, seven statements. **The column is the point**: `fee_payments.ledger_transaction_id`, posted in the *same database transaction* as the payment — a payment recorded without its posting understates income silently, and nothing on any screen would ever say so. `ledger_transactions` + `ledger_entries` are **append-only**; a correction is a mirrored reversing entry and both stay in the book, because Sprint 16's wallet and Sprint 20's POS post here and a ledger retrofitted under live money is the cost this sequencing exists to avoid. **Per-staff cash accounts**: a cash payment lands in the drawer of whoever took it, not the office safe, and their balance is what they owe the school right now; settling stores what the drawer *should* have held beside what was counted, and the short is **not** written off. `accounting.settle` is a third key and the `accountant` role deliberately does not hold it. **Two calls against the document, both written down**: `ledger_entries` gets a header table (one date and one cause, two or more sides), and the module flag is the existing `accounts` rather than a second `accounting`. Income is recognised on receipt, not on billing — `0027`'s header says why at length, because it is the decision somebody will otherwise reverse without knowing it was one. Seven reports added as catalogue declarations, so each gets screen, `PrintSheet` and CSV for free. The dashboard's "Needs the accounting ledger" tile answers now, and still says so where the module is off or the chart is unset. New `npm run check-accounting` — **121 assertions, in CI**, and verified by breaking two rules on purpose (five failures, four sections) and restoring them. All nine gates green including the build. | **Apply `0027`.** It is written and not run; no session here has the credentials, and until it runs the module has no tables. The backfill is guarded on the null column rather than a date, so it picks up whatever accumulated in the meantime. Then **look at something in a browser** — six new screens and this is the third sprint with nothing seen. Then Sprint 13.6 (internationalisation) on **`0028`**. |
 | 2026-08-21 | **Release notes, test cases, and a correction I owed the file.** Wrote `RELEASE-NOTES-ANNOUNCEMENT-SWEEP-AND-DEPLOY.md` (the sweep, the seven-process double-send, and the four separate faults the deploy pipeline took to complete) and `TEST-CASES-SPRINT-13.8.md` — 35 cases over the sibling rule, the enrolment lookup, the guardian rules, the CNIC field, the parent portal, the sweep, and the existing-data regressions. Marked 13.8's notes live. **Corrected this file's DNS claim: school portals were never broken.** I had probed `lgs.codexmill.com`; schools are `<slug>.schoolhub.codexmill.com`. `lgs.schoolhub.codexmill.com` resolves, serves the sign-in page, and answers 401 on the new sibling route while a nonsense path answers 404. No DNS change was needed or made. | Drive one scheduled announcement end to end on a school with no real parents — the send path past the atomic claim is still unexercised. Then the P1 test cases above, in a browser: nothing in 13.8 has been clicked. Then set `HOSTINGER_RESTART_COMMAND` and `PRODUCTION_URL` so deploys restart and verify themselves. |

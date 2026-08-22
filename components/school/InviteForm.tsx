@@ -72,12 +72,10 @@ export function InviteForm({ branches }: InviteFormProps) {
         return;
       }
       if (phone.trim() === '') {
-        // Not "invitations are sent over WhatsApp" — they are sent by email,
-        // and have been since Stage 4. The number is required because
-        // `school_users.phone` is NOT NULL and unique per school: it is how a
-        // member is identified within a tenant, whether or not anything is ever
-        // sent to it.
-        setError('A phone number is required — it identifies this member within the school.');
+        // Required because `school_users.phone` is NOT NULL and unique per
+        // school, not because anything is sent to it. Nothing is: the
+        // invitation and every sign-in code go to the address below.
+        setError('A phone number is required — it is part of this member’s record.');
         return;
       }
       if (!isValidEmail(email.trim())) {
@@ -116,10 +114,7 @@ export function InviteForm({ branches }: InviteFormProps) {
           return;
         }
 
-        // Accepted on at least one channel, but say so if the other failed —
-        // an admin who thinks WhatsApp went out when it did not will wait.
-        //
-        // "Queued" rather than "sent": email now goes through `email_outbox`
+        // "Queued" rather than "sent": email goes through `email_outbox`
         // and is handed to SMTP a moment later, so at this point nothing has
         // been accepted by a mail server and this screen cannot claim it has.
         const failures = payload.data?.delivery.failures ?? [];
@@ -164,15 +159,23 @@ export function InviteForm({ branches }: InviteFormProps) {
             />
           </div>
 
+          {/*
+            Deliberately NOT `identity`.
+
+            It was, and that was wrong twice over. `identity` refuses a
+            landline with "this number identifies the person on the platform,
+            so it has to be a mobile — invitations and sign-in codes are sent
+            to it", and neither half of that sentence is true: the account is
+            keyed by the email address and nothing is sent to this number. A
+            school office whose only number for a new bursar was the desk
+            landline could not complete the form at all.
+          */}
           <PhoneField
             label="Phone number"
             required
-            // Identity: `school_users.phone` is unique per school and is what
-            // the invitation-accept route resolves the member by.
-            identity
             value={phone}
             onChange={setPhone}
-            hint="Identifies this member within the school."
+            hint="A contact number for the school’s own records. Mobile or landline."
             disabled={isSubmitting}
           />
 
