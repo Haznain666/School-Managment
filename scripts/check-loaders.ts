@@ -60,6 +60,7 @@
  * Exit code 1 on any violation.
  */
 
+import { execFileSync } from 'node:child_process';
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join, relative, sep } from 'node:path';
 
@@ -203,6 +204,68 @@ for (const loader of walkLoaders(APP_DIR, []).sort()) {
         `renders forever. Move it into the segment whose page it stands in for.`,
     );
   }
+}
+
+
+/* -----------------------------------------------------------------------------
+ * Every route file is visible to the build
+ *
+ * ── The failure this exists for ──────────────────────────────────────────
+ * `.gitignore` carried a bare `build/` under the heading "production". A bare
+ * directory pattern matches at **any depth**, so it also matched
+ * `app/api/internal/build/` — an App Router segment, not build output.
+ *
+ * That route is `/api/internal/build`, the probe the deploy workflow uses to
+ * answer "which commit is actually serving requests". It was written on
+ * 2026-08-21 and never committed. It existed on the machine that wrote it, so
+ * every local check passed and `npm run build` compiled it; it did not exist in
+ * the repository, so Hostinger — which builds from GitHub — never had it, and
+ * production 404'd it. The one check meant to prove a deploy landed could never
+ * have passed, and nothing said why.
+ *
+ * ── Why the check has to run here and not in CI alone ────────────────────
+ * An ignored file is simply absent from a fresh checkout, so CI cannot notice
+ * what it never received. The mistake is made on a developer's machine and can
+ * only be caught there — which is exactly what this does, by asking git whether
+ * each file it just walked is tracked. In CI every file present is tracked, so
+ * this passes trivially and costs one process.
+ * -------------------------------------------------------------------------- */
+
+console.log('\n=== Every route file is committed ===');
+
+const routeFiles = walkRoutes(APP_DIR, []);
+const untracked: string[] = [];
+
+for (const file of routeFiles) {
+  const path = relative('.', file).split(sep).join('/');
+  try {
+    execFileSync('git', ['ls-files', '--error-unmatch', path], { stdio: 'ignore' });
+  } catch {
+    untracked.push(path);
+  }
+}
+
+checks += 1;
+if (untracked.length > 0) {
+  fail(
+    `${String(untracked.length)} route file(s) exist on disk but are not in git, ` +
+      `so the build that runs in production will not contain them:\n` +
+      untracked.map((path) => `    ${path}`).join('\n') +
+      `\n  Usually a .gitignore pattern matching at the wrong depth — check ` +
+      `with: git check-ignore -v <path>`,
+  );
+}
+
+function walkRoutes(directory: string, found: string[]): string[] {
+  for (const entry of readdirSync(directory)) {
+    const full = join(directory, entry);
+    if (statSync(full).isDirectory()) {
+      walkRoutes(full, found);
+    } else if (entry === 'route.ts' || entry === 'page.tsx' || entry === 'layout.tsx') {
+      found.push(full);
+    }
+  }
+  return found;
 }
 
 console.log(

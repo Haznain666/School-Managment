@@ -10,8 +10,18 @@ next-env.d.ts
 *.tsbuildinfo
 
 # production
-build/
-dist/
+#
+# ANCHORED, and it matters. A bare `build/` matches a directory named `build`
+# at ANY depth — including `app/api/internal/build/`, which is an App Router
+# segment, not build output. That route is the deploy's own "which commit is
+# live" probe: it was written on 2026-08-21, has never been committed, and
+# therefore 404'd on production while every local check passed. The deploy
+# workflow's verification step depended on it and could never have succeeded.
+#
+# The leading slash pins both rules to the repository root, which is the only
+# place either of these tools actually writes.
+/build/
+/dist/
 
 # env — never commit these. A committed .env.local is loaded by @next/env at
 # server start and OVERWRITES host-injected variables (the hosting panel, CI),
