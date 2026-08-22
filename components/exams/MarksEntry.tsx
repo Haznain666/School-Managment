@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 
+import { SubcategoryBadge } from '@/components/exams/SubcategoryBadge';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { Card, CardTitle } from '@/components/ui/Card';
@@ -19,6 +20,8 @@ import {
   type ResitStatus,
   type ResultStatus,
 } from '@/db/schema/exam-subjects';
+import type { PromotionMechanism } from '@/db/schema/grade-promotion-criteria';
+import type { ResultSubcategoryRow } from '@/lib/exam-queries';
 import { formatMark, formatPercentage, percentageOf } from '@/lib/grading';
 import { schoolErrorMessage, schoolFetch } from '@/lib/school-client';
 
@@ -39,6 +42,14 @@ import { schoolErrorMessage, schoolFetch } from '@/lib/school-client';
  * ── Out-of-range marks are refused here and again on the server ──────────
  * The client is not a gate; it is a courtesy. Typing 105 out of 100 is a slip
  * of the hand and is worth catching before a save of forty rows fails.
+ *
+ * ── Two sheets, and the mechanism decides which ──────────────────────────
+ * Sprint 14: a class judged on performance descriptors has **no marks column
+ * at all** — a sub-category and a comment per child, and nothing else. It is
+ * not the marks sheet with a column hidden, because a hidden column is one a
+ * teacher discovers by tabbing into it. The mechanism comes from the grade's
+ * criteria on the server, and the save route refuses the wrong shape whatever
+ * this screen draws.
  */
 
 export interface MarksEntryStudent {
@@ -49,6 +60,7 @@ export interface MarksEntryStudent {
   marksObtained: number | null;
   isAbsent: boolean;
   remarks: string | null;
+  subcategoryId: string | null;
   originalMarks: number | null;
   originalAbsent: boolean;
 }
@@ -71,17 +83,26 @@ export interface MarksEntryProps {
   /** 1 or 2. The screen loads its own data when this changes. */
   initialAttempt: number;
   canEnter: boolean;
+  /** Which sheet this is, resolved from the class's criteria on the server. */
+  mechanism: PromotionMechanism;
+  /** The descriptors on offer, best first. Empty in marks mode. */
+  subcategories: readonly ResultSubcategoryRow[];
+  colorCodingEnabled: boolean;
 }
 
 interface Draft {
   value: string;
   isAbsent: boolean;
+  subcategoryId: string;
+  comment: string;
 }
 
 function toDraft(student: MarksEntryStudent): Draft {
   return {
     value: student.marksObtained === null ? '' : String(student.marksObtained),
     isAbsent: student.isAbsent,
+    subcategoryId: student.subcategoryId ?? '',
+    comment: student.remarks ?? '',
   };
 }
 
@@ -90,7 +111,11 @@ export function MarksEntry({
   students: initialStudents,
   initialAttempt,
   canEnter,
+  mechanism,
+  subcategories,
+  colorCodingEnabled,
 }: MarksEntryProps) {
+  const isDescriptorMode = mechanism === 'descriptors';
   const [attempt, setAttempt] = useState(initialAttempt);
   const [students, setStudents] = useState<readonly MarksEntryStudent[]>(initialStudents);
   const [status, setStatus] = useState<{
@@ -165,6 +190,13 @@ export function MarksEntry({
         continue;
       }
 
+      // In descriptor mode "marked" means a descriptor has been chosen. There
+      // is no pass mark, so nothing is below one.
+      if (isDescriptorMode) {
+        if (draft.subcategoryId !== '') marked += 1;
+        continue;
+      }
+
       const value = Number.parseFloat(draft.value);
       if (Number.isFinite(value)) {
         marked += 1;
@@ -173,17 +205,18 @@ export function MarksEntry({
     }
 
     return { marked, absent, failed, unmarked: students.length - marked - absent };
-  }, [students, drafts, paper.passingMarks]);
+  }, [students, drafts, paper.passingMarks, isDescriptorMode]);
 
   const outOfRange = useMemo(
     () =>
       students.some((student) => {
+        if (isDescriptorMode) return false;
         const draft = drafts[student.studentProfileId];
         if (draft === undefined || draft.isAbsent || draft.value === '') return false;
         const value = Number.parseFloat(draft.value);
         return !Number.isFinite(value) || value < 0 || value > paper.maxMarks;
       }),
-    [students, drafts, paper.maxMarks],
+    [students, drafts, paper.maxMarks, isDescriptorMode],
   );
 
   const save = async (): Promise<void> => {
@@ -196,11 +229,24 @@ export function MarksEntry({
         body: JSON.stringify({
           attempt,
           records: students.map((student) => {
-            const draft = drafts[student.studentProfileId] ?? { value: '', isAbsent: false };
+            const draft = drafts[student.studentProfileId] ?? {
+              value: '',
+              isAbsent: false,
+              subcategoryId: '',
+              comment: '',
+            };
             return {
               studentProfileId: student.studentProfileId,
-              marksObtained: draft.isAbsent || draft.value === '' ? null : draft.value,
+              // Never both: the server refuses a mark on a descriptor class
+              // and a descriptor on a marked one, and this is the shape that
+              // says which sheet the teacher was actually looking at.
+              marksObtained:
+                isDescriptorMode || draft.isAbsent || draft.value === ''
+                  ? null
+                  : draft.value,
+              subcategoryId: isDescriptorMode ? draft.subcategoryId : null,
               isAbsent: draft.isAbsent,
+              remarks: draft.comment.trim() === '' ? null : draft.comment.trim(),
             };
           }),
         }),
@@ -244,7 +290,11 @@ export function MarksEntry({
         header={
           <CardTitle
             title={`${paper.subjectName} — ${paper.sectionLabel}`}
-            description={`${paper.examTitle} · ${paper.termName} · out of ${paper.maxMarks}, pass ${paper.passingMarks}`}
+            description={
+              isDescriptorMode
+                ? `${paper.examTitle} · ${paper.termName} · performance descriptors`
+                : `${paper.examTitle} · ${paper.termName} · out of ${paper.maxMarks}, pass ${paper.passingMarks}`
+            }
             action={
               <div className="flex flex-nowrap items-center gap-2 whitespace-nowrap">
                 <Badge
@@ -282,8 +332,9 @@ export function MarksEntry({
         }
       >
         <p className="text-sm text-ink-muted">
-          {counts.marked} marked · {counts.absent} absent · {counts.unmarked} still
-          blank · {counts.failed} below the pass mark
+          {counts.marked} {isDescriptorMode ? 'recorded' : 'marked'} · {counts.absent}{' '}
+          absent · {counts.unmarked} still blank
+          {isDescriptorMode ? '' : ` · ${counts.failed} below the pass mark`}
         </p>
 
         {isLocked ? (
@@ -317,11 +368,18 @@ export function MarksEntry({
                 <TableHead>
                   <TableRow className="border-b border-line text-left text-xs uppercase tracking-wide text-ink-muted">
                     <TableHeaderCell>Student</TableHeaderCell>
-                    {attempt === 2 ? (
+                    {attempt === 2 && !isDescriptorMode ? (
                       <TableHeaderCell>Original</TableHeaderCell>
                     ) : null}
-                    <TableHeaderCell>Marks</TableHeaderCell>
-                    <TableHeaderCell>%</TableHeaderCell>
+                    {isDescriptorMode ? (
+                      <TableHeaderCell>Sub-category</TableHeaderCell>
+                    ) : (
+                      <>
+                        <TableHeaderCell>Marks</TableHeaderCell>
+                        <TableHeaderCell>%</TableHeaderCell>
+                      </>
+                    )}
+                    <TableHeaderCell>Comment</TableHeaderCell>
                     <TableHeaderCell>Absent</TableHeaderCell>
                   </TableRow>
                 </TableHead>
@@ -330,7 +388,15 @@ export function MarksEntry({
                     const draft = drafts[student.studentProfileId] ?? {
                       value: '',
                       isAbsent: false,
+                      subcategoryId: '',
+                      comment: '',
                     };
+                    const chosen =
+                      draft.subcategoryId === '' || draft.isAbsent
+                        ? undefined
+                        : subcategories.find(
+                            (option) => option.id === draft.subcategoryId,
+                          );
                     const value = Number.parseFloat(draft.value);
                     const valid = Number.isFinite(value);
                     const bad = valid && (value < 0 || value > paper.maxMarks);
@@ -349,7 +415,7 @@ export function MarksEntry({
                           </p>
                         </TableCell>
 
-                        {attempt === 2 ? (
+                        {attempt === 2 && !isDescriptorMode ? (
                           <TableCell muted>
                             {student.originalAbsent
                               ? 'Absent'
@@ -357,40 +423,106 @@ export function MarksEntry({
                           </TableCell>
                         ) : null}
 
+                        {isDescriptorMode ? (
+                          <TableCell>
+                            <select
+                              disabled={isLocked || draft.isAbsent}
+                              value={draft.isAbsent ? '' : draft.subcategoryId}
+                              aria-label={`Sub-category for ${student.studentName}`}
+                              onChange={(event) => {
+                                const next = event.target.value;
+                                setDrafts((current) => ({
+                                  ...current,
+                                  [student.studentProfileId]: {
+                                    ...(current[student.studentProfileId] ?? draft),
+                                    subcategoryId: next,
+                                    isAbsent: false,
+                                  },
+                                }));
+                                setSavedAt(null);
+                              }}
+                              className="rounded-lg border border-line-strong px-2 py-1.5 text-sm disabled:bg-surface-sunken"
+                            >
+                              <option value="">Not recorded</option>
+                              {subcategories.map((option) => (
+                                <option key={option.id} value={option.id}>
+                                  {option.label}
+                                </option>
+                              ))}
+                            </select>
+
+                            {/* The same chip the report card prints, so a
+                                teacher sees what the parent will get rather
+                                than a name in a dropdown. */}
+                            {chosen === undefined ? null : (
+                              <SubcategoryBadge
+                                subcategory={chosen}
+                                colorCoded={colorCodingEnabled}
+                                className="ml-2 align-middle"
+                              />
+                            )}
+                          </TableCell>
+                        ) : (
+                          <>
+                            <TableCell>
+                              <input
+                                type="number"
+                                inputMode="decimal"
+                                min={0}
+                                max={paper.maxMarks}
+                                step="0.5"
+                                disabled={isLocked || draft.isAbsent}
+                                value={draft.isAbsent ? '' : draft.value}
+                                aria-label={`Marks for ${student.studentName}`}
+                                aria-invalid={bad}
+                                onChange={(event) => {
+                                  const next = event.target.value;
+                                  setDrafts((current) => ({
+                                    ...current,
+                                    [student.studentProfileId]: {
+                                      ...(current[student.studentProfileId] ?? draft),
+                                      value: next,
+                                      isAbsent: false,
+                                    },
+                                  }));
+                                  setSavedAt(null);
+                                }}
+                                className={
+                                  bad
+                                    ? 'w-24 rounded-lg border border-status-danger px-2 py-1.5 text-sm outline-red-500'
+                                    : 'w-24 rounded-lg border border-line-strong px-2 py-1.5 text-sm disabled:bg-surface-sunken'
+                                }
+                              />
+                            </TableCell>
+
+                            <TableCell muted>
+                              {draft.isAbsent || !valid
+                                ? '—'
+                                : formatPercentage(percentageOf(value, paper.maxMarks))}
+                            </TableCell>
+                          </>
+                        )}
+
                         <TableCell>
                           <input
-                            type="number"
-                            inputMode="decimal"
-                            min={0}
-                            max={paper.maxMarks}
-                            step="0.5"
-                            disabled={isLocked || draft.isAbsent}
-                            value={draft.isAbsent ? '' : draft.value}
-                            aria-label={`Marks for ${student.studentName}`}
-                            aria-invalid={bad}
+                            type="text"
+                            maxLength={200}
+                            disabled={isLocked}
+                            value={draft.comment}
+                            aria-label={`Comment for ${student.studentName}`}
                             onChange={(event) => {
                               const next = event.target.value;
                               setDrafts((current) => ({
                                 ...current,
                                 [student.studentProfileId]: {
-                                  value: next,
-                                  isAbsent: false,
+                                  ...(current[student.studentProfileId] ?? draft),
+                                  comment: next,
                                 },
                               }));
                               setSavedAt(null);
                             }}
-                            className={
-                              bad
-                                ? 'w-24 rounded-lg border border-status-danger px-2 py-1.5 text-sm outline-red-500'
-                                : 'w-24 rounded-lg border border-line-strong px-2 py-1.5 text-sm disabled:bg-surface-sunken'
-                            }
+                            className="w-48 rounded-lg border border-line-strong px-2 py-1.5 text-sm disabled:bg-surface-sunken"
                           />
-                        </TableCell>
-
-                        <TableCell muted>
-                          {draft.isAbsent || !valid
-                            ? '—'
-                            : formatPercentage(percentageOf(value, paper.maxMarks))}
                         </TableCell>
 
                         <TableCell>
@@ -401,13 +533,20 @@ export function MarksEntry({
                             aria-label={`${student.studentName} was absent`}
                             onChange={(event) => {
                               const isAbsent = event.target.checked;
-                              setDrafts((current) => ({
-                                ...current,
-                                [student.studentProfileId]: {
-                                  value: isAbsent ? '' : (current[student.studentProfileId]?.value ?? ''),
-                                  isAbsent,
-                                },
-                              }));
+                              setDrafts((current) => {
+                                const existing = current[student.studentProfileId] ?? draft;
+                                return {
+                                  ...current,
+                                  [student.studentProfileId]: {
+                                    ...existing,
+                                    value: isAbsent ? '' : existing.value,
+                                    // A child who was not there earned no
+                                    // descriptor, and the server clears it too.
+                                    subcategoryId: isAbsent ? '' : existing.subcategoryId,
+                                    isAbsent,
+                                  },
+                                };
+                              });
                               setSavedAt(null);
                             }}
                             className="h-4 w-4 rounded border-line-strong"
@@ -451,7 +590,9 @@ export function MarksEntry({
                   {outOfRange
                     ? `Some marks are outside 0–${paper.maxMarks}.`
                     : counts.unmarked === 0
-                      ? 'Every student has a mark.'
+                      ? isDescriptorMode
+                        ? 'Every student has a sub-category.'
+                        : 'Every student has a mark.'
                       : `${counts.unmarked} still blank — blanks are left as they are, not saved as zero.`}
                 </p>
               </div>

@@ -1,12 +1,18 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 
+import { ResultHistory } from '@/components/exams/ResultHistory';
 import { ReportCardSummary } from '@/components/parent/ReportCardSummary';
 import { Card, CardTitle } from '@/components/ui/Card';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { getActiveAcademicYear, getStudentBySchoolUserId } from '@/lib/admissions-queries';
-import { getStudentReportCard, listPublishedTermsForStudent } from '@/lib/portal-results';
+import { getExamSettings } from '@/lib/exam-queries';
+import {
+  getStudentReportCard,
+  listPublishedTermsForStudent,
+  listStudentResultHistory,
+} from '@/lib/portal-results';
 import { requireSchoolRole } from '@/lib/school-guard';
 import { getSchoolUserByUid } from '@/lib/school-queries';
 
@@ -61,7 +67,11 @@ export default async function StudentResultsPage({
     );
   }
 
-  const terms = await listPublishedTermsForStudent(locationId, student.studentProfileId);
+  const [terms, history, settings] = await Promise.all([
+    listPublishedTermsForStudent(locationId, student.studentProfileId),
+    listStudentResultHistory(locationId, student.studentProfileId),
+    getExamSettings(locationId),
+  ]);
 
   const { term: requestedTerm } = await searchParams;
   const term = terms.find((row) => row.termId === requestedTerm) ?? terms[0] ?? null;
@@ -114,6 +124,12 @@ export default async function StudentResultsPage({
           ) : (
             <ReportCardSummary card={card} />
           )}
+
+          <ResultHistory
+            history={history}
+            colorCodingEnabled={settings.colorCodingEnabled}
+            studentName="you"
+          />
         </>
       )}
     </div>

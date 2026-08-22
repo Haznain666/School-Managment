@@ -10,15 +10,32 @@ import type { PortalNavItem } from '@/components/school/PortalSidebar';
  * Data rather than a component since Sprint 10.5 — `PortalFrame` renders the
  * same list on desktop and inside the mobile drawer.
  */
-/** Built per request: the announcements entry carries an unread count. */
-export function teacherNav(unreadNotices = 0): PortalNavItem[] {
+/**
+ * Built per request: the announcements entry carries an unread count, and
+ * Promotions appears only for a teacher who is the class teacher of something.
+ *
+ * Hiding it is a courtesy, not the control — `/teacher/promotions` refuses the
+ * same person, because a link is not a permission and a typed URL would
+ * otherwise walk straight in.
+ */
+export function teacherNav(unreadNotices = 0, isClassTeacher = false): PortalNavItem[] {
   return [
     { label: 'My Dashboard', href: '/teacher', icon: 'dashboard' },
     { label: 'My Timetable', href: '/teacher/timetable', icon: 'timetable' },
     { label: 'My Classes', href: '/teacher/classes', icon: 'students' },
     { label: 'Attendance', href: '/teacher/attendance', icon: 'attendance' },
+    { label: 'My Exams', href: '/teacher/exams', icon: 'exams' },
     { label: 'Marks', href: '/teacher/marks', icon: 'marks' },
     { label: 'Gradebook', href: '/teacher/gradebook', icon: 'grading' },
+    ...(isClassTeacher
+      ? [
+          {
+            label: 'Promotions',
+            href: '/teacher/promotions',
+            icon: 'promote' as const,
+          },
+        ]
+      : []),
     { label: 'Lesson Plans', href: '/teacher/lesson-plans', icon: 'academics' },
     {
       label: 'Announcements',

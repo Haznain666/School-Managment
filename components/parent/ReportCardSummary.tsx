@@ -1,5 +1,7 @@
+import { SubcategoryBadge } from '@/components/exams/SubcategoryBadge';
 import { Badge } from '@/components/ui/Badge';
 import { Card, CardTitle } from '@/components/ui/Card';
+import { PROMOTION_STATUS_LABELS } from '@/db/schema/student-term-results';
 import type { ReportCard } from '@/lib/exam-queries';
 import { formatMark, formatPercentage } from '@/lib/grading';
 
@@ -23,27 +25,75 @@ import { formatMark, formatPercentage } from '@/lib/grading';
  * restated, because they live in the data: a null grade prints a dash, an
  * absent child has no position, and an unpublished term never reaches a parent
  * at all (`lib/portal-results.ts`).
+ *
+ * Sprint 14 adds the same two-sheet split the printed card carries: a class
+ * judged on descriptors shows Subject / Sub-category / Comment and no marks
+ * anywhere, and a marks class shows no sub-category column. The promotion
+ * status and, where there is one, the reason the school changed it sit at the
+ * top — the reason is shown to the family deliberately.
  */
 export function ReportCardSummary({ card }: { card: ReportCard }) {
+  const isDescriptorMode = card.mechanism === 'descriptors';
+
   return (
     <div className="space-y-4">
       <Card>
-        <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
-          <Figure label="Percentage" value={formatPercentage(card.percentage)} />
-          <Figure
-            label="Total"
-            value={`${formatMark(card.obtained)} / ${formatMark(card.available)}`}
-          />
-          <Figure label="Grade" value={card.grade ?? '—'} />
-          <Figure
-            label="Position"
-            value={
-              card.position === null ? '—' : `${card.position} of ${card.classSize}`
-            }
-          />
-        </div>
+        {isDescriptorMode ? (
+          <div className="grid grid-cols-2 gap-4 sm:grid-cols-3">
+            <div>
+              <p className="text-xs font-medium uppercase tracking-wide text-ink-muted">
+                Overall
+              </p>
+              <p className="mt-1">
+                <SubcategoryBadge
+                  subcategory={card.overallSubcategory}
+                  colorCoded={card.colorCodingEnabled}
+                />
+              </p>
+            </div>
+            <Figure
+              label="Subjects needing attention"
+              value={String(card.failedCount)}
+            />
+            <Figure label="Papers missed" value={String(card.absentCount)} />
+          </div>
+        ) : (
+          <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+            <Figure label="Percentage" value={formatPercentage(card.percentage)} />
+            <Figure
+              label="Total"
+              value={`${formatMark(card.obtained)} / ${formatMark(card.available)}`}
+            />
+            <Figure label="Grade" value={card.grade ?? '—'} />
+            <Figure
+              label="Position"
+              value={
+                card.position === null ? '—' : `${card.position} of ${card.classSize}`
+              }
+            />
+          </div>
+        )}
 
-        {card.position === null && card.absentCount > 0 ? (
+        {card.promotion === null ? null : (
+          <div className="mt-4 rounded-lg bg-surface-sunken px-3 py-2">
+            <p className="text-sm text-ink">
+              <span className="font-medium">Promotion: </span>
+              {PROMOTION_STATUS_LABELS[card.promotion.finalStatus]}
+            </p>
+            {/* The reason a status was changed is shown to the family
+                deliberately — the product owner asked for it, and a status a
+                parent cannot ask about is a status they distrust. */}
+            {card.promotion.isOverridden && card.promotion.overrideReason !== null ? (
+              <p className="mt-1 text-sm text-ink-muted">
+                Changed by the school from{' '}
+                {PROMOTION_STATUS_LABELS[card.promotion.computedStatus].toLowerCase()}:{' '}
+                {card.promotion.overrideReason}
+              </p>
+            ) : null}
+          </div>
+        )}
+
+        {!isDescriptorMode && card.position === null && card.absentCount > 0 ? (
           <p className="mt-4 rounded-lg bg-status-warning-subtle px-3 py-2 text-sm text-status-warning-onSubtle">
             No position is given because {card.absentCount} paper
             {card.absentCount === 1 ? ' was' : 's were'} missed. Ranking a child
@@ -71,61 +121,125 @@ export function ReportCardSummary({ card }: { card: ReportCard }) {
         {/* A real table, and it scrolls inside its own box rather than pushing
             the page sideways on a narrow screen. */}
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[30rem] text-sm">
-            <thead>
-              <tr className="border-b border-line text-left">
-                <th scope="col" className="px-5 py-2 font-medium text-ink-muted">
-                  Subject
-                </th>
-                <th scope="col" className="px-3 py-2 text-right font-medium text-ink-muted">
-                  Marks
-                </th>
-                <th scope="col" className="px-3 py-2 text-right font-medium text-ink-muted">
-                  Out of
-                </th>
-                <th scope="col" className="px-3 py-2 text-right font-medium text-ink-muted">
-                  %
-                </th>
-                <th scope="col" className="px-5 py-2 text-right font-medium text-ink-muted">
-                  Grade
-                </th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-line">
-              {card.subjects.map((subject, index) => (
-                <tr key={`${subject.subjectName}-${index}`}>
-                  <th scope="row" className="px-5 py-2.5 text-left font-normal text-ink">
-                    {subject.subjectName}
-                    {subject.isResit ? (
-                      <Badge variant="neutral" className="ml-2">
-                        Re-sit
-                      </Badge>
-                    ) : null}
+          {isDescriptorMode ? (
+            <table className="w-full min-w-[28rem] text-sm">
+              <thead>
+                <tr className="border-b border-line text-left">
+                  <th scope="col" className="px-5 py-2 font-medium text-ink-muted">
+                    Subject
                   </th>
-                  <td
-                    className={
-                      subject.isFail
-                        ? 'px-3 py-2.5 text-right font-medium text-status-danger-ink'
-                        : 'px-3 py-2.5 text-right text-ink'
-                    }
-                  >
-                    {subject.isAbsent ? 'ABS' : formatMark(subject.marks)}
-                  </td>
-                  <td className="px-3 py-2.5 text-right text-ink-muted">
-                    {formatMark(subject.maxMarks)}
-                  </td>
-                  <td className="px-3 py-2.5 text-right text-ink-muted">
-                    {subject.percentage === null
-                      ? '—'
-                      : formatPercentage(subject.percentage)}
-                  </td>
-                  <td className="px-5 py-2.5 text-right text-ink">
-                    {subject.grade ?? '—'}
-                  </td>
+                  <th scope="col" className="px-3 py-2 font-medium text-ink-muted">
+                    Sub-category
+                  </th>
+                  <th scope="col" className="px-5 py-2 font-medium text-ink-muted">
+                    Comment
+                  </th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody className="divide-y divide-line">
+                {card.subjects.map((subject, index) => (
+                  <tr key={`${subject.subjectName}-${index}`}>
+                    <th
+                      scope="row"
+                      className="px-5 py-2.5 text-left font-normal text-ink"
+                    >
+                      {subject.subjectName}
+                    </th>
+                    <td className="px-3 py-2.5">
+                      {subject.isAbsent ? (
+                        <span className="text-ink-muted">ABS</span>
+                      ) : (
+                        <SubcategoryBadge
+                          subcategory={subject.subcategory}
+                          colorCoded={card.colorCodingEnabled}
+                        />
+                      )}
+                    </td>
+                    <td className="px-5 py-2.5 text-ink-muted">
+                      {subject.comment ?? '—'}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          ) : (
+            <table className="w-full min-w-[34rem] text-sm">
+              <thead>
+                <tr className="border-b border-line text-left">
+                  <th scope="col" className="px-5 py-2 font-medium text-ink-muted">
+                    Subject
+                  </th>
+                  <th
+                    scope="col"
+                    className="px-3 py-2 text-right font-medium text-ink-muted"
+                  >
+                    Marks
+                  </th>
+                  <th
+                    scope="col"
+                    className="px-3 py-2 text-right font-medium text-ink-muted"
+                  >
+                    Out of
+                  </th>
+                  <th
+                    scope="col"
+                    className="px-3 py-2 text-right font-medium text-ink-muted"
+                  >
+                    %
+                  </th>
+                  <th
+                    scope="col"
+                    className="px-3 py-2 text-right font-medium text-ink-muted"
+                  >
+                    Grade
+                  </th>
+                  <th scope="col" className="px-5 py-2 font-medium text-ink-muted">
+                    Comment
+                  </th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-line">
+                {card.subjects.map((subject, index) => (
+                  <tr key={`${subject.subjectName}-${index}`}>
+                    <th
+                      scope="row"
+                      className="px-5 py-2.5 text-left font-normal text-ink"
+                    >
+                      {subject.subjectName}
+                      {subject.isResit ? (
+                        <Badge variant="neutral" className="ml-2">
+                          Re-sit
+                        </Badge>
+                      ) : null}
+                    </th>
+                    <td
+                      className={
+                        subject.isFail
+                          ? 'px-3 py-2.5 text-right font-medium text-status-danger-ink'
+                          : 'px-3 py-2.5 text-right text-ink'
+                      }
+                    >
+                      {subject.isAbsent ? 'ABS' : formatMark(subject.marks)}
+                    </td>
+                    <td className="px-3 py-2.5 text-right text-ink-muted">
+                      {formatMark(subject.maxMarks)}
+                    </td>
+                    <td className="px-3 py-2.5 text-right text-ink-muted">
+                      {subject.percentage === null
+                        ? '—'
+                        : formatPercentage(subject.percentage)}
+                    </td>
+                    <td className="px-3 py-2.5 text-right text-ink">
+                      {subject.grade ?? '—'}
+                    </td>
+                    <td className="px-5 py-2.5 text-ink-muted">
+                      {subject.comment ?? '—'}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
         </div>
       </Card>
 

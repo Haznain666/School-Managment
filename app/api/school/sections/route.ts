@@ -5,6 +5,7 @@ import { withSchoolAuth } from '@/lib/api-auth';
 import { apiFailure, apiSuccess, handleApiError, readJsonBody } from '@/lib/api-response';
 import { listSections } from '@/lib/admissions-queries';
 import { db } from '@/lib/drizzle';
+import { listClassTeacherCandidates } from '@/lib/exam-queries';
 import { isUuid, readString } from '@/lib/validation';
 
 /**
@@ -27,12 +28,18 @@ export const GET = withSchoolAuth(
     try {
       const url = new URL(request.url);
 
-      return apiSuccess({
-        sections: await listSections(auth.locationId, {
+      // The class-teacher candidates ride along: the setup grid draws a picker
+      // per section, and asking for the same short list once per row would be
+      // one request per class on a screen that already has sixteen.
+      const [rows, classTeachers] = await Promise.all([
+        listSections(auth.locationId, {
           gradeId: url.searchParams.get('gradeId') ?? undefined,
           academicYearId: url.searchParams.get('academicYearId') ?? undefined,
         }),
-      });
+        listClassTeacherCandidates(auth.locationId, auth.branchId),
+      ]);
+
+      return apiSuccess({ sections: rows, classTeachers });
     } catch (error) {
       return handleApiError(error);
     }

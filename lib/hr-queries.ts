@@ -79,6 +79,15 @@ export interface StaffRow {
   email: string | null;
   branchId: string | null;
   branchName: string | null;
+  /**
+   * Whether this person may be offered as a class's class teacher.
+   *
+   * A flag on the employment record rather than a role, because the product
+   * owner settled it as one option — "Class Teacher (Home Room)" or "None".
+   * Which class they actually hold is `sections.class_teacher_id`, decided on
+   * the class; this only says who may appear in that picker.
+   */
+  isClassTeacher: boolean;
 }
 
 export interface ListStaffFilters {
@@ -142,6 +151,7 @@ export async function listStaff(
       email: staff.email,
       branchId: staff.branchId,
       branchName: branches.name,
+      isClassTeacher: staff.isClassTeacher,
     })
     .from(staff)
     .leftJoin(branches, eq(branches.id, staff.branchId))
@@ -185,6 +195,7 @@ export async function getStaff(
       email: staff.email,
       branchId: staff.branchId,
       branchName: branches.name,
+      isClassTeacher: staff.isClassTeacher,
       schoolUserId: staff.schoolUserId,
       cnic: staff.cnic,
       dateOfBirth: staff.dateOfBirth,

@@ -41,6 +41,14 @@ interface SectionRow {
   name: string;
   capacity: number | null;
   studentCount: number;
+  classTeacherId: string | null;
+}
+
+/** A member of staff the school has marked as a class teacher. */
+interface ClassTeacherOption {
+  id: string;
+  name: string;
+  designation: string | null;
 }
 
 export function GradeSetupGrid({
@@ -53,6 +61,7 @@ export function GradeSetupGrid({
 }: GradeSetupGridProps) {
   const [grades, setGrades] = useState<GradeRow[] | null>(null);
   const [sections, setSections] = useState<SectionRow[]>([]);
+  const [classTeachers, setClassTeachers] = useState<ClassTeacherOption[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
 
@@ -77,10 +86,12 @@ export function GradeSetupGrid({
     }
 
     try {
-      const payload = await schoolFetch<{ sections: SectionRow[] }>(
-        `/api/school/sections?academicYearId=${encodeURIComponent(academicYearId)}`,
-      );
+      const payload = await schoolFetch<{
+        sections: SectionRow[];
+        classTeachers: ClassTeacherOption[];
+      }>(`/api/school/sections?academicYearId=${encodeURIComponent(academicYearId)}`);
       setSections(payload.sections);
+      setClassTeachers(payload.classTeachers);
     } catch (caught) {
       setError(schoolErrorMessage(caught, 'Could not load sections.'));
     }
@@ -160,6 +171,26 @@ export function GradeSetupGrid({
     }
   };
 
+  const setClassTeacher = async (
+    sectionId: string,
+    staffId: string,
+  ): Promise<void> => {
+    setBusy(sectionId);
+    setError(null);
+
+    try {
+      await schoolFetch(`/api/school/sections/${sectionId}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ classTeacherId: staffId === '' ? null : staffId }),
+      });
+      await loadSections();
+    } catch (caught) {
+      setError(schoolErrorMessage(caught, 'Could not set the class teacher.'));
+    } finally {
+      setBusy(null);
+    }
+  };
+
   if (grades === null) {
     return (
       <Card>
@@ -214,11 +245,13 @@ export function GradeSetupGrid({
                 key={grade.id}
                 grade={grade}
                 sections={sections.filter((section) => section.gradeId === grade.id)}
+                classTeachers={classTeachers}
                 canEdit={canEdit && academicYearId !== ''}
                 busy={busy === grade.id}
                 onRename={renameGrade}
                 onAddSection={addSection}
                 onRemoveSection={removeSection}
+                onSetClassTeacher={setClassTeacher}
               />
             ))}
           </ul>
@@ -231,21 +264,25 @@ export function GradeSetupGrid({
 interface GradeRowItemProps {
   grade: GradeRow;
   sections: readonly SectionRow[];
+  classTeachers: readonly ClassTeacherOption[];
   canEdit: boolean;
   busy: boolean;
   onRename: (gradeId: string, displayName: string) => Promise<void>;
   onAddSection: (gradeId: string, name: string, capacity: string) => Promise<void>;
   onRemoveSection: (sectionId: string) => Promise<void>;
+  onSetClassTeacher: (sectionId: string, staffId: string) => Promise<void>;
 }
 
 function GradeRowItem({
   grade,
   sections,
+  classTeachers,
   canEdit,
   busy,
   onRename,
   onAddSection,
   onRemoveSection,
+  onSetClassTeacher,
 }: GradeRowItemProps) {
   const [displayName, setDisplayName] = useState(grade.displayName ?? '');
   const [isAdding, setIsAdding] = useState(false);
@@ -317,6 +354,44 @@ function GradeRowItem({
               ))
             )}
           </div>
+
+          {/* The class teacher owns this class's promotions — see
+              `/api/school/terms/[termId]/sections/[sectionId]/results`. Only
+              staff whose record says "Class Teacher (Home Room)" are offered,
+              which is why the list can be empty and says so rather than
+              rendering an empty dropdown. */}
+          {canEdit && sections.length > 0 ? (
+            <div className="space-y-2">
+              {sections.map((section) => (
+                <label
+                  key={section.id}
+                  className="flex flex-wrap items-center gap-2 text-xs text-ink-muted"
+                >
+                  <span className="w-24">Class teacher · {section.name}</span>
+                  <select
+                    value={section.classTeacherId ?? ''}
+                    disabled={busy || classTeachers.length === 0}
+                    onChange={(event) => {
+                      void onSetClassTeacher(section.id, event.target.value);
+                    }}
+                    className="rounded-lg border border-line-strong px-2 py-1 text-xs text-ink disabled:bg-surface-sunken"
+                  >
+                    <option value="">
+                      {classTeachers.length === 0
+                        ? 'No staff marked as class teachers'
+                        : 'None'}
+                    </option>
+                    {classTeachers.map((option) => (
+                      <option key={option.id} value={option.id}>
+                        {option.name}
+                        {option.designation === null ? '' : ` — ${option.designation}`}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              ))}
+            </div>
+          ) : null}
 
           {isAdding ? (
             <div className="flex flex-wrap items-end gap-2">

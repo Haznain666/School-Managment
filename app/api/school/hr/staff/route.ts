@@ -12,7 +12,13 @@ import { apiFailure, apiSuccess, handleApiError, readJsonBody } from '@/lib/api-
 import { normalizeCnic } from '@/lib/national-id';
 import { db } from '@/lib/drizzle';
 import { listDepartments, listStaff } from '@/lib/hr-queries';
-import { isIsoDate, isUuid, readOptionalString, readString } from '@/lib/validation';
+import {
+  isIsoDate,
+  isUuid,
+  readBoolean,
+  readOptionalString,
+  readString,
+} from '@/lib/validation';
 
 /**
  * /api/school/hr/staff
@@ -67,6 +73,7 @@ export const GET = withSchoolAuth(
 
 interface CreateStaffBody {
   employeeCode?: unknown;
+  isClassTeacher?: unknown;
   firstName?: unknown;
   lastName?: unknown;
   designation?: unknown;
@@ -173,6 +180,10 @@ export const POST = withSchoolAuth(
           employeeCode,
           firstName,
           lastName,
+          // Whether this person may be offered as a class's class teacher.
+          // One flag rather than a role: the product owner was explicit that
+          // "Class Teacher (Home Room)" and "None" are the same option.
+          isClassTeacher: readBoolean(body.isClassTeacher, false),
           designation: readOptionalString(body.designation),
           department: readOptionalString(body.department),
           employmentType: isEmploymentType(body.employmentType)

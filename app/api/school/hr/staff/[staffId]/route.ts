@@ -57,6 +57,7 @@ export const GET = withSchoolAuth<RouteContext>(
 
 interface UpdateStaffBody {
   firstName?: unknown;
+  isClassTeacher?: unknown;
   lastName?: unknown;
   designation?: unknown;
   department?: unknown;
@@ -166,6 +167,17 @@ export const PATCH = withSchoolAuth<RouteContext>(
           return apiFailure('invalid_body', 'Choose a valid branch.', 400);
         }
         updates.branchId = branchId;
+      }
+
+      if (body.isClassTeacher !== undefined) {
+        if (typeof body.isClassTeacher !== 'boolean') {
+          return apiFailure('invalid_body', 'isClassTeacher must be true or false.', 400);
+        }
+        // Clearing it does not unseat them from a class they already hold.
+        // `sections.class_teacher_id` is a separate decision made on the class,
+        // and silently emptying it here would move a promotion screen out from
+        // under the person using it.
+        updates.isClassTeacher = body.isClassTeacher;
       }
 
       const optionalText = [
