@@ -156,6 +156,7 @@ release-note claims:
 | Panel chooser & school deletion | 15 | [read](TEST-CASES-PANEL-CHOOSER-AND-SCHOOL-DELETION.md) |
 | School & branch creation fixes | 22 | [read](TEST-CASES-SCHOOL-BRANCH-CREATION-FIXES.md) |
 | Sprint 13.5 — Accounting | 35 | [read](TEST-CASES-SPRINT-13.5.md) |
+| Sprint 14 — Exam terms, datesheets, descriptors & promotion | 102 | [read](TEST-CASES-SPRINT-14.md) |
 | Sprint 13.8 — Sibling identity & the announcement sweep | 35 | [read](TEST-CASES-SPRINT-13.8.md) |
 | Sprint 13 — Portals, installable app, two principals | 26 | [read](TEST-CASES-SPRINT-13.md) |
 | Sprint 12 — Reports & analytics | 20 | [read](TEST-CASES-SPRINT-12.md) |

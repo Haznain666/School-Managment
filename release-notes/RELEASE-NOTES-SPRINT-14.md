@@ -1,11 +1,21 @@
 # Sprint 14 — exam terms, datesheets, descriptors and promotion
 
-**Built 2026-08-22 to `SPRINT-14-SPEC.md`.** Migration
-`0029_sprint14_exam_terms_promotion.sql` is **written and not applied.**
+**Built 2026-08-22 to `SPRINT-14-SPEC.md`.** Migrations
+`0029_sprint14_exam_terms_promotion.sql` and `0030_schedule_marks_pairing.sql`
+are **both APPLIED to the live database.**
 
-> ⚠️ **Not live.** Nothing in this sprint works against the live database until
-> `0029` is applied. That is `sprint-devops`' step, and the four seeded result
-> sub-categories for existing schools arrive with it.
+> ✅ **Live.** The bookkeeping table went 29 → 30 → 31. Verified against the real
+> schema rather than trusting the success message: seven tables, eleven columns,
+> the relaxed `exam_results` CHECK, `results.promotion` in the permission
+> constraint, all four partial indexes, and the four default result
+> sub-categories seeded for every existing school.
+>
+> **`0029` had to go in before the merge, not after.** `app/(teacher)/layout.tsx`
+> awaits `listClassTeacherSections`, which reads `sections.class_teacher_id`. A
+> layout runs on every page of the teacher portal and that call is unguarded, so
+> deploying this against the old schema would have 500'd the whole portal — the
+> §5aw incident again, one module over. The migration is expand-only, so
+> applying it while the *old* build was still live cost nothing.
 
 ---
 
@@ -142,6 +152,14 @@ navigation, and is refused by the page if they type the URL.
 * **Exams → Exam settings** — sub-categories with a colour picker that previews
   through the same component the report card prints, plus **Enable colour
   coding** and **Allow teachers to view student legacy results**.
+* **Exams → Promotions** — any class in the school, over the same sheet the class
+  teacher uses. Gated on `results.promotion`, scoped to a branch admin's own
+  campus, and exempt from the teacher legacy switch. Added during QA: without it,
+  a promotion status could only ever be created by a named class teacher, so a
+  school that had named none could not produce one at all.
+
+All seven exam screens are reachable from the sidebar, not only from the Exams
+overview.
 
 **Teacher**
 
@@ -178,3 +196,97 @@ status and the reason where the school changed it.
 * Re-sit handling for descriptor mode. A descriptor is not re-sat.
 * Any change to how `resolveBand` treats a score under every band. `resolveGrade`
   wraps it and returns `U`; the old function and its callers are untouched.
+
+---
+
+## What QA found, and what it cost to find it
+
+Thirteen defects, all fixed before merge. Five were P1. They are worth recording
+because of *how* each was caught — the three methods found different classes of
+fault and none of them would have found the others.
+
+### Found by reading the code against the spec
+
+1. **Dropping a class from a datesheet orphaned its papers.** The generate loop
+   walks the schedule's *current* grades, so a dropped class kept its live
+   papers — and was then free of the one-class-one-datesheet index, so it could
+   join a second datesheet and generate a **second full set of papers against
+   the same children**. Report cards select by term and section with no schedule
+   filter: every subject twice, marks available doubled, **every child's
+   percentage halved**, with nothing on any screen saying why.
+2. **"Delete" did not delete.** `archived_at` was written by three paths and
+   read by four readers out of twelve. An archived term's exams stayed live *and
+   writable* — a teacher could still save marks against a term the school had
+   deleted, because the results route authorises through `teacherOwnsPaper` and
+   loads through `getExamPaper`, and neither looked.
+3. **Descriptor classes got a marks tabulation.** `generate` writes
+   `max_marks = 1` on a descriptor paper because the column is NOT NULL, and the
+   grid read it: 0% for every child, and `assignPositions` turned that into **a
+   class of joint firsts** — a sheet a principal would have acted on.
+4. **Nobody holding `results.promotion` had a screen.** The only promotions UI
+   was behind `requireSchoolRole(['teacher'])`, so a term result could only come
+   into existence when a *named class teacher* pressed Recompute. A school that
+   had named no class teachers got no promotion status on any report card and no
+   way to produce one — the sprint's headline feature, unreachable for the three
+   roles the permission was created for.
+5. **Two different overall percentages, three inches apart.** The card printed
+   total-over-total; the history table printed the arithmetic mean the spec makes
+   authoritative. Both render on the parent's results page. Mathematics 40/100
+   with Art 18/20 showed **48.3% · C** on the document a family keeps and
+   **65.0% · B** below it — and the promotion decision had been taken on the
+   second. Fixed by making the mean authoritative everywhere, including the band,
+   the GPA and the remark. The marks column still totals honestly; it simply is
+   no longer what the percentage is computed from.
+
+Plus: the override form and the override route disagreed about when a reason was
+compulsory (the form hid the box, enabled Save, and the server returned 422); a
+branch admin could name a class teacher from a campus they do not run; a paper
+had no upper date bound when its schedule had no end date; a recompute left half
+an override behind; the deletion guard ignored classes that name a descriptor as
+their *failing* one; the report card counted "subjects needing attention" against
+the current criteria rather than the frozen ones; and a comment typed before a
+mark was silently dropped.
+
+### Found by running the rules against the real schema
+
+One defect, and no amount of reading would have caught it.
+
+`exam_schedule_subjects_marks_check` was written as:
+
+```sql
+(max_marks IS NULL AND passing_marks IS NULL)
+OR (max_marks > 0 AND passing_marks >= 0 AND passing_marks <= max_marks)
+```
+
+which reads as "both or neither" and is not. With `max_marks = 100` and
+`passing_marks = NULL`, branch one is FALSE, branch two is `TRUE AND NULL AND
+NULL` = **NULL**, and `FALSE OR NULL` is NULL — and **Postgres passes a CHECK
+unless it evaluates to FALSE.** The constraint permitted precisely the state it
+existed to forbid, silently, and the row looks ordinary in the table afterwards.
+
+The failure surfaced much later and somewhere else: `exam_subjects.passing_marks`
+is NOT NULL, so `generate` died on a not-null violation naming neither the paper
+nor the reason, at the moment an administrator was creating a whole term's exams.
+
+A 34-assertion integration suite against the live schema found it on the first
+run — the assertion "a half-configured row is refused" came back **WAS ALLOWED**.
+Review would never have caught it, because a CHECK is *read* in two-valued logic
+and *evaluated* in three. `0030` rewrites it with `num_nonnulls`, which cannot
+return null, and the parser now demands the pair regardless of whether the
+schedule has grades assigned yet — which was the route in, since the mechanism
+is derived from the assigned grades and a schedule with none has no mechanism.
+
+### Found by looking at the running app
+
+The **sidebar** still offered the Sprint 9 exam section. Three of the four new
+admin screens — datesheets, promotion criteria and exam settings — existed only
+as links on the Exams overview, so nothing in the primary navigation mentioned
+that a school could now configure any of this. Invisible in the diff, obvious in
+the browser.
+
+### The lesson worth keeping
+
+The green build passed at every point, including while all thirteen were
+present. Nine gates, 251 loader assertions, a clean typecheck and a clean lint
+say the code compiles and obeys the house rules. They say nothing about whether
+a report card prints the number the decision was made on.

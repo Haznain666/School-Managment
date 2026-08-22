@@ -4,7 +4,9 @@
 resume without re-deriving context. Updated at the end of every development
 step, before the session ends.
 
-**Last updated:** 2026-08-22 (**The deploy was never blocked and the probe that
+**Last updated:** 2026-08-22 (**Sprint 14 — exam terms, datesheets, descriptors
+and promotion, §5ay. `0029` and `0030` APPLIED; thirteen QA defects fixed.**;
+**The deploy was never blocked and the probe that
 would have said so was gitignored — §5ax**; WhatsApp removed from the platform,
 the invite form's phone field unblocked, the dashboard outage, and the login
 error that named nothing — §5aw. `0027` and `0028` are both APPLIED to the live
@@ -6342,12 +6344,48 @@ fails, and prints `git check-ignore -v <path>`.
 ## 5ay. Sprint 14 — exam terms, datesheets, descriptors and promotion — 2026-08-22
 
 Built to `SPRINT-14-SPEC.md`, which was agreed with the product owner over three
-rounds of questions. Migration **`0029_sprint14_exam_terms_promotion.sql`** —
-**written, not applied.** Applying it is `sprint-devops`.
+rounds of questions. Migrations **`0029_sprint14_exam_terms_promotion.sql`** and
+**`0030_schedule_marks_pairing.sql`** are **both APPLIED to the live database**
+— bookkeeping 29 → 30 → 31, each verified against the real schema afterwards.
+**Next free migration number is `0031`.**
 
 Phases 1 and 2 (schema, migration, the rule layer) landed in `3e182ea`. Phases
 3, 4 and 5 — the API, the admin screens and the portals — are `7953f99`,
 `8d41d1c` and `341527f`.
+
+**Then QA found thirteen defects, five of them P1, and all thirteen are fixed** —
+`892927c`, `8c2674e`, `c74c747`, `82f9262`, `5572da0`, `7a57c2f`. Read
+`release-notes/RELEASE-NOTES-SPRINT-14.md` §"What QA found" before touching this
+module; `test-cases/TEST-CASES-SPRINT-14.md` marks the eleven cases that were
+defects with 🔁, and those are the ones to re-run first.
+
+Three of them are worth carrying forward as rules, because each is a *class* of
+mistake this codebase can make again:
+
+1. **A soft-delete column is only as good as its readers.** `archived_at` was
+   written by three paths and read by four readers out of twelve, so "Delete"
+   left a term's exams live *and writable* — a teacher could still save marks
+   against a term the school had deleted. When you add an `archived_at`, grep
+   every reader of that table in the same commit.
+2. **A CHECK constraint is read in two-valued logic and evaluated in three.**
+   `(a IS NULL AND b IS NULL) OR (a > 0 AND b >= 0 AND b <= a)` evaluates to
+   NULL — not FALSE — when `a` is set and `b` is null, and Postgres passes a
+   CHECK unless it is FALSE. The constraint permitted exactly the state it
+   forbade. Use `num_nonnulls` for pairing rules. No review would have caught
+   this; a 34-assertion suite run against the real schema caught it on the first
+   run, and that suite is the thing to keep.
+3. **Two figures for one fact will diverge, and only under conditions nobody
+   tests.** The report card printed total-over-total while the history table and
+   the promotion engine used the arithmetic mean. They are the same number when
+   every paper is out of 100, which is why it survived review — and different the
+   moment a school runs a 20-mark Art paper. A parent saw 48.3% · C on the
+   document they keep and 65.0% · B three inches below it.
+
+Also worth noting for the next sprint's planning: **the green build passed at
+every point while all thirteen were present.** Nine gates, 251 loader
+assertions, clean typecheck, clean lint. They prove the code compiles and obeys
+the house rules; they say nothing about whether a report card prints the number
+the decision was made on.
 
 ### What a term is now
 
