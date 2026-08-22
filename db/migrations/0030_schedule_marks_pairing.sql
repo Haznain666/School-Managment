@@ -1,0 +1,69 @@
+-- Sprint 14 QA -- the pairing CHECK that permitted exactly what it forbade.
+--
+-- `exam_schedule_subjects_marks_check` was written in `0029` as:
+--
+--   (max_marks IS NULL AND passing_marks IS NULL)
+--   OR (max_marks > 0 AND passing_marks >= 0 AND passing_marks <= max_marks)
+--
+-- which reads as "both or neither" and is not. Take `max_marks = 100` with
+-- `passing_marks = NULL`:
+--
+--   branch 1 -> FALSE
+--   branch 2 -> TRUE AND NULL AND NULL -> NULL
+--   FALSE OR NULL                      -> NULL
+--
+-- A Postgres CHECK rejects a row only when its expression evaluates to FALSE.
+-- NULL passes. So the one state the constraint existed to prevent was the one
+-- state it let through, and it did so silently -- no error, no notice, and the
+-- row looks perfectly ordinary in the table afterwards.
+--
+-- Found by running the sprint's rules against the real schema rather than
+-- reading them: the assertion "a half-configured row is refused" came back
+-- WAS ALLOWED. Review would not have caught it, because the expression is
+-- correct in two-valued logic and that is how everybody reads it.
+--
+-- ── Why it mattered further down ────────────────────────────────────────
+-- `exam_subjects.passing_marks` is NOT NULL. A schedule saved in this state
+-- therefore took its failure later, inside `generate`, as a not-null violation
+-- naming neither the paper nor the subject nor the reason -- at the moment an
+-- administrator was creating a whole term's exams, which is the worst moment
+-- available to hand somebody a constraint name.
+--
+-- ── The route in, closed alongside this ─────────────────────────────────
+-- `lib/exam-schedule-input.ts` demanded the pair only when it knew the
+-- mechanism, and it derives the mechanism from the schedule's assigned grades.
+-- A schedule with no grades yet has no mechanism, so neither the marks branch
+-- nor the descriptor branch fired and a half-configured paper walked through to
+-- a database that accepted it. The parser now requires the pair unconditionally.
+-- This constraint is the backstop, and a backstop that only holds when the
+-- caller is already correct is not one.
+--
+-- ── num_nonnulls, not a rewritten boolean ───────────────────────────────
+-- `num_nonnulls(a, b)` counts its non-null arguments and is never itself null,
+-- so the pairing test cannot enter the three-valued path at all; the
+-- comparisons after it are only ever reached with both values present.
+-- `(a IS NULL) = (b IS NULL)` would work too. This form says the intent aloud.
+--
+-- No backfill: the live database was checked and holds no half-configured rows.
+-- Any that did exist would fail the ADD below, which is the right outcome -- a
+-- paper with a maximum and no pass mark is a question for the school, not
+-- something a migration should settle by inventing a number.
+--
+-- ── student_term_results.failing_subcategory_id ─────────────────────────
+-- Added in the same migration, for a different QA finding with the same shape.
+-- The report card counts "subjects needing attention" by comparing each
+-- subject's descriptor against the class's failing one, and it read that from
+-- the *current* criteria — so a school changing its failing descriptor changed
+-- the count printed on cards it had issued and handed out last year. The
+-- parent's copy and the school's copy would disagree, and only one of them
+-- would have moved.
+--
+-- Frozen on the row for exactly the reason `mechanism` already is. Null on a
+-- marks-mode row, and null on every row computed before now: those fall back to
+-- the live criteria, which is the rule they were produced under, and inventing
+-- a value for them would be asserting something nobody recorded.
+
+ALTER TABLE "exam_schedule_subjects" DROP CONSTRAINT "exam_schedule_subjects_marks_check";--> statement-breakpoint
+ALTER TABLE "student_term_results" ADD COLUMN "failing_subcategory_id" uuid;--> statement-breakpoint
+ALTER TABLE "student_term_results" ADD CONSTRAINT "student_term_results_failing_subcategory_id_result_subcategories_id_fk" FOREIGN KEY ("failing_subcategory_id") REFERENCES "public"."result_subcategories"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "exam_schedule_subjects" ADD CONSTRAINT "exam_schedule_subjects_marks_check" CHECK (num_nonnulls("exam_schedule_subjects"."max_marks", "exam_schedule_subjects"."passing_marks") = 0 OR (num_nonnulls("exam_schedule_subjects"."max_marks", "exam_schedule_subjects"."passing_marks") = 2 AND "exam_schedule_subjects"."max_marks" > 0 AND "exam_schedule_subjects"."passing_marks" >= 0 AND "exam_schedule_subjects"."passing_marks" <= "exam_schedule_subjects"."max_marks"));

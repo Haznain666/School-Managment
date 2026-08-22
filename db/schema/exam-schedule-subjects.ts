@@ -79,9 +79,29 @@ export const examScheduleSubjects = pgTable(
       'exam_schedule_subjects_duration_check',
       sql`${table.durationMinutes} IS NULL OR (${table.durationMinutes} > 0 AND ${table.durationMinutes} <= 600)`,
     ),
+    /*
+     * Both marks columns are set together or neither is — and `num_nonnulls`
+     * is what makes that true rather than merely readable.
+     *
+     * The obvious spelling of this rule is
+     *
+     *   (max IS NULL AND passing IS NULL) OR (max > 0 AND passing >= 0 AND …)
+     *
+     * and it enforced nothing at all in the half-configured case. With
+     * `max = 100, passing = NULL` the first branch is FALSE and the second is
+     * `TRUE AND NULL AND NULL` = NULL, so the whole expression is NULL — and a
+     * Postgres CHECK only rejects a row when it evaluates to FALSE. The
+     * constraint read like a pairing rule and permitted exactly the state it
+     * was written to forbid; migration `0030` replaces it.
+     *
+     * That state is not survivable further down: `exam_subjects.passing_marks`
+     * is NOT NULL, so `generate` died on it later, naming neither the paper nor
+     * the reason. Counting the non-nulls keeps the comparison out of the
+     * three-valued path entirely.
+     */
     check(
       'exam_schedule_subjects_marks_check',
-      sql`(${table.maxMarks} IS NULL AND ${table.passingMarks} IS NULL) OR (${table.maxMarks} > 0 AND ${table.passingMarks} >= 0 AND ${table.passingMarks} <= ${table.maxMarks})`,
+      sql`num_nonnulls(${table.maxMarks}, ${table.passingMarks}) = 0 OR (num_nonnulls(${table.maxMarks}, ${table.passingMarks}) = 2 AND ${table.maxMarks} > 0 AND ${table.passingMarks} >= 0 AND ${table.passingMarks} <= ${table.maxMarks})`,
     ),
   ],
 );

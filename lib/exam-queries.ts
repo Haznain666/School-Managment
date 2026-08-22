@@ -1282,6 +1282,10 @@ export async function getSectionReportCards(
     // Frozen where it exists, current where it does not. See the docblock.
     const mechanism: PromotionMechanism = record?.mechanism ?? criteria.mechanism;
     const isDescriptors = mechanism === 'descriptors';
+    // Frozen alongside the mechanism. Falls back to the live criteria for a row
+    // computed before the column existed, which is what that row was made under.
+    const failingDescriptorId =
+      record?.failingSubcategoryId ?? criteria.failingSubcategoryId;
 
     const subjectRows: ReportCardSubject[] = papers.map((paper) => {
       const candidate = pick(paper, student.studentProfileId);
@@ -1297,8 +1301,10 @@ export async function getSectionReportCards(
           marks: null,
           isAbsent: candidate?.isAbsent ?? false,
           isResit: false,
-          isFail:
-            descriptorId !== null && descriptorId === criteria.failingSubcategoryId,
+          // The descriptor that counted as a fail when this term was computed,
+          // not whatever the class's criteria say today. An issued card does
+          // not change its mind about how many subjects needed attention.
+          isFail: descriptorId !== null && descriptorId === failingDescriptorId,
           percentage: null,
           grade: null,
           subcategory:
@@ -1698,8 +1704,8 @@ export async function listResultSubcategories(
 export async function subcategoryUsage(
   locationId: string,
   subcategoryId: string,
-): Promise<{ subjectResults: number; termResults: number }> {
-  const [subjectRows, termRows] = await Promise.all([
+): Promise<{ subjectResults: number; termResults: number; criteria: number }> {
+  const [subjectRows, termRows, criteriaRows] = await Promise.all([
     db
       .select({ value: countDistinct(examResults.id) })
       .from(examResults)
@@ -1718,11 +1724,32 @@ export async function subcategoryUsage(
           eq(studentTermResults.overallSubcategoryId, subcategoryId),
         ),
       ),
+    /*
+     * A descriptor can also be *named as the failing one* for a class without
+     * ever having been awarded to a child.
+     *
+     * Counting only awards let such a descriptor be archived with no warning.
+     * `listResultSubcategories` then excluded it from the criteria screen's
+     * picker, so the screen showed "none chosen", and the next save wrote that
+     * back — silently clearing the school's failing descriptor, after which
+     * `computeDescriptorPromotion` could never hold anybody back again. Three
+     * quiet steps from an archive nobody thought twice about.
+     */
+    db
+      .select({ value: countDistinct(gradePromotionCriteria.id) })
+      .from(gradePromotionCriteria)
+      .where(
+        and(
+          eq(gradePromotionCriteria.locationId, locationId),
+          eq(gradePromotionCriteria.failingSubcategoryId, subcategoryId),
+        ),
+      ),
   ]);
 
   return {
     subjectResults: subjectRows[0]?.value ?? 0,
     termResults: termRows[0]?.value ?? 0,
+    criteria: criteriaRows[0]?.value ?? 0,
   };
 }
 
@@ -2266,9 +2293,11 @@ interface StoredTermResultRow {
   overallPercentage: string | null;
   overallGradeLabel: string | null;
   overallSubcategoryId: string | null;
+  failingSubcategoryId: string | null;
   computedStatus: PromotionStatus;
   finalStatus: PromotionStatus;
   overrideReason: string | null;
+  overriddenBy: string | null;
   overriddenAt: Date | null;
 }
 
@@ -2285,9 +2314,11 @@ export async function listSectionTermResultRows(
       overallPercentage: studentTermResults.overallPercentage,
       overallGradeLabel: studentTermResults.overallGradeLabel,
       overallSubcategoryId: studentTermResults.overallSubcategoryId,
+      failingSubcategoryId: studentTermResults.failingSubcategoryId,
       computedStatus: studentTermResults.computedStatus,
       finalStatus: studentTermResults.finalStatus,
       overrideReason: studentTermResults.overrideReason,
+      overriddenBy: studentTermResults.overriddenBy,
       overriddenAt: studentTermResults.overriddenAt,
     })
     .from(studentTermResults)
@@ -2531,9 +2562,23 @@ export async function computeSectionTermResults(
         entry.meanPercentage === null ? null : entry.meanPercentage.toFixed(2),
       overallGradeLabel: entry.overallGradeLabel,
       overallSubcategoryId: entry.overallSubcategoryId,
+      failingSubcategoryId: sheet.criteria.failingSubcategoryId,
       computedStatus: entry.computedStatus,
       finalStatus: keepOverride ? record.finalStatus : entry.computedStatus,
+      /*
+       * All three move together, or none of them do.
+       *
+       * When a recompute drops an override — because the rules have caught up
+       * with the decision somebody made by hand — clearing only the reason left
+       * `overridden_by` and `overridden_at` pointing at an override that no
+       * longer exists. That is precisely the "half an override" the design set
+       * out to prevent, and the PATCH path already clears all three; this one
+       * did not, which made the row's meaning depend on which door it came
+       * through.
+       */
       overrideReason: keepOverride ? record.overrideReason : null,
+      overriddenBy: keepOverride ? record.overriddenBy : null,
+      overriddenAt: keepOverride ? record.overriddenAt : null,
       computedAt: new Date(),
       updatedAt: new Date(),
     };
@@ -2560,9 +2605,12 @@ export async function computeSectionTermResults(
         overallPercentage: sql`excluded.overall_percentage`,
         overallGradeLabel: sql`excluded.overall_grade_label`,
         overallSubcategoryId: sql`excluded.overall_subcategory_id`,
+        failingSubcategoryId: sql`excluded.failing_subcategory_id`,
         computedStatus: sql`excluded.computed_status`,
         finalStatus: sql`excluded.final_status`,
         overrideReason: sql`excluded.override_reason`,
+        overriddenBy: sql`excluded.overridden_by`,
+        overriddenAt: sql`excluded.overridden_at`,
         computedAt: sql`excluded.computed_at`,
         updatedAt: sql`excluded.updated_at`,
       },

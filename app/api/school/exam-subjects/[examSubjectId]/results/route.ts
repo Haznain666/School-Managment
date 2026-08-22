@@ -258,8 +258,28 @@ export const POST = withSchoolAuth<RouteContext>(
         }
 
         if (marks === null) {
-          // Not marked yet. Skipped rather than stored as zero: a blank box on
-          // a half-finished sheet is not a score of nothing.
+          /*
+           * Not marked yet — stored as a null mark only when the teacher wrote
+           * a comment, and skipped entirely otherwise.
+           *
+           * A blank box on a half-finished sheet is still not a score of
+           * nothing, so the mark stays null either way. What changed on
+           * 2026-08-22 is that a *comment* typed beside that blank box used to
+           * be dropped on the floor with it. Sprint 14 makes the comment a
+           * column on the printed report card in both mechanisms, so "excellent
+           * progress, sat the paper late" is now something a teacher writes
+           * before the mark exists — and losing it silently is losing the only
+           * part of the row they had actually filled in.
+           */
+          if (remarks === null || remarks.trim() === '') continue;
+
+          parsed.push({
+            studentProfileId,
+            marksObtained: null,
+            isAbsent: false,
+            remarks,
+            subcategoryId: null,
+          });
           continue;
         }
 

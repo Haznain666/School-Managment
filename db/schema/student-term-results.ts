@@ -105,6 +105,25 @@ export const studentTermResults = pgTable(
       () => resultSubcategories.id,
       { onDelete: 'set null' },
     ),
+    /**
+     * Which descriptor counted as a fail when this term was computed.
+     *
+     * Frozen here for the same reason `mechanism` is. The report card counts
+     * "subjects needing attention" by comparing each subject's descriptor
+     * against the grade's failing one, and reading that from the *current*
+     * criteria meant a school changing its failing descriptor changed the count
+     * printed on cards it had issued and handed out last year. A parent's copy
+     * and the school's copy would then disagree, and only one of them would
+     * have changed.
+     *
+     * Null on a marks-mode row, and on rows computed before this column
+     * existed — the card falls back to the live criteria there, which is the
+     * behaviour those rows were produced under.
+     */
+    failingSubcategoryId: uuid('failing_subcategory_id').references(
+      () => resultSubcategories.id,
+      { onDelete: 'set null' },
+    ),
 
     computedStatus: text('computed_status').notNull().$type<PromotionStatus>(),
     finalStatus: text('final_status').notNull().$type<PromotionStatus>(),

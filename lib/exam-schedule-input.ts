@@ -149,8 +149,22 @@ export function parseScheduleInput(body: RawScheduleBody): ScheduleInput | strin
     const maxMarks = toMark(raw.maxMarks);
     const passingMarks = toMark(raw.passingMarks);
 
-    if (maxMarks === null && passingMarks !== null) {
-      return 'A pass mark needs a maximum to sit inside.';
+    /*
+     * The two marks are set together or not at all — checked here and not only
+     * in the mechanism-aware pass further down.
+     *
+     * That pass knows whether this schedule wants marks by looking at its
+     * assigned grades, and a schedule with no grades yet has no mechanism to
+     * look at, so neither of its branches fired and a paper with a maximum and
+     * no pass mark reached the database. `0029`'s CHECK then failed to stop it
+     * too — see `0030` — and the error finally surfaced inside `generate`, as a
+     * not-null violation on a different table naming neither the paper nor the
+     * reason.
+     */
+    if ((maxMarks === null) !== (passingMarks === null)) {
+      return maxMarks === null
+        ? 'A pass mark needs a maximum to sit inside.'
+        : 'A paper with a maximum needs a pass mark as well.';
     }
     if (maxMarks !== null) {
       if (maxMarks <= 0) return 'A paper is out of more than zero.';
@@ -209,6 +223,21 @@ export async function checkScheduleAgainstSchool(
     if (date === null) continue;
     if (date < bounds.start || date > bounds.end) {
       return `The ${year.name} session runs ${bounds.start} to ${bounds.end}. A schedule outside it would examine children in a year they are not enrolled for.`;
+    }
+  }
+
+  /*
+   * The papers are bounded by the session too, not only by the schedule.
+   *
+   * `parseScheduleInput` bounds a paper by the schedule's own window, but the
+   * end date is optional by design — so on a schedule with no end date a paper
+   * had no upper bound whatsoever and `2099-01-01` was accepted onto a 2026-27
+   * datesheet. The session is the outer limit in every case, and it is only
+   * known here, where the year has been loaded.
+   */
+  for (const paper of input.subjects) {
+    if (paper.examDate < bounds.start || paper.examDate > bounds.end) {
+      return `A paper on ${paper.examDate} falls outside the ${year.name} session, which runs ${bounds.start} to ${bounds.end}.`;
     }
   }
 

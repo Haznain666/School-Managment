@@ -150,7 +150,7 @@ export const DELETE = withSchoolAuth<RouteContext>(
       }
 
       const usage = await subcategoryUsage(auth.locationId, id);
-      const total = usage.subjectResults + usage.termResults;
+      const total = usage.subjectResults + usage.termResults + usage.criteria;
 
       if (total > 0) {
         const parts: string[] = [];
@@ -164,10 +164,20 @@ export const DELETE = withSchoolAuth<RouteContext>(
             `${usage.termResults} term result${usage.termResults === 1 ? '' : 's'}`,
           );
         }
+        // A descriptor that is a class's *failing* one has never been awarded
+        // to anybody and is still load-bearing: archive it and that class
+        // quietly loses its ability to hold a child back.
+        if (usage.criteria > 0) {
+          parts.push(
+            `is the failing sub-category for ${usage.criteria} class${usage.criteria === 1 ? '' : 'es'}`,
+          );
+        }
 
         return apiFailure(
           'in_use',
-          `"${existing.label}" has been awarded on ${parts.join(' and ')}. Archive it instead — it disappears from every picker and those results keep rendering exactly as they were issued.`,
+          `"${existing.label}" ${usage.subjectResults + usage.termResults > 0 ? 'has been awarded on' : ''} ${parts.join(' and ')}. Archive it instead — it disappears from every picker and those results keep rendering exactly as they were issued.`
+            .replace(/\s+/g, ' ')
+            .trim(),
           409,
         );
       }
