@@ -7,7 +7,9 @@ import { teacherNav } from '@/components/teacher/teacher-nav';
 import { paletteToCSSVars } from '@/lib/branding';
 import { requireSchoolRole } from '@/lib/school-guard';
 import { countUnreadNotices } from '@/lib/announcement-queries';
+import { listClassTeacherSections } from '@/lib/exam-queries';
 import { getSchoolUserByUid } from '@/lib/school-queries';
+import { staffIdForSchoolUser } from '@/lib/staff-self-queries';
 import { getSchoolBranding } from '@/lib/school-tenant';
 
 /**
@@ -30,8 +32,21 @@ export default async function TeacherLayout({ children }: { children: ReactNode 
 
   // The badge is read after the profile, because it needs the school-user id
   // the profile carries. One indexed count against the delivery log.
-  const unreadNotices =
-    profile === null ? 0 : await countUnreadNotices(locationId, profile.id);
+  //
+  // The class-teacher lookup rides alongside it and decides one nav entry.
+  // `sections.class_teacher_id` names an HR record, so a teacher whose staff
+  // record has not been entered yet is not a class teacher of anything — which
+  // is the correct answer rather than an error.
+  const [unreadNotices, staffId] =
+    profile === null
+      ? ([0, null] as const)
+      : await Promise.all([
+          countUnreadNotices(locationId, profile.id),
+          staffIdForSchoolUser(locationId, profile.id),
+        ]);
+
+  const classTeacherSections =
+    staffId === null ? [] : await listClassTeacherSections(locationId, staffId);
 
   const brandStyle = paletteToCSSVars(
     branding?.palette ?? null,
@@ -42,7 +57,7 @@ export default async function TeacherLayout({ children }: { children: ReactNode 
   return (
     <div style={brandStyle} className="bg-brand-background text-brand-text">
       <PortalFrame
-        items={teacherNav(unreadNotices)}
+        items={teacherNav(unreadNotices, classTeacherSections.length > 0)}
         ariaLabel="Teacher navigation"
         drawerTitle={schoolName}
         header={

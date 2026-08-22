@@ -41,6 +41,7 @@ export const PERMISSIONS = [
   'exams.publish',
   'results.enter',
   'results.publish',
+  'results.promotion',
   'hr.read',
   'hr.write',
   'payroll.read',
@@ -97,6 +98,7 @@ export const PERMISSION_GROUPS: readonly PermissionGroup[] = [
       'exams.publish',
       'results.enter',
       'results.publish',
+      'results.promotion',
     ],
   },
   {
@@ -141,6 +143,7 @@ export const PERMISSION_LABELS: Record<Permission, string> = {
   'exams.publish': 'Announce a datesheet and publish a term’s report cards',
   'results.enter': 'Enter and correct marks for a paper',
   'results.publish': 'Publish marks, unpublish them, and open a re-sit',
+  'results.promotion': 'Set and override a student’s promotion status for a term',
   'comms.read': 'See announcements and who they reached',
   'comms.write': 'Write and schedule announcements',
   'comms.send': 'Send an announcement, and email it to its audience',
@@ -173,6 +176,11 @@ export const PERMISSION_DESCRIPTIONS: Partial<Record<Permission, string>> = {
   'results.publish':
     'The check on a teacher’s marks. Whoever holds this is who a parent’s ' +
     'complaint about a wrong grade comes back to.',
+  'results.promotion':
+    'Deliberately not a teacher’s. A class teacher already overrides the ' +
+    'promotion status of their own section, and that authority comes from ' +
+    'being named on the section — checked per section, not per role. This key ' +
+    'is the school-wide version of it, for the office.',
   'exams.publish':
     'Publishing a term issues its report cards. Separate from exams.write on purpose.',
   'students.import':
@@ -251,6 +259,14 @@ export const UNREVOKABLE: { role: UserRole; permission: Permission } = {
  *                       administrator holding it could move a student out of a
  *                       branch they do not run — or, worse, into one.
  *
+ * Sprint 14 added `results.promotion` — setting and overriding the promotion
+ * status a term ends in — and gave it to `school_admin`, `branch_admin` and
+ * `principal` only. `teacher` deliberately does not hold it, and that is not
+ * an oversight: a class teacher already overrides their own section's
+ * statuses, and the authority for that comes from being named on
+ * `sections.class_teacher_id`, which is checked per section. A role key would
+ * hand every teacher in the school every class in it.
+ *
  * Sprint 13 added `principals.manage`, and `principal` deliberately does not
  * hold it. An assignment is what narrows a head to their own campus or
  * division; a head who could edit assignments could widen that narrowing, which
@@ -272,6 +288,9 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<UserRole, readonly Permission[]> =
     // the school that disagrees.
     'exams.read',
     'exams.write',
+    // A campus decides who moves up in its own classes. The academic
+    // judgement is a head's, and a branch admin is the head of a campus.
+    'results.promotion',
     // A campus has to be able to tell its own parents something. Withholding
     // the send would leave a branch drafting notices for somebody else to
     // release, which in practice means they are never released.
@@ -296,6 +315,7 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<UserRole, readonly Permission[]> =
     'exams.write',
     'exams.publish',
     'results.publish',
+    'results.promotion',
     'comms.read',
     'comms.write',
     'comms.send',

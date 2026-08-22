@@ -80,6 +80,9 @@ export default async function TeacherMarksEntryPage({
         students={sheet.students}
         initialAttempt={attempt}
         canEnter={permissions.includes('results.enter')}
+        mechanism={sheet.mechanism}
+        subcategories={sheet.subcategories}
+        colorCodingEnabled={sheet.colorCodingEnabled}
       />
     </div>
   );

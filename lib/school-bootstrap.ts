@@ -2,9 +2,9 @@ import 'server-only';
 
 import { and, eq } from 'drizzle-orm';
 
-import { schoolUsers } from '@/db/schema';
+import { DEFAULT_SUBCATEGORIES, resultSubcategories, schoolUsers } from '@/db/schema';
 
-import type { Database } from './drizzle';
+import { db as defaultDb, type Database, type Tx } from './drizzle';
 import { InvalidPhoneError, normalizePhone } from './phone';
 import { getOrCreateAuthUser } from './supabase-auth';
 
@@ -210,4 +210,42 @@ export async function createFirstSchoolAdmin(
   return row === undefined
     ? { status: 'skipped', reason: 'The administrator account could not be created.' }
     : { status: 'exists', userId: row.id, phone };
+}
+
+/**
+ * Gives a new school the performance descriptors every school starts with.
+ *
+ * Idempotent, and called at provisioning beside `seedChartOfAccounts` for
+ * exactly the same reason that one is: migration `0029` seeded every school
+ * that existed when it ran, and without this a school created afterwards would
+ * open the descriptor screen empty. A school that never notices is a school
+ * whose primary teachers find the sub-category picker has nothing in it on the
+ * morning they first need it.
+ *
+ * The list is `DEFAULT_SUBCATEGORIES` in `db/schema/result-subcategories.ts`,
+ * which is the same list `0029` inserts — a school provisioned on either side
+ * of that migration has to behave identically.
+ *
+ * Never fails a provisioning. An empty descriptor list is recoverable in four
+ * clicks from the settings screen, and a school row that exists and is useful
+ * must not be rolled back over it.
+ */
+export async function seedResultSubcategories(
+  locationId: string,
+  runner: Database | Tx = defaultDb,
+): Promise<{ created: number }> {
+  const created = await runner
+    .insert(resultSubcategories)
+    .values(
+      DEFAULT_SUBCATEGORIES.map((seed) => ({
+        locationId,
+        label: seed.label,
+        colorHex: seed.colorHex,
+        sortOrder: seed.sortOrder,
+      })),
+    )
+    .onConflictDoNothing()
+    .returning({ id: resultSubcategories.id });
+
+  return { created: created.length };
 }

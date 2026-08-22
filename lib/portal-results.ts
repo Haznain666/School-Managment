@@ -1,11 +1,16 @@
 import 'server-only';
 
-import { and, asc, desc, eq, inArray } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, isNull } from 'drizzle-orm';
 
 import { academicYears, examTerms, exams, studentEnrollments } from '@/db/schema';
 
 import { db } from './drizzle';
-import { getSectionReportCards, type ReportCard } from './exam-queries';
+import {
+  getSectionReportCards,
+  listStudentTermHistory,
+  type ReportCard,
+  type StudentTermHistoryRow,
+} from './exam-queries';
 
 /**
  * `lib/portal-results.ts` — a student's own results, for the two portals that
@@ -40,8 +45,15 @@ export interface StudentTermRow {
   termName: string;
   academicYearId: string;
   academicYearName: string;
-  startDate: string;
-  endDate: string;
+  /**
+   * The term's own window, which is optional from Sprint 14 on — the
+   * authoritative dates live on the schedules, and a term that never had a
+   * school-typed envelope carries null here. Both portals show the term's name
+   * and its year, so neither has to invent a date to render a chip.
+   */
+  startDate: string | null;
+  endDate: string | null;
+  sequenceOrder: number;
 }
 
 /**
@@ -80,6 +92,7 @@ export async function listPublishedTermsForStudent(
       academicYearName: academicYears.name,
       startDate: examTerms.startDate,
       endDate: examTerms.endDate,
+      sequenceOrder: examTerms.sequenceOrder,
     })
     .from(exams)
     .innerJoin(examTerms, eq(examTerms.id, exams.termId))
@@ -88,10 +101,14 @@ export async function listPublishedTermsForStudent(
       and(
         eq(exams.locationId, locationId),
         eq(examTerms.isPublished, true),
+        isNull(examTerms.archivedAt),
         inArray(exams.sectionId, sectionIds),
       ),
     )
-    .orderBy(desc(examTerms.startDate));
+    // Not by start date: it is optional from Sprint 14 on, and a list that put
+    // every dateless term first would order a family's own history by which
+    // fields their school happened to fill in.
+    .orderBy(desc(academicYears.startYear), desc(examTerms.sequenceOrder));
 
   return rows;
 }
@@ -161,6 +178,10 @@ export interface StudentExamRow {
  * `is_published` here is the *exam*'s publication — Sprint 9's datesheet
  * announcement — not the term's. An unannounced exam is withheld, because a
  * datesheet a school has not released is not a promise it has made.
+ *
+ * An archived exam is withheld for the same reason and more strongly: the term
+ * or the datesheet it came from has been deleted, and a family still being
+ * shown the date of a paper the school has cancelled would turn up for it.
  */
 export async function listStudentExams(
   locationId: string,
@@ -197,7 +218,28 @@ export async function listStudentExams(
         eq(exams.locationId, locationId),
         eq(exams.sectionId, enrolment[0].sectionId),
         eq(exams.isPublished, true),
+        isNull(exams.archivedAt),
       ),
     )
     .orderBy(asc(exams.examDate));
+}
+
+/**
+ * A child's whole record: every term with a judgement, newest first.
+ *
+ * The history list the parent and student portals show above the current
+ * card — the promotion status of each term, the overall row for it, and the
+ * reason where somebody changed it.
+ *
+ * ── Published only, and that is the whole authorisation rule ─────────────
+ * Same rule as `listPublishedTermsForStudent` above and for the same reason: a
+ * promotion status is the most consequential line on a report card, and a
+ * family learning it before the school has published the term would be the
+ * school being told by its own software.
+ */
+export async function listStudentResultHistory(
+  locationId: string,
+  studentProfileId: string,
+): Promise<StudentTermHistoryRow[]> {
+  return listStudentTermHistory(locationId, studentProfileId, { publishedOnly: true });
 }

@@ -1,3 +1,4 @@
+import { SubcategoryBadge } from '@/components/exams/SubcategoryBadge';
 import { PrintDocument, PrintLetterhead } from '@/components/print/PrintSheet';
 import type { Tabulation } from '@/lib/exam-queries';
 import { formatMark, formatPercentage, ordinal } from '@/lib/grading';
@@ -17,6 +18,14 @@ import { formatMark, formatPercentage, ordinal } from '@/lib/grading';
  * A cell below the pass mark is bold rather than red: schools print in black
  * and white, and colour that survives on screen but not on paper is worse than
  * no signal at all.
+ *
+ * ── Two grids, because there are two mechanisms ──────────────────────────
+ * A descriptor class has no marks, so it gets no Total, no %, no Grade, no
+ * position column and no position-holders block. Drawing them anyway is not a
+ * cosmetic error: `generate` writes `max_marks = 1` on a descriptor paper
+ * because the column is NOT NULL, so the marks grid rendered 0 out of n for
+ * every child and `assignPositions` turned that into a class of joint firsts —
+ * a sheet a principal would have acted on, reporting a fact about nobody.
  */
 
 export interface TabulationDocumentProps {
@@ -33,12 +42,15 @@ export function TabulationDocument({
   logoUrl,
   topCount = 3,
 }: TabulationDocumentProps) {
-  const { exam, papers, rows } = tabulation;
+  const { exam, papers, rows, mechanism, colorCodingEnabled } = tabulation;
+  const isDescriptors = mechanism === 'descriptors';
 
-  const holders = rows
-    .filter((row) => row.position !== null)
-    .sort((a, b) => (a.position ?? 0) - (b.position ?? 0))
-    .filter((row) => (row.position ?? 0) <= topCount);
+  const holders = isDescriptors
+    ? []
+    : rows
+        .filter((row) => row.position !== null)
+        .sort((a, b) => (a.position ?? 0) - (b.position ?? 0))
+        .filter((row) => (row.position ?? 0) <= topCount);
 
   return (
     <PrintDocument>
@@ -76,13 +88,24 @@ export function TabulationDocument({
                 <th key={paper.id} className="border border-black px-1 py-0.5">
                   {paper.subjectCode ?? paper.subjectName}
                   {paper.resultsStatus === 'published' ? '' : ' †'}
-                  <span className="block font-normal">/{formatMark(paper.maxMarks)}</span>
+                  {/* A descriptor paper's maximum is the placeholder `1` that
+                      generate had to write. Printing "/1" under Mathematics is
+                      how that placeholder reaches a principal. */}
+                  {isDescriptors ? null : (
+                    <span className="block font-normal">
+                      /{formatMark(paper.maxMarks)}
+                    </span>
+                  )}
                 </th>
               ))}
-              <th className="border border-black px-1 py-0.5">Total</th>
-              <th className="border border-black px-1 py-0.5">%</th>
-              <th className="border border-black px-1 py-0.5">Grade</th>
-              <th className="border border-black px-1 py-0.5">Pos.</th>
+              {isDescriptors ? null : (
+                <>
+                  <th className="border border-black px-1 py-0.5">Total</th>
+                  <th className="border border-black px-1 py-0.5">%</th>
+                  <th className="border border-black px-1 py-0.5">Grade</th>
+                  <th className="border border-black px-1 py-0.5">Pos.</th>
+                </>
+              )}
             </tr>
           </thead>
           <tbody>
@@ -101,23 +124,38 @@ export function TabulationDocument({
                     key={cell.examSubjectId}
                     className={`border border-black px-1 py-0.5 text-center ${cell.isFail ? 'font-bold' : ''}`}
                   >
-                    {cell.isAbsent ? 'ABS' : formatMark(cell.marks)}
-                    {cell.isResit ? '*' : ''}
+                    {cell.isAbsent ? (
+                      'ABS'
+                    ) : isDescriptors ? (
+                      <SubcategoryBadge
+                        subcategory={cell.subcategory}
+                        colorCoded={colorCodingEnabled}
+                      />
+                    ) : (
+                      <>
+                        {formatMark(cell.marks)}
+                        {cell.isResit ? '*' : ''}
+                      </>
+                    )}
                   </td>
                 ))}
 
-                <td className="border border-black px-1 py-0.5 text-center font-semibold">
-                  {formatMark(row.obtained)}/{formatMark(row.available)}
-                </td>
-                <td className="border border-black px-1 py-0.5 text-center">
-                  {formatPercentage(row.percentage)}
-                </td>
-                <td className="border border-black px-1 py-0.5 text-center">
-                  {row.grade ?? '—'}
-                </td>
-                <td className="border border-black px-1 py-0.5 text-center">
-                  {row.position === null ? '—' : ordinal(row.position)}
-                </td>
+                {isDescriptors ? null : (
+                  <>
+                    <td className="border border-black px-1 py-0.5 text-center font-semibold">
+                      {formatMark(row.obtained)}/{formatMark(row.available)}
+                    </td>
+                    <td className="border border-black px-1 py-0.5 text-center">
+                      {formatPercentage(row.percentage)}
+                    </td>
+                    <td className="border border-black px-1 py-0.5 text-center">
+                      {row.grade ?? '—'}
+                    </td>
+                    <td className="border border-black px-1 py-0.5 text-center">
+                      {row.position === null ? '—' : ordinal(row.position)}
+                    </td>
+                  </>
+                )}
               </tr>
             ))}
           </tbody>
@@ -127,12 +165,24 @@ export function TabulationDocument({
             has to state the policy the code actually implements: the paper's
             maximum stays in the denominator, the absent student contributes
             nothing to the numerator. It said the reverse until 2026-08-09. */}
-        <p className="mt-1 text-[8px] italic">
-          * re-sit mark · ABS absent: the paper still counts towards the marks
-          available, and nothing is added to the marks obtained · a student
-          absent from any paper takes no position.
-        </p>
+        {isDescriptors ? (
+          <p className="mt-1 text-[8px] italic">
+            ABS absent · this class is judged on performance descriptors, not
+            marks, so the sheet carries no totals and no positions. A blank cell
+            is a subject not yet assessed.
+          </p>
+        ) : (
+          <p className="mt-1 text-[8px] italic">
+            * re-sit mark · ABS absent: the paper still counts towards the marks
+            available, and nothing is added to the marks obtained · a student
+            absent from any paper takes no position.
+          </p>
+        )}
 
+        {/* No position holders for a descriptor class. Ranking children whose
+            results are words would mean deciding that "Exceeding" beats
+            "Satisfactory" by one, and no school has asked this product to. */}
+        {isDescriptors ? null : (
         <section className="mt-3 border border-black p-1.5">
           <p className="text-[9px] font-bold uppercase tracking-wide">
             Position holders
@@ -156,6 +206,7 @@ export function TabulationDocument({
             </ol>
           )}
         </section>
+        )}
 
         <div className="mt-4 flex items-end justify-between text-[9px]">
           <span className="border-t border-black px-6 pt-0.5">Prepared by</span>

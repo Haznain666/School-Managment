@@ -13,6 +13,7 @@ import {
 } from 'drizzle-orm/pg-core';
 
 import { examSubjects } from './exam-subjects';
+import { resultSubcategories } from './result-subcategories';
 import { schoolUsers } from './school-users';
 import { schools } from './schools';
 import { studentProfiles } from './student-profiles';
@@ -51,6 +52,17 @@ export const ATTEMPT_RESIT = 2;
  *
  * `entered_by` is kept for the same reason `attendance_records.marked_by` is: a
  * disputed mark has to be answerable.
+ *
+ * ── subcategory_id, and the CHECK that had to be relaxed ─────────────────
+ * In descriptor mode the result *is* the sub-category: there is no mark, and
+ * `remarks` carries the subject-wise comment beside it. There is deliberately
+ * no second comment column — `remarks` already existed and already meant this.
+ *
+ * The original CHECK read "absent with no mark, or present with a mark", which
+ * made the only valid descriptor row unwritable: the child was present and
+ * there is no mark to give. It is now "a mark, if present, is not negative, and
+ * an absence never carries one" — which keeps the fact that mattered and drops
+ * the one that stopped holding the moment marks became optional.
  */
 export const examResults = pgTable(
   'exam_results',
@@ -71,6 +83,11 @@ export const examResults = pgTable(
     /** Null when absent. Never zero to mean "did not sit". */
     marksObtained: numeric('marks_obtained', { precision: 6, scale: 2 }),
     isAbsent: boolean('is_absent').notNull().default(false),
+    /** Descriptor mode: the performance descriptor this paper earned. */
+    subcategoryId: uuid('subcategory_id').references(() => resultSubcategories.id, {
+      onDelete: 'set null',
+    }),
+    /** The subject-wise comment, in both mechanisms. */
     remarks: text('remarks'),
     /** Who entered it. Null when their account has since been removed. */
     enteredBy: uuid('entered_by').references(() => schoolUsers.id, {
@@ -95,7 +112,7 @@ export const examResults = pgTable(
     check('exam_results_attempt_check', sql`${table.attempt} IN (1, 2)`),
     check(
       'exam_results_marks_check',
-      sql`(${table.isAbsent} AND ${table.marksObtained} IS NULL) OR (NOT ${table.isAbsent} AND ${table.marksObtained} >= 0)`,
+      sql`(${table.marksObtained} IS NULL OR ${table.marksObtained} >= 0) AND NOT (${table.isAbsent} AND ${table.marksObtained} IS NOT NULL)`,
     ),
   ],
 );

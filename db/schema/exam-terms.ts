@@ -1,7 +1,10 @@
+import { sql } from 'drizzle-orm';
 import {
   boolean,
+  check,
   date,
   index,
+  integer,
   pgTable,
   text,
   timestamp,
@@ -11,6 +14,7 @@ import {
 
 import { academicYears } from './academic-years';
 import { gradingSchemes } from './grading-schemes';
+import { schoolUsers } from './school-users';
 import { schools } from './schools';
 
 /**
@@ -30,6 +34,23 @@ import { schools } from './schools';
  * when unset. It sits here rather than on `exams` because a term is graded to
  * one standard: two papers in the same term awarding different letters for the
  * same percentage is a bug a school would spend an afternoon arguing about.
+ *
+ * ── The dates became optional in Sprint 14, and that is not a relaxation ──
+ * The authoritative window now lives on `exam_schedules`, because it differs
+ * per grade: the infant school sits its First Term in three mornings while the
+ * senior school takes a fortnight, and one pair of columns cannot hold both.
+ * A term-level window is still offered as an envelope for calendar views, and
+ * where it is blank the UI shows the earliest start and latest end across the
+ * term's schedules. Every existing term keeps the dates it was created with.
+ *
+ * `sequence_order` is the order a school reads its terms in, which is not the
+ * order their dates imply once the dates can be absent. It is rewritten as a
+ * whole list by the reorder endpoint rather than edited a row at a time.
+ *
+ * `archived_at` is what "Delete" does. A term is what report cards were issued
+ * against, so removing the row would orphan every card ever printed from it.
+ * The unique index on the name is partial on the unarchived rows, so a school
+ * that archives "First Term" can create another one.
  */
 export const examTerms = pgTable(
   'exam_terms',
@@ -43,14 +64,22 @@ export const examTerms = pgTable(
       .notNull()
       .references(() => academicYears.id),
     name: text('name').notNull(),
-    startDate: date('start_date').notNull(),
-    endDate: date('end_date').notNull(),
+    /** Optional envelope. Null = derived from the term's schedules. */
+    startDate: date('start_date'),
+    endDate: date('end_date'),
+    /** The order the school reads its terms in. Unique within a year. */
+    sequenceOrder: integer('sequence_order').notNull().default(0),
     /** Null = grade with the school's default scheme. */
     gradingSchemeId: uuid('grading_scheme_id').references(() => gradingSchemes.id, {
       onDelete: 'set null',
     }),
     isPublished: boolean('is_published').notNull().default(false),
     publishedAt: timestamp('published_at', { withTimezone: true }),
+    archivedAt: timestamp('archived_at', { withTimezone: true }),
+    /** Who archived it. Null when their account has since been removed. */
+    archivedBy: uuid('archived_by').references(() => schoolUsers.id, {
+      onDelete: 'set null',
+    }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
@@ -61,13 +90,19 @@ export const examTerms = pgTable(
       table.academicYearId,
     ),
     // Two "First Term"s in one year would make every report card ambiguous.
-    uniqueIndex('exam_terms_location_year_name_idx').on(
-      table.locationId,
-      table.academicYearId,
-      table.name,
+    // Partial, so archiving one frees the name for its replacement.
+    uniqueIndex('exam_terms_location_year_name_idx')
+      .on(table.locationId, table.academicYearId, table.name)
+      .where(sql`archived_at IS NULL`),
+    check(
+      'exam_terms_name_length_check',
+      sql`char_length(btrim(${table.name})) BETWEEN 1 AND 50`,
     ),
   ],
 );
 
 export type ExamTerm = typeof examTerms.$inferSelect;
 export type NewExamTerm = typeof examTerms.$inferInsert;
+
+/** The longest a term may be named. Enforced by a CHECK. */
+export const TERM_NAME_MAX = 50;

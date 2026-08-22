@@ -12,6 +12,7 @@ import {
   uuid,
 } from 'drizzle-orm/pg-core';
 
+import { examScheduleSubjects } from './exam-schedule-subjects';
 import { exams } from './exams';
 import { schoolUsers } from './school-users';
 import { schools } from './schools';
@@ -68,6 +69,19 @@ export const RESIT_STATUS_LABELS: Record<ResitStatus, string> = {
  *
  * `slot` is free text — "Morning", "9:00 AM", "Session II". Schools name their
  * sittings in ways no enumeration survives, and it is only ever printed.
+ *
+ * ── schedule_subject_id, added in Sprint 14 ──────────────────────────────
+ * The datesheet row this paper was generated from. It is what makes the
+ * generate step idempotent: re-running it updates the date and the maxima of
+ * the papers that carry the link and creates only what is missing, instead of
+ * writing a second Mathematics paper for every section every time somebody
+ * presses the button.
+ *
+ * `max_marks` stays NOT NULL with its `> 0` CHECK even in descriptor mode,
+ * where the schedule holds no maximum at all. The generate step writes 1 and 0
+ * and no descriptor code path ever reads them. Relaxing the CHECK instead would
+ * have put a null denominator inside every percentage the marks path computes,
+ * to spare two literals.
  */
 export const examSubjects = pgTable(
   'exam_subjects',
@@ -83,6 +97,11 @@ export const examSubjects = pgTable(
     subjectId: uuid('subject_id')
       .notNull()
       .references(() => subjects.id),
+    /** The datesheet row this came from. Null for a hand-made paper. */
+    scheduleSubjectId: uuid('schedule_subject_id').references(
+      () => examScheduleSubjects.id,
+      { onDelete: 'set null' },
+    ),
     maxMarks: numeric('max_marks', { precision: 6, scale: 2 }).notNull(),
     passingMarks: numeric('passing_marks', { precision: 6, scale: 2 }).notNull(),
     /** This paper's own date. Null = the exam's date. */
@@ -101,6 +120,7 @@ export const examSubjects = pgTable(
       onDelete: 'set null',
     }),
     publishedAt: timestamp('published_at', { withTimezone: true }),
+    archivedAt: timestamp('archived_at', { withTimezone: true }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },

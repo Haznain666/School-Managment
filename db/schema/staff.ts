@@ -1,5 +1,6 @@
 import { sql } from 'drizzle-orm';
 import {
+  boolean,
   check,
   date,
   index,
@@ -83,6 +84,20 @@ export const staff = pgTable(
     employmentType: text('employment_type').$type<EmploymentType>(),
     joinedOn: date('joined_on'),
     status: text('status').notNull().default('active').$type<StaffStatus>(),
+    /**
+     * Whether this person is eligible to be a class teacher (home room).
+     *
+     * A flag on the *person*, not an assignment: `sections.class_teacher_id` is
+     * the assignment, and this is what decides who a section's picker may
+     * offer. Two columns because the two are different facts — a school has
+     * more class teachers than it has sections at any moment, and a teacher who
+     * hands over their class in February has not stopped being one.
+     *
+     * It is also what gates `/teacher/promotions`: the override of a promotion
+     * status belongs to the class teacher of that section and to nobody else,
+     * including a subject teacher timetabled to it.
+     */
+    isClassTeacher: boolean('is_class_teacher').notNull().default(false),
 
     // -- Personal detail, added in Sprint 7 for HR ---------------------------
     phone: text('phone'),

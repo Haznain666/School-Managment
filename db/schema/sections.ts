@@ -12,6 +12,7 @@ import {
 import { academicYears } from './academic-years';
 import { grades } from './grades';
 import { schools } from './schools';
+import { staff } from './staff';
 
 /**
  * sections — one teaching group inside a grade, for one academic year.
@@ -23,6 +24,14 @@ import { schools } from './schools';
  * `capacity` is advisory — the enrolment API warns when a section is full but
  * does not refuse, because a real school does over-admit and would otherwise
  * be locked out of recording it.
+ *
+ * `class_teacher_id` (Sprint 14) is the one member of staff who owns this
+ * class. It is what decides who may override a promotion status for a child in
+ * it — an authority that comes from the assignment and not from a role key, so
+ * `results.promotion` is deliberately not granted to `teacher`. Only staff
+ * carrying `staff.is_class_teacher` are offered here, and the column is
+ * `ON DELETE SET NULL` because a class that loses its teacher is a class
+ * waiting for one, not a class that should vanish.
  */
 export const sections = pgTable(
   'sections',
@@ -42,6 +51,10 @@ export const sections = pgTable(
     name: text('name').notNull(),
     /** Maximum students. Null = unlimited. */
     capacity: integer('capacity'),
+    /** The home-room teacher. Null while the class has not been given one. */
+    classTeacherId: uuid('class_teacher_id').references(() => staff.id, {
+      onDelete: 'set null',
+    }),
     isActive: boolean('is_active').notNull().default(true),
     createdAt: timestamp('created_at', { withTimezone: true })
       .notNull()
@@ -53,6 +66,7 @@ export const sections = pgTable(
       table.gradeId,
       table.academicYearId,
     ),
+    index('sections_class_teacher_id_idx').on(table.classTeacherId),
     uniqueIndex('sections_grade_id_academic_year_id_name_idx').on(
       table.gradeId,
       table.academicYearId,

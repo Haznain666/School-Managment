@@ -8,6 +8,7 @@ import {
   uuid,
 } from 'drizzle-orm/pg-core';
 
+import { examSchedules } from './exam-schedules';
 import { examTerms } from './exam-terms';
 import { grades } from './grades';
 import { schoolUsers } from './school-users';
@@ -37,6 +38,18 @@ import { sections } from './sections';
  * gates, three different audiences, and collapsing them would mean a school
  * could not tell students the timetable without also showing them marks that
  * do not exist yet.
+ *
+ * ── schedule_id, added in Sprint 14 ──────────────────────────────────────
+ * Set when the row was generated from an `exam_schedules` datesheet, which is
+ * how every exam is created from Sprint 14 onwards. It is nullable and
+ * `ON DELETE SET NULL` because every exam that existed before the sprint
+ * carries no schedule and must keep working exactly as it did — the generate
+ * step is a new door into the same table, not a replacement for it.
+ *
+ * `archived_at` is what archiving a term or a schedule does to the exams under
+ * it. Deleting them would take their marks with them, and a school that
+ * archived the wrong schedule at four o'clock on a Friday would lose a week of
+ * marking to a click.
  */
 export const exams = pgTable(
   'exams',
@@ -55,6 +68,10 @@ export const exams = pgTable(
     sectionId: uuid('section_id')
       .notNull()
       .references(() => sections.id),
+    /** The datesheet this was generated from. Null for a hand-made exam. */
+    scheduleId: uuid('schedule_id').references(() => examSchedules.id, {
+      onDelete: 'set null',
+    }),
     title: text('title').notNull(),
     /** The day the exam starts. Individual papers may carry their own date. */
     examDate: date('exam_date').notNull(),
@@ -62,6 +79,7 @@ export const exams = pgTable(
     instructions: text('instructions'),
     isPublished: boolean('is_published').notNull().default(false),
     publishedAt: timestamp('published_at', { withTimezone: true }),
+    archivedAt: timestamp('archived_at', { withTimezone: true }),
     /** Who scheduled it. Null when their account has since been removed. */
     createdBy: uuid('created_by').references(() => schoolUsers.id, {
       onDelete: 'set null',
@@ -74,6 +92,7 @@ export const exams = pgTable(
     index('exams_location_id_term_idx').on(table.locationId, table.termId),
     index('exams_location_id_section_idx').on(table.locationId, table.sectionId),
     index('exams_location_id_grade_idx').on(table.locationId, table.gradeId),
+    index('exams_schedule_id_idx').on(table.scheduleId),
   ],
 );
 

@@ -5,6 +5,7 @@ import { withSchoolAuth } from '@/lib/api-auth';
 import { apiFailure, apiSuccess, handleApiError, readJsonBody } from '@/lib/api-response';
 import { getSectionById, sectionHasEnrollments } from '@/lib/admissions-queries';
 import { db } from '@/lib/drizzle';
+import { listClassTeacherCandidates } from '@/lib/exam-queries';
 import { isUuid, readString } from '@/lib/validation';
 
 /**
@@ -43,6 +44,7 @@ interface UpdateSectionBody {
   name?: unknown;
   capacity?: unknown;
   isActive?: unknown;
+  classTeacherId?: unknown;
 }
 
 function readCapacity(value: unknown): number | null | undefined {
@@ -98,6 +100,48 @@ export const PATCH = withSchoolAuth<RouteContext>(
       }
 
       if (typeof body.isActive === 'boolean') updates.isActive = body.isActive;
+
+      // The class teacher, which is the authority behind every promotion
+      // override on this class — see
+      // `/api/school/terms/[termId]/sections/[sectionId]/results`. Only staff
+      // the school has marked as class teachers may be named, and the
+      // candidate list is re-read through a tenant-filtered query because the
+      // foreign key alone would accept another school's employee.
+      if (body.classTeacherId !== undefined) {
+        if (body.classTeacherId === null || body.classTeacherId === '') {
+          updates.classTeacherId = null;
+        } else {
+          if (!isUuid(body.classTeacherId)) {
+            return apiFailure('invalid_body', 'Choose a class teacher, or none.', 400);
+          }
+
+          /*
+           * Scoped to the caller's own campus, exactly as the picker on the
+           * GET is.
+           *
+           * This passed `null` until 2026-08-22 — school-wide — while the GET
+           * that builds the dropdown filtered by `auth.branchId`. School-level
+           * tenancy held, but the campus boundary did not: a branch admin could
+           * PATCH in the id of a class teacher employed at a campus they do not
+           * run, and thereby hand that person promotion-override authority over
+           * a class of theirs. The picker would never show who it was, because
+           * the GET filters them out.
+           */
+          const candidates = await listClassTeacherCandidates(
+            auth.locationId,
+            auth.branchId,
+          );
+          if (!candidates.some((row) => row.id === body.classTeacherId)) {
+            return apiFailure(
+              'invalid_body',
+              'That member of staff is not marked as a class teacher on their staff record, or is not at this campus.',
+              400,
+            );
+          }
+
+          updates.classTeacherId = body.classTeacherId;
+        }
+      }
 
       if (Object.keys(updates).length === 0) {
         return apiFailure('invalid_body', 'No fields to update.', 400);

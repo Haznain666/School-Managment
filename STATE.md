@@ -4,13 +4,35 @@
 resume without re-deriving context. Updated at the end of every development
 step, before the session ends.
 
-**Last updated:** 2026-08-22 (**The deploy was never blocked and the probe that
+**Last updated:** 2026-08-22 (**Sprint 14 — exam terms, datesheets, descriptors
+and promotion, §5ay. `0029` and `0030` APPLIED; thirteen QA defects fixed.**;
+**The deploy was never blocked and the probe that
 would have said so was gitignored — §5ax**; WhatsApp removed from the platform,
 the invite form's phone field unblocked, the dashboard outage, and the login
 error that named nothing — §5aw. `0027` and `0028` are both APPLIED to the live
 database.**; 2026-08-21: Sprint 13.5 — §5au, driven end to end — §5av;
 2026-08-20: Sprint 13.8 — sibling identity, §5as; the announcement sweep, §5at;
 Sprint 13.7 — §5ar; 2026-08-19: §5aq, §5ap, §5ao, §5an, §5am, §5al, §5ai–§5ak)
+
+> ✅ **Migration `0029` is APPLIED to the live database — 2026-08-22.** The
+> bookkeeping table held 29 rows before and **30** after. Verified against the
+> real schema rather than trusting the success message: seven tables created,
+> ten columns added, `exam_terms.start_date`/`end_date` now nullable, the four
+> default result sub-categories seeded for the one existing school,
+> `results.promotion` present in the `role_permissions` CHECK, and
+> `exam_schedule_grades_term_grade_idx` partial on `archived_at IS NULL` — the
+> last of those is what lets an archived schedule release its grades instead of
+> locking them out of the term for good.
+>
+> **`0029` had to go in before the merge, not after.** `app/(teacher)/layout.tsx`
+> awaits `listClassTeacherSections`, which reads `sections.class_teacher_id`. A
+> layout runs on every page of the teacher portal and that call is unguarded, so
+> deploying Sprint 14 against the old schema would have 500'd the whole portal —
+> §5aw again, one module over. The migration is expand-only, so applying it
+> while the *old* code was still live cost nothing: the running build did not
+> know these tables existed.
+>
+> **Next free migration number is `0030`.**
 
 > ✅ **Migrations `0027` and `0028` are APPLIED to the live database —
 > 2026-08-22.** `npx drizzle-kit migrate` against the pooler host on port
@@ -33,7 +55,8 @@ Sprint 13.7 — §5ar; 2026-08-19: §5aq, §5ap, §5ao, §5an, §5am, §5al, §5
 > `'notice'`, not deleted**: they are the school's record of what it told which
 > parent and when.
 >
-> **Next free migration number is `0029`.**
+> ~~Next free migration number is `0029`.~~ **`0029` is taken — see the Sprint 14
+> banner above. The next free number is `0030`.**
 
 > ✅ **Deploying is automatic, and the SSH secrets are dead — 2026-08-22.**
 > hPanel has this site connected to the repository with **Auto-deployment on**,
@@ -6315,6 +6338,226 @@ fails, and prints `git check-ignore -v <path>`.
 > Only one file in the repository was affected. `git status --ignored` across
 > the whole tree, minus the legitimate entries, returns exactly
 > `app/api/internal/build/`.
+
+---
+
+## 5ay. Sprint 14 — exam terms, datesheets, descriptors and promotion — 2026-08-22
+
+Built to `SPRINT-14-SPEC.md`, which was agreed with the product owner over three
+rounds of questions. Migrations **`0029_sprint14_exam_terms_promotion.sql`** and
+**`0030_schedule_marks_pairing.sql`** are **both APPLIED to the live database**
+— bookkeeping 29 → 30 → 31, each verified against the real schema afterwards.
+**Next free migration number is `0031`.**
+
+Phases 1 and 2 (schema, migration, the rule layer) landed in `3e182ea`. Phases
+3, 4 and 5 — the API, the admin screens and the portals — are `7953f99`,
+`8d41d1c` and `341527f`.
+
+**Then QA found thirteen defects, five of them P1, and all thirteen are fixed** —
+`892927c`, `8c2674e`, `c74c747`, `82f9262`, `5572da0`, `7a57c2f`. Read
+`release-notes/RELEASE-NOTES-SPRINT-14.md` §"What QA found" before touching this
+module; `test-cases/TEST-CASES-SPRINT-14.md` marks the eleven cases that were
+defects with 🔁, and those are the ones to re-run first.
+
+Three of them are worth carrying forward as rules, because each is a *class* of
+mistake this codebase can make again:
+
+1. **A soft-delete column is only as good as its readers.** `archived_at` was
+   written by three paths and read by four readers out of twelve, so "Delete"
+   left a term's exams live *and writable* — a teacher could still save marks
+   against a term the school had deleted. When you add an `archived_at`, grep
+   every reader of that table in the same commit.
+2. **A CHECK constraint is read in two-valued logic and evaluated in three.**
+   `(a IS NULL AND b IS NULL) OR (a > 0 AND b >= 0 AND b <= a)` evaluates to
+   NULL — not FALSE — when `a` is set and `b` is null, and Postgres passes a
+   CHECK unless it is FALSE. The constraint permitted exactly the state it
+   forbade. Use `num_nonnulls` for pairing rules. No review would have caught
+   this; a 34-assertion suite run against the real schema caught it on the first
+   run, and that suite is the thing to keep.
+3. **Two figures for one fact will diverge, and only under conditions nobody
+   tests.** The report card printed total-over-total while the history table and
+   the promotion engine used the arithmetic mean. They are the same number when
+   every paper is out of 100, which is why it survived review — and different the
+   moment a school runs a 20-mark Art paper. A parent saw 48.3% · C on the
+   document they keep and 65.0% · B three inches below it.
+
+Also worth noting for the next sprint's planning: **the green build passed at
+every point while all thirteen were present.** Nine gates, 251 loader
+assertions, clean typecheck, clean lint. They prove the code compiles and obeys
+the house rules; they say nothing about whether a report card prints the number
+the decision was made on.
+
+### What a term is now
+
+A term stopped being a name and two dates. It is the thing a report card is
+issued for, and the *dates moved down* onto `exam_schedules`, because they
+differ per grade: an infant class finishes its First Term in three mornings and
+the senior school takes a fortnight, and both are "First Term". A school keeps
+as many datesheets per term as it has groups of classes sitting different
+papers.
+
+`exam_terms.start_date` and `end_date` are therefore nullable. Where they are
+blank, `listExamTerms` reports `windowStart`/`windowEnd` derived from the term's
+schedules, falling back to the academic year — so nothing downstream, including
+the attendance summary on a report card, ever has to invent a date.
+
+### The two mechanisms, and that they are alternatives
+
+`grade_promotion_criteria.mechanism` is `marks_grades` or `descriptors`, per
+grade, per year. **A descriptor class has no marks, no percentages and no letter
+grades anywhere** — not on the marks sheet, not on screen, not on the printed
+card — and a marks class has no sub-category column at all. Two sheets, not one
+sheet with columns hidden. This was settled explicitly; the example in the
+original brief showing marks, grades and a sub-category on one row is *not* the
+target.
+
+Decisions not to re-litigate:
+
+- **A grade with no criteria row is not misconfigured.** It falls back to
+  `DEFAULT_CRITERIA` — marks and grades, no thresholds — which is exactly how
+  the product behaved before the table existed. A school that never opens the
+  criteria screen sees no change at all.
+- **A null threshold is not applied, not treated as zero.** A class with every
+  field blank promotes everybody. The failure being avoided is a school pressing
+  "recompute" and finding forty children held back by a default nobody chose.
+- **`student_term_results.mechanism` is frozen at compute time.** A school that
+  moves Grade 3 from descriptors to marks next year must not have last year's
+  cards re-render as a marks sheet with every column empty.
+- **One datesheet cannot carry two mechanisms.** The authoring routes refuse a
+  schedule whose classes are judged differently, naming both — because the fix
+  is on the criteria screen and not on that one, and because generate would
+  otherwise have to write a marks paper and a descriptor paper from one row.
+- **Descriptor papers store `max_marks = 1`, `passing_marks = 0`** and are never
+  read. `exam_subjects.max_marks` is `NOT NULL` with a `> 0` CHECK that the
+  marks path depends on, and this sprint deliberately does not relax it.
+
+### Promotion is an academic judgement, not enrolment plumbing
+
+`promotion_runs` / `promotion_decisions` (Sprint 10) answers *which section is
+this child in next September*. `student_term_results.final_status` answers *did
+this child pass*. **They are different facts and this sprint does not merge
+them.** A school can promote a child who failed, and does.
+
+`computed_status` and `final_status` are both stored. Storing only the second
+would leave nobody able to answer "was this an override?" a year later; storing
+only the first would make the override screen a lie.
+
+**The override reason is a first-class output, not an audit note.** The product
+owner: *"that change comment must be visible to all the relevant authorities on
+their portals including parents."* It prints on the report card and shows on the
+parent and student portals. Required at 10+ characters whenever `final_status`
+differs from `computed_status`; setting the status back to equal clears the
+reason, who set it and when — all three, because half an override left behind is
+a comment on a parent's portal explaining a decision that was reversed.
+
+`computeSectionTermResults` **keeps an existing override** while it is still a
+departure from what the rules say, and drops it when the recomputation now
+agrees with it. A head who decided in March must not be reversed by a clerk
+pressing recompute in April.
+
+### Who may decide a promotion
+
+A holder of `results.promotion`, **or** the staff member named on
+`sections.class_teacher_id` — checked per section. Nobody else, including a
+subject teacher timetabled to the class.
+
+`results.promotion` is granted to `school_admin`, `branch_admin` and `principal`
+and **deliberately not to `teacher`**. A role key would hand every teacher in
+the school every class in it. A class teacher's authority comes from being named
+on the class, which is a per-section fact, which is why it is a per-section
+check.
+
+`staff.is_class_teacher` is one radio on the staff form — *Class Teacher (Home
+Room)* or *None*, confirmed as one option, not two — and it only decides who
+appears in a class's picker. Clearing it does not unseat somebody from a class
+they already hold: that is a separate decision made on the class, and emptying
+it silently would move a promotion screen out from under the person using it.
+
+### Colour coding is read at render time and never stored
+
+`school_exam_settings.color_coding_enabled` decides whether a descriptor is
+painted. No row anywhere carries a copy of the styling, so switching it off is
+retroactive across every sheet the school has ever issued, including reprints of
+old ones. `components/exams/SubcategoryBadge.tsx` is the **one** implementation;
+two would mean the switch is honoured on three screens out of five. Colour off
+renders the plain label with no chip — not a grey pill, which would still be a
+decoration a school asked not to have.
+
+A missing `school_exam_settings` row is the ordinary case and means the defaults.
+`getExamSettings` never joins and never assumes.
+
+`teachers_can_view_legacy_results` defaults to **false**. When it is off the
+History link on the teacher's promotion screen is **absent**, not disabled with
+a tooltip.
+
+### Sub-categories archive, they do not delete
+
+`DELETE /api/school/result-subcategories/[id]` **refuses with a 409** when the
+descriptor has been awarded, naming the count — "used on 412 subject results and
+38 term results" is a decision a head can make; "this is in use" is not — and
+the screen offers Archive, which hides it from every picker and leaves every
+historical sheet rendering exactly as it was issued. An unused one is archived
+rather than deleted, so there is one code path.
+
+### Generate is idempotent, and never deletes a paper carrying marks
+
+`POST /api/school/exam-schedules/[scheduleId]/generate` writes one `exams` row
+per active section of every assigned grade and one `exam_subjects` row per
+datesheet row. Re-running updates the papers that already came from this
+schedule and creates only what is missing — schools press this again, after
+adding a section in week two and after moving the Maths paper.
+
+A subject dropped from the datesheet has its paper **archived**, and the response
+reports how many of the archived papers carried marks, because the person who
+dropped the subject is the only one who can decide whether that was intended.
+Papers a clerk added by hand carry no `schedule_subject_id` and are left alone.
+
+The schedule edit **reconciles rather than replaces**: a subject that stays keeps
+its `exam_schedule_subjects` row and is updated in place. Archiving everything
+and inserting fresh rows would break the `schedule_subject_id` link on every
+subject nobody touched, and the next generate would create a second Maths paper
+beside the one already carrying a morning's marking.
+
+### Archiving a schedule must archive its grade rows
+
+`exam_schedule_grades_term_grade_idx` is what makes "a class sits one datesheet
+per term" a database guarantee rather than a check two concurrent requests both
+pass. A live grade row under an archived schedule locks that class out of every
+future schedule in the term **by an index nobody can see**, with an error naming
+a schedule that appears on no screen. Both the term DELETE and the schedule
+DELETE move the whole tree in one transaction.
+
+### Files
+
+- API: `app/api/school/exam-terms/reorder/`, `exam-terms/[termId]/schedules/`,
+  `exam-schedules/[scheduleId]/` and `/generate/`, `result-subcategories/`
+  (+ `[id]`, `reorder`), `exam-settings/`, `promotion-criteria/`,
+  `terms/[termId]/sections/[sectionId]/results/`; and `exam-subjects/
+  [examSubjectId]/results/` now carries `subcategoryId` and `remarks`.
+- `lib/exam-schedule-input.ts` — one parse and one set of school-facing checks,
+  shared by the two routes that author a datesheet.
+- Admin: `dashboard/exams/terms`, `terms/[termId]`, `settings`, `criteria`, each
+  with its `loading.tsx`. `TermManager` moved off the Exams overview onto its own
+  screen.
+- Teacher: `teacher/exams`, `teacher/promotions`; `MarksEntry` gained the
+  descriptor sheet and a per-student comment in both modes.
+- Portals: `ResultHistory` (shared by parent, student and the teacher's gated
+  legacy view), `ReportCardSummary` and `ReportCardDocument` both render either
+  mechanism plus the promotion status and its reason.
+
+### Still open
+
+- **Migration 0029 is unapplied.** Nothing in this sprint works against the live
+  database until `sprint-devops` runs it, and the four seeded sub-categories for
+  existing schools arrive with it.
+- The criteria screen reads its year from `?academicYearId=`. The page was
+  already dynamic — it reads grades, criteria and descriptors on every
+  request — so the parameter costs nothing there; CLAUDE.md's rule is about not
+  making a *prerendered* page dynamic.
+- Re-sit handling in descriptor mode is out of scope by decision: a descriptor
+  is not re-sat. The attempt toggle simply does not appear.
+- Nothing has been exercised against real data. Every gate is green and no
+  schedule has ever been generated at a school.
 
 ---
 

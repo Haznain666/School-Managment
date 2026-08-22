@@ -108,6 +108,7 @@ interface MarkRecordBody {
   marksObtained?: unknown;
   isAbsent?: unknown;
   remarks?: unknown;
+  subcategoryId?: unknown;
 }
 
 interface SaveMarksBody {
@@ -120,6 +121,7 @@ interface ParsedMark {
   marksObtained: string | null;
   isAbsent: boolean;
   remarks: string | null;
+  subcategoryId: string | null;
 }
 
 export const POST = withSchoolAuth<RouteContext>(
@@ -177,6 +179,12 @@ export const POST = withSchoolAuth<RouteContext>(
         (sheet?.students ?? []).map((student) => student.studentProfileId),
       );
 
+      // Which sheet this is, from the grade's criteria and not from the shape
+      // of the payload. The two mechanisms are alternatives, and a client that
+      // posted both would otherwise decide for the school which one applied.
+      const isDescriptorMode = sheet?.mechanism === 'descriptors';
+      const offered = new Set((sheet?.subcategories ?? []).map((row) => row.id));
+
       const parsed: ParsedMark[] = [];
 
       for (const raw of body.records as MarkRecordBody[]) {
@@ -191,6 +199,49 @@ export const POST = withSchoolAuth<RouteContext>(
 
         const isAbsent = raw.isAbsent === true;
         const marks = toMark(raw.marksObtained);
+        const remarks = readOptionalString(raw.remarks);
+        const subcategoryId =
+          raw.subcategoryId === undefined ||
+          raw.subcategoryId === null ||
+          raw.subcategoryId === ''
+            ? null
+            : raw.subcategoryId;
+
+        if (isDescriptorMode) {
+          if (marks !== null) {
+            return apiFailure(
+              'invalid_body',
+              'This class is judged on performance descriptors, which carry no marks.',
+              400,
+            );
+          }
+          if (subcategoryId !== null && !offered.has(subcategoryId as string)) {
+            return apiFailure('invalid_body', 'That sub-category was not found.', 400);
+          }
+          if (!isAbsent && subcategoryId === null && remarks === null) {
+            // Nothing said about this child yet. Skipped rather than written
+            // blank, for the same reason an empty marks box is.
+            continue;
+          }
+
+          parsed.push({
+            studentProfileId,
+            marksObtained: null,
+            isAbsent,
+            remarks,
+            // A child who was not there earned no descriptor.
+            subcategoryId: isAbsent ? null : (subcategoryId as string | null),
+          });
+          continue;
+        }
+
+        if (subcategoryId !== null) {
+          return apiFailure(
+            'invalid_body',
+            'This class is marked, and a marks sheet has no sub-category column.',
+            400,
+          );
+        }
 
         if (isAbsent) {
           // Absence and a mark are contradictory, and the CHECK constraint
@@ -200,14 +251,35 @@ export const POST = withSchoolAuth<RouteContext>(
             studentProfileId,
             marksObtained: null,
             isAbsent: true,
-            remarks: readOptionalString(raw.remarks),
+            remarks,
+            subcategoryId: null,
           });
           continue;
         }
 
         if (marks === null) {
-          // Not marked yet. Skipped rather than stored as zero: a blank box on
-          // a half-finished sheet is not a score of nothing.
+          /*
+           * Not marked yet — stored as a null mark only when the teacher wrote
+           * a comment, and skipped entirely otherwise.
+           *
+           * A blank box on a half-finished sheet is still not a score of
+           * nothing, so the mark stays null either way. What changed on
+           * 2026-08-22 is that a *comment* typed beside that blank box used to
+           * be dropped on the floor with it. Sprint 14 makes the comment a
+           * column on the printed report card in both mechanisms, so "excellent
+           * progress, sat the paper late" is now something a teacher writes
+           * before the mark exists — and losing it silently is losing the only
+           * part of the row they had actually filled in.
+           */
+          if (remarks === null || remarks.trim() === '') continue;
+
+          parsed.push({
+            studentProfileId,
+            marksObtained: null,
+            isAbsent: false,
+            remarks,
+            subcategoryId: null,
+          });
           continue;
         }
 
@@ -223,7 +295,8 @@ export const POST = withSchoolAuth<RouteContext>(
           studentProfileId,
           marksObtained: markToNumeric(marks),
           isAbsent: false,
-          remarks: readOptionalString(raw.remarks),
+          remarks,
+          subcategoryId: null,
         });
       }
 
@@ -248,6 +321,7 @@ export const POST = withSchoolAuth<RouteContext>(
             marksObtained: record.marksObtained,
             isAbsent: record.isAbsent,
             remarks: record.remarks,
+            subcategoryId: record.subcategoryId,
             enteredBy: enteredBy?.id ?? null,
           })
           .onConflictDoUpdate({
@@ -261,6 +335,7 @@ export const POST = withSchoolAuth<RouteContext>(
               marksObtained: record.marksObtained,
               isAbsent: record.isAbsent,
               remarks: record.remarks,
+              subcategoryId: record.subcategoryId,
               enteredBy: enteredBy?.id ?? null,
               updatedAt: new Date(),
             },

@@ -16,7 +16,7 @@ import {
   readMobileField,
 } from '@/lib/profile-fields';
 import { provisionSchoolSubdomain } from '@/lib/hostinger';
-import { createFirstSchoolAdmin } from '@/lib/school-bootstrap';
+import { createFirstSchoolAdmin, seedResultSubcategories } from '@/lib/school-bootstrap';
 import { deriveSchoolCode, schoolCodeRejectionReason } from '@/lib/school-code';
 import { slugRejectionReason } from '@/lib/slug';
 import { requireSuperAdmin } from '@/lib/super-admin-guard';
@@ -199,6 +199,19 @@ export async function POST(request: NextRequest) {
       await seedChartOfAccounts(school.locationId);
     } catch (error) {
       console.error('[super-admin] chart of accounts could not be seeded:', error);
+    }
+
+    /*
+     * And the four performance descriptors, for the same reason and on the same
+     * terms. Sprint 14: migration `0029` seeded every school that existed when
+     * it ran, so this is what keeps a school provisioned afterwards identical
+     * to one provisioned before. Logged rather than swallowed — a school whose
+     * descriptor picker is quietly empty is a state nobody would go looking for.
+     */
+    try {
+      await seedResultSubcategories(school.locationId);
+    } catch (error) {
+      console.error('[super-admin] result sub-categories could not be seeded:', error);
     }
 
     /**

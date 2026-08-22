@@ -83,6 +83,7 @@ interface Draft {
   joinedOn: string;
   phone: string;
   email: string;
+  isClassTeacher: boolean;
 }
 
 const EMPTY_DRAFT: Draft = {
@@ -95,6 +96,8 @@ const EMPTY_DRAFT: Draft = {
   joinedOn: '',
   phone: '',
   email: '',
+  // The restrictive default. A school names its class teachers deliberately.
+  isClassTeacher: false,
 };
 
 export function StaffManager({ canEdit }: StaffManagerProps) {
@@ -156,6 +159,7 @@ export function StaffManager({ canEdit }: StaffManagerProps) {
           joinedOn: draft.joinedOn === '' ? null : draft.joinedOn,
           phone: draft.phone.trim(),
           email: draft.email.trim(),
+          isClassTeacher: draft.isClassTeacher,
         }),
       });
       setDraft(null);
@@ -287,6 +291,37 @@ export function StaffManager({ canEdit }: StaffManagerProps) {
                 setDraft({ ...draft, email: event.target.value });
               }}
             />
+
+            {/* One option, not two. The product owner: "Same thing, one
+                option." Only staff marked here are offered in a class's
+                class-teacher picker, and only a class teacher may decide that
+                class's promotions. */}
+            <fieldset>
+              <legend className="mb-1 block text-sm font-medium text-ink">
+                Class teacher
+              </legend>
+              <div className="flex flex-wrap gap-4">
+                {[
+                  { value: true, label: 'Class Teacher (Home Room)' },
+                  { value: false, label: 'None' },
+                ].map((option) => (
+                  <label
+                    key={String(option.value)}
+                    className="flex items-center gap-2 text-sm text-ink"
+                  >
+                    <input
+                      type="radio"
+                      name="isClassTeacher"
+                      checked={draft.isClassTeacher === option.value}
+                      onChange={() => {
+                        setDraft({ ...draft, isClassTeacher: option.value });
+                      }}
+                    />
+                    {option.label}
+                  </label>
+                ))}
+              </div>
+            </fieldset>
           </div>
 
           <div className="mt-4 flex gap-3">

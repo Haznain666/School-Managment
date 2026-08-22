@@ -177,6 +177,8 @@ export interface SectionRow {
   isActive: boolean;
   /** Active enrolments in this section. */
   studentCount: number;
+  /** The staff record who owns this class. Decides who may set its promotions. */
+  classTeacherId: string | null;
 }
 
 export interface GradeRow {
@@ -247,6 +249,7 @@ export async function listSections(
       name: sections.name,
       capacity: sections.capacity,
       isActive: sections.isActive,
+      classTeacherId: sections.classTeacherId,
       // Only active enrolments count against capacity: a withdrawn student is
       // not occupying a seat.
       studentCount: sql<number>`count(${studentEnrollments.id}) filter (where ${studentEnrollments.status} = 'active')`.mapWith(
@@ -281,6 +284,7 @@ async function listSectionsWhere(where: SQL | undefined): Promise<SectionRow[]> 
       name: sections.name,
       capacity: sections.capacity,
       isActive: sections.isActive,
+      classTeacherId: sections.classTeacherId,
       studentCount: sql<number>`count(${studentEnrollments.id}) filter (where ${studentEnrollments.status} = 'active')`.mapWith(
         Number,
       ),

@@ -1,4 +1,6 @@
+import { SubcategoryBadge } from '@/components/exams/SubcategoryBadge';
 import { PrintDocument, PrintLetterhead } from '@/components/print/PrintSheet';
+import { PROMOTION_STATUS_LABELS } from '@/db/schema/student-term-results';
 import { formatMark, formatPercentage, ordinal } from '@/lib/grading';
 import type { ReportCard } from '@/lib/exam-queries';
 
@@ -20,6 +22,22 @@ import type { ReportCard } from '@/lib/exam-queries';
  *      quiet lie in the one number families compare.
  *   3. "PREVIEW" across the top until the term is published, so a card printed
  *      during checking cannot be mistaken for the real thing.
+ *
+ * ── Two sheets, decided per class ────────────────────────────────────────
+ * Sprint 14: a class judged on performance descriptors has no marks, no
+ * percentages and no letter grades *anywhere* on this sheet, and a marks class
+ * has no sub-category column at all. They are alternatives rather than a
+ * variation, so the table is written twice rather than made conditional column
+ * by column — a half-blank marks table is what a parent reads as a lost record.
+ * The mechanism is frozen on `student_term_results`, so a card issued under
+ * descriptors keeps printing as one after the school switches the class.
+ *
+ * ── The promotion status and the reason it was changed both print ────────
+ * The product owner asked for the reason a status was overridden to be visible
+ * to every relevant party *including parents*, and the report card is the
+ * document a parent actually keeps. Where no term result has been computed the
+ * block is absent rather than guessing — nothing here says "not promoted"
+ * because nobody has pressed a button yet.
  *
  * Layout only. Page size, break behaviour and hiding the portal shell belong
  * to `<PrintSheet>`.
@@ -79,78 +97,177 @@ export function ReportCardDocument({
           />
         </section>
 
-        <table className="mt-2 w-full border-collapse border border-black">
-          <thead>
-            <tr>
-              <Th className="text-left">Subject</Th>
-              <Th>Max</Th>
-              <Th>Pass</Th>
-              <Th>Obtained</Th>
-              <Th>%</Th>
-              <Th>Grade</Th>
-            </tr>
-          </thead>
-          <tbody>
-            {card.subjects.length === 0 ? (
+        {card.mechanism === 'descriptors' ? (
+          <table className="mt-2 w-full border-collapse border border-black">
+            <thead>
               <tr>
-                <Td colSpan={6} className="text-center">
-                  No results have been published for this term yet.
-                </Td>
+                <Th className="text-left">Subject</Th>
+                <Th>Sub-category</Th>
+                <Th className="text-left">Comment</Th>
               </tr>
-            ) : (
-              card.subjects.map((subject, index) => (
-                <tr key={`${subject.subjectName}-${index}`}>
-                  <Td className="text-left">
-                    {subject.subjectName}
-                    {subject.isResit ? ' (re-sit)' : ''}
+            </thead>
+            <tbody>
+              {card.subjects.length === 0 ? (
+                <tr>
+                  <Td colSpan={3} className="text-center">
+                    No results have been published for this term yet.
                   </Td>
-                  <Td>{formatMark(subject.maxMarks)}</Td>
-                  <Td>{formatMark(subject.passingMarks)}</Td>
-                  <Td className={subject.isFail ? 'font-bold' : undefined}>
-                    {subject.isAbsent ? 'ABS' : formatMark(subject.marks)}
-                  </Td>
-                  <Td>{subject.isAbsent ? '—' : formatPercentage(subject.percentage)}</Td>
-                  <Td>{subject.grade ?? '—'}</Td>
                 </tr>
-              ))
-            )}
-          </tbody>
-          <tfoot>
-            <tr className="font-bold">
-              <Td className="text-left">Total</Td>
-              <Td>{formatMark(card.available)}</Td>
-              <Td>—</Td>
-              <Td>{formatMark(card.obtained)}</Td>
-              <Td>{formatPercentage(card.percentage)}</Td>
-              <Td>{card.grade ?? '—'}</Td>
-            </tr>
-          </tfoot>
-        </table>
+              ) : (
+                card.subjects.map((subject, index) => (
+                  <tr key={`${subject.subjectName}-${index}`}>
+                    <Td className="text-left">{subject.subjectName}</Td>
+                    <Td>
+                      {subject.isAbsent ? (
+                        'ABS'
+                      ) : (
+                        <SubcategoryBadge
+                          subcategory={subject.subcategory}
+                          colorCoded={card.colorCodingEnabled}
+                        />
+                      )}
+                    </Td>
+                    <Td className="text-left">{subject.comment ?? '—'}</Td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+            <tfoot>
+              <tr className="font-bold">
+                <Td className="text-left">Overall</Td>
+                <Td>
+                  <SubcategoryBadge
+                    subcategory={card.overallSubcategory}
+                    colorCoded={card.colorCodingEnabled}
+                  />
+                </Td>
+                <Td className="text-left">—</Td>
+              </tr>
+            </tfoot>
+          </table>
+        ) : (
+          <table className="mt-2 w-full border-collapse border border-black">
+            <thead>
+              <tr>
+                <Th className="text-left">Subject</Th>
+                <Th>Max</Th>
+                <Th>Pass</Th>
+                <Th>Obtained</Th>
+                <Th>%</Th>
+                <Th>Grade</Th>
+                <Th className="text-left">Comment</Th>
+              </tr>
+            </thead>
+            <tbody>
+              {card.subjects.length === 0 ? (
+                <tr>
+                  <Td colSpan={7} className="text-center">
+                    No results have been published for this term yet.
+                  </Td>
+                </tr>
+              ) : (
+                card.subjects.map((subject, index) => (
+                  <tr key={`${subject.subjectName}-${index}`}>
+                    <Td className="text-left">
+                      {subject.subjectName}
+                      {subject.isResit ? ' (re-sit)' : ''}
+                    </Td>
+                    <Td>{formatMark(subject.maxMarks)}</Td>
+                    <Td>{formatMark(subject.passingMarks)}</Td>
+                    <Td className={subject.isFail ? 'font-bold' : undefined}>
+                      {subject.isAbsent ? 'ABS' : formatMark(subject.marks)}
+                    </Td>
+                    <Td>
+                      {subject.isAbsent ? '—' : formatPercentage(subject.percentage)}
+                    </Td>
+                    <Td>{subject.grade ?? '—'}</Td>
+                    <Td className="text-left">{subject.comment ?? '—'}</Td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+            {/* The percentage here is the MEAN of the subject percentages, not
+                the ratio of totals, because that is what the school's promotion
+                rules are applied to and a card must not print one figure while
+                the decision beneath it was taken on another. The two differ
+                whenever papers carry different maxima — Maths out of 100 beside
+                Art out of 20 gives 48.3% one way and 65.0% the other — and
+                until 2026-08-22 the card printed the ratio while the history
+                table three inches below it printed the mean.
+
+                The marks column still totals honestly: obtained out of
+                available is a real fact and stays. It simply is not what the
+                percentage is computed from. */}
+            <tfoot>
+              <tr className="font-bold">
+                <Td className="text-left">Total</Td>
+                <Td>{formatMark(card.available)}</Td>
+                <Td>—</Td>
+                <Td>{formatMark(card.obtained)}</Td>
+                <Td>{formatPercentage(card.meanPercentage)}</Td>
+                <Td>{card.overallGradeLabel ?? '—'}</Td>
+                <Td className="text-left">—</Td>
+              </tr>
+            </tfoot>
+          </table>
+        )}
 
         <section className="mt-2 grid grid-cols-2 gap-2">
           <div className="border border-black p-1.5">
             <p className="text-[9px] font-bold uppercase tracking-wide">Result</p>
-            <div className="mt-1 grid grid-cols-2 gap-x-3 gap-y-0.5">
-              <Field
-                label="Position in class"
-                value={
-                  card.position === null
-                    ? card.absentCount > 0
-                      ? `Not ranked (absent from ${card.absentCount} paper${card.absentCount === 1 ? '' : 's'})`
-                      : 'Not ranked'
-                    : `${ordinal(card.position)} of ${card.classSize}`
-                }
-              />
-              <Field label="Grade" value={card.grade ?? '—'} />
-              <Field
-                label="GPA"
-                value={card.gpa === null ? '—' : card.gpa.toFixed(2)}
-              />
-              <Field
-                label="Papers below pass"
-                value={String(card.failedCount)}
-              />
-            </div>
+            {card.mechanism === 'descriptors' ? (
+              <div className="mt-1 grid grid-cols-2 gap-x-3 gap-y-0.5">
+                <Field
+                  label="Subjects needing attention"
+                  value={String(card.failedCount)}
+                />
+                <Field label="Papers missed" value={String(card.absentCount)} />
+              </div>
+            ) : (
+              <div className="mt-1 grid grid-cols-2 gap-x-3 gap-y-0.5">
+                <Field
+                  label="Position in class"
+                  value={
+                    card.position === null
+                      ? card.absentCount > 0
+                        ? `Not ranked (absent from ${card.absentCount} paper${card.absentCount === 1 ? '' : 's'})`
+                        : 'Not ranked'
+                      : `${ordinal(card.position)} of ${card.classSize}`
+                  }
+                />
+                {/* The same letter the table's Total row carries, from the same
+                    mean. Two grades for one term on one sheet is worse than
+                    either of them being wrong. */}
+                <Field label="Grade" value={card.overallGradeLabel ?? '—'} />
+                <Field
+                  label="GPA"
+                  value={card.gpa === null ? '—' : card.gpa.toFixed(2)}
+                />
+                <Field
+                  label="Papers below pass"
+                  value={String(card.failedCount)}
+                />
+              </div>
+            )}
+
+            {card.promotion === null ? null : (
+              <div className="mt-1 border-t border-dotted border-black pt-1">
+                <Field
+                  label="Promotion"
+                  value={PROMOTION_STATUS_LABELS[card.promotion.finalStatus]}
+                />
+                {card.promotion.isOverridden && card.promotion.overrideReason !== null ? (
+                  <p className="mt-0.5 text-[9px] italic">
+                    Changed from{' '}
+                    {PROMOTION_STATUS_LABELS[
+                      card.promotion.computedStatus
+                    ].toLowerCase()}
+                    : {card.promotion.overrideReason}
+                  </p>
+                ) : null}
+              </div>
+            )}
+
             {card.remark === null ? null : (
               <p className="mt-1 text-[10px] italic">{card.remark}</p>
             )}
