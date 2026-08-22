@@ -1328,8 +1328,22 @@ export async function getSectionReportCards(
         isResit: (candidate?.attempt ?? ATTEMPT_ORIGINAL) === ATTEMPT_RESIT,
         isFail: marks !== null && marks < passingMarks,
         percentage,
-        grade:
-          percentage === null ? null : (resolveBand(percentage, bands)?.label ?? null),
+        /*
+         * `resolveGrade`, not `resolveBand`, so a mark under every band prints
+         * `U` rather than a dash.
+         *
+         * The spec's fail condition applies to subject rows as well as the
+         * overall — and the overall already used `resolveGrade`, so a card could
+         * carry `Mathematics 30% —` on one line and `Total 62.5% B` on the next.
+         * A blank beside a real number reads as a broken report card, not as a
+         * fail, and it was the *lowest* mark on the sheet that got the blank.
+         *
+         * A school with no bands configured still grades nothing: `resolveGrade`
+         * returns the dash for an empty band list before it ever considers a
+         * fail. "This school does not grade" and "this child failed" stay
+         * different facts.
+         */
+        grade: percentage === null ? null : resolveGrade(percentage, bands).label,
         subcategory: null,
         comment,
       };
@@ -1414,12 +1428,28 @@ export async function getSectionReportCards(
     };
   });
 
-  // `available === 0` is every descriptor card, so a descriptor class takes no
-  // positions at all. That is the intent, not a side effect: ranking children
-  // whose results are words would mean ordering the words, and no school has
-  // asked this product to decide that "Exceeding" beats "Satisfactory" by one.
+  /*
+   * Ranked on the SAME figure the card prints.
+   *
+   * `meanPercentage`, not `obtained`, because the card's percentage and grade
+   * are the mean and a sheet must not rank by one number while displaying
+   * another. With unequal maxima it did exactly that: a child printing
+   * "Total 65% B" — the best overall percentage in the class — also printed
+   * "Position in class: 2nd of 3", because another child had more raw marks
+   * from a 100-mark paper they happened to do well in. Both numbers on one
+   * sheet, contradicting each other, for a parent to notice.
+   *
+   * With every paper out of the same maximum the two orders are identical, so
+   * this changes nothing for the common case and fixes the case that made the
+   * mean worth computing in the first place.
+   *
+   * `available === 0` is every descriptor card, so a descriptor class takes no
+   * positions at all. That is the intent, not a side effect: ranking children
+   * whose results are words would mean ordering the words, and no school has
+   * asked this product to decide that "Exceeding" beats "Satisfactory" by one.
+   */
   const positions = assignPositions(cards, (card) =>
-    card.absentCount > 0 || card.available === 0 ? null : card.obtained,
+    card.absentCount > 0 || card.available === 0 ? null : card.meanPercentage,
   );
 
   for (const card of cards) {
