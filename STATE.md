@@ -5,7 +5,7 @@ resume without re-deriving context. Updated at the end of every development
 step, before the session ends.
 
 **Last updated:** 2026-08-22 (**Sprint 14 — exam terms, datesheets, descriptors
-and promotion, §5ay. `0029` and `0030` APPLIED; thirteen QA defects fixed.**;
+and promotion, §5ay. `0029` and `0030` APPLIED; fifteen QA defects fixed.**;
 **The deploy was never blocked and the probe that
 would have said so was gitignored — §5ax**; WhatsApp removed from the platform,
 the invite form's phone field unblocked, the dashboard outage, and the login
@@ -6353,8 +6353,8 @@ Phases 1 and 2 (schema, migration, the rule layer) landed in `3e182ea`. Phases
 3, 4 and 5 — the API, the admin screens and the portals — are `7953f99`,
 `8d41d1c` and `341527f`.
 
-**Then QA found thirteen defects, five of them P1, and all thirteen are fixed** —
-`892927c`, `8c2674e`, `c74c747`, `82f9262`, `5572da0`, `7a57c2f`. Read
+**Then QA found fifteen defects, seven of them P1, and all fifteen are fixed** —
+`892927c`, `8c2674e`, `c74c747`, `82f9262`, `5572da0`, `7a57c2f`, `b755a78`. Read
 `release-notes/RELEASE-NOTES-SPRINT-14.md` §"What QA found" before touching this
 module; `test-cases/TEST-CASES-SPRINT-14.md` marks the eleven cases that were
 defects with 🔁, and those are the ones to re-run first.
@@ -6381,8 +6381,17 @@ mistake this codebase can make again:
    moment a school runs a 20-mark Art paper. A parent saw 48.3% · C on the
    document they keep and 65.0% · B three inches below it.
 
+4. **Some defects exist only under one data shape, and you have to seed it.**
+   Two of the fifteen lived exclusively where papers carry unequal maxima —
+   Mathematics out of 100 beside Art out of 20. With every paper out of 100 the
+   mean and the ratio are the same number, so a static read, a green build and a
+   34-assertion database suite all passed over them. Rendering one real report
+   card from a class seeded that way found both in a minute. **When a sprint
+   introduces a second way of computing something, seed the case where the two
+   answers differ, and look at the output.**
+
 Also worth noting for the next sprint's planning: **the green build passed at
-every point while all thirteen were present.** Nine gates, 251 loader
+every point while all fifteen were present.** Nine gates, 251 loader
 assertions, clean typecheck, clean lint. They prove the code compiles and obeys
 the house rules; they say nothing about whether a report card prints the number
 the decision was made on.

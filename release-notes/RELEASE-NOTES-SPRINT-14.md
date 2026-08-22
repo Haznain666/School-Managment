@@ -201,7 +201,7 @@ status and the reason where the school changed it.
 
 ## What QA found, and what it cost to find it
 
-Thirteen defects, all fixed before merge. Five were P1. They are worth recording
+Fifteen defects, all fixed. Seven were P1. They are worth recording
 because of *how* each was caught — the three methods found different classes of
 fault and none of them would have found the others.
 
@@ -275,6 +275,25 @@ and *evaluated* in three. `0030` rewrites it with `num_nonnulls`, which cannot
 return null, and the parser now demands the pair regardless of whether the
 schedule has grades assigned yet — which was the route in, since the mechanism
 is derived from the assigned grades and a schedule with none has no mechanism.
+
+### Found by rendering a real report card
+
+Two defects, and they existed **only** where papers carry unequal maxima —
+Mathematics out of 100 beside Art out of 20. With every paper out of the same
+maximum the mean and the ratio agree, so neither the static read nor the
+34-assertion suite could reach them. Seeding that one condition and reading the
+card it produced surfaced both in a minute.
+
+* **A subject scoring under every band printed an em dash instead of `U`.** The
+  overall row already used `resolveGrade`; the subject rows still used
+  `resolveBand`. One card read `Mathematics 30% —` on one line and
+  `Total 62.5% B` on the next — a blank beside a real number, on the lowest mark
+  on the sheet.
+* **Position in class ranked on total marks while the card printed the mean.**
+  The child with the best overall percentage in the class printed
+  **"Total 65% B"** and **"Position in class: 2nd of 3"** on the same sheet,
+  because another child had more raw marks from the 100-mark paper. Ranking now
+  uses the figure the card displays.
 
 ### Found by looking at the running app
 

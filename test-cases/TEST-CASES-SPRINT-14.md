@@ -5,28 +5,41 @@ Migrations `0029` and `0030`, both **APPLIED** to the live database.
 
 ## Status — 2026-08-22
 
-Sprint 14 went through one static QA pass and one live pass. The static pass
-raised twelve findings; running the sprint's own rules against the real schema
-raised a thirteenth. **All thirteen are fixed** — commits `892927c`, `8c2674e`,
-`c74c747`, `82f9262`, `5572da0`, `7a57c2f`.
+Sprint 14 went through a static QA pass, a live database pass, and a full
+end-to-end drive against seeded data. **Fifteen defects found, all fifteen
+fixed** — `892927c`, `8c2674e`, `c74c747`, `82f9262`, `5572da0`, `7a57c2f`,
+`b755a78`.
 
 | Mark | Meaning |
 | --- | --- |
 | ✅ | executed and passing |
-| 🔁 | **was a defect, now fixed — re-run this first** |
-| ⬜ | not executed: needs seed data, a printer, or a second tenant |
+| 🔁 | **was a defect, now fixed and re-verified** |
+| ⬜ | not executed |
 
-**What was actually executed.** A 34-assertion integration suite against the
-live schema, covering every rule the database is meant to enforce: **34 of 34
-pass**. Plus, in the browser as a signed-in school administrator: the exams
-module, the settings screen, descriptor rendering and contrast, the new
-promotions screen, and the sidebar. Console clean, no errors.
+**What was executed.** A 34-assertion integration suite against the live schema
+(34/34). Then a full drive as a signed-in school administrator, through the
+product's own APIs and screens: a term, two datesheets, generate run twice,
+marks and descriptors entered, papers and term published, promotions computed
+for both mechanisms, an override applied, and both report cards rendered and
+read. Console clean throughout.
 
-**What was not.** Anything needing a populated term. The test school has three
-students, two subjects and no exam terms, so no report card, tabulation sheet or
-parent portal has been rendered with real results. The 🔁 cases below are where
-that matters most — the fix is in and typechecked, but the *rendering* of a
-descriptor report card has not been seen by a human.
+**The seed that made it possible.** Two classes on different mechanisms, and —
+critically — a marks class whose papers carry **unequal maxima** (Mathematics
+out of 100, Art out of 20). That single condition is what separates the
+arithmetic mean from the ratio of totals, and **two defects lived only there**:
+F14 and F15 (UC-S14-44 and UC-S14-95a). Neither the static read nor the
+integration suite could have found them, because with every paper out of 100 the
+two figures agree.
+
+Measured on the real card, Rahul Sharma: Mathematics 40/100 and Art 18/20 →
+**Total 120 | 58 | 65% | B**. The obtained/available column stays honest at
+58/120; the percentage and grade are the mean. Before the F5 fix that row read
+48.3% · D.
+
+**What was not executed.** The parent and student portals as an actual
+parent/student login — the reader and the print surface were verified, the
+portal session was not. Print at A4 on paper. Responsive and dark mode. Tenancy
+with a second school. Teacher-portal legacy gating as a teacher login.
 
 ⚠ **Seed before starting.** Several cases need state a fresh school lacks:
 
@@ -324,8 +337,14 @@ column still totals honestly; it is simply not what the percentage is from.
   number with one letter.
 - *The two only diverge when maxima differ — which is why this survived review.*
 
-#### UC-S14-44 · Below every band is `U`, not blank — P2 ⬜
-Bands starting at 33, overall mean 20% → **U**.
+#### UC-S14-44 · Below every band is `U`, not blank — P1 🔁
+**Was a defect (F14), found by reading a real card.** The overall row used
+`resolveGrade` and the subject rows still used `resolveBand`, so a card read
+`Mathematics 30% —` on one line and `Total 62.5% B` on the next. A blank beside a
+real number reads as a broken report card rather than as a fail — and it was the
+lowest mark on the sheet that got the blank. Fixed in `b755a78`.
+- **Verified on the rendered card:** Priya's Mathematics 30% and Sana's Art 20%
+  both print **U**; Rahul's Mathematics 40% still prints **D**.
 
 #### UC-S14-45 · A school with no bands grades nothing, and that is not `U` — P1 ⬜
 On a school with **no grading scheme at all**, publish a term.
@@ -660,6 +679,16 @@ Re-run **UC-S09-13**.
 #### UC-S14-95 · A descriptor class takes no positions at all — P2 🔁
 Covered by the UC-S14-35 fix. Every child reads "Not ranked"; nobody is first.
 **Fail** if everybody is joint first.
+
+#### UC-S14-95a · Position ranks on the figure the card prints — P1 🔁
+**Was a defect (F15), found by reading a real card.** Position ranked on total
+marks obtained while the card printed the mean, so the child with the best
+overall percentage in the class printed **"Total 65% B"** and **"Position in
+class: 2nd of 3"** on the same sheet — another child had more raw marks from the
+100-mark paper. Two numbers on one page contradicting each other. Fixed in
+`b755a78`; with equal maxima the two orders are identical, so nothing changes for
+the common case.
+- **Verified on the rendered cards:** 65% / 62.5% / 55% now rank 1st / 2nd / 3rd.
 
 #### UC-S14-96 · A comment can be saved before a mark — P3 🔁
 **Was a defect (F12), pre-existing but newly visible.** The save skipped any
