@@ -176,8 +176,33 @@ export function schoolNav({ role, permissions, moduleFlags }: SchoolNavProps): {
       icon: 'exams',
       items: [
         { label: 'Terms & Exams', href: '/dashboard/exams', icon: 'exams' },
+        {
+          label: 'Terms & Datesheets',
+          href: '/dashboard/exams/terms',
+          icon: 'exams',
+        },
+        // Promotions is the only entry here gated on a second permission. The
+        // rest of the section rides on `exams.read`, but deciding whether a
+        // child moves up is not the same act as reading a datesheet — and the
+        // page refuses anyone this hides it from, because a link is not a
+        // permission.
+        ...(can('results.promotion')
+          ? [
+              {
+                label: 'Promotions',
+                href: '/dashboard/exams/promotions',
+                icon: 'reportCards' as const,
+              },
+            ]
+          : []),
+        {
+          label: 'Promotion Criteria',
+          href: '/dashboard/exams/criteria',
+          icon: 'grading',
+        },
         { label: 'Report Cards', href: '/dashboard/exams/report-cards', icon: 'reportCards' },
         { label: 'Grading Schemes', href: '/dashboard/exams/grading', icon: 'grading' },
+        { label: 'Exam Settings', href: '/dashboard/exams/settings', icon: 'grading' },
       ],
     });
   }
