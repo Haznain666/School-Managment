@@ -37,17 +37,22 @@ than fixed here (§5).
 | UC-S15-03 | School Code follows Subdomain and still derives from the name when left blank | ✅ |
 | UC-S15-04 | Step 1 renders 8 inputs, no skeleton, console clean | ✅ |
 | UC-S15-05 | Branch step carries **no** Principal field — principals are School Admin → Settings | ✅ (read) |
-| UC-S15-06 | Branch step order is Main Branch → Branch Name → Street Address → City → Branch Landline → Branch Mobile → Branch Email → Curriculum Level → Classes Taught | ⬜ static read only — reaching step 2 requires creating a school, and the only tenant on the live database is a real one |
-| UC-S15-07 | Steps 3–5 offer **Skip for now**; steps 1–2 do not | ⬜ same reason |
-| UC-S15-08 | Steps 1 and 2 cannot be returned to; 3–5 move freely | ⬜ same reason |
-| UC-S15-09 | Finish lands on the school detail page, or on Users when no administrator was emailed | ⬜ same reason |
+| UC-S15-06 | Branch step order is Main Branch → Branch Name → Street Address → City → Branch Landline → Branch Mobile → Branch Email → Curriculum Level → Classes Taught | ✅ **executed live 2026-08-24** — the product owner created *Beacon House School System* and its branch through the wizard |
+| UC-S15-07 | Steps 3–5 offer **Skip for now**; steps 1–2 do not | ⬜ not separately confirmed |
+| UC-S15-08 | Steps 1 and 2 cannot be returned to; 3–5 move freely | ⬜ not separately confirmed |
+| UC-S15-09 | Finish lands on the school detail page, or on Users when no administrator was emailed | ⬜ not separately confirmed |
 | UC-S15-10 | The per-school Branding / Modules / Integrations / Branches tabs still edit an existing school | ✅ all four tabs render |
 | UC-S15-11 | Labels only — no column, payload key or API contract changed | ✅ (`git diff` on `db/schema`, the two routes) |
 
-⚠️ **UC-S15-06 to 09 were not driven.** Completing the wizard creates a school
-row and a branch row on the **production** database. There is one real tenant on
-it and no scratch tenant to spend, so the flow past step 1 was read rather than
-run. This is the largest gap in this sprint's QA and is named as such.
+⚠️ **UC-S15-06 to 09 were not driven during the QA pass**, because completing the
+wizard writes a school row and a branch row to the **production** database and
+there was no scratch tenant to spend. It was named at the time as the largest
+gap in this sprint's QA.
+
+✅ **UC-S15-06 closed itself on 2026-08-24**, when the product owner created
+*Beacon House School System* and its branch through the wizard on production —
+the strongest kind of evidence available, and one no test environment here could
+have produced. 07–09 remain unconfirmed as discrete assertions.
 
 ---
 
@@ -63,19 +68,28 @@ run. This is the largest gap in this sprint's QA and is named as such.
 | UC-S15-25 | Raw JSON no longer reaches the operator's screen | ✅ for **new** attempts |
 | UC-S15-26 | The existing failed row now reads as a rate limit | ❌ **No — and this is expected. See below.** |
 
-⚠️ **UC-S15-26 is the one to know about.** The schools table still renders:
+⚠️ **UC-S15-26 is the one to know about.** At the time of the QA pass the schools
+table still rendered the pre-sprint string, stored in the database:
 
 > Hostinger refused the request (HTTP 429). { "message": "Too Many Attempts.",
 > "correlation_id": "a28cff8a-…" }
 
-That string is **stored in the database** from the attempt that failed before
-this sprint. The fix changes how *future* attempts are recorded; it deliberately
-does not rewrite history, because nothing in the code can know which historical
-`failed` rows were really rate limits. **Pressing Provision on that row is what
-corrects it**, and that must be done on the live site where
-`HOSTINGER_API_TOKEN` is configured — pressing it from a local instance, which
-has no token, would replace a meaningful error with "Manual" and lose the
+The fix changes how *future* attempts are recorded; it deliberately does not
+rewrite history, because nothing in the code can know which historical `failed`
+rows were really rate limits. **Pressing Provision is what corrects a row**, and
+it must be done on the live site — pressing it from a local instance, which has
+no hosting token, would replace a meaningful error with "Manual" and lose the
 record.
+
+✅ **UC-S15-25 was then confirmed live on 2026-08-24, by accident.** The hosting
+API token had expired, so a real provisioning attempt produced:
+
+> Hostinger refused the request (HTTP 401). Unauthenticated. (ref a292cdb0-…)
+
+One plain sentence, correlation id demoted to `(ref …)`, no JSON. That is
+exactly what `summariseResponseBody` was written to produce, on an error nobody
+arranged. The token has since been replaced; both schools still need Provision
+pressed.
 
 ---
 
@@ -83,22 +97,31 @@ record.
 
 | ID | Case | Result |
 | --- | --- | --- |
-| UC-S15-30 | The listbox portals to `document.body` and is not clipped by `Card`'s `overflow-hidden` | ⬜ **not executed** |
-| UC-S15-31 | Flips above the input when under 160px remains below | ⬜ not executed |
+| UC-S15-30 | The listbox portals to `document.body` and is not clipped by `Card`'s `overflow-hidden` | ✅ **executed live 2026-08-24** |
+| UC-S15-31 | Flips above the input when under 160px remains below | ⬜ not executed — there was room below |
 | UC-S15-32 | Clicking a suggestion still selects it (portal breaks the old sibling-blur assumption) | ⬜ not executed |
-| UC-S15-33 | ARIA preserved; `aria-owns` added because the list is no longer a descendant | ✅ (read) |
+| UC-S15-33 | ARIA preserved; `aria-owns` added because the list is no longer a descendant | ✅ live — `aria-owns` and `aria-expanded="true"` both present |
 | UC-S15-34 | `Card` keeps `overflow-hidden` | ✅ (read) |
 
-⚠️ **Requirement 3 is unverified in a browser, and that is not a small caveat**
-— it is the requirement whose whole content is visual behaviour. No
-`NEXT_PUBLIC_MAPBOX_TOKEN` is set in `.env.local`, so every address field
-renders "Address search is off" and the listbox never opens. The public
-`/apply` form on production would have served, but it needs a tenant subdomain
-and the only tenant's subdomain is the one that failed to provision.
+✅ **UC-S15-30 was closed on the live deployment**, on the exact condition from
+the original screenshot. `NEXT_PUBLIC_MAPBOX_TOKEN` *is* set in production
+(it is absent only from `.env.local`, which is why this could not be done
+locally). Typing `gulshan` into Street Address on the live wizard, the listbox
+reported:
 
-**To verify: open any address field on the live site, type `gulshan`, and
-confirm the suggestion list is fully visible past the card border** — the exact
-condition in the original screenshot.
+    parentElement === document.body        true
+    insideOverflowHiddenCard               false      <-- the fix
+    position                               fixed
+    zIndex                                 1300       (z-modal, not z-dropdown)
+    rect                                   726px wide, fully on-screen
+    options                                ["Gulshan-E-Iqbal — Karachi,
+                                             Karachi East, Sindh, Pakistan"]
+
+Same query, same suggestion as the screenshot, now rendering **outside** the
+card. Read out of the DOM rather than photographed, which settles the question
+more precisely than an image would: a screenshot shows a list that looks
+complete, whereas `insideOverflowHiddenCard: false` is the property that was
+actually wrong before.
 
 ---
 
@@ -224,3 +247,38 @@ value; do not read once.
 `SUPER_ADMIN_PASSWORD_HASH` must be written `\$` — 63 characters. `node
 --env-file` does no expansion, so the standalone server needs the raw
 60-character hash. The same file cannot satisfy both at once.
+
+---
+
+## 6. Mail delivery — added 2026-08-24, after the sprint
+
+Not part of Sprint 15's scope, and found by the product owner: creating the
+second school sent no invitation to either the school admin or the branch admin.
+
+| ID | Case | Result |
+| --- | --- | --- |
+| UC-S15-80 | Creating a school queues an invitation for the school admin | ✅ written at 00:39:51, three seconds after the school row |
+| UC-S15-81 | Creating a branch queues an invitation for the branch admin | ✅ written at 00:44:45, on completing step 2 |
+| UC-S15-82 | Queued invitations are delivered | 🔁 **was failing — fixed** |
+| UC-S15-83 | The mailbox password is correct | ✅ real `verify()` against `smtp.titan.email:465` succeeded on the first attempt |
+| UC-S15-84 | The value production holds is the one that was entered | 🔁 **it was not** — see below |
+| UC-S15-85 | The outbox drains after the fix | ✅ 5 sent, 0 queued, 0 failed |
+
+**The defect was a stale environment variable, not code.** Both messages existed
+and both failed with `535 5.7.8 authentication failed [EAUTH]`. The `[smtp]`
+boot line in the host's runtime logs settled it in one number:
+
+    production:  [smtp] SMTP_PASS_B64 decoded cleanly (31 chars)
+    local:       [smtp] SMTP_PASS_B64 decoded cleanly (17 chars)
+
+Two different passwords. Production's decoded *cleanly*, so nothing in
+`lib/smtp-credentials.ts` had corruption to catch — the value was intact and
+simply old. hPanel also had **both** `SMTP_PASS` and `SMTP_PASS_B64`, and
+`SMTP_PASS_B64` wins, so a correct `SMTP_PASS` was being silently overridden.
+
+Fixed by replacing `SMTP_PASS_B64` and **deleting** `SMTP_PASS`. Both invitations
+then sent at 02:02:51 and 02:07:51 — on attempt **5 of 5**. Twenty minutes later
+and they would have been `failed` and needed the dashboard's requeue control.
+
+**For the next person: read the boot line first.** One integer separates "the
+right value arrived" from "a plausible wrong one did", and it reveals nothing.

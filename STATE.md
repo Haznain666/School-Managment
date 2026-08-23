@@ -4,7 +4,12 @@
 resume without re-deriving context. Updated at the end of every development
 step, before the session ends.
 
-**Last updated:** 2026-08-23 (**Sprint 15 — the school creation wizard, the 429
+**Last updated:** 2026-08-24 (**Mail delivery: no invitation had sent since
+2026-08-20 — production held a 31-character `SMTP_PASS_B64` where the working
+password is 17, with a shadowed `SMTP_PASS` beside it. Fixed; outbox drained.
+The Mapbox dropdown and the wizard past step 1 are both verified live, and the
+expired Hostinger token that turned the 429 into a 401 is replaced — §5bc.**;
+2026-08-23: **Sprint 15 — the school creation wizard, the 429
 recorded as a refusal, the clipped address list, dashboards on all five portals,
 and one table primitive across thirty listings — §5az, §5ba, §5bb, §5bc.
 `0031` APPLIED and verified. Merged to `main` as `9dfb735`.**;
@@ -7734,23 +7739,81 @@ Also: the dev server in this worktree is broken independently, with a webpack
 `Cannot read properties of undefined (reading 'call')` on every page. The
 production build is unaffected. Not diagnosed.
 
-### What was NOT verified, and two of these matter
+### What was NOT verified
 
-- **The wizard past step 1 was never driven.** Completing it writes real rows to
-  the production database and there is no scratch tenant to spend. Steps 2–5,
-  Skip, and where Finish lands were read, not run.
-- **The Mapbox dropdown was never seen.** No `NEXT_PUBLIC_MAPBOX_TOKEN` outside
-  production, so the listbox never opens; the public `/apply` form needs a
-  tenant subdomain and the only tenant's subdomain is the one that failed. This
-  is the requirement whose entire content is visual, and it has no visual
-  evidence.
+Two entries that stood here on 2026-08-23 have since been closed against the
+live deployment, and are kept below with their evidence rather than deleted —
+what was checked and how is the part a later session needs.
+
+- ✅ **The Mapbox dropdown, closed 2026-08-24.** `NEXT_PUBLIC_MAPBOX_TOKEN` *is*
+  set in hPanel. Typing `gulshan` into Street Address on the live wizard, the
+  listbox reported `parentElement === document.body`, **`insideOverflowHiddenCard:
+  false`**, `position: fixed`, `zIndex: 1300`, 726px wide and fully on-screen,
+  with one option: *Gulshan-E-Iqbal — Karachi, Karachi East, Sindh, Pakistan*.
+  That is the same query and the same suggestion as the product owner's original
+  screenshot, now rendering outside the card. `aria-owns` was present, so the
+  relationship the portal broke is restated. Read out of the DOM rather than
+  photographed, which is the stronger evidence here.
+- ✅ **The wizard past step 1, closed 2026-08-24** — by the product owner, who
+  created **Beacon House School System** through it on production. Step 1's field
+  order and labels rendered exactly as specified, and both the school and its
+  branch were created, which also exercised step 2.
 - **BR4 was not driven as a signed-in principal** — no principal account exists
   on the live tenant. Asserted by `check-portals`, and every aggregate runs both
   scoped and unscoped in `check-dashboard`, but neither is a person signing in.
 - **Teacher, parent and student dashboards were not opened as those roles.**
-- **No screenshots exist.** The browser pane would not composite frames in this
-  environment, so every observation is from the accessibility tree, page text,
-  the DOM and the network log.
+- **No screenshots exist from the QA pass.** The browser pane would not composite
+  frames, so every observation is from the accessibility tree, page text, the DOM
+  and the network log. (The live checks on 2026-08-24 ran through the operator's
+  own Chrome, where screenshots worked.)
+
+### Mail delivery: the invitations were built correctly and could not leave
+
+Creating the second school sent nothing to either the school admin or the branch
+admin. **The wizard was not at fault, and neither was Sprint 15.** Both messages
+were written to `email_outbox` at the right moments — the school admin's three
+seconds after the school row, the branch admin's on completing step 2 — and both
+sat there with:
+
+    Invalid login: 535 5.7.8 Error: authentication failed: [EAUTH]
+
+**The mailbox password was never wrong.** A real `verify()` against
+`smtp.titan.email:465` as `contact@codexmill.com`, using the value in the local
+`.env.local`, authenticated on the first attempt — 17 characters, SHA-256
+fingerprint `3e92ffa00be4`.
+
+What was wrong was what production held, and the `[smtp]` boot line said so
+outright once anyone looked at the runtime logs:
+
+    production:  [smtp] SMTP_PASS_B64 decoded cleanly (31 chars)
+    local:       [smtp] SMTP_PASS_B64 decoded cleanly (17 chars)
+
+**Thirty-one characters against seventeen: two different passwords.** It decoded
+*cleanly*, so none of the corruption defences in `lib/smtp-credentials.ts` had
+anything to catch — the value was intact, valid base64, and simply stale.
+
+**And hPanel had both `SMTP_PASS` and `SMTP_PASS_B64` set.** `SMTP_PASS_B64`
+wins (`lib/smtp-credentials.ts:119`), so a correct `SMTP_PASS` would have been
+silently overridden by the stale one. Both were fixed: `SMTP_PASS_B64` replaced
+with the working value and `SMTP_PASS` **deleted**, which is what the module's
+own warning text asks for and removes the shadowing trap entirely.
+
+Confirmed end to end: the boot line now reads `(17 chars)`, both messages sent at
+02:02:51 and 02:07:51, and the outbox is **5 sent, 0 queued, 0 failed**.
+
+Three things to carry forward:
+
+1. **That boot line is the diagnostic.** One integer — the decoded length —
+   distinguishes "the right value arrived" from "a plausible wrong one did",
+   and it exposes nothing. Read it before theorising. `/api/internal/smtp-check`
+   gives fingerprints too, but needs `SUPER_ADMIN_DIAGNOSTICS_SECRET`, which is
+   correctly unset.
+2. **`EMAIL_MAX_ATTEMPTS` is 5, and both rows were at 4.** They sent on their
+   *final* retry. Twenty more minutes and they would have been `failed` and
+   needed the dashboard's *Requeue failed emails* control. When mail is broken,
+   the queue is on a clock.
+3. **Nothing had sent since 2026-08-20**, so the breakage long predated this
+   sprint and these two were simply the first messages anyone waited for.
 
 ### The cache IS purged — and the verifier that said otherwise is fixed
 
@@ -7780,8 +7843,28 @@ workflow.
 
 ### The one live action still outstanding
 
-**The school sitting at `failed` with the 429 recorded against it needs Provision
-pressed on the live site**, where the hosting token exists. That, not a
-migration, is what clears the red JSON blob from the schools table — the fix
-changes how *future* attempts are recorded and deliberately does not rewrite
-history.
+**Both schools need Provision pressed.** `Lahore Grammar School` and
+`Beacon House School System` each sit at `failed`. That, not a migration, is what
+clears the recorded error — the fix changes how *future* attempts are recorded
+and deliberately does not rewrite history.
+
+The blocker is gone: the hosting API token in hPanel was **expired**, which is
+why both rows read `HTTP 401 Unauthenticated` rather than the 429 the original
+screenshot showed. It was replaced on 2026-08-24 and the site redeployed, so a
+press should now succeed.
+
+> **The 401 was itself a useful result.** The message rendered as
+> *"Hostinger refused the request (HTTP 401). Unauthenticated. (ref a292cdb0-…)"*
+> — one plain sentence with the correlation id demoted to `(ref …)`, which is
+> exactly what §5az's `summariseResponseBody` was written to produce. Before this
+> sprint that cell held a raw JSON blob. The presentation fix is therefore
+> confirmed live, on an error nobody arranged.
+
+**Keep the two Hostinger tokens in step.** There are three copies of that
+credential and they expire together: hPanel's `HOSTINGER_API_TOKEN` (used by the
+running app to provision subdomains), the GitHub Actions secret of the same name
+(used by *Verify the live deployment* to purge the CDN), and the four
+`hostinger-*` MCP entries in the operator's `~/.claude.json`. On 2026-08-23 the
+local copy was dead while the Actions copy still worked, which is why the cache
+purge succeeded on the same day provisioning 401'd. Updating one is not updating
+the others.
