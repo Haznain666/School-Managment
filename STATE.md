@@ -7752,12 +7752,36 @@ production build is unaffected. Not diagnosed.
   environment, so every observation is from the accessibility tree, page text,
   the DOM and the network log.
 
-### One live action is still outstanding
+### The cache IS purged — and the verifier that said otherwise is fixed
 
-**The CDN cache was not purged after the deploy.** Prerendered pages ship
-`s-maxage=31536000`; a cache-busted request returns the new build
-(`9dfb735f9e0a`) while a plain one served a 443-second-old copy. The Hostinger
-MCP answers `Unauthenticated`, so this could not be done from here. **And the
-one school still sitting at `failed` with the 429 recorded against it needs
-Provision pressed on the live site**, where the hosting token exists — that, not
-a migration, is what clears the red JSON blob from the schools table.
+**Purge the cache with the workflow, not the MCP.** The Hostinger MCP answers
+`Unauthenticated` and cannot do it. `gh workflow run "Verify the live
+deployment"` can, and did — it holds `HOSTINGER_API_TOKEN` as a repository
+secret. Prerendered pages ship `s-maxage=31536000`, so this is not optional
+after any deploy. Do not conclude "I cannot purge the cache" without trying it.
+
+**That run then reported a stale deploy that had shipped**, which is the precise
+false claim the workflow exists to prevent — and the one this file records as
+having cost a session before. `PRODUCTION_URL` carries a **trailing slash**, so
+the probe requested `…//api/internal/build`, the host answered **308**, and
+`curl -fsS` does not follow redirects — an empty body, read as "the running build
+predates that route". It did not: `/api/internal/build` was returning
+`{"buildId":"3f6f6d90dda8"}`, the exact merge, at that moment.
+
+Fixed in `f46e36f` (PR #29): the base is normalised with `${PRODUCTION_URL%/}`,
+redirects are followed, the URL and HTTP status are printed, and **the error no
+longer asserts a cause it has not established** — a wrong URL, a redirect, a
+timeout, an outage and a genuinely old build all look identical from there, and
+four of the five are not about the deploy.
+
+Re-run afterwards: `status: 200`, *Confirm which commit is live* **success**, and
+every step green including the smoke test — the first fully-passing run of that
+workflow.
+
+### The one live action still outstanding
+
+**The school sitting at `failed` with the 429 recorded against it needs Provision
+pressed on the live site**, where the hosting token exists. That, not a
+migration, is what clears the red JSON blob from the schools table — the fix
+changes how *future* attempts are recorded and deliberately does not rewrite
+history.
