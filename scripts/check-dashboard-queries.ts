@@ -33,19 +33,40 @@ import { readFileSync } from 'node:fs';
 import {
   getAdmissionsFunnel,
   getAgingBuckets,
+  getAttendanceAverage,
   getAttendanceByClass,
   getAttendanceTrend,
   getClassStrength,
+  getCollectionComparison,
   getCollectionTrend,
+  getEnrolmentComparison,
   getExamPerformance,
   getFeeStatusSplit,
+  getOutstandingSummary,
   getRecentExamOutcomes,
   getTodaySnapshot,
   distribute,
   foldStudentTotals,
   readExamMarks,
+  type AggregateScope,
   type FoldableResult,
 } from '../lib/dashboard-queries';
+import {
+  getDashboardExceptions,
+  resolveDashboardScope,
+} from '../lib/school-dashboard';
+import {
+  getActiveSchoolCount,
+  getEmailHealth,
+  getPlatformStudentCount,
+  getProvisioningSplit,
+  getSchoolsByCity,
+  getStudentsBySchool,
+  getTenantGrowth,
+  listRecentSchools,
+  listTenantsNeedingAttention,
+} from '../lib/platform-dashboard';
+import { UNSCOPED, type PrincipalScope } from '../lib/principal-resolver';
 import type { ResolvedBand } from '../lib/grading';
 
 /** A syntactically valid id that belongs to no tenant. */
@@ -86,6 +107,31 @@ function loadDatabaseUrl(): void {
   throw new Error('DATABASE_URL not found — set it, or run from a checkout with .env.local');
 }
 
+/**
+ * A grade list belonging to nobody.
+ *
+ * Sprint 15 gave every aggregate an optional `AggregateScope`, and the scoped
+ * path is *different SQL* — a correlated sub-select against
+ * `student_enrollments` or `fee_challans` that the unscoped path never issues.
+ * Running only the unscoped form would leave the half of this module that a
+ * principal actually sees unexecuted, which is exactly the gap this script was
+ * written to close.
+ *
+ * The empty-scope case is not registered, deliberately: it short-circuits in
+ * TypeScript before reaching Postgres and there is no SQL for it to check.
+ */
+const NO_GRADE = '00000000-0000-0000-0000-000000000003';
+const SCOPED: AggregateScope = { gradeIds: [NO_GRADE] };
+
+/** A principal at a school that does not exist, for the scope resolver. */
+const SCOPED_PRINCIPAL: PrincipalScope = {
+  scoped: true,
+  branchIds: [NO_PAPER],
+  gradeIds: [NO_GRADE],
+  divisions: ['O-Levels'],
+  unassigned: false,
+};
+
 const CHECKS: Array<[string, () => Promise<unknown>]> = [
   ['getCollectionTrend', () => getCollectionTrend(NOBODY)],
   ['getFeeStatusSplit', () => getFeeStatusSplit(NOBODY)],
@@ -98,6 +144,64 @@ const CHECKS: Array<[string, () => Promise<unknown>]> = [
   ['getExamPerformance', () => getExamPerformance(NOBODY, NO_EXAM)],
   ['getRecentExamOutcomes', () => getRecentExamOutcomes(NOBODY)],
   ['readExamMarks', () => readExamMarks(NOBODY, [NO_PAPER])],
+
+  // Sprint 15 — the comparisons behind the headline tiles.
+  ['getCollectionComparison', () => getCollectionComparison(NOBODY)],
+  ['getOutstandingSummary', () => getOutstandingSummary(NOBODY)],
+  ['getAttendanceAverage', () => getAttendanceAverage(NOBODY)],
+  ['getEnrolmentComparison', () => getEnrolmentComparison(NOBODY)],
+
+  // Sprint 15 — BR4. Every aggregate again, through the scoped sub-selects.
+  ['resolveDashboardScope (unscoped)', () => resolveDashboardScope(NOBODY, UNSCOPED)],
+  ['resolveDashboardScope (scoped)', () => resolveDashboardScope(NOBODY, SCOPED_PRINCIPAL)],
+  ['getCollectionTrend scoped', () => getCollectionTrend(NOBODY, SCOPED)],
+  ['getFeeStatusSplit scoped', () => getFeeStatusSplit(NOBODY, SCOPED)],
+  ['getAgingBuckets scoped', () => getAgingBuckets(NOBODY, SCOPED)],
+  ['getAttendanceTrend scoped', () => getAttendanceTrend(NOBODY, SCOPED)],
+  ['getAttendanceByClass scoped', () => getAttendanceByClass(NOBODY, SCOPED)],
+  ['getClassStrength scoped', () => getClassStrength(NOBODY, SCOPED)],
+  ['getAdmissionsFunnel scoped', () => getAdmissionsFunnel(NOBODY, SCOPED)],
+  ['getTodaySnapshot scoped', () => getTodaySnapshot(NOBODY, SCOPED)],
+  ['getRecentExamOutcomes scoped', () => getRecentExamOutcomes(NOBODY, 6, SCOPED)],
+  ['getCollectionComparison scoped', () => getCollectionComparison(NOBODY, SCOPED)],
+  ['getOutstandingSummary scoped', () => getOutstandingSummary(NOBODY, SCOPED)],
+  ['getAttendanceAverage scoped', () => getAttendanceAverage(NOBODY, SCOPED)],
+  ['getEnrolmentComparison scoped', () => getEnrolmentComparison(NOBODY, SCOPED)],
+
+  // Sprint 15 — the exceptions strip. Every gate on, so all five run.
+  [
+    'getDashboardExceptions',
+    () =>
+      getDashboardExceptions(
+        NOBODY,
+        { gradeIds: null },
+        { fees: true, attendance: true, exams: true, hr: true, email: true },
+        { academicYearId: NO_EXAM, overdueChallans: 0 },
+      ),
+  ],
+  [
+    'getDashboardExceptions scoped',
+    () =>
+      getDashboardExceptions(
+        NOBODY,
+        SCOPED,
+        { fees: true, attendance: true, exams: true, hr: true, email: true },
+        { academicYearId: NO_EXAM, overdueChallans: 0 },
+      ),
+  ],
+
+  // Sprint 15 — the Super Admin dashboard. These take no location id: the
+  // subject is the estate and the guard is the super-admin session, so they are
+  // run as they are actually called and simply read whatever is there.
+  ['getActiveSchoolCount', () => getActiveSchoolCount()],
+  ['getPlatformStudentCount', () => getPlatformStudentCount()],
+  ['listTenantsNeedingAttention', () => listTenantsNeedingAttention()],
+  ['getProvisioningSplit', () => getProvisioningSplit()],
+  ['getSchoolsByCity', () => getSchoolsByCity()],
+  ['getStudentsBySchool', () => getStudentsBySchool()],
+  ['getTenantGrowth', () => getTenantGrowth()],
+  ['listRecentSchools', () => listRecentSchools()],
+  ['getEmailHealth', () => getEmailHealth()],
 ];
 
 /* -----------------------------------------------------------------------------
@@ -208,9 +312,62 @@ function checkFold(): number {
   return failed;
 }
 
+/* -----------------------------------------------------------------------------
+ * The scope short-circuits, asserted without a database.
+ *
+ * These are the two branches of `resolveDashboardScope` that never reach
+ * Postgres, and they are the two that matter most. Getting the unassigned case
+ * backwards — treating "no assignment" as "no filter" — hands a head the whole
+ * school's finances, and the screen that results looks entirely normal.
+ * -------------------------------------------------------------------------- */
+
+async function checkScopeShortCircuits(): Promise<number> {
+  let failed = 0;
+
+  const assert = (name: string, condition: boolean): void => {
+    if (condition) {
+      console.log(`  ok   ${name}`);
+      return;
+    }
+    failed += 1;
+    console.log(`  FAIL ${name}`);
+  };
+
+  const unscoped = await resolveDashboardScope(NOBODY, UNSCOPED);
+  assert('an unscoped reader narrows nothing', unscoped.gradeIds === null);
+  assert('and is not flagged unassigned', !unscoped.unassigned);
+
+  const unassigned = await resolveDashboardScope(NOBODY, {
+    scoped: true,
+    branchIds: [],
+    gradeIds: [],
+    divisions: [],
+    unassigned: true,
+  });
+  assert('an unassigned head reaches no grade', unassigned.gradeIds?.length === 0);
+  assert('and is flagged so the page can say why', unassigned.unassigned);
+
+  const runsEverything = await resolveDashboardScope(NOBODY, {
+    scoped: true,
+    branchIds: null,
+    gradeIds: null,
+    divisions: [],
+    unassigned: false,
+  });
+  assert(
+    'a head with an unbounded assignment narrows nothing',
+    runsEverything.gradeIds === null,
+  );
+
+  return failed;
+}
+
 async function main(): Promise<void> {
   console.log('\nThe exam fold — no database:');
   const foldFailures = checkFold();
+
+  console.log('\nThe dashboard scope — no database:');
+  const scopeFailures = await checkScopeShortCircuits();
 
   console.log('\nAggregates against the real schema:');
   loadDatabaseUrl();
@@ -228,7 +385,7 @@ async function main(): Promise<void> {
           : typeof result === 'object'
             ? Object.keys(result as object).join(', ')
             : String(result);
-      console.log(`  ok   ${name.padEnd(22)} ${String(Date.now() - started).padStart(5)}ms  ${shape}`);
+      console.log(`  ok   ${name.padEnd(32)} ${String(Date.now() - started).padStart(5)}ms  ${shape}`);
     } catch (caught) {
       failed += 1;
       console.log(`  FAIL ${name}`);
@@ -236,19 +393,21 @@ async function main(): Promise<void> {
     }
   }
 
+  const pureFailures = foldFailures + scopeFailures;
+
   if (failed > 0) {
     console.log(`\nFAIL — ${failed} of ${CHECKS.length} aggregates could not execute.`);
-  } else if (foldFailures > 0) {
+  } else if (pureFailures > 0) {
     console.log(
-      `\nFAIL — every aggregate executed, but ${foldFailures} assertion(s) about the exam fold did not hold.`,
+      `\nFAIL — every aggregate executed, but ${pureFailures} assertion(s) about the exam fold or the dashboard scope did not hold.`,
     );
   } else {
     console.log(
-      `\nPASS — ${CHECKS.length} aggregates executed against the real schema, and the exam fold holds.`,
+      `\nPASS — ${CHECKS.length} aggregates executed against the real schema, and the exam fold and dashboard scope both hold.`,
     );
   }
 
-  process.exitCode = failed + foldFailures === 0 ? 0 : 1;
+  process.exitCode = failed + pureFailures === 0 ? 0 : 1;
 }
 
 void main();
