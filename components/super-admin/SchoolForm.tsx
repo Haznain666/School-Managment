@@ -64,6 +64,14 @@ export interface SchoolFormProps {
   hideCancel?: boolean;
 }
 
+/**
+ * The year shown in the example student ID, fixed at module load.
+ *
+ * Deliberately not computed during render — see the hint on the School Code
+ * field below for what that cost.
+ */
+const EXAMPLE_ID_YEAR = new Date().getFullYear();
+
 const EMPTY: SchoolFormValues = {
   name: '',
   slug: '',
@@ -476,9 +484,18 @@ export function SchoolForm({
             disabled={isSubmitting}
             placeholder="e.g. GVS"
             maxLength={6}
+            /*
+              The year is read once at module load rather than during render.
+              `new Date().getFullYear()` inside the hint is evaluated on the
+              server and again in the browser, and those two run in different
+              timezones — around New Year they disagree, and a differing text
+              node is a hydration mismatch that throws away the server render
+              of the whole form. An example student ID does not need to be
+              correct to the second.
+            */
             hint={`2–6 uppercase letters. Used to generate student IDs like ${
               codePreview
-            }-${new Date().getFullYear()}-0001.${
+            }-${EXAMPLE_ID_YEAR}-0001.${
               values.schoolCode.trim() === '' ? ' Leave blank to derive it from the name.' : ''
             }`}
           />

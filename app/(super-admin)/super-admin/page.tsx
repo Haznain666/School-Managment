@@ -108,7 +108,13 @@ export default async function SuperAdminDashboardPage() {
           value={activeSchools === null ? undefined : activeSchools.now.toLocaleString()}
           unavailable={activeSchools === null ? 'The school count could not be read.' : undefined}
           delta={activeSchools === null ? undefined : `+${added}`}
-          deltaMeaning="good"
+          /*
+            Zero is not an improvement. `good` was hardcoded here, so a month
+            with no new school rendered `+0` in success green and announced
+            itself to a screen reader as "an improvement" — a quiet claim that
+            nothing happening is something going well.
+          */
+          deltaMeaning={added > 0 ? 'good' : 'neutral'}
           deltaPeriod="added in the last 30 days"
           detail="Tenants whose portal is reachable"
         />
@@ -142,7 +148,8 @@ export default async function SuperAdminDashboardPage() {
             platformStudents === null ? 'The student count could not be read.' : undefined
           }
           delta={platformStudents === null ? undefined : `+${newStudents}`}
-          deltaMeaning="good"
+          /* Same as Active schools above: `+0` is neutral, not success. */
+          deltaMeaning={newStudents > 0 ? 'good' : 'neutral'}
           deltaPeriod="enrolled in the last 30 days"
           detail="Currently enrolled, across every tenant"
         />

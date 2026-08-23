@@ -4,7 +4,11 @@
 resume without re-deriving context. Updated at the end of every development
 step, before the session ends.
 
-**Last updated:** 2026-08-22 (**Sprint 14 — exam terms, datesheets, descriptors
+**Last updated:** 2026-08-23 (**Sprint 15 — the school creation wizard, the 429
+recorded as a refusal, the clipped address list, dashboards on all five portals,
+and one table primitive across thirty listings — §5az, §5ba, §5bb, §5bc.
+`0031` APPLIED and verified. Merged to `main` as `9dfb735`.**;
+2026-08-22: **Sprint 14 — exam terms, datesheets, descriptors
 and promotion, §5ay. `0029` and `0030` APPLIED; fifteen QA defects fixed.**;
 **The deploy was never blocked and the probe that
 would have said so was gitignored — §5ax**; WhatsApp removed from the platform,
@@ -13,6 +17,25 @@ error that named nothing — §5aw. `0027` and `0028` are both APPLIED to the li
 database.**; 2026-08-21: Sprint 13.5 — §5au, driven end to end — §5av;
 2026-08-20: Sprint 13.8 — sibling identity, §5as; the announcement sweep, §5at;
 Sprint 13.7 — §5ar; 2026-08-19: §5aq, §5ap, §5ao, §5an, §5am, §5al, §5ai–§5ak)
+
+> ✅ **Migration `0031` is APPLIED to the live database — 2026-08-23.** The
+> bookkeeping table held 31 rows before and **32** after. Verified against the
+> real schema rather than trusting the success message: the CHECK on
+> `schools.subdomain_status` now carries `throttled`, and a real
+> `UPDATE … SET subdomain_status = 'throttled'` was run inside a transaction,
+> accepted, and rolled back — the row was left exactly as found.
+>
+> It is expand-only: one CHECK widened, no column changes, no row changes. It
+> had to go in **before** the merge, because `provisionSchoolSubdomain` writes
+> `throttled` the first time a school is created after this deploys and that
+> write fails against the old constraint. Applying it while the old build was
+> still live cost nothing, since nothing yet wrote the value.
+>
+> **Next free migration number is `0032`.**
+>
+> ⚠️ **`STATE.md` said "next free is `0030`" for a day while `0030` already
+> existed on disk.** Sprint 15 took `0031` and this line is now the record.
+> Check `db/migrations/` before trusting a number in prose, including this one.
 
 > ✅ **Migration `0029` is APPLIED to the live database — 2026-08-22.** The
 > bookkeeping table held 29 rows before and **30** after. Verified against the
@@ -7633,3 +7656,108 @@ on every page of the same register with nothing to say so.
 - `README.md` is out of date (still describes Sprint 1, Firebase Storage and
   Neon). Its deploy section now names Hostinger, which is correct; the rest of
   its stack table is not. Refresh it in one pass rather than editing it twice.
+
+---
+
+## 5bc. Sprint 15 QA — what was measured, and the traps that cost the time — 2026-08-23
+
+Test cases: `test-cases/TEST-CASES-SPRINT-15.md`. Release note:
+`release-notes/RELEASE-NOTES-SPRINT-15.md`. Merged to `main` as `9dfb735`
+(PR #27). Migration `0031` applied and verified — see the banner at the top.
+
+### The merge was the risk, and it was checked as one
+
+Three developers built §5az, §5ba and §5bb on **separate branches**, each green
+on its own, and none had ever been compiled against the other two. All twelve
+gates were therefore re-run on the merged tree, not trusted from the branches.
+They pass.
+
+Two of them independently wrote a section numbered `§5az`, and **git merged both
+without a conflict** because they sat far apart in the file. A clean merge is
+not a correct one. They are now §5az, §5ba, §5bb.
+
+### Two defects found and fixed
+
+**A delta of zero was announced as an improvement.** `+0` rendered in success
+green with `<span class="sr-only"> — an improvement</span>` beside it. A
+screen-reader user was told the platform had improved in a month when no school
+was added. Six tiles: `deltaMeaning="good"` hardcoded on two Super Admin tiles,
+and `>=` mapping **equality** to `good` on four School Admin ones. Equality now
+resolves to `neutral`, which `StatTile` already renders muted.
+
+**`new Date().getFullYear()` in the School Code hint.** Evaluated once on the
+server and again in the browser, in different timezones; around New Year they
+disagree and a differing text node discards the server render of the whole form.
+Hoisted to a module constant.
+
+### React #418 on create-mode forms is PRE-EXISTING — measured, not assumed
+
+`/super-admin/schools/new` and `/super-admin/schools/[schoolId]/branches/new`
+throw a hydration mismatch. The edit page and the dashboards do not.
+
+**Commit `5385689` — the merge immediately before this sprint — was built in a
+scratch worktree and reproduces the identical error on the identical page.** So
+this sprint's changes to `BranchForm`, `SchoolForm` and `AddressAutocomplete`
+did not introduce it, and the new portal cannot: it is mount-gated and renders
+nothing on the server *and* nothing on the first client render. Fetching the
+server HTML from inside the page and diffing its `<form>` text against the
+hydrated DOM showed them byte-identical (1014 chars), so it is not stable render
+output either. It has its own task; do not re-diff those three files.
+
+### Four environment traps, each of which cost real time
+
+**1. `next start` does not work with `output: standalone`.** It prints that and
+then serves an incomplete asset set. Use the new `sms-platform-standalone` entry
+in `.claude/launch.json` (`node --env-file=.env.local .next/standalone/server.js`),
+and remember `.next/static` must be copied into `.next/standalone/.next/static`
+after every build.
+
+**2. Stop the server before rebuilding.** `rm -rf .next` fails with *Device or
+resource busy* while the standalone server runs out of `.next/standalone`. The
+build that follows is silently corrupt and renders as a page stuck permanently
+on its loading skeleton. Two builds were lost to this before the cause was seen.
+
+**3. These pages take longer than 2.5 seconds to stream.** Against a remote
+Supabase from a development machine, `/super-admin` and `/super-admin/schools`
+need more than that to finish. **Sampling the DOM earlier reads the `loading.tsx`
+skeleton and is indistinguishable from a hung page.** A long stretch of this
+session was spent diagnosing a defect that did not exist because of exactly
+that. Poll to a stable value; never read once.
+
+**4. `.env.local` needs two incompatible escapings.** `@next/env` (used by
+`next dev` and `next start`) runs dotenv-expand, so every `$` in
+`SUPER_ADMIN_PASSWORD_HASH` must be written `\$` — 63 characters. `node
+--env-file` does no expansion and needs the raw 60-character hash. One file
+cannot satisfy both; swap it for whichever server you are running.
+
+Also: the dev server in this worktree is broken independently, with a webpack
+`Cannot read properties of undefined (reading 'call')` on every page. The
+production build is unaffected. Not diagnosed.
+
+### What was NOT verified, and two of these matter
+
+- **The wizard past step 1 was never driven.** Completing it writes real rows to
+  the production database and there is no scratch tenant to spend. Steps 2–5,
+  Skip, and where Finish lands were read, not run.
+- **The Mapbox dropdown was never seen.** No `NEXT_PUBLIC_MAPBOX_TOKEN` outside
+  production, so the listbox never opens; the public `/apply` form needs a
+  tenant subdomain and the only tenant's subdomain is the one that failed. This
+  is the requirement whose entire content is visual, and it has no visual
+  evidence.
+- **BR4 was not driven as a signed-in principal** — no principal account exists
+  on the live tenant. Asserted by `check-portals`, and every aggregate runs both
+  scoped and unscoped in `check-dashboard`, but neither is a person signing in.
+- **Teacher, parent and student dashboards were not opened as those roles.**
+- **No screenshots exist.** The browser pane would not composite frames in this
+  environment, so every observation is from the accessibility tree, page text,
+  the DOM and the network log.
+
+### One live action is still outstanding
+
+**The CDN cache was not purged after the deploy.** Prerendered pages ship
+`s-maxage=31536000`; a cache-busted request returns the new build
+(`9dfb735f9e0a`) while a plain one served a 443-second-old copy. The Hostinger
+MCP answers `Unauthenticated`, so this could not be done from here. **And the
+one school still sitting at `failed` with the 429 recorded against it needs
+Provision pressed on the live site**, where the hosting token exists — that, not
+a migration, is what clears the red JSON blob from the schools table.
