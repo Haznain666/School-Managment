@@ -6,16 +6,9 @@ import { useCallback, useEffect, useState } from 'react';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { Card, CardTitle } from '@/components/ui/Card';
+import { DataTable, type DataTableColumn } from '@/components/ui/DataTable';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeaderCell,
-  TableRow,
-} from '@/components/ui/Table';
 import { MONTH_NAMES } from '@/db/schema/academic-years';
 import { formatAmount, formatPkr } from '@/lib/money';
 import { schoolErrorMessage, schoolFetch } from '@/lib/school-client';
@@ -90,9 +83,11 @@ function OutstandingSection({ grades }: { grades: readonly GradeOption[] }) {
   const [gradeId, setGradeId] = useState('');
   const [billingMonth, setBillingMonth] = useState('');
   const [rows, setRows] = useState<OutstandingRow[] | null>(null);
+  const [pending, setPending] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
+    setPending(true);
     const query = new URLSearchParams();
     if (gradeId !== '') query.set('gradeId', gradeId);
     if (billingMonth !== '') query.set('billingMonth', billingMonth);
@@ -105,6 +100,8 @@ function OutstandingSection({ grades }: { grades: readonly GradeOption[] }) {
       setError(null);
     } catch (caught) {
       setError(schoolErrorMessage(caught, 'Could not load outstanding fees.'));
+    } finally {
+      setPending(false);
     }
   }, [gradeId, billingMonth]);
 
@@ -113,6 +110,82 @@ function OutstandingSection({ grades }: { grades: readonly GradeOption[] }) {
   }, [load]);
 
   const total = (rows ?? []).reduce((sum, row) => sum + Number(row.balance), 0);
+
+  const outstandingColumns: Array<DataTableColumn<OutstandingRow>> = [
+    {
+      id: 'student',
+      header: 'Student',
+      sortValue: (row) => row.studentName,
+      searchValue: (row) => `${row.studentName} ${row.studentId} ${row.challanNumber}`,
+      cell: (row) => (
+        <>
+          <p className="font-medium text-ink">{row.studentName}</p>
+          <p className="font-mono text-xs text-ink-muted">{row.studentId}</p>
+        </>
+      ),
+    },
+    {
+      id: 'class',
+      header: 'Class',
+      muted: true,
+      sortValue: (row) => `${row.gradeName ?? ''} ${row.sectionName ?? ''}`,
+      cell: (row) =>
+        `${row.gradeName ?? '—'}${row.sectionName === null ? '' : ` ${row.sectionName}`}`,
+    },
+    {
+      id: 'period',
+      header: 'Period',
+      muted: true,
+      sortValue: (row) =>
+        row.billingYear === null || row.billingMonth === null
+          ? null
+          : row.billingYear * 100 + row.billingMonth,
+      cell: (row) => periodLabel(row),
+    },
+    {
+      id: 'due',
+      header: 'Due',
+      kind: 'date',
+      muted: true,
+      sortValue: (row) => row.dueDate,
+      cell: (row) => row.dueDate,
+    },
+    {
+      id: 'overdue',
+      header: 'Overdue',
+      kind: 'number',
+      sortValue: (row) => row.daysOverdue,
+      cell: (row) =>
+        row.daysOverdue === 0 ? (
+          <span className="text-ink-muted">—</span>
+        ) : (
+          <Badge variant={row.daysOverdue >= 30 ? 'danger' : 'warning'}>
+            {row.daysOverdue}d
+          </Badge>
+        ),
+    },
+    {
+      id: 'balance',
+      header: 'Balance',
+      kind: 'money',
+      rowHeader: true,
+      sortValue: (row) => Number(row.balance),
+      cell: (row) => formatAmount(row.balance),
+    },
+    {
+      id: 'link',
+      header: <span className="sr-only">Challan</span>,
+      align: 'numeric',
+      cell: (row) => (
+        <Link
+          href={`/dashboard/fees/challans/${row.challanId}`}
+          className="text-sm font-medium text-brand-primary hover:underline"
+        >
+          View
+        </Link>
+      ),
+    },
+  ];
 
   return (
     <Card
@@ -124,102 +197,77 @@ function OutstandingSection({ grades }: { grades: readonly GradeOption[] }) {
       }
       className="p-0"
     >
-      <div className="grid gap-4 border-b border-line px-5 py-4 sm:grid-cols-2 lg:grid-cols-3">
-        <Select
-          label="Grade"
-          options={[
-            { value: '', label: 'All grades' },
-            ...grades.map((grade) => ({ value: grade.id, label: grade.label })),
-          ]}
-          value={gradeId}
-          onChange={(event) => {
-            setGradeId(event.target.value);
-          }}
-        />
-        <Select
-          label="Billing month"
-          options={MONTH_OPTIONS}
-          value={billingMonth}
-          onChange={(event) => {
-            setBillingMonth(event.target.value);
-          }}
-        />
-        <div className="flex items-end">
-          <p className="text-sm text-ink-muted">
-            <span className="font-semibold text-ink">{formatPkr(total)}</span>{' '}
-            outstanding across {(rows ?? []).length} challan
-            {(rows ?? []).length === 1 ? '' : 's'}.
-          </p>
-        </div>
-      </div>
-
       {error !== null ? (
         <p role="alert" className="px-5 py-3 text-sm text-status-danger-ink">
           {error}
         </p>
       ) : null}
 
-      {rows === null ? (
-        <p className="px-5 py-4 text-sm text-ink-muted">Loading…</p>
-      ) : rows.length === 0 ? (
-        <p className="px-5 py-4 text-sm text-ink-muted">
-          Nothing is outstanding for these filters.
-        </p>
-      ) : (
-        <div className="max-h-96 overflow-auto">
-          <Table caption="Collection summary" className="rounded-none border-0">
-            <TableHead>
-              <TableRow>
-                <TableHeaderCell>Student</TableHeaderCell>
-                <TableHeaderCell>Class</TableHeaderCell>
-                <TableHeaderCell>Period</TableHeaderCell>
-                <TableHeaderCell>Due</TableHeaderCell>
-                <TableHeaderCell align="numeric">Overdue</TableHeaderCell>
-                <TableHeaderCell align="numeric">Balance</TableHeaderCell>
-                <TableHeaderCell>
-                  <span className="sr-only">Challan</span>
-                </TableHeaderCell>
-              </TableRow>
-            </TableHead>
-            <TableBody>
-              {rows.map((row) => (
-                <TableRow key={row.challanId}>
-                  <TableCell>
-                    <p className="font-medium text-ink">{row.studentName}</p>
-                    <p className="font-mono text-xs text-ink-muted">{row.studentId}</p>
-                  </TableCell>
-                  <TableCell muted>
-                    {row.gradeName ?? '—'}
-                    {row.sectionName === null ? '' : ` ${row.sectionName}`}
-                  </TableCell>
-                  <TableCell muted>{periodLabel(row)}</TableCell>
-                  <TableCell muted>{row.dueDate}</TableCell>
-                  <TableCell align="numeric">
-                    {row.daysOverdue === 0 ? (
-                      <span className="text-ink-muted">—</span>
-                    ) : (
-                      <Badge variant={row.daysOverdue >= 30 ? 'danger' : 'warning'}>
-                        {row.daysOverdue}d
-                      </Badge>
-                    )}
-                  </TableCell>
-                  <TableCell rowHeader align="numeric">
-                    {formatAmount(row.balance)}
-                  </TableCell>
-                  <TableCell align="numeric">
-                    <Link
-                      href={`/dashboard/fees/challans/${row.challanId}`}
-                      className="text-sm font-medium text-brand-primary hover:underline"
-                    >
-                      View
-                    </Link>
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </div>
-      )}
+      <div className="p-5">
+        <DataTable
+          caption="Outstanding fees"
+          maxHeight="24rem"
+          columns={outstandingColumns}
+          rows={rows ?? []}
+          getRowKey={(row) => row.challanId}
+          pending={pending}
+          defaultSort={{ columnId: 'overdue', direction: 'desc' }}
+          search={{ placeholder: 'Student, ID or challan number' }}
+          filters={[
+            {
+              id: 'age',
+              label: 'Age',
+              allLabel: 'Any age',
+              options: [
+                { value: 'due', label: 'Not yet overdue' },
+                { value: 'recent', label: 'Under 30 days' },
+                { value: 'old', label: '30 days or more' },
+              ],
+              rowValue: (row) =>
+                row.daysOverdue === 0 ? 'due' : row.daysOverdue >= 30 ? 'old' : 'recent',
+            },
+          ]}
+          extraFilters={
+            <>
+              <div className="w-full sm:w-52">
+                <Select
+                  label="Grade"
+                  options={[
+                    { value: '', label: 'All grades' },
+                    ...grades.map((grade) => ({ value: grade.id, label: grade.label })),
+                  ]}
+                  value={gradeId}
+                  onChange={(event) => {
+                    setGradeId(event.target.value);
+                  }}
+                />
+              </div>
+              <div className="w-full sm:w-44">
+                <Select
+                  label="Billing month"
+                  options={MONTH_OPTIONS}
+                  value={billingMonth}
+                  onChange={(event) => {
+                    setBillingMonth(event.target.value);
+                  }}
+                />
+              </div>
+            </>
+          }
+          actions={
+            <p className="text-sm text-ink-muted">
+              <span className="font-semibold text-ink">{formatPkr(total)}</span>{' '}
+              outstanding across {(rows ?? []).length} challan
+              {(rows ?? []).length === 1 ? '' : 's'}.
+            </p>
+          }
+          itemNoun={{ singular: 'challan', plural: 'challans' }}
+          emptyTitle="Nothing is outstanding"
+          emptyDescription="Every challan raised has been settled. That is worth knowing."
+          noResultTitle="Nothing outstanding for these filters"
+          noResultDescription="Widen the grade or the billing month to see more."
+        />
+      </div>
     </Card>
   );
 }
@@ -237,9 +285,11 @@ function CollectionSection() {
     total: string;
     paymentCount: number;
   } | null>(null);
+  const [pending, setPending] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
+    setPending(true);
     const query = new URLSearchParams({ fromDate, toDate });
 
     try {
@@ -253,6 +303,8 @@ function CollectionSection() {
       setError(null);
     } catch (caught) {
       setError(schoolErrorMessage(caught, 'Could not load the collection summary.'));
+    } finally {
+      setPending(false);
     }
   }, [fromDate, toDate]);
 
@@ -265,6 +317,46 @@ function CollectionSection() {
     ...(data?.months ?? []).map((month) => Number(month.collected)),
   );
 
+  const collectionColumns: Array<DataTableColumn<CollectionMonth>> = [
+    {
+      id: 'month',
+      header: 'Month',
+      // Ordered on year-and-month, never on the label: "April" before
+      // "January" is what sorting a month name as text gives you.
+      sortValue: (month) => month.year * 100 + month.month,
+      cell: (month) => `${MONTH_NAMES[month.month - 1] ?? month.month} ${month.year}`,
+    },
+    {
+      id: 'share',
+      header: 'Share',
+      cell: (month) => (
+        /* A bar rather than a chart library: one number per row, compared
+           against the best month in the range. */
+        <span
+          aria-hidden="true"
+          className="block h-2 rounded-full bg-brand-primary/70"
+          style={{ width: `${Math.max((Number(month.collected) / peak) * 100, 2)}%` }}
+        />
+      ),
+    },
+    {
+      id: 'payments',
+      header: 'Payments',
+      kind: 'number',
+      muted: true,
+      sortValue: (month) => month.paymentCount,
+      cell: (month) => month.paymentCount,
+    },
+    {
+      id: 'collected',
+      header: 'Collected',
+      kind: 'money',
+      rowHeader: true,
+      sortValue: (month) => Number(month.collected),
+      cell: (month) => formatAmount(month.collected),
+    },
+  ];
+
   return (
     <Card
       header={
@@ -275,84 +367,56 @@ function CollectionSection() {
       }
       className="p-0"
     >
-      <div className="grid gap-4 border-b border-line px-5 py-4 sm:grid-cols-3">
-        <Input
-          label="From"
-          type="date"
-          value={fromDate}
-          onChange={(event) => {
-            setFromDate(event.target.value);
-          }}
-        />
-        <Input
-          label="To"
-          type="date"
-          value={toDate}
-          onChange={(event) => {
-            setToDate(event.target.value);
-          }}
-        />
-        <div className="flex items-end">
-          <p className="text-sm text-ink-muted">
-            <span className="font-semibold text-ink">
-              {formatPkr(data?.total ?? 0)}
-            </span>{' '}
-            across {data?.paymentCount ?? 0} payment
-            {data?.paymentCount === 1 ? '' : 's'}.
-          </p>
-        </div>
-      </div>
-
       {error !== null ? (
         <p role="alert" className="px-5 py-3 text-sm text-status-danger-ink">
           {error}
         </p>
       ) : null}
 
-      {data === null ? (
-        <p className="px-5 py-4 text-sm text-ink-muted">Loading…</p>
-      ) : data.months.length === 0 ? (
-        <p className="px-5 py-4 text-sm text-ink-muted">
-          No payments were recorded in this range.
-        </p>
-      ) : (
-        <Table caption="Outstanding by age" className="rounded-none border-0">
-          <TableHead>
-            <TableRow>
-              <TableHeaderCell>Month</TableHeaderCell>
-              <TableHeaderCell>Share</TableHeaderCell>
-              <TableHeaderCell align="numeric">Payments</TableHeaderCell>
-              <TableHeaderCell align="numeric">Collected</TableHeaderCell>
-            </TableRow>
-          </TableHead>
-          <TableBody>
-            {data.months.map((month) => (
-              <TableRow key={`${month.year}-${month.month}`}>
-                <TableCell>
-                  {MONTH_NAMES[month.month - 1] ?? month.month} {month.year}
-                </TableCell>
-                <TableCell>
-                  {/* A bar rather than a chart library: one number per row,
-                      compared against the best month in the range. */}
-                  <span
-                    aria-hidden="true"
-                    className="block h-2 rounded-full bg-brand-primary/70"
-                    style={{
-                      width: `${Math.max((Number(month.collected) / peak) * 100, 2)}%`,
-                    }}
-                  />
-                </TableCell>
-                <TableCell align="numeric" muted>
-                  {month.paymentCount}
-                </TableCell>
-                <TableCell rowHeader align="numeric">
-                  {formatAmount(month.collected)}
-                </TableCell>
-              </TableRow>
-            ))}
-          </TableBody>
-        </Table>
-      )}
+      <div className="p-5">
+        <DataTable
+          caption="Collection summary"
+          columns={collectionColumns}
+          rows={data?.months ?? []}
+          getRowKey={(month) => `${month.year}-${month.month}`}
+          pending={pending}
+          defaultSort={{ columnId: 'month', direction: 'desc' }}
+          extraFilters={
+            <>
+              <div className="w-full sm:w-44">
+                <Input
+                  label="From"
+                  type="date"
+                  value={fromDate}
+                  onChange={(event) => {
+                    setFromDate(event.target.value);
+                  }}
+                />
+              </div>
+              <div className="w-full sm:w-44">
+                <Input
+                  label="To"
+                  type="date"
+                  value={toDate}
+                  onChange={(event) => {
+                    setToDate(event.target.value);
+                  }}
+                />
+              </div>
+            </>
+          }
+          actions={
+            <p className="text-sm text-ink-muted">
+              <span className="font-semibold text-ink">{formatPkr(data?.total ?? 0)}</span>{' '}
+              across {data?.paymentCount ?? 0} payment
+              {data?.paymentCount === 1 ? '' : 's'}.
+            </p>
+          }
+          itemNoun={{ singular: 'month', plural: 'months' }}
+          emptyTitle="No payments in this range"
+          emptyDescription="Choose a wider window and the months will appear."
+        />
+      </div>
     </Card>
   );
 }
@@ -368,11 +432,13 @@ function DefaultersSection({
   const [gradeId, setGradeId] = useState('');
   const [rows, setRows] = useState<OutstandingRow[] | null>(null);
   const [totalOutstanding, setTotalOutstanding] = useState('0');
+  const [pending, setPending] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
 
   const load = useCallback(async () => {
+    setPending(true);
     const query = new URLSearchParams({ minDaysOverdue: minDays || '30' });
     if (gradeId !== '') query.set('gradeId', gradeId);
 
@@ -387,6 +453,8 @@ function DefaultersSection({
       setError(null);
     } catch (caught) {
       setError(schoolErrorMessage(caught, 'Could not load the defaulters list.'));
+    } finally {
+      setPending(false);
     }
   }, [minDays, gradeId]);
 
@@ -426,6 +494,84 @@ function DefaultersSection({
 
   const withGuardian = (rows ?? []).filter((row) => row.guardianPhone !== null);
 
+  const defaulterColumns: Array<DataTableColumn<OutstandingRow>> = [
+    {
+      id: 'student',
+      header: 'Student',
+      sortValue: (row) => row.studentName,
+      searchValue: (row) =>
+        `${row.studentName} ${row.challanNumber} ${row.guardianName ?? ''}`,
+      cell: (row) => (
+        <>
+          <Link
+            href={`/dashboard/fees/challans/${row.challanId}`}
+            className="font-medium text-ink hover:underline"
+          >
+            {row.studentName}
+          </Link>
+          <p className="font-mono text-xs text-ink-muted">{row.challanNumber}</p>
+        </>
+      ),
+    },
+    {
+      id: 'class',
+      header: 'Class',
+      muted: true,
+      sortValue: (row) => `${row.gradeName ?? ''} ${row.sectionName ?? ''}`,
+      cell: (row) =>
+        `${row.gradeName ?? '—'}${row.sectionName === null ? '' : ` ${row.sectionName}`}`,
+    },
+    {
+      id: 'guardian',
+      header: 'Guardian',
+      muted: true,
+      sortValue: (row) => row.guardianName,
+      cell: (row) => (
+        <>
+          {row.guardianName ?? '—'}
+          {row.guardianPhone === null ? null : (
+            <span className="block font-mono text-xs text-ink-muted">
+              {row.guardianPhone}
+            </span>
+          )}
+        </>
+      ),
+    },
+    {
+      id: 'overdue',
+      header: 'Overdue',
+      kind: 'number',
+      sortValue: (row) => row.daysOverdue,
+      cell: (row) => <Badge variant="danger">{row.daysOverdue}d</Badge>,
+    },
+    {
+      id: 'balance',
+      header: 'Balance',
+      kind: 'money',
+      rowHeader: true,
+      sortValue: (row) => Number(row.balance),
+      cell: (row) => formatAmount(row.balance),
+    },
+    {
+      id: 'actions',
+      header: <span className="sr-only">Actions</span>,
+      align: 'numeric',
+      cell: (row) =>
+        canSendReminders && row.guardianPhone !== null ? (
+          <Button
+            size="sm"
+            variant="secondary"
+            isLoading={busy === row.challanId}
+            onClick={() => {
+              void remind([row.challanId], row.challanId);
+            }}
+          >
+            Send reminder
+          </Button>
+        ) : null,
+    },
+  ];
+
   return (
     <Card
       header={
@@ -460,39 +606,6 @@ function DefaultersSection({
       }
       className="p-0"
     >
-      <div className="grid gap-4 border-b border-line px-5 py-4 sm:grid-cols-3">
-        <Input
-          label="Minimum days overdue"
-          type="number"
-          min={0}
-          max={3650}
-          value={minDays}
-          onChange={(event) => {
-            setMinDays(event.target.value);
-          }}
-        />
-        <Select
-          label="Grade"
-          options={[
-            { value: '', label: 'All grades' },
-            ...grades.map((grade) => ({ value: grade.id, label: grade.label })),
-          ]}
-          value={gradeId}
-          onChange={(event) => {
-            setGradeId(event.target.value);
-          }}
-        />
-        <div className="flex items-end">
-          <p className="text-sm text-ink-muted">
-            <span className="font-semibold text-ink">
-              {formatPkr(totalOutstanding)}
-            </span>{' '}
-            across {(rows ?? []).length} challan
-            {(rows ?? []).length === 1 ? '' : 's'}.
-          </p>
-        </div>
-      </div>
-
       {error !== null ? (
         <p role="alert" className="px-5 py-3 text-sm text-status-danger-ink">
           {error}
@@ -503,79 +616,71 @@ function DefaultersSection({
         <p className="px-5 py-3 text-sm text-status-success-ink">{notice}</p>
       ) : null}
 
-      {rows === null ? (
-        <p className="px-5 py-4 text-sm text-ink-muted">Loading…</p>
-      ) : rows.length === 0 ? (
-        <p className="px-5 py-4 text-sm text-ink-muted">
-          Nobody is more than {minDays || '30'} days overdue. That is worth knowing.
-        </p>
-      ) : (
-        <div className="max-h-96 overflow-auto">
-          <Table caption="Defaulters" className="rounded-none border-0">
-            <TableHead>
-              <TableRow>
-                <TableHeaderCell>Student</TableHeaderCell>
-                <TableHeaderCell>Class</TableHeaderCell>
-                <TableHeaderCell>Guardian</TableHeaderCell>
-                <TableHeaderCell align="numeric">Overdue</TableHeaderCell>
-                <TableHeaderCell align="numeric">Balance</TableHeaderCell>
-                <TableHeaderCell>
-                  <span className="sr-only">Actions</span>
-                </TableHeaderCell>
-              </TableRow>
-            </TableHead>
-            <TableBody>
-              {rows.map((row) => (
-                <TableRow key={row.challanId}>
-                  <TableCell>
-                    <Link
-                      href={`/dashboard/fees/challans/${row.challanId}`}
-                      className="font-medium text-ink hover:underline"
-                    >
-                      {row.studentName}
-                    </Link>
-                    <p className="font-mono text-xs text-ink-muted">
-                      {row.challanNumber}
-                    </p>
-                  </TableCell>
-                  <TableCell muted>
-                    {row.gradeName ?? '—'}
-                    {row.sectionName === null ? '' : ` ${row.sectionName}`}
-                  </TableCell>
-                  <TableCell muted>
-                    {row.guardianName ?? '—'}
-                    {row.guardianPhone === null ? null : (
-                      <span className="block font-mono text-xs text-ink-muted">
-                        {row.guardianPhone}
-                      </span>
-                    )}
-                  </TableCell>
-                  <TableCell align="numeric">
-                    <Badge variant="danger">{row.daysOverdue}d</Badge>
-                  </TableCell>
-                  <TableCell rowHeader align="numeric">
-                    {formatAmount(row.balance)}
-                  </TableCell>
-                  <TableCell align="numeric">
-                    {canSendReminders && row.guardianPhone !== null ? (
-                      <Button
-                        size="sm"
-                        variant="secondary"
-                        isLoading={busy === row.challanId}
-                        onClick={() => {
-                          void remind([row.challanId], row.challanId);
-                        }}
-                      >
-                        Send reminder
-                      </Button>
-                    ) : null}
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </div>
-      )}
+      <div className="p-5">
+        <DataTable
+          caption="Defaulters"
+          maxHeight="24rem"
+          columns={defaulterColumns}
+          rows={rows ?? []}
+          getRowKey={(row) => row.challanId}
+          pending={pending}
+          defaultSort={{ columnId: 'overdue', direction: 'desc' }}
+          search={{ placeholder: 'Student, guardian or challan number' }}
+          filters={[
+            {
+              id: 'reachable',
+              label: 'Contact',
+              allLabel: 'Everyone',
+              options: [
+                { value: 'yes', label: 'Guardian on file' },
+                { value: 'no', label: 'No guardian on file' },
+              ],
+              rowValue: (row) => (row.guardianPhone === null ? 'no' : 'yes'),
+            },
+          ]}
+          extraFilters={
+            <>
+              <div className="w-full sm:w-44">
+                <Input
+                  label="Minimum days overdue"
+                  type="number"
+                  min={0}
+                  max={3650}
+                  value={minDays}
+                  onChange={(event) => {
+                    setMinDays(event.target.value);
+                  }}
+                />
+              </div>
+              <div className="w-full sm:w-52">
+                <Select
+                  label="Grade"
+                  options={[
+                    { value: '', label: 'All grades' },
+                    ...grades.map((grade) => ({ value: grade.id, label: grade.label })),
+                  ]}
+                  value={gradeId}
+                  onChange={(event) => {
+                    setGradeId(event.target.value);
+                  }}
+                />
+              </div>
+            </>
+          }
+          actions={
+            <p className="text-sm text-ink-muted">
+              <span className="font-semibold text-ink">{formatPkr(totalOutstanding)}</span>{' '}
+              across {(rows ?? []).length} challan
+              {(rows ?? []).length === 1 ? '' : 's'}.
+            </p>
+          }
+          itemNoun={{ singular: 'defaulter', plural: 'defaulters' }}
+          emptyTitle={`Nobody is more than ${minDays || '30'} days overdue`}
+          emptyDescription="That is worth knowing."
+          noResultTitle="No defaulters match those filters"
+          noResultDescription="Widen the grade, the age or the search."
+        />
+      </div>
     </Card>
   );
 }

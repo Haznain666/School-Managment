@@ -1,6 +1,11 @@
 import { withSchoolAuth } from '@/lib/api-auth';
 import { apiSuccess, handleApiError } from '@/lib/api-response';
-import { listApplications } from '@/lib/admissions-queries';
+import {
+  APPLICATION_SORT_COLUMNS,
+  countApplications,
+  listApplications,
+} from '@/lib/admissions-queries';
+import { readListQuery } from '@/lib/list-query';
 
 /**
  * GET /api/school/applications — the admissions inbox.
@@ -22,17 +27,31 @@ export const GET = withSchoolAuth(
       // A branch-scoped admin only sees applications naming their branch.
       const branchId = auth.branchId ?? (url.searchParams.get('branchId') ?? undefined);
 
-      const limitRaw = Number.parseInt(url.searchParams.get('limit') ?? '100', 10);
+      const list = readListQuery(url.searchParams, {
+        sortable: APPLICATION_SORT_COLUMNS,
+        defaultSort: 'submittedAt',
+        defaultDirection: 'desc',
+      });
 
-      const applications = await listApplications(auth.locationId, {
+      const filters = {
         status: url.searchParams.get('status') ?? undefined,
         branchId: branchId ?? undefined,
         academicYearId: url.searchParams.get('academicYearId') ?? undefined,
         search: url.searchParams.get('search') ?? undefined,
-        limit: Number.isFinite(limitRaw) ? limitRaw : 100,
-      });
+      };
 
-      return apiSuccess({ applications });
+      const [applications, total] = await Promise.all([
+        listApplications(auth.locationId, {
+          ...filters,
+          limit: list.limit,
+          offset: list.offset,
+          sort: list.sort,
+          direction: list.direction,
+        }),
+        countApplications(auth.locationId, filters),
+      ]);
+
+      return apiSuccess({ applications, total, page: list.page, limit: list.limit });
     } catch (error) {
       return handleApiError(error);
     }

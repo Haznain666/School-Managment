@@ -2,10 +2,16 @@ import { and, eq } from 'drizzle-orm';
 
 import { expenseCategories, expenses, ledgerAccounts } from '@/db/schema';
 import { isExpenseStatus, parsePositiveAmountPaise } from '@/lib/accounting';
-import { listExpenses } from '@/lib/accounting-queries';
+import {
+  countExpenses,
+  EXPENSE_SORT_COLUMNS,
+  listExpenses,
+  sumApprovedExpenses,
+} from '@/lib/accounting-queries';
 import { withSchoolAuth } from '@/lib/api-auth';
 import { apiFailure, apiSuccess, handleApiError, readJsonBody } from '@/lib/api-response';
 import { db } from '@/lib/drizzle';
+import { readListQuery } from '@/lib/list-query';
 import { paiseToNumeric } from '@/lib/money';
 import { isIsoDate, isUuid, readOptionalString } from '@/lib/validation';
 
@@ -40,14 +46,46 @@ export const GET = withSchoolAuth(
       const to = search.get('to');
       const status = search.get('status');
       const categoryId = search.get('categoryId');
+      const query = search.get('search');
+
+      const list = readListQuery(search, {
+        sortable: EXPENSE_SORT_COLUMNS,
+        defaultSort: 'expenseDate',
+        defaultDirection: 'desc',
+      });
+
+      const filter = {
+        from: isIsoDate(from) ? from : undefined,
+        to: isIsoDate(to) ? to : undefined,
+        status: isExpenseStatus(status) ? status : undefined,
+        categoryId: isUuid(categoryId) ? categoryId : undefined,
+        search: query === null || query.trim() === '' ? undefined : query,
+      };
+
+      /*
+       * The approved total is summed across everything the filters match, not
+       * across the page. A footer that totalled the fifty rows on screen and
+       * called it "approved" would be a different number on every page of the
+       * same register, and the person reading it has no way to tell.
+       */
+      const [rows, total, approvedPaise] = await Promise.all([
+        listExpenses(auth.locationId, {
+          ...filter,
+          limit: list.limit,
+          offset: list.offset,
+          sort: list.sort,
+          direction: list.direction,
+        }),
+        countExpenses(auth.locationId, filter),
+        sumApprovedExpenses(auth.locationId, filter),
+      ]);
 
       return apiSuccess({
-        expenses: await listExpenses(auth.locationId, {
-          from: isIsoDate(from) ? from : undefined,
-          to: isIsoDate(to) ? to : undefined,
-          status: isExpenseStatus(status) ? status : undefined,
-          categoryId: isUuid(categoryId) ? categoryId : undefined,
-        }),
+        expenses: rows,
+        total,
+        approvedPaise,
+        page: list.page,
+        limit: list.limit,
       });
     } catch (error) {
       return handleApiError(error);

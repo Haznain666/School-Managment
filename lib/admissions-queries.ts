@@ -334,6 +334,24 @@ export interface StudentListRow {
   rollNumber: string | null;
 }
 
+/**
+ * The columns the student directory may be ordered by.
+ *
+ * A whitelist rather than a column name off the wire: the sort arrives in a
+ * query string, and the only safe thing to do with a column name from a
+ * stranger is to match it against a list of ones we chose.
+ */
+export const STUDENT_SORT_COLUMNS = [
+  'name',
+  'studentId',
+  'grade',
+  'section',
+  'enrollmentDate',
+  'status',
+] as const;
+
+export type StudentSortColumn = (typeof STUDENT_SORT_COLUMNS)[number];
+
 export interface ListStudentsFilters {
   branchId?: string | undefined;
   gradeId?: string | undefined;
@@ -345,6 +363,13 @@ export interface ListStudentsFilters {
   limit?: number | undefined;
   /** `name` for the directory, `recent` for "who joined last". */
   orderBy?: 'name' | 'recent' | undefined;
+  /**
+   * Which column the directory is sorted by, when the reader has clicked one.
+   * Takes precedence over `orderBy`, which stays for the callers that want a
+   * fixed order and do not offer the reader a choice.
+   */
+  sort?: StudentSortColumn | undefined;
+  direction?: 'asc' | 'desc' | undefined;
   /**
    * BR4 — narrows a scoped principal to their own campuses and classes.
    *
@@ -447,13 +472,28 @@ export async function listStudents(
     .innerJoin(academicYears, eq(academicYears.id, studentEnrollments.academicYearId))
     .leftJoin(branches, eq(branches.id, grades.branchId));
 
+  const order = filters.direction === 'desc' ? desc : asc;
+  const sortColumn =
+    filters.sort === undefined
+      ? null
+      : {
+          name: schoolUsers.name,
+          studentId: studentProfiles.studentId,
+          grade: grades.name,
+          section: sections.name,
+          enrollmentDate: studentEnrollments.enrollmentDate,
+          status: studentEnrollments.status,
+        }[filters.sort];
+
   const [rows, totals] = await Promise.all([
     baseQuery
       .where(where)
       .orderBy(
-        filters.orderBy === 'recent'
-          ? desc(studentEnrollments.createdAt)
-          : asc(schoolUsers.name),
+        sortColumn !== null
+          ? order(sortColumn)
+          : filters.orderBy === 'recent'
+            ? desc(studentEnrollments.createdAt)
+            : asc(schoolUsers.name),
       )
       .limit(limit)
       .offset((page - 1) * limit),
@@ -819,18 +859,33 @@ export interface ApplicationRow {
   convertedToStudentProfileId: string | null;
 }
 
+/** The columns the admissions inbox may be ordered by. */
+export const APPLICATION_SORT_COLUMNS = [
+  'studentName',
+  'guardianName',
+  'grade',
+  'branch',
+  'submittedAt',
+] as const;
+
+export type ApplicationSortColumn = (typeof APPLICATION_SORT_COLUMNS)[number];
+
 export interface ListApplicationsFilters {
   status?: string | undefined;
   branchId?: string | undefined;
   academicYearId?: string | undefined;
   search?: string | undefined;
   limit?: number | undefined;
+  offset?: number | undefined;
+  sort?: ApplicationSortColumn | undefined;
+  direction?: 'asc' | 'desc' | undefined;
 }
 
-export async function listApplications(
+/** The filters a page of the inbox and its count both apply. */
+function applicationConditions(
   locationId: string,
   filters: ListApplicationsFilters,
-): Promise<ApplicationRow[]> {
+): SQL[] {
   const conditions: SQL[] = [eq(admissionApplications.locationId, locationId)];
 
   if (isApplicationStatus(filters.status)) {
@@ -854,6 +909,37 @@ export async function listApplications(
     if (matches !== undefined) conditions.push(matches);
   }
 
+  return conditions;
+}
+
+/** How many applications the same filters match. */
+export async function countApplications(
+  locationId: string,
+  filters: ListApplicationsFilters,
+): Promise<number> {
+  const [row] = await db
+    .select({ value: count() })
+    .from(admissionApplications)
+    .where(and(...applicationConditions(locationId, filters)));
+
+  return row?.value ?? 0;
+}
+
+export async function listApplications(
+  locationId: string,
+  filters: ListApplicationsFilters,
+): Promise<ApplicationRow[]> {
+  const conditions = applicationConditions(locationId, filters);
+
+  const order = filters.direction === 'asc' ? asc : desc;
+  const sortColumn = {
+    studentName: admissionApplications.studentName,
+    guardianName: admissionApplications.guardianName,
+    grade: grades.name,
+    branch: branches.name,
+    submittedAt: admissionApplications.submittedAt,
+  }[filters.sort ?? 'submittedAt'];
+
   const rows = await db
     .select({
       id: admissionApplications.id,
@@ -873,8 +959,9 @@ export async function listApplications(
     .leftJoin(grades, eq(grades.id, admissionApplications.gradeId))
     .leftJoin(branches, eq(branches.id, admissionApplications.branchId))
     .where(and(...conditions))
-    .orderBy(desc(admissionApplications.submittedAt))
-    .limit(Math.min(Math.max(filters.limit ?? 100, 1), 200));
+    .orderBy(order(sortColumn))
+    .limit(Math.min(Math.max(filters.limit ?? 100, 1), 200))
+    .offset(filters.offset ?? 0);
 
   return rows.map((row) => ({
     id: row.id,

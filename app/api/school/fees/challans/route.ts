@@ -2,7 +2,8 @@ import { withSchoolAuth } from '@/lib/api-auth';
 import { apiFailure, apiSuccess, handleApiError, readJsonBody } from '@/lib/api-response';
 import { db } from '@/lib/drizzle';
 import { ChallanGenerationError, generateChallan } from '@/lib/fee-challans';
-import { listChallans } from '@/lib/fee-queries';
+import { CHALLAN_SORT_COLUMNS, listChallans } from '@/lib/fee-queries';
+import { readListQuery } from '@/lib/list-query';
 import { ChallanNumberError } from '@/lib/challan-number';
 import { isUuid, readOptionalString } from '@/lib/validation';
 
@@ -37,6 +38,12 @@ export const GET = withSchoolAuth(
     try {
       const url = new URL(request.url);
 
+      const list = readListQuery(url.searchParams, {
+        sortable: CHALLAN_SORT_COLUMNS,
+        defaultSort: 'createdAt',
+        defaultDirection: 'desc',
+      });
+
       const result = await listChallans(auth.locationId, {
         academicYearId: url.searchParams.get('academicYearId') ?? undefined,
         billingMonth: readIntParam(url.searchParams.get('billingMonth')),
@@ -46,8 +53,10 @@ export const GET = withSchoolAuth(
         status: url.searchParams.get('status') ?? undefined,
         search: url.searchParams.get('search') ?? undefined,
         studentProfileId: url.searchParams.get('studentProfileId') ?? undefined,
-        page: readIntParam(url.searchParams.get('page')) ?? 1,
-        limit: readIntParam(url.searchParams.get('limit')) ?? 20,
+        page: list.page,
+        limit: list.limit,
+        sort: list.sort,
+        direction: list.direction,
       });
 
       return apiSuccess(result);

@@ -1,6 +1,6 @@
 import { withSchoolAuth } from '@/lib/api-auth';
 import { apiFailure, apiSuccess, handleApiError, readJsonBody } from '@/lib/api-response';
-import { listStudents } from '@/lib/admissions-queries';
+import { listStudents, STUDENT_SORT_COLUMNS } from '@/lib/admissions-queries';
 import { db } from '@/lib/drizzle';
 import {
   enrollStudent,
@@ -10,6 +10,7 @@ import {
   parseStudentInput,
   syncEnrollmentToGhl,
 } from '@/lib/enrollment';
+import { readListQuery } from '@/lib/list-query';
 import { resolvePrincipalScope } from '@/lib/principal-resolver';
 import { getSchoolUserByUid } from '@/lib/school-queries';
 import { StudentIdError } from '@/lib/student-id';
@@ -40,8 +41,16 @@ export const GET = withSchoolAuth(
     try {
       const url = new URL(request.url);
 
-      const pageRaw = Number.parseInt(url.searchParams.get('page') ?? '1', 10);
-      const limitRaw = Number.parseInt(url.searchParams.get('limit') ?? '20', 10);
+      // Page size, sort column and direction, all capped and whitelisted in
+      // one place — `readListQuery` is where the 100-row ceiling lives on the
+      // server, because the browser's copy of it protects nobody who types a
+      // URL.
+      const list = readListQuery(url.searchParams, {
+        sortable: STUDENT_SORT_COLUMNS,
+        defaultSort: 'name',
+        defaultDirection: 'asc',
+        defaultLimit: 50,
+      });
 
       // A branch-scoped admin is confined to their branch regardless of input.
       const branchId = auth.branchId ?? (url.searchParams.get('branchId') ?? undefined);
@@ -65,8 +74,10 @@ export const GET = withSchoolAuth(
         academicYearId: url.searchParams.get('academicYearId') ?? undefined,
         status: url.searchParams.get('status') ?? undefined,
         search: url.searchParams.get('search') ?? undefined,
-        page: Number.isFinite(pageRaw) ? pageRaw : 1,
-        limit: Number.isFinite(limitRaw) ? limitRaw : 20,
+        page: list.page,
+        limit: list.limit,
+        sort: list.sort,
+        direction: list.direction,
       });
 
       return apiSuccess(result);

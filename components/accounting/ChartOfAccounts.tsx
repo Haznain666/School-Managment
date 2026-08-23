@@ -8,15 +8,9 @@ import { Button } from '@/components/ui/Button';
 import { Card, CardTitle } from '@/components/ui/Card';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
+import { DataTable, type DataTableColumn } from '@/components/ui/DataTable';
+import { SkeletonTable } from '@/components/ui/Skeleton';
 import { Textarea } from '@/components/ui/Textarea';
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeaderCell,
-  TableRow,
-} from '@/components/ui/Table';
 import {
   ACCOUNT_TYPE_DESCRIPTIONS,
   ACCOUNT_TYPE_LABELS,
@@ -199,11 +193,94 @@ export function ChartOfAccounts({ canEdit }: ChartOfAccountsProps) {
   };
 
   if (accounts === null) {
-    return (
-      <Card>
-        <p className="text-sm text-ink-muted">Loading the chart of accounts…</p>
-      </Card>
-    );
+    return <SkeletonTable rows={8} columns={5} />;
+  }
+
+  const columns: Array<DataTableColumn<AccountRow>> = [
+    {
+      id: 'code',
+      header: 'Code',
+      kind: 'number',
+      sortValue: (row) => Number(row.code),
+      searchValue: (row) => row.code,
+      cell: (row) => row.code,
+    },
+    {
+      id: 'name',
+      header: 'Account',
+      sortValue: (row) => row.name,
+      searchValue: (row) => `${row.name} ${row.ownerName ?? ''} ${row.branchName ?? ''}`,
+      cell: (row) => (
+        <>
+          <span className="font-medium text-ink">{row.name}</span>
+          {row.ownerName !== null ? (
+            <span className="ml-2 text-xs text-ink-muted">
+              {row.ownerName}&rsquo;s drawer
+            </span>
+          ) : null}
+          {row.branchName !== null ? (
+            <span className="ml-2 text-xs text-ink-muted">{row.branchName}</span>
+          ) : null}
+        </>
+      ),
+    },
+    {
+      id: 'type',
+      header: 'Type',
+      sortValue: (row) => ACCOUNT_TYPE_LABELS[row.type],
+      cell: (row) => ACCOUNT_TYPE_LABELS[row.type],
+    },
+    {
+      id: 'notes',
+      header: 'Notes',
+      muted: true,
+      searchValue: (row) => row.description ?? '',
+      cell: (row) => (
+        <div className="flex flex-wrap items-center gap-2">
+          {row.systemKey !== null ? <Badge variant="info">Posted to automatically</Badge> : null}
+          {!row.isActive ? <Badge variant="neutral">Switched off</Badge> : null}
+          {row.description !== null ? <span className="text-xs">{row.description}</span> : null}
+        </div>
+      ),
+    },
+  ];
+
+  if (canEdit) {
+    columns.push({
+      id: 'actions',
+      header: 'Actions',
+      align: 'end',
+      cell: (row) => (
+        <div className="flex justify-end gap-2">
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={() =>
+              setDraft({
+                id: row.id,
+                code: row.code,
+                name: row.name,
+                type: row.type,
+                description: row.description ?? '',
+              })
+            }
+          >
+            Edit
+          </Button>
+          <Button
+            size="sm"
+            variant="ghost"
+            isLoading={busy === row.id}
+            // A system account has nowhere else for the software to post, so
+            // the control is absent rather than present and refusing.
+            disabled={row.systemKey !== null && row.isActive}
+            onClick={() => void toggleActive(row)}
+          >
+            {row.isActive ? 'Switch off' : 'Switch on'}
+          </Button>
+        </div>
+      ),
+    });
   }
 
   return (
@@ -302,80 +379,37 @@ export function ChartOfAccounts({ canEdit }: ChartOfAccountsProps) {
             />
           }
         >
-          <Table caption="The school's chart of accounts">
-            <TableHead>
-              <TableRow>
-                <TableHeaderCell>Code</TableHeaderCell>
-                <TableHeaderCell>Account</TableHeaderCell>
-                <TableHeaderCell>Type</TableHeaderCell>
-                <TableHeaderCell>Notes</TableHeaderCell>
-                {canEdit ? <TableHeaderCell align="end">Actions</TableHeaderCell> : null}
-              </TableRow>
-            </TableHead>
-            <TableBody>
-              {accounts.map((row) => (
-                <TableRow key={row.id} className={row.isActive ? undefined : 'opacity-60'}>
-                  <TableCell align="numeric">{row.code}</TableCell>
-                  <TableCell>
-                    <span className="font-medium text-ink">{row.name}</span>
-                    {row.ownerName !== null ? (
-                      <span className="ml-2 text-xs text-ink-muted">
-                        {row.ownerName}&rsquo;s drawer
-                      </span>
-                    ) : null}
-                    {row.branchName !== null ? (
-                      <span className="ml-2 text-xs text-ink-muted">{row.branchName}</span>
-                    ) : null}
-                  </TableCell>
-                  <TableCell>{ACCOUNT_TYPE_LABELS[row.type]}</TableCell>
-                  <TableCell muted>
-                    <div className="flex flex-wrap items-center gap-2">
-                      {row.systemKey !== null ? (
-                        <Badge variant="info">Posted to automatically</Badge>
-                      ) : null}
-                      {!row.isActive ? <Badge variant="neutral">Switched off</Badge> : null}
-                      {row.description !== null ? (
-                        <span className="text-xs">{row.description}</span>
-                      ) : null}
-                    </div>
-                  </TableCell>
-                  {canEdit ? (
-                    <TableCell align="end">
-                      <div className="flex justify-end gap-2">
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          onClick={() =>
-                            setDraft({
-                              id: row.id,
-                              code: row.code,
-                              name: row.name,
-                              type: row.type,
-                              description: row.description ?? '',
-                            })
-                          }
-                        >
-                          Edit
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          isLoading={busy === row.id}
-                          // A system account has nowhere else for the software
-                          // to post, so the control is absent rather than
-                          // present and refusing.
-                          disabled={row.systemKey !== null && row.isActive}
-                          onClick={() => void toggleActive(row)}
-                        >
-                          {row.isActive ? 'Switch off' : 'Switch on'}
-                        </Button>
-                      </div>
-                    </TableCell>
-                  ) : null}
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
+          <DataTable
+            caption="The school's chart of accounts"
+            columns={columns}
+            rows={accounts}
+            getRowKey={(row) => row.id}
+            defaultSort={{ columnId: 'code', direction: 'asc' }}
+            rowClassName={(row) => (row.isActive ? undefined : 'opacity-60')}
+            search={{ placeholder: 'Code or account name' }}
+            filters={[
+              {
+                id: 'type',
+                label: 'Type',
+                allLabel: 'Every type',
+                options: TYPE_OPTIONS,
+                rowValue: (row) => row.type,
+              },
+              {
+                id: 'status',
+                label: 'Status',
+                allLabel: 'On and off',
+                options: [
+                  { value: 'active', label: 'Switched on' },
+                  { value: 'inactive', label: 'Switched off' },
+                ],
+                rowValue: (row) => (row.isActive ? 'active' : 'inactive'),
+              },
+            ]}
+            itemNoun={{ singular: 'account', plural: 'accounts' }}
+            emptyTitle="No accounts"
+            emptyDescription="Set up the chart of accounts to start posting."
+          />
           <p className="mt-3 text-xs text-ink-muted">
             An account is never deleted. Switching one off takes it out of the pickers
             and leaves it on the statements, because the entries already posted against

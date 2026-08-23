@@ -4,16 +4,7 @@ import {
   type ReportDefinition,
   type ReportRow,
 } from '@/lib/report-catalogue';
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableEmptyRow,
-  TableFoot,
-  TableHead,
-  TableHeaderCell,
-  TableRow,
-} from '@/components/ui/Table';
+import { ReportDataTable } from '@/components/reports/ReportDataTable';
 
 /**
  * A report's rows, drawn from its column declaration.
@@ -29,6 +20,13 @@ import {
  * finite width, and a campus name or an employee code dropped from a printed
  * sheet costs nothing a reader needs — the alternative is a table that reflows
  * into unreadable slivers. The screen shows every column.
+ *
+ * ── Sprint 15: the screen half moved, the print half did not ─────────────
+ * Sorting, searching and paging belong on screen and nowhere near a printout,
+ * so the screen path now delegates to `ReportDataTable` — a client component —
+ * while the printed sheet stays exactly what it was: a server-rendered table of
+ * every row, in the report's own order. Both still read `definition.columns`,
+ * which is the part that was never allowed to diverge.
  */
 export function ReportTable({
   definition,
@@ -98,57 +96,11 @@ export function ReportTable({
   }
 
   return (
-    <Table caption={definition.title}>
-      <TableHead>
-        <TableRow>
-          {columns.map((column) => (
-            <TableHeaderCell
-              key={column.key}
-              align={isNumericKind(column.kind) ? 'numeric' : 'start'}
-            >
-              {column.label}
-            </TableHeaderCell>
-          ))}
-        </TableRow>
-      </TableHead>
-
-      <TableBody>
-        {rows.length === 0 ? (
-          <TableEmptyRow colSpan={columns.length}>
-            Nothing to report under those filters.
-          </TableEmptyRow>
-        ) : (
-          rows.map((row, index) => (
-            <TableRow key={index}>
-              {columns.map((column) => (
-                <TableCell
-                  key={column.key}
-                  align={isNumericKind(column.kind) ? 'numeric' : 'start'}
-                  muted={column.secondary === true}
-                >
-                  {formatCell(column.kind, row[column.key] ?? null)}
-                </TableCell>
-              ))}
-            </TableRow>
-          ))
-        )}
-      </TableBody>
-
-      {totals === null || rows.length === 0 ? null : (
-        <TableFoot>
-          <TableRow>
-            {columns.map((column) => (
-              <TableCell
-                key={column.key}
-                align={isNumericKind(column.kind) ? 'numeric' : 'start'}
-                className="font-semibold"
-              >
-                {formatCell(column.kind, totals[column.key] ?? null)}
-              </TableCell>
-            ))}
-          </TableRow>
-        </TableFoot>
-      )}
-    </Table>
+    <ReportDataTable
+      title={definition.title}
+      columns={columns}
+      rows={rows}
+      totals={totals}
+    />
   );
 }
