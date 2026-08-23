@@ -6,19 +6,17 @@ import { useCallback, useEffect, useState } from 'react';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { Card, CardTitle } from '@/components/ui/Card';
-import { EmptyState } from '@/components/ui/EmptyState';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
-import { Textarea } from '@/components/ui/Textarea';
 import {
-  Table,
-  TableBody,
-  TableCell,
-  TableFoot,
-  TableHead,
-  TableHeaderCell,
-  TableRow,
-} from '@/components/ui/Table';
+  DataTable,
+  DATA_TABLE_DEFAULT_PAGE_SIZE,
+  type DataTableColumn,
+  type DataTableSort,
+} from '@/components/ui/DataTable';
+import { SkeletonTable } from '@/components/ui/Skeleton';
+import { TableCell, TableRow } from '@/components/ui/Table';
+import { Textarea } from '@/components/ui/Textarea';
 import {
   EXPENSE_STATUSES,
   EXPENSE_STATUS_LABELS,
@@ -107,19 +105,42 @@ function today(): string {
 
 export function ExpenseRegister({ canWrite, initialStatus }: ExpenseRegisterProps) {
   const [expenses, setExpenses] = useState<ExpenseRow[] | null>(null);
+  const [rowCount, setRowCount] = useState(0);
+  const [approvedPaise, setApprovedPaise] = useState(0);
   const [categories, setCategories] = useState<CategoryRow[]>([]);
   const [accounts, setAccounts] = useState<AccountRow[]>([]);
   const [status, setStatus] = useState<ExpenseStatus | ''>(initialStatus ?? '');
+  const [categoryId, setCategoryId] = useState('');
+  const [search, setSearch] = useState('');
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(DATA_TABLE_DEFAULT_PAGE_SIZE);
+  const [sort, setSort] = useState<DataTableSort>({
+    columnId: 'expenseDate',
+    direction: 'desc',
+  });
+  const [pending, setPending] = useState(false);
   const [draft, setDraft] = useState<Draft | null>(null);
   const [rejecting, setRejecting] = useState<{ id: string; reason: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
 
   const load = useCallback(async () => {
+    setPending(true);
     try {
-      const query = status === '' ? '' : `?status=${status}`;
+      const params = new URLSearchParams({
+        page: String(page),
+        limit: String(pageSize),
+        sort: sort.columnId,
+        direction: sort.direction,
+      });
+      if (status !== '') params.set('status', status);
+      if (categoryId !== '') params.set('categoryId', categoryId);
+      if (search.trim() !== '') params.set('search', search.trim());
+      const query = `?${params.toString()}`;
       const [expensePayload, categoryPayload, accountPayload] = await Promise.all([
-        schoolFetch<{ expenses: ExpenseRow[] }>(`/api/school/accounting/expenses${query}`),
+        schoolFetch<{ expenses: ExpenseRow[]; total: number; approvedPaise: number }>(
+          `/api/school/accounting/expenses${query}`,
+        ),
         schoolFetch<{ categories: CategoryRow[] }>(
           '/api/school/accounting/expense-categories',
         ),
@@ -129,16 +150,27 @@ export function ExpenseRegister({ canWrite, initialStatus }: ExpenseRegisterProp
       ]);
 
       setExpenses(expensePayload.expenses);
+      setRowCount(expensePayload.total);
+      setApprovedPaise(expensePayload.approvedPaise);
       setCategories(categoryPayload.categories);
       setAccounts(accountPayload.accounts);
       setError(null);
     } catch (caught) {
       setError(schoolErrorMessage(caught, 'Could not load the expenses.'));
+    } finally {
+      setPending(false);
     }
-  }, [status]);
+  }, [status, categoryId, search, page, pageSize, sort]);
 
+  // Debounced, so typing in the search box is one request rather than one per
+  // keystroke.
   useEffect(() => {
-    void load();
+    const timer = setTimeout(() => {
+      void load();
+    }, 250);
+    return () => {
+      clearTimeout(timer);
+    };
   }, [load]);
 
   // Only what the school holds or owes: money comes out of a drawer, a bank
@@ -245,16 +277,124 @@ export function ExpenseRegister({ canWrite, initialStatus }: ExpenseRegisterProp
   };
 
   if (expenses === null) {
-    return (
-      <Card>
-        <p className="text-sm text-ink-muted">Loading the expense register…</p>
-      </Card>
-    );
+    return <SkeletonTable rows={8} columns={7} />;
   }
 
-  const total = expenses
-    .filter((row) => row.status === 'approved')
-    .reduce((sum, row) => sum + row.amountPaise, 0);
+  const columns: Array<DataTableColumn<ExpenseRow>> = [
+    {
+      id: 'expenseDate',
+      header: 'Date',
+      kind: 'date',
+      sortable: true,
+      cell: (row) => row.expenseDate,
+    },
+    {
+      id: 'category',
+      header: 'What for',
+      sortable: true,
+      cell: (row) => (
+        <>
+          <span className="font-medium text-ink">{row.categoryName}</span>
+          <span className="ml-2 text-xs text-ink-muted">{row.accountName}</span>
+          {row.rejectionReason !== null ? (
+            <p className="mt-1 text-xs text-status-danger-ink">{row.rejectionReason}</p>
+          ) : null}
+        </>
+      ),
+    },
+    {
+      id: 'payee',
+      header: 'Paid to',
+      muted: true,
+      sortable: true,
+      cell: (row) => row.payee ?? '—',
+    },
+    {
+      id: 'paidFrom',
+      header: 'Out of',
+      muted: true,
+      cell: (row) => row.paidFromName,
+    },
+    {
+      id: 'status',
+      header: 'Status',
+      sortable: true,
+      cell: (row) => (
+        <>
+          <Badge variant={STATUS_VARIANT[row.status]}>
+            {EXPENSE_STATUS_LABELS[row.status]}
+          </Badge>
+          {row.approverName !== null ? (
+            <span className="ml-2 text-xs text-ink-muted">{row.approverName}</span>
+          ) : null}
+        </>
+      ),
+    },
+    {
+      id: 'amount',
+      header: 'Amount',
+      kind: 'money',
+      sortable: true,
+      cell: (row) => formatPkr(row.amountPaise / 100),
+    },
+  ];
+
+  if (canWrite) {
+    columns.push({
+      id: 'actions',
+      header: 'Actions',
+      align: 'end',
+      cell: (row) =>
+        row.status === 'draft' ? (
+          <div className="flex flex-wrap justify-end gap-2">
+            <Button
+              size="sm"
+              icon={Check}
+              isLoading={busy === row.id}
+              onClick={() => void decide(row.id, 'approve')}
+            >
+              Approve
+            </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              icon={X}
+              onClick={() => setRejecting({ id: row.id, reason: '' })}
+            >
+              Reject
+            </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() =>
+                setDraft({
+                  id: row.id,
+                  categoryId: row.categoryId,
+                  paidFromAccountId: row.paidFromAccountId,
+                  amount: (row.amountPaise / 100).toFixed(2),
+                  expenseDate: row.expenseDate,
+                  payee: row.payee ?? '',
+                  referenceNumber: row.referenceNumber ?? '',
+                  attachmentUrl: '',
+                  notes: row.notes ?? '',
+                })
+              }
+            >
+              Edit
+            </Button>
+            <Button size="sm" variant="ghost" onClick={() => void discard(row.id)}>
+              Discard
+            </Button>
+          </div>
+        ) : (
+          <span className="text-xs text-ink-muted">
+            {row.status === 'approved'
+              ? 'Posted — reverse it in the day book to correct it'
+              : 'Refused — file a fresh one'}
+          </span>
+        ),
+    });
+  }
 
   return (
     <div className="space-y-4">
@@ -267,26 +407,6 @@ export function ExpenseRegister({ canWrite, initialStatus }: ExpenseRegisterProp
         </p>
       ) : null}
 
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-        <Select
-          label="Show"
-          className="sm:max-w-48"
-          value={status}
-          options={[
-            { value: '', label: 'Everything' },
-            ...EXPENSE_STATUSES.map((value) => ({
-              value,
-              label: EXPENSE_STATUS_LABELS[value],
-            })),
-          ]}
-          onChange={(event) => setStatus(event.target.value as ExpenseStatus | '')}
-        />
-        {canWrite && draft === null ? (
-          <Button icon={Plus} onClick={startNew}>
-            File an expense
-          </Button>
-        ) : null}
-      </div>
 
       {draft !== null ? (
         <Card
@@ -374,139 +494,89 @@ export function ExpenseRegister({ canWrite, initialStatus }: ExpenseRegisterProp
         </Card>
       ) : null}
 
-      {expenses.length === 0 ? (
-        <EmptyState
-          icon={Receipt}
-          tone={status === '' ? 'empty' : 'no-result'}
-          title={
-            status === ''
-              ? 'Nothing has been filed yet'
-              : `No ${EXPENSE_STATUS_LABELS[status].toLowerCase()} expenses`
-          }
-          description={
-            status === ''
-              ? 'File the first bill and it will appear here as a request, waiting for somebody to approve it.'
-              : 'Change the filter to see the rest of the register.'
-          }
-          secondaryAction={
-            status === '' ? undefined : (
-              <Button variant="ghost" onClick={() => setStatus('')}>
-                Show everything
-              </Button>
-            )
-          }
-        />
-      ) : (
-        <Card>
-          <Table caption="The expense register">
-            <TableHead>
-              <TableRow>
-                <TableHeaderCell>Date</TableHeaderCell>
-                <TableHeaderCell>What for</TableHeaderCell>
-                <TableHeaderCell>Paid to</TableHeaderCell>
-                <TableHeaderCell>Out of</TableHeaderCell>
-                <TableHeaderCell>Status</TableHeaderCell>
-                <TableHeaderCell align="numeric">Amount</TableHeaderCell>
-                {canWrite ? <TableHeaderCell align="end">Actions</TableHeaderCell> : null}
-              </TableRow>
-            </TableHead>
-            <TableBody>
-              {expenses.map((row) => (
-                <TableRow key={row.id}>
-                  <TableCell>{row.expenseDate}</TableCell>
-                  <TableCell>
-                    <span className="font-medium text-ink">{row.categoryName}</span>
-                    <span className="ml-2 text-xs text-ink-muted">{row.accountName}</span>
-                    {row.rejectionReason !== null ? (
-                      <p className="mt-1 text-xs text-status-danger-ink">
-                        {row.rejectionReason}
-                      </p>
-                    ) : null}
-                  </TableCell>
-                  <TableCell muted>{row.payee ?? '—'}</TableCell>
-                  <TableCell muted>{row.paidFromName}</TableCell>
-                  <TableCell>
-                    <Badge variant={STATUS_VARIANT[row.status]}>
-                      {EXPENSE_STATUS_LABELS[row.status]}
-                    </Badge>
-                    {row.approverName !== null ? (
-                      <span className="ml-2 text-xs text-ink-muted">
-                        {row.approverName}
-                      </span>
-                    ) : null}
-                  </TableCell>
-                  <TableCell align="numeric">
-                    {formatPkr(row.amountPaise / 100)}
-                  </TableCell>
-                  {canWrite ? (
-                    <TableCell align="end">
-                      {row.status === 'draft' ? (
-                        <div className="flex flex-wrap justify-end gap-2">
-                          <Button
-                            size="sm"
-                            icon={Check}
-                            isLoading={busy === row.id}
-                            onClick={() => void decide(row.id, 'approve')}
-                          >
-                            Approve
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            icon={X}
-                            onClick={() => setRejecting({ id: row.id, reason: '' })}
-                          >
-                            Reject
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            onClick={() =>
-                              setDraft({
-                                id: row.id,
-                                categoryId: row.categoryId,
-                                paidFromAccountId: row.paidFromAccountId,
-                                amount: (row.amountPaise / 100).toFixed(2),
-                                expenseDate: row.expenseDate,
-                                payee: row.payee ?? '',
-                                referenceNumber: row.referenceNumber ?? '',
-                                attachmentUrl: '',
-                                notes: row.notes ?? '',
-                              })
-                            }
-                          >
-                            Edit
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            onClick={() => void discard(row.id)}
-                          >
-                            Discard
-                          </Button>
-                        </div>
-                      ) : (
-                        <span className="text-xs text-ink-muted">
-                          {row.status === 'approved'
-                            ? 'Posted — reverse it in the day book to correct it'
-                            : 'Refused — file a fresh one'}
-                        </span>
-                      )}
-                    </TableCell>
-                  ) : null}
-                </TableRow>
-              ))}
-            </TableBody>
-            <TableFoot>
-              <TableRow>
-                <TableCell colSpan={5}>Approved in this view</TableCell>
-                <TableCell align="numeric">{formatPkr(total / 100)}</TableCell>
-                {canWrite ? <TableCell /> : null}
-              </TableRow>
-            </TableFoot>
-          </Table>
-        </Card>
-      )}
+      <DataTable
+        mode="server"
+        caption="The expense register"
+        columns={columns}
+        rows={expenses}
+        getRowKey={(row) => row.id}
+        pending={pending}
+        sort={sort}
+        onSortChange={(next) => {
+          setPage(1);
+          setSort(next);
+        }}
+        page={page}
+        pageSize={pageSize}
+        totalItems={rowCount}
+        onPageChange={setPage}
+        onPageSizeChange={setPageSize}
+        search={{
+          value: search,
+          onChange: (value) => {
+            setPage(1);
+            setSearch(value);
+          },
+          placeholder: 'Payee, bill number or category',
+        }}
+        filters={[
+          {
+            id: 'status',
+            label: 'Status',
+            allLabel: 'Everything',
+            options: EXPENSE_STATUSES.map((value) => ({
+              value,
+              label: EXPENSE_STATUS_LABELS[value],
+            })),
+            value: status,
+            onChange: (value) => {
+              setPage(1);
+              setStatus(value as ExpenseStatus | '');
+            },
+          },
+          {
+            id: 'category',
+            label: 'Category',
+            allLabel: 'Every category',
+            options: categories.map((category) => ({
+              value: category.id,
+              label: category.name,
+            })),
+            value: categoryId,
+            onChange: (value) => {
+              setPage(1);
+              setCategoryId(value);
+            },
+          },
+        ]}
+        filtersActive={status !== '' || categoryId !== '' || search.trim() !== ''}
+        onClearFilters={() => {
+          setPage(1);
+          setStatus('');
+          setCategoryId('');
+          setSearch('');
+        }}
+        actions={
+          canWrite && draft === null ? (
+            <Button icon={Plus} onClick={startNew}>
+              File an expense
+            </Button>
+          ) : undefined
+        }
+        itemNoun={{ singular: 'expense', plural: 'expenses' }}
+        emptyIcon={Receipt}
+        emptyTitle="Nothing has been filed yet"
+        emptyDescription="File the first bill and it will appear here as a request, waiting for somebody to approve it."
+        noResultTitle="No expenses match those filters"
+        noResultDescription="Change the filter to see the rest of the register."
+        footer={
+          <TableRow>
+            <TableCell colSpan={5}>Approved, across every page of this filter</TableCell>
+            <TableCell align="numeric">{formatPkr(approvedPaise / 100)}</TableCell>
+            {canWrite ? <TableCell /> : null}
+          </TableRow>
+        }
+      />
 
       {rejecting !== null ? (
         <Card header={<CardTitle title="Reject this expense" />}>

@@ -6,14 +6,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { Card, CardTitle } from '@/components/ui/Card';
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeaderCell,
-  TableRow,
-} from '@/components/ui/Table';
+import { DataTable, type DataTableColumn } from '@/components/ui/DataTable';
 import {
   PAYROLL_RUN_STATUS_LABELS,
   canTransitionRun,
@@ -148,6 +141,89 @@ export function PayrollRunDetail({ runId, canEdit }: PayrollRunDetailProps) {
     );
   }
 
+  const payslipColumns: Array<DataTableColumn<PayslipRow>> = [
+    {
+      id: 'number',
+      header: 'Number',
+      muted: true,
+      className: 'font-mono text-xs',
+      sortValue: (row) => row.payslipNumber,
+      searchValue: (row) => row.payslipNumber,
+      cell: (row) => row.payslipNumber,
+    },
+    {
+      id: 'staff',
+      header: 'Staff',
+      sortValue: (row) => row.staffName,
+      searchValue: (row) =>
+        `${row.staffName} ${row.employeeCode} ${row.designation ?? ''}`,
+      cell: (row) => (
+        <>
+          <p className="font-medium text-ink">{row.staffName}</p>
+          <p className="text-xs text-ink-muted">
+            {row.employeeCode}
+            {row.designation === null ? '' : ` · ${row.designation}`}
+          </p>
+        </>
+      ),
+    },
+    {
+      id: 'gross',
+      header: 'Gross',
+      kind: 'money',
+      muted: true,
+      sortValue: (row) => Number(row.grossEarnings),
+      cell: (row) => formatPkr(row.grossEarnings),
+    },
+    {
+      id: 'deductions',
+      header: 'Deductions',
+      kind: 'money',
+      muted: true,
+      sortValue: (row) => Number(row.totalDeductions),
+      cell: (row) => formatPkr(row.totalDeductions),
+    },
+    {
+      id: 'lop',
+      header: 'LOP',
+      kind: 'number',
+      muted: true,
+      sortValue: (row) => Number(row.lossOfPayDays),
+      cell: (row) => row.lossOfPayDays,
+    },
+    {
+      id: 'net',
+      header: 'Net',
+      kind: 'money',
+      rowHeader: true,
+      sortValue: (row) => Number(row.netPayable),
+      cell: (row) => formatPkr(row.netPayable),
+    },
+    {
+      id: 'status',
+      header: 'Status',
+      sortValue: (row) => PAYSLIP_STATUS_LABELS[row.status],
+      cell: (row) => (
+        <Badge variant={SLIP_VARIANT[row.status]}>
+          {PAYSLIP_STATUS_LABELS[row.status]}
+        </Badge>
+      ),
+    },
+    {
+      id: 'open',
+      header: <span className="sr-only">Open</span>,
+      align: 'numeric',
+      cell: (row) => (
+        <Link
+          href={`/dashboard/payroll/payslips/${row.id}`}
+          className="text-sm font-medium text-brand-primary hover:underline"
+        >
+          Open
+        </Link>
+      ),
+    },
+  ];
+
   return (
     <div className="space-y-4">
       {error !== null ? (
@@ -262,72 +338,45 @@ export function PayrollRunDetail({ runId, canEdit }: PayrollRunDetailProps) {
         ) : null}
       </Card>
 
-      {payslips.length === 0 ? (
-        <Card>
-          <p className="text-sm text-ink-muted">This run has no payslips.</p>
-        </Card>
-      ) : (
-        <Card
-          header={<CardTitle title="Payslips" description={`${payslips.length} slips.`} />}
-          className="p-0"
-        >
-          <Table caption="Payslips in this run">
-              <TableHead>
-                <TableRow>
-                  <TableHeaderCell>Number</TableHeaderCell>
-                  <TableHeaderCell>Staff</TableHeaderCell>
-                  <TableHeaderCell>Gross</TableHeaderCell>
-                  <TableHeaderCell>Deductions</TableHeaderCell>
-                  <TableHeaderCell>LOP</TableHeaderCell>
-                  <TableHeaderCell>Net</TableHeaderCell>
-                  <TableHeaderCell>Status</TableHeaderCell>
-                  <TableHeaderCell>
-                    <span className="sr-only">Open</span>
-                  </TableHeaderCell>
-                </TableRow>
-              </TableHead>
-              <TableBody>
-                {payslips.map((row) => (
-                  <TableRow key={row.id}>
-                    <TableCell muted className="font-mono text-xs">
-                      {row.payslipNumber}
-                    </TableCell>
-                    <TableCell>
-                      <p className="font-medium text-ink">{row.staffName}</p>
-                      <p className="text-xs text-ink-muted">
-                        {row.employeeCode}
-                        {row.designation === null ? '' : ` · ${row.designation}`}
-                      </p>
-                    </TableCell>
-                    <TableCell muted>
-                      {formatPkr(row.grossEarnings)}
-                    </TableCell>
-                    <TableCell muted>
-                      {formatPkr(row.totalDeductions)}
-                    </TableCell>
-                    <TableCell muted>{row.lossOfPayDays}</TableCell>
-                    <TableCell rowHeader>
-                      {formatPkr(row.netPayable)}
-                    </TableCell>
-                    <TableCell>
-                      <Badge variant={SLIP_VARIANT[row.status]}>
-                        {PAYSLIP_STATUS_LABELS[row.status]}
-                      </Badge>
-                    </TableCell>
-                    <TableCell align="numeric">
-                      <Link
-                        href={`/dashboard/payroll/payslips/${row.id}`}
-                        className="text-sm font-medium text-brand-primary hover:underline"
-                      >
-                        Open
-                      </Link>
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-          </Table>
-        </Card>
-      )}
+      <Card
+        header={<CardTitle title="Payslips" description={`${payslips.length} slips.`} />}
+      >
+        <DataTable
+          caption="Payslips in this run"
+          columns={payslipColumns}
+          rows={payslips}
+          getRowKey={(row) => row.id}
+          defaultSort={{ columnId: 'staff', direction: 'asc' }}
+          search={{ placeholder: 'Name, code or payslip number' }}
+          filters={[
+            {
+              id: 'status',
+              label: 'Status',
+              allLabel: 'Every payslip',
+              options: Object.entries(PAYSLIP_STATUS_LABELS).map(([value, label]) => ({
+                value,
+                label,
+              })),
+              rowValue: (row) => row.status,
+            },
+            {
+              id: 'lop',
+              label: 'Loss of pay',
+              allLabel: 'Everyone',
+              options: [
+                { value: 'docked', label: 'Docked' },
+                { value: 'clean', label: 'Full month' },
+              ],
+              rowValue: (row) => (Number(row.lossOfPayDays) > 0 ? 'docked' : 'clean'),
+            },
+          ]}
+          itemNoun={{ singular: 'payslip', plural: 'payslips' }}
+          emptyTitle="This run has no payslips"
+          emptyDescription="Nobody active had a salary structure when it was raised."
+          noResultTitle="No payslips match those filters"
+          noResultDescription="Clear the search or widen the status."
+        />
+      </Card>
     </div>
   );
 }

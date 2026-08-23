@@ -9,14 +9,7 @@ import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
 import { Textarea } from '@/components/ui/Textarea';
 import { Toggle } from '@/components/ui/Toggle';
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeaderCell,
-  TableRow,
-} from '@/components/ui/Table';
+import { DataTable, type DataTableColumn } from '@/components/ui/DataTable';
 import {
   COMPONENT_CALCULATION_LABELS,
   COMPONENT_CALCULATIONS,
@@ -216,6 +209,118 @@ export function SalaryComponentManager({ canEdit }: SalaryComponentManagerProps)
 
   const hasBasic = components.some((row) => row.isBasic && row.isActive);
 
+  const componentColumns: Array<DataTableColumn<ComponentRow>> = [
+    {
+      id: 'name',
+      header: 'Name',
+      sortValue: (row) => row.name,
+      searchValue: (row) => `${row.name} ${row.description ?? ''}`,
+      cell: (row) => (
+        <>
+          <p className="font-medium text-ink">
+            {row.name}
+            {row.isBasic ? (
+              <Badge className="ml-2" variant="success">
+                Basic
+              </Badge>
+            ) : null}
+          </p>
+          {row.description === null || row.description === '' ? null : (
+            <p className="text-xs text-ink-muted">{row.description}</p>
+          )}
+        </>
+      ),
+    },
+    {
+      id: 'kind',
+      header: 'Type',
+      muted: true,
+      sortValue: (row) => COMPONENT_KIND_LABELS[row.kind],
+      cell: (row) => COMPONENT_KIND_LABELS[row.kind],
+    },
+    {
+      id: 'calculation',
+      header: 'Calculation',
+      muted: true,
+      // Percentages sort by their size, not by the sentence describing them:
+      // "10% of basic" before "5% of basic" is what sorting the label gives.
+      sortValue: (row) =>
+        row.calculation === 'percent_of_basic' ? row.defaultPercentBasisPoints : -1,
+      cell: (row) => (
+        <>
+          {row.calculation === 'percent_of_basic'
+            ? `${pointsToPercent(row.defaultPercentBasisPoints)}% of basic`
+            : 'Fixed amount'}
+          {row.proratedByAttendance ? null : (
+            <span className="block text-xs text-ink-muted">
+              Not reduced by unpaid days
+            </span>
+          )}
+        </>
+      ),
+    },
+    {
+      id: 'order',
+      header: 'Order',
+      kind: 'number',
+      muted: true,
+      sortValue: (row) => row.sortOrder,
+      cell: (row) => row.sortOrder,
+    },
+    {
+      id: 'status',
+      header: 'Status',
+      sortValue: (row) => (row.isActive ? 0 : 1),
+      cell: (row) => (
+        <Badge variant={row.isActive ? 'success' : 'neutral'}>
+          {row.isActive ? 'Active' : 'Retired'}
+        </Badge>
+      ),
+    },
+  ];
+
+  if (canEdit) {
+    componentColumns.push({
+      id: 'actions',
+      header: <span className="sr-only">Actions</span>,
+      align: 'end',
+      cell: (row) => (
+        <div className="flex justify-end gap-2">
+          <Button
+            size="sm"
+            variant="secondary"
+            onClick={() => {
+              setDraft({
+                id: row.id,
+                name: row.name,
+                description: row.description ?? '',
+                kind: row.kind,
+                calculation: row.calculation,
+                percent: pointsToPercent(row.defaultPercentBasisPoints),
+                isBasic: row.isBasic,
+                proratedByAttendance: row.proratedByAttendance,
+                isActive: row.isActive,
+                sortOrder: String(row.sortOrder),
+              });
+            }}
+          >
+            Edit
+          </Button>
+          <Button
+            size="sm"
+            variant="ghost"
+            isLoading={busy === row.id}
+            onClick={() => {
+              void toggleActive(row);
+            }}
+          >
+            {row.isActive ? 'Retire' : 'Restore'}
+          </Button>
+        </div>
+      ),
+    });
+  }
+
   return (
     <div className="space-y-4">
       {error !== null ? (
@@ -407,95 +512,38 @@ export function SalaryComponentManager({ canEdit }: SalaryComponentManagerProps)
           }
           className="p-0"
         >
-          <div className="overflow-x-auto">
-            <Table caption="Salary components" className="rounded-none border-0">
-              <TableHead>
-                <TableRow>
-                  <TableHeaderCell>Name</TableHeaderCell>
-                  <TableHeaderCell>Type</TableHeaderCell>
-                  <TableHeaderCell>Calculation</TableHeaderCell>
-                  <TableHeaderCell>Status</TableHeaderCell>
-                  {canEdit ? (
-                    <TableHeaderCell>
-                      <span className="sr-only">Actions</span>
-                    </TableHeaderCell>
-                  ) : null}
-                </TableRow>
-              </TableHead>
-              <TableBody>
-                {components.map((row) => (
-                  <TableRow key={row.id}>
-                    <TableCell>
-                      <p className="font-medium text-ink">
-                        {row.name}
-                        {row.isBasic ? (
-                          <Badge className="ml-2" variant="success">
-                            Basic
-                          </Badge>
-                        ) : null}
-                      </p>
-                      {row.description === null || row.description === '' ? null : (
-                        <p className="text-xs text-ink-muted">{row.description}</p>
-                      )}
-                    </TableCell>
-                    <TableCell muted>
-                      {COMPONENT_KIND_LABELS[row.kind]}
-                    </TableCell>
-                    <TableCell muted>
-                      {row.calculation === 'percent_of_basic'
-                        ? `${pointsToPercent(row.defaultPercentBasisPoints)}% of basic`
-                        : 'Fixed amount'}
-                      {row.proratedByAttendance ? null : (
-                        <span className="block text-xs text-ink-muted">
-                          Not reduced by unpaid days
-                        </span>
-                      )}
-                    </TableCell>
-                    <TableCell>
-                      <Badge variant={row.isActive ? 'success' : 'neutral'}>
-                        {row.isActive ? 'Active' : 'Retired'}
-                      </Badge>
-                    </TableCell>
-                    {canEdit ? (
-                      <TableCell>
-                        <div className="flex justify-end gap-2">
-                          <Button
-                            size="sm"
-                            variant="secondary"
-                            onClick={() => {
-                              setDraft({
-                                id: row.id,
-                                name: row.name,
-                                description: row.description ?? '',
-                                kind: row.kind,
-                                calculation: row.calculation,
-                                percent: pointsToPercent(row.defaultPercentBasisPoints),
-                                isBasic: row.isBasic,
-                                proratedByAttendance: row.proratedByAttendance,
-                                isActive: row.isActive,
-                                sortOrder: String(row.sortOrder),
-                              });
-                            }}
-                          >
-                            Edit
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            isLoading={busy === row.id}
-                            onClick={() => {
-                              void toggleActive(row);
-                            }}
-                          >
-                            {row.isActive ? 'Retire' : 'Restore'}
-                          </Button>
-                        </div>
-                      </TableCell>
-                    ) : null}
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
+          <div className="p-5">
+            <DataTable
+              caption="Salary components"
+              columns={componentColumns}
+              rows={components}
+              getRowKey={(row) => row.id}
+              defaultSort={{ columnId: 'order', direction: 'asc' }}
+              search={{ placeholder: 'Component name or description' }}
+              filters={[
+                {
+                  id: 'kind',
+                  label: 'Type',
+                  allLabel: 'Every type',
+                  options: KIND_OPTIONS,
+                  rowValue: (row) => row.kind,
+                },
+                {
+                  id: 'status',
+                  label: 'Status',
+                  allLabel: 'Active and retired',
+                  options: [
+                    { value: 'active', label: 'Active' },
+                    { value: 'retired', label: 'Retired' },
+                  ],
+                  rowValue: (row) => (row.isActive ? 'active' : 'retired'),
+                },
+              ]}
+              itemNoun={{ singular: 'component', plural: 'components' }}
+              emptyTitle="No salary components yet"
+              noResultTitle="No components match those filters"
+              noResultDescription="Widen the type, or clear the search."
+            />
           </div>
         </Card>
       )}

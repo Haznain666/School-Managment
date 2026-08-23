@@ -25,7 +25,15 @@
  * says so rather than implying this script proves provisioning works.
  */
 
-import { registrableDomain, recordNameWithinZone } from '../lib/hostinger';
+import {
+  isProvisionSetback,
+  isRetryableStatus,
+  recordNameWithinZone,
+  registrableDomain,
+  retryAfterMsFrom,
+  summariseResponseBody,
+} from '../lib/hostinger';
+import { describeSubdomainStatus } from '../lib/subdomain-status';
 
 let failures = 0;
 
@@ -147,10 +155,104 @@ assert(
   null,
 );
 
+/* -----------------------------------------------------------------------------
+ * What an operator is shown when the host says no.
+ *
+ * The other pure half of this module, added after the live deployment's only
+ * school was found sitting at `failed` with this in the table cell:
+ *
+ *   Hostinger refused the request (HTTP 429). {
+ *    "message": "Too Many Attempts.",
+ *    "correlation_id": "a28cff8a-…"
+ *   }
+ *
+ * Two defects in one string: a rate limit called a refusal, and a JSON document
+ * pasted into a UI. Both are decided by pure functions, so both are assertable
+ * here, and neither would have been caught by a type-checker or a build.
+ * -------------------------------------------------------------------------- */
+
+console.log('\nsummariseResponseBody — one sentence, not a document:');
+assert(
+  "Hostinger's own 429 body becomes its message",
+  summariseResponseBody(
+    '{\n "message": "Too Many Attempts.",\n "correlation_id": "a28cff8a-1111-2222-3333-444455556666"\n}',
+  ),
+  'Too Many Attempts. (ref a28cff8a-1111-2222-3333-444455556666)',
+);
+assert(
+  'the correlation id is kept but never leads',
+  summariseResponseBody('{"correlation_id":"abc","message":"Not found."}'),
+  'Not found. (ref abc)',
+);
+assert('`detail` is accepted too', summariseResponseBody('{"detail":"Nope."}'), 'Nope.');
+assert('so is `error`', summariseResponseBody('{"error":"Bad zone."}'), 'Bad zone.');
+assert(
+  'a multi-line message collapses to one line',
+  summariseResponseBody('{"message":"Line one.\\n  Line two."}'),
+  'Line one. Line two.',
+);
+assert(
+  'a body that is not JSON falls back to truncation',
+  summariseResponseBody('<html><body>502 Bad Gateway</body></html>'),
+  '<html><body>502 Bad Gateway</body></html>',
+);
+assert(
+  'JSON with no message field falls back rather than inventing one',
+  summariseResponseBody('{"code":4008}'),
+  '{"code":4008}',
+);
+assert('an empty body says so', summariseResponseBody('   '), 'No details were returned.');
+
+console.log('\nretryAfterMsFrom — the header that was being discarded:');
+assert('seconds', retryAfterMsFrom('30'), 30_000);
+assert('a fractional second is not rounded away', retryAfterMsFrom('0.5'), 500);
+assert('an absent header is absent', retryAfterMsFrom(null), null);
+assert('so is an empty one', retryAfterMsFrom('  '), null);
+assert('nonsense is not a wait', retryAfterMsFrom('soon'), null);
+assert(
+  'an HTTP date in the past never yields a negative wait',
+  retryAfterMsFrom('Wed, 21 Oct 2015 07:28:00 GMT'),
+  0,
+);
+
+console.log('\nWhich statuses are worth trying again:');
+assert('429 is', isRetryableStatus(429), true);
+assert('500 is', isRetryableStatus(500), true);
+assert('503 is', isRetryableStatus(503), true);
+assert('401 is not — a rejected token is rejected twice', isRetryableStatus(401), false);
+assert('404 is not', isRetryableStatus(404), false);
+assert(
+  '422 is not — the same invalid record would be refused again',
+  isRetryableStatus(422),
+  false,
+);
+
+console.log('\nthrottled is a warning, and it is retryable:');
+assert('it is not danger-coloured', describeSubdomainStatus('throttled').variant, 'warning');
+assert('failed still is', describeSubdomainStatus('failed').variant, 'danger');
+assert('and it offers the retry', describeSubdomainStatus('throttled').retryable, true);
+assert(
+  'the label says what happened rather than that something broke',
+  describeSubdomainStatus('throttled').label,
+  'Rate limited',
+);
+assert(
+  'both setbacks record their message on the row',
+  isProvisionSetback('throttled') && isProvisionSetback('failed'),
+  true,
+);
+assert(
+  'a provision in progress does not',
+  isProvisionSetback('provisioning') || isProvisionSetback('ready'),
+  false,
+);
+
 if (failures > 0) {
   console.log(`\nFAIL — ${failures} assertion(s) about provisioning did not hold.`);
   process.exitCode = 1;
 } else {
-  console.log('\nPASS — the zone and record-name arithmetic holds.');
+  console.log(
+    '\nPASS — the zone and record-name arithmetic holds, and a rate limit reads as one.',
+  );
   process.exitCode = 0;
 }

@@ -4,11 +4,12 @@ import {
   parsePositiveAmountPaise,
   type LedgerLineInput,
 } from '@/lib/accounting';
-import { listDayBook } from '@/lib/accounting-queries';
+import { countDayBook, listDayBook } from '@/lib/accounting-queries';
 import { withSchoolAuth } from '@/lib/api-auth';
 import { apiFailure, apiSuccess, handleApiError, readJsonBody } from '@/lib/api-response';
 import { db } from '@/lib/drizzle';
 import { LedgerError, postTransaction } from '@/lib/ledger';
+import { readListQuery } from '@/lib/list-query';
 import { isIsoDate, isUuid, readOptionalString, readString } from '@/lib/validation';
 
 /**
@@ -42,14 +43,41 @@ export const GET = withSchoolAuth(
       const source = search.get('source');
       const accountId = search.get('accountId');
 
-      return apiSuccess({
-        entries: await listDayBook(auth.locationId, {
-          from: isIsoDate(from) ? from : undefined,
-          to: isIsoDate(to) ? to : undefined,
-          source: isLedgerSource(source) ? source : undefined,
-          accountId: isUuid(accountId) ? accountId : undefined,
-        }),
+      /*
+       * The day book used to answer with the most recent 500 rows and say
+       * nothing about the rest. A school in its third year has more than that,
+       * and a truncated ledger is the one list where "the rest is off the end"
+       * is not a UX complaint — it is a set of books that does not add up on
+       * screen. It is paged now, with the count beside it.
+       *
+       * Only `entryDate` is sortable: the amount is a SUM over the lines, and
+       * offering a sort the server would have to compute per page is offering
+       * a sort that disagrees with itself between pages.
+       */
+      const list = readListQuery(search, {
+        sortable: ['entryDate'] as const,
+        defaultSort: 'entryDate',
+        defaultDirection: 'desc',
       });
+
+      const window = {
+        from: isIsoDate(from) ? from : undefined,
+        to: isIsoDate(to) ? to : undefined,
+        source: isLedgerSource(source) ? source : undefined,
+        accountId: isUuid(accountId) ? accountId : undefined,
+      };
+
+      const [entries, total] = await Promise.all([
+        listDayBook(auth.locationId, {
+          ...window,
+          limit: list.limit,
+          offset: list.offset,
+          direction: list.direction,
+        }),
+        countDayBook(auth.locationId, window),
+      ]);
+
+      return apiSuccess({ entries, total, page: list.page, limit: list.limit });
     } catch (error) {
       return handleApiError(error);
     }

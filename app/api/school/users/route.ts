@@ -4,7 +4,12 @@ import { branches, schoolUsers } from '@/db/schema';
 import { apiFailure, apiSuccess, handleApiError, readJsonBody } from '@/lib/api-response';
 import { withSchoolAuth } from '@/lib/api-auth';
 import { db } from '@/lib/drizzle';
-import { isUserStatus, listSchoolUsers } from '@/lib/school-queries';
+import { readListQuery } from '@/lib/list-query';
+import {
+  isUserStatus,
+  listSchoolUsers,
+  SCHOOL_USER_SORT_COLUMNS,
+} from '@/lib/school-queries';
 import { isUuid, readOptionalString, readString } from '@/lib/validation';
 import { BRANCH_REQUIRED_ROLES, isUserRole } from '@/types/school-auth';
 
@@ -36,16 +41,21 @@ export const GET = withSchoolAuth(
       const branchId =
         auth.branchId ?? (url.searchParams.get('branchId') ?? undefined);
 
-      const pageRaw = Number.parseInt(url.searchParams.get('page') ?? '1', 10);
-      const limitRaw = Number.parseInt(url.searchParams.get('limit') ?? '20', 10);
+      const list = readListQuery(url.searchParams, {
+        sortable: SCHOOL_USER_SORT_COLUMNS,
+        defaultSort: 'name',
+        defaultDirection: 'asc',
+      });
 
       const result = await listSchoolUsers(auth.locationId, {
         role: url.searchParams.get('role') ?? undefined,
         branchId: branchId === null ? undefined : branchId,
         status,
         search: url.searchParams.get('search') ?? undefined,
-        page: Number.isFinite(pageRaw) ? pageRaw : 1,
-        limit: Number.isFinite(limitRaw) ? limitRaw : 20,
+        page: list.page,
+        limit: list.limit,
+        sort: list.sort,
+        direction: list.direction,
       });
 
       return apiSuccess(result);

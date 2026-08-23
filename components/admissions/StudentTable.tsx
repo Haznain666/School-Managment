@@ -4,18 +4,13 @@ import Link from 'next/link';
 import { useCallback, useEffect, useState } from 'react';
 
 import { Badge } from '@/components/ui/Badge';
-import { Button } from '@/components/ui/Button';
-import { Card } from '@/components/ui/Card';
-import { Input } from '@/components/ui/Input';
-import { Select } from '@/components/ui/Select';
 import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeaderCell,
-  TableRow,
-} from '@/components/ui/Table';
+  DataTable,
+  DATA_TABLE_DEFAULT_PAGE_SIZE,
+  type DataTableColumn,
+  type DataTableSort,
+} from '@/components/ui/DataTable';
+import { Select } from '@/components/ui/Select';
 import {
   ENROLLMENT_STATUSES,
   ENROLLMENT_STATUS_LABELS,
@@ -80,14 +75,6 @@ interface StudentsResponse {
   limit: number;
 }
 
-const STATUS_OPTIONS = [
-  { value: '', label: 'All statuses' },
-  ...ENROLLMENT_STATUSES.map((value) => ({
-    value,
-    label: ENROLLMENT_STATUS_LABELS[value],
-  })),
-];
-
 function statusVariant(status: EnrollmentStatus): 'success' | 'warning' | 'danger' | 'neutral' {
   switch (status) {
     case 'active':
@@ -118,6 +105,12 @@ export function StudentTable({
   const [academicYearId, setAcademicYearId] = useState(activeYearId);
   const [status, setStatus] = useState('');
   const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(DATA_TABLE_DEFAULT_PAGE_SIZE);
+  const [sort, setSort] = useState<DataTableSort>({
+    columnId: 'name',
+    direction: 'asc',
+  });
+  const [pending, setPending] = useState(true);
 
   const [grades, setGrades] = useState<GradeOption[]>([]);
   const [sections, setSections] = useState<SectionOption[]>([]);
@@ -175,7 +168,13 @@ export function StudentTable({
 
   const load = useCallback(
     async (signal: AbortSignal) => {
-      const query = new URLSearchParams({ page: String(page), limit: '20' });
+      setPending(true);
+      const query = new URLSearchParams({
+        page: String(page),
+        limit: String(pageSize),
+        sort: sort.columnId,
+        direction: sort.direction,
+      });
       if (search.trim() !== '') query.set('search', search.trim());
       if (branchId !== '') query.set('branchId', branchId);
       if (gradeId !== '') query.set('gradeId', gradeId);
@@ -191,11 +190,26 @@ export function StudentTable({
         );
         setError(null);
       } catch (caught) {
+        // An aborted request is a keystroke, not a failure, and it leaves the
+        // pending state alone: the request that replaced it is still in flight
+        // and the skeleton belongs to that one.
         if (caught instanceof DOMException && caught.name === 'AbortError') return;
         setError(schoolErrorMessage(caught, 'Could not load students.'));
+      } finally {
+        if (!signal.aborted) setPending(false);
       }
     },
-    [search, branchId, gradeId, sectionId, academicYearId, status, page],
+    [
+      search,
+      branchId,
+      gradeId,
+      sectionId,
+      academicYearId,
+      status,
+      page,
+      pageSize,
+      sort,
+    ],
   );
 
   // Debounced so typing in the search box does not fire a request per keystroke.
@@ -211,186 +225,225 @@ export function StudentTable({
     };
   }, [load]);
 
-  const totalPages =
-    data === null ? 1 : Math.max(Math.ceil(data.total / data.limit), 1);
+  const columns: Array<DataTableColumn<StudentRow>> = [
+    {
+      id: 'studentId',
+      header: 'Student ID',
+      muted: true,
+      sortable: true,
+      className: 'font-mono text-xs',
+      cell: (row) => row.studentId,
+    },
+    {
+      id: 'name',
+      header: 'Name',
+      rowHeader: true,
+      sortable: true,
+      cell: (row) => row.name,
+    },
+    {
+      id: 'grade',
+      header: 'Grade',
+      muted: true,
+      sortable: true,
+      cell: (row) => row.gradeName,
+    },
+    {
+      id: 'section',
+      header: 'Section',
+      muted: true,
+      sortable: true,
+      cell: (row) => row.sectionName,
+    },
+    {
+      id: 'guardianPhone',
+      header: 'Guardian phone',
+      muted: true,
+      className: 'font-mono text-xs',
+      cell: (row) => row.guardianPhone ?? '—',
+    },
+    {
+      id: 'enrollmentDate',
+      header: 'Enrolled',
+      kind: 'date',
+      muted: true,
+      sortable: true,
+      cell: (row) => row.enrollmentDate,
+    },
+    {
+      id: 'status',
+      header: 'Status',
+      sortable: true,
+      cell: (row) => (
+        <Badge variant={statusVariant(row.status)}>
+          {ENROLLMENT_STATUS_LABELS[row.status]}
+        </Badge>
+      ),
+    },
+    {
+      id: 'actions',
+      header: 'Actions',
+      cell: (row) => (
+        <Link
+          href={`/dashboard/admissions/students/${row.studentProfileId}`}
+          className="text-sm font-medium text-brand-primary hover:underline"
+        >
+          View profile
+        </Link>
+      ),
+    },
+  ];
 
   return (
     <div className="space-y-4">
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-        <Input
-          label="Search"
-          placeholder="Name, student ID or phone"
-          value={search}
-          onChange={(event) => {
-            setPage(1);
-            setSearch(event.target.value);
-          }}
-        />
-
-        <Select
-          label="Academic year"
-          options={academicYears.map((year) => ({
-            value: year.id,
-            label: year.isActive ? `${year.name} (active)` : year.name,
-          }))}
-          value={academicYearId}
-          onChange={(event) => {
-            setPage(1);
-            setSectionId('');
-            setAcademicYearId(event.target.value);
-          }}
-        />
-
-        <Select
-          label="Branch"
-          options={[
-            { value: '', label: 'All branches' },
-            ...branches.map((branch) => ({ value: branch.id, label: branch.name })),
-          ]}
-          value={branchId}
-          disabled={lockedBranchId !== null}
-          onChange={(event) => {
-            setPage(1);
-            setGradeId('');
-            setSectionId('');
-            setBranchId(event.target.value);
-          }}
-        />
-
-        <Select
-          label="Grade"
-          options={[
-            { value: '', label: 'All grades' },
-            ...grades.map((grade) => ({ value: grade.id, label: grade.label })),
-          ]}
-          value={gradeId}
-          disabled={branchId === ''}
-          onChange={(event) => {
-            setPage(1);
-            setSectionId('');
-            setGradeId(event.target.value);
-          }}
-        />
-
-        <Select
-          label="Section"
-          options={[
-            { value: '', label: 'All sections' },
-            ...sections.map((section) => ({ value: section.id, label: section.name })),
-          ]}
-          value={sectionId}
-          disabled={gradeId === ''}
-          onChange={(event) => {
-            setPage(1);
-            setSectionId(event.target.value);
-          }}
-        />
-
-        <Select
-          label="Status"
-          options={STATUS_OPTIONS}
-          value={status}
-          onChange={(event) => {
-            setPage(1);
-            setStatus(event.target.value);
-          }}
-        />
-      </div>
-
       {error !== null ? (
-        <p role="alert" className="rounded-lg bg-status-danger-subtle px-3 py-2 text-sm text-status-danger-ink">
+        <p
+          role="alert"
+          className="rounded-lg bg-status-danger-subtle px-3 py-2 text-sm text-status-danger-ink"
+        >
           {error}
         </p>
       ) : null}
 
-      {data === null ? (
-        <Card>
-          <p className="text-sm text-ink-muted">Loading students…</p>
-        </Card>
-      ) : data.students.length === 0 ? (
-        <Card>
-          <p className="text-sm text-ink-muted">No students match those filters.</p>
-        </Card>
-      ) : (
-        <>
-          <Card className="p-0">
-            <div className="overflow-x-auto">
-              <Table caption="Students" className="rounded-none border-0">
-                <TableHead>
-                  <TableRow>
-                    <TableHeaderCell>Student ID</TableHeaderCell>
-                    <TableHeaderCell>Name</TableHeaderCell>
-                    <TableHeaderCell>Grade</TableHeaderCell>
-                    <TableHeaderCell>Section</TableHeaderCell>
-                    <TableHeaderCell>Guardian phone</TableHeaderCell>
-                    <TableHeaderCell>Enrolled</TableHeaderCell>
-                    <TableHeaderCell>Status</TableHeaderCell>
-                    <TableHeaderCell>Actions</TableHeaderCell>
-                  </TableRow>
-                </TableHead>
-                <TableBody>
-                  {data.students.map((row) => (
-                    <TableRow key={row.studentProfileId}>
-                      <TableCell muted className="font-mono text-xs">
-                        {row.studentId}
-                      </TableCell>
-                      <TableCell rowHeader>{row.name}</TableCell>
-                      <TableCell muted>{row.gradeName}</TableCell>
-                      <TableCell muted>{row.sectionName}</TableCell>
-                      <TableCell muted className="font-mono text-xs">
-                        {row.guardianPhone ?? '—'}
-                      </TableCell>
-                      <TableCell muted>{row.enrollmentDate}</TableCell>
-                      <TableCell>
-                        <Badge variant={statusVariant(row.status)}>
-                          {ENROLLMENT_STATUS_LABELS[row.status]}
-                        </Badge>
-                      </TableCell>
-                      <TableCell>
-                        <Link
-                          href={`/dashboard/admissions/students/${row.studentProfileId}`}
-                          className="text-sm font-medium text-brand-primary hover:underline"
-                        >
-                          View profile
-                        </Link>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </div>
-          </Card>
-
-          <div className="flex items-center justify-between text-sm text-ink-muted">
-            <span>
-              {data.total} student{data.total === 1 ? '' : 's'} · page {data.page} of{' '}
-              {totalPages}
-            </span>
-            <div className="flex gap-2">
-              <Button
-                variant="secondary"
-                size="sm"
-                disabled={data.page <= 1}
-                onClick={() => {
-                  setPage((current) => Math.max(current - 1, 1));
+      <DataTable
+        mode="server"
+        caption="Students"
+        columns={columns}
+        rows={data?.students ?? []}
+        getRowKey={(row) => row.studentProfileId}
+        pending={pending}
+        sort={sort}
+        onSortChange={(next) => {
+          setPage(1);
+          setSort(next);
+        }}
+        page={page}
+        pageSize={pageSize}
+        totalItems={data?.total ?? 0}
+        onPageChange={setPage}
+        onPageSizeChange={setPageSize}
+        search={{
+          value: search,
+          onChange: (value) => {
+            setPage(1);
+            setSearch(value);
+          },
+          placeholder: 'Name, student ID or phone',
+        }}
+        filters={[
+          {
+            id: 'status',
+            label: 'Status',
+            allLabel: 'All statuses',
+            options: ENROLLMENT_STATUSES.map((value) => ({
+              value,
+              label: ENROLLMENT_STATUS_LABELS[value],
+            })),
+            value: status,
+            onChange: (value) => {
+              setPage(1);
+              setStatus(value);
+            },
+          },
+        ]}
+        /*
+         * Year, branch, grade and section stay hand-written rather than
+         * becoming filter descriptors: each one narrows the next, and the
+         * dependency — a grade list that reloads when the branch changes — is
+         * the reason a grade from another branch is never offered. A generic
+         * filter has no way to express that, and offering an id that returns
+         * nothing looks like a bug.
+         */
+        extraFilters={
+          <>
+            <div className="w-full sm:w-52">
+              <Select
+                label="Academic year"
+                options={academicYears.map((year) => ({
+                  value: year.id,
+                  label: year.isActive ? `${year.name} (active)` : year.name,
+                }))}
+                value={academicYearId}
+                onChange={(event) => {
+                  setPage(1);
+                  setSectionId('');
+                  setAcademicYearId(event.target.value);
                 }}
-              >
-                Previous
-              </Button>
-              <Button
-                variant="secondary"
-                size="sm"
-                disabled={data.page >= totalPages}
-                onClick={() => {
-                  setPage((current) => current + 1);
-                }}
-              >
-                Next
-              </Button>
+              />
             </div>
-          </div>
-        </>
-      )}
+            <div className="w-full sm:w-52">
+              <Select
+                label="Branch"
+                options={[
+                  { value: '', label: 'All branches' },
+                  ...branches.map((branch) => ({ value: branch.id, label: branch.name })),
+                ]}
+                value={branchId}
+                disabled={lockedBranchId !== null}
+                onChange={(event) => {
+                  setPage(1);
+                  setGradeId('');
+                  setSectionId('');
+                  setBranchId(event.target.value);
+                }}
+              />
+            </div>
+            <div className="w-full sm:w-52">
+              <Select
+                label="Grade"
+                options={[
+                  { value: '', label: 'All grades' },
+                  ...grades.map((grade) => ({ value: grade.id, label: grade.label })),
+                ]}
+                value={gradeId}
+                disabled={branchId === ''}
+                onChange={(event) => {
+                  setPage(1);
+                  setSectionId('');
+                  setGradeId(event.target.value);
+                }}
+              />
+            </div>
+            <div className="w-full sm:w-52">
+              <Select
+                label="Section"
+                options={[
+                  { value: '', label: 'All sections' },
+                  ...sections.map((section) => ({ value: section.id, label: section.name })),
+                ]}
+                value={sectionId}
+                disabled={gradeId === ''}
+                onChange={(event) => {
+                  setPage(1);
+                  setSectionId(event.target.value);
+                }}
+              />
+            </div>
+          </>
+        }
+        filtersActive={
+          search.trim() !== '' ||
+          status !== '' ||
+          gradeId !== '' ||
+          sectionId !== '' ||
+          (branchId !== '' && lockedBranchId === null)
+        }
+        onClearFilters={() => {
+          setPage(1);
+          setSearch('');
+          setStatus('');
+          setGradeId('');
+          setSectionId('');
+          // A branch-bound administrator's branch is not a filter they chose,
+          // so clearing does not hand them the whole school.
+          if (lockedBranchId === null) setBranchId('');
+        }}
+        itemNoun={{ singular: 'student', plural: 'students' }}
+        emptyTitle="No students enrolled yet"
+        emptyDescription="Enrol a student, or import a roll, and the directory fills in."
+        noResultTitle="No students match those filters"
+        noResultDescription="Widen the year, class or status and they will come back."
+      />
     </div>
   );
 }

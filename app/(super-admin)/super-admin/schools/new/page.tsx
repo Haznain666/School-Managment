@@ -1,6 +1,6 @@
 import type { Metadata } from 'next';
 
-import { SchoolForm } from '@/components/super-admin/SchoolForm';
+import { SchoolWizard } from '@/components/super-admin/SchoolWizard';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { publicEnv } from '@/lib/env';
 
@@ -15,10 +15,10 @@ export default function NewSchoolPage() {
     <div className="max-w-3xl space-y-6">
       <PageHeader
         title="Add school"
-        description="Provisions a new tenant. The GHL Location ID cannot be changed afterwards — every record this school creates is filed under it."
+        description="Five steps. The first creates the school and the rest run against it, so a setup left half-finished still leaves a school that works — the remaining steps are its own tabs."
       />
 
-      <SchoolForm appDomain={publicEnv.appDomain} />
+      <SchoolWizard appDomain={publicEnv.appDomain} />
     </div>
   );
 }

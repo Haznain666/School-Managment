@@ -453,6 +453,27 @@ export interface ChallanListRow {
   status: ChallanStatus;
 }
 
+/**
+ * The columns the challan register may be ordered by.
+ *
+ * `balance` is billed minus paid, computed in the order-by rather than read
+ * from a column, because there is no balance column — the same reason the
+ * ledger has none. Sorting on it is what answers "who owes the most", which is
+ * the question the register is usually opened for.
+ */
+export const CHALLAN_SORT_COLUMNS = [
+  'challanNumber',
+  'studentName',
+  'totalAmount',
+  'paidAmount',
+  'balance',
+  'status',
+  'dueDate',
+  'createdAt',
+] as const;
+
+export type ChallanSortColumn = (typeof CHALLAN_SORT_COLUMNS)[number];
+
 export interface ListChallansFilters {
   academicYearId?: string | undefined;
   billingMonth?: number | undefined;
@@ -464,6 +485,8 @@ export interface ListChallansFilters {
   studentProfileId?: string | undefined;
   page?: number | undefined;
   limit?: number | undefined;
+  sort?: ChallanSortColumn | undefined;
+  direction?: 'asc' | 'desc' | undefined;
 }
 
 export interface ListChallansResult {
@@ -528,10 +551,22 @@ export async function listChallans(
 
   const where = and(...conditions);
 
+  const order = filters.direction === 'asc' ? asc : desc;
+  const sortColumn = {
+    challanNumber: feeChallans.challanNumber,
+    studentName: schoolUsers.name,
+    totalAmount: feeChallans.totalAmount,
+    paidAmount: feeChallans.paidAmount,
+    balance: sql`${feeChallans.totalAmount} - ${feeChallans.paidAmount}`,
+    status: feeChallans.status,
+    dueDate: feeChallans.dueDate,
+    createdAt: feeChallans.createdAt,
+  }[filters.sort ?? 'createdAt'];
+
   const [rows, totalRows, sums] = await Promise.all([
     challanSelect()
       .where(where)
-      .orderBy(desc(feeChallans.createdAt))
+      .orderBy(order(sortColumn))
       .limit(limit)
       .offset((page - 1) * limit),
     challanCount().where(where),

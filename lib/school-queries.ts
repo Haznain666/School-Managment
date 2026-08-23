@@ -4,6 +4,7 @@ import {
   and,
   asc,
   count,
+  desc,
   eq,
   ilike,
   inArray,
@@ -99,6 +100,17 @@ export function isUserStatus(value: unknown): value is UserStatus {
  */
 export const UNASSIGNED_BRANCH = 'unassigned';
 
+/** The columns the directory may be ordered by. */
+export const SCHOOL_USER_SORT_COLUMNS = [
+  'name',
+  'role',
+  'branch',
+  'phone',
+  'joinedAt',
+] as const;
+
+export type SchoolUserSortColumn = (typeof SCHOOL_USER_SORT_COLUMNS)[number];
+
 export interface ListUsersFilters {
   role?: string | undefined;
   branchId?: string | undefined;
@@ -106,6 +118,8 @@ export interface ListUsersFilters {
   search?: string | undefined;
   page?: number | undefined;
   limit?: number | undefined;
+  sort?: SchoolUserSortColumn | undefined;
+  direction?: 'asc' | 'desc' | undefined;
 }
 
 /** One selectable value on a filter, with how many rows it would return. */
@@ -201,6 +215,15 @@ export async function listSchoolUsers(
   const limit = Math.min(Math.max(filters.limit ?? 20, 1), 100);
   const page = Math.max(filters.page ?? 1, 1);
 
+  const order = filters.direction === 'desc' ? desc : asc;
+  const sortColumn = {
+    name: schoolUsers.name,
+    role: schoolUsers.role,
+    branch: branches.name,
+    phone: schoolUsers.phone,
+    joinedAt: schoolUsers.joinedAt,
+  }[filters.sort ?? 'name'];
+
   const where = and(...userConditions(locationId, filters));
 
   const [rows, totals, roleFacets, branchFacets, statusFacets] = await Promise.all([
@@ -209,7 +232,7 @@ export async function listSchoolUsers(
       .from(schoolUsers)
       .leftJoin(branches, eq(branches.id, schoolUsers.branchId))
       .where(where)
-      .orderBy(asc(schoolUsers.name))
+      .orderBy(order(sortColumn))
       .limit(limit)
       .offset((page - 1) * limit),
     db.select({ value: count() }).from(schoolUsers).where(where),

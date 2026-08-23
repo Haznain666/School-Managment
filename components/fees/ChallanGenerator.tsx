@@ -6,6 +6,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { StudentPicker, type PickedStudent } from '@/components/fees/StudentPicker';
 import { Button } from '@/components/ui/Button';
 import { Card, CardTitle } from '@/components/ui/Card';
+import { DataTable, type DataTableColumn } from '@/components/ui/DataTable';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
 import {
@@ -508,6 +509,47 @@ function BulkPanel({
     }
   };
 
+  const candidateColumns: Array<DataTableColumn<BulkCandidate>> = [
+    {
+      id: 'student',
+      header: 'Student',
+      sortValue: (candidate) => candidate.studentName,
+      searchValue: (candidate) => `${candidate.studentName} ${candidate.studentId}`,
+      cell: (candidate) => (
+        <>
+          <span className="font-medium text-ink">{candidate.studentName}</span>
+          <span className="block font-mono text-xs text-ink-muted">
+            {candidate.studentId}
+          </span>
+        </>
+      ),
+    },
+    {
+      id: 'section',
+      header: 'Section',
+      muted: true,
+      sortValue: (candidate) => candidate.sectionName,
+      searchValue: (candidate) => candidate.sectionName,
+      cell: (candidate) => candidate.sectionName,
+    },
+    {
+      id: 'billing',
+      header: 'This month',
+      align: 'end',
+      // Sorted so the already-billed rows group together: the reason to sort
+      // this column at all is to see the exceptions in one block.
+      sortValue: (candidate) => candidate.existingChallanNumber ?? '',
+      cell: (candidate) =>
+        candidate.existingChallanNumber === null ? (
+          <span className="text-xs text-ink-muted">Will be billed</span>
+        ) : (
+          <span className="font-mono text-xs text-status-warning-ink">
+            {candidate.existingChallanNumber}
+          </span>
+        ),
+    },
+  ];
+
   return (
     <div className="space-y-4">
       <Card header={<CardTitle title="Who to bill" />}>
@@ -600,36 +642,48 @@ function BulkPanel({
             </p>
           ) : null}
 
-          {candidates === null || candidates.length === 0 ? (
-            <p className="text-sm text-ink-muted">
-              {loading
-                ? 'Loading…'
-                : 'No active students are enrolled here for the selected academic year.'}
-            </p>
-          ) : (
-            <ul className="max-h-80 divide-y divide-line overflow-y-auto text-sm">
-              {candidates.map((candidate) => (
-                <li
-                  key={candidate.studentProfileId}
-                  className="flex items-center justify-between gap-3 py-2"
-                >
-                  <span className="text-ink">
-                    {candidate.studentName}{' '}
-                    <span className="text-xs text-ink-muted">
-                      ({candidate.sectionName})
-                    </span>
-                  </span>
-                  {candidate.existingChallanNumber === null ? (
-                    <span className="text-xs text-ink-muted">Will be billed</span>
-                  ) : (
-                    <span className="font-mono text-xs text-status-warning-ink">
-                      {candidate.existingChallanNumber}
-                    </span>
-                  )}
-                </li>
-              ))}
-            </ul>
-          )}
+          {/*
+            A scrolling list of two hundred names answered "who is in this
+            grade" and never the question actually being asked before a bulk
+            run, which is "which of them is already billed". It is a table now,
+            filtered on exactly that.
+          */}
+          <DataTable
+            caption="Students to bill"
+            columns={candidateColumns}
+            rows={candidates ?? []}
+            getRowKey={(candidate) => candidate.studentProfileId}
+            pending={loading}
+            defaultSort={{ columnId: 'student', direction: 'asc' }}
+            search={{ placeholder: 'Name or student ID' }}
+            filters={[
+              {
+                id: 'billed',
+                label: 'Billing',
+                allLabel: 'Everyone here',
+                options: [
+                  { value: 'pending', label: 'Will be billed' },
+                  { value: 'billed', label: 'Already billed' },
+                ],
+                rowValue: (candidate) =>
+                  candidate.existingChallanNumber === null ? 'pending' : 'billed',
+              },
+              {
+                id: 'section',
+                label: 'Section',
+                allLabel: 'Every section',
+                options: [
+                  ...new Set((candidates ?? []).map((candidate) => candidate.sectionName)),
+                ].map((name) => ({ value: name, label: name })),
+                rowValue: (candidate) => candidate.sectionName,
+              },
+            ]}
+            itemNoun={{ singular: 'student', plural: 'students' }}
+            emptyTitle="Nobody to bill"
+            emptyDescription="No active students are enrolled here for the selected academic year."
+            noResultTitle="No students match those filters"
+            noResultDescription="Widen the section or the billing filter to see the rest of the grade."
+          />
         </Card>
       )}
     </div>

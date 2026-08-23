@@ -7,15 +7,8 @@ import { Button } from '@/components/ui/Button';
 import { Card, CardTitle } from '@/components/ui/Card';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
+import { DataTable, type DataTableColumn } from '@/components/ui/DataTable';
 import { Textarea } from '@/components/ui/Textarea';
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeaderCell,
-  TableRow,
-} from '@/components/ui/Table';
 import {
   FEE_CATEGORIES,
   FEE_CATEGORY_LABELS,
@@ -177,6 +170,88 @@ export function FeeTypeManager({ canEdit }: FeeTypeManagerProps) {
   const nextSortOrder =
     feeTypes.reduce((highest, row) => Math.max(highest, row.sortOrder), 0) + 1;
 
+  const feeTypeColumns: Array<DataTableColumn<FeeTypeRow>> = [
+    {
+      id: 'name',
+      header: 'Name',
+      sortValue: (row) => row.name,
+      searchValue: (row) => `${row.name} ${row.description ?? ''}`,
+      cell: (row) => (
+        <>
+          <p className="font-medium text-ink">{row.name}</p>
+          {row.description === null || row.description === '' ? null : (
+            <p className="text-xs text-ink-muted">{row.description}</p>
+          )}
+        </>
+      ),
+    },
+    {
+      id: 'category',
+      header: 'Category',
+      muted: true,
+      sortValue: (row) => FEE_CATEGORY_LABELS[row.feeCategory],
+      cell: (row) => FEE_CATEGORY_LABELS[row.feeCategory],
+    },
+    {
+      id: 'order',
+      header: 'Order',
+      kind: 'number',
+      muted: true,
+      // The order a head is billed in is the order this list defaults to, so
+      // the column that decides it is the one the table opens sorted by.
+      sortValue: (row) => row.sortOrder,
+      cell: (row) => row.sortOrder,
+    },
+    {
+      id: 'status',
+      header: 'Status',
+      sortValue: (row) => (row.isActive ? 0 : 1),
+      cell: (row) => (
+        <Badge variant={row.isActive ? 'success' : 'neutral'}>
+          {row.isActive ? 'Active' : 'Retired'}
+        </Badge>
+      ),
+    },
+  ];
+
+  if (canEdit) {
+    feeTypeColumns.push({
+      id: 'actions',
+      header: <span className="sr-only">Actions</span>,
+      align: 'end',
+      cell: (row) => (
+        <div className="flex justify-end gap-2">
+          <Button
+            size="sm"
+            variant="secondary"
+            onClick={() => {
+              setDraft({
+                id: row.id,
+                name: row.name,
+                description: row.description ?? '',
+                feeCategory: row.feeCategory,
+                isActive: row.isActive,
+                sortOrder: String(row.sortOrder),
+              });
+            }}
+          >
+            Edit
+          </Button>
+          <Button
+            size="sm"
+            variant="ghost"
+            isLoading={busy === row.id}
+            onClick={() => {
+              void toggleActive(row);
+            }}
+          >
+            {row.isActive ? 'Retire' : 'Restore'}
+          </Button>
+        </div>
+      ),
+    });
+  }
+
   return (
     <div className="space-y-4">
       {error !== null ? (
@@ -311,75 +386,38 @@ export function FeeTypeManager({ canEdit }: FeeTypeManagerProps) {
           }
           className="p-0"
         >
-          <div className="overflow-x-auto">
-            <Table caption="Fee types" className="rounded-none border-0">
-              <TableHead>
-                <TableRow>
-                  <TableHeaderCell>Name</TableHeaderCell>
-                  <TableHeaderCell>Category</TableHeaderCell>
-                  <TableHeaderCell>Order</TableHeaderCell>
-                  <TableHeaderCell>Status</TableHeaderCell>
-                  {canEdit ? (
-                    <TableHeaderCell>
-                      <span className="sr-only">Actions</span>
-                    </TableHeaderCell>
-                  ) : null}
-                </TableRow>
-              </TableHead>
-              <TableBody>
-                {feeTypes.map((row) => (
-                  <TableRow key={row.id}>
-                    <TableCell>
-                      <p className="font-medium text-ink">{row.name}</p>
-                      {row.description === null || row.description === '' ? null : (
-                        <p className="text-xs text-ink-muted">{row.description}</p>
-                      )}
-                    </TableCell>
-                    <TableCell muted>
-                      {FEE_CATEGORY_LABELS[row.feeCategory]}
-                    </TableCell>
-                    <TableCell muted>{row.sortOrder}</TableCell>
-                    <TableCell>
-                      <Badge variant={row.isActive ? 'success' : 'neutral'}>
-                        {row.isActive ? 'Active' : 'Retired'}
-                      </Badge>
-                    </TableCell>
-                    {canEdit ? (
-                      <TableCell>
-                        <div className="flex justify-end gap-2">
-                          <Button
-                            size="sm"
-                            variant="secondary"
-                            onClick={() => {
-                              setDraft({
-                                id: row.id,
-                                name: row.name,
-                                description: row.description ?? '',
-                                feeCategory: row.feeCategory,
-                                isActive: row.isActive,
-                                sortOrder: String(row.sortOrder),
-                              });
-                            }}
-                          >
-                            Edit
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            isLoading={busy === row.id}
-                            onClick={() => {
-                              void toggleActive(row);
-                            }}
-                          >
-                            {row.isActive ? 'Retire' : 'Restore'}
-                          </Button>
-                        </div>
-                      </TableCell>
-                    ) : null}
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
+          <div className="p-5">
+            <DataTable
+              caption="Fee types"
+              columns={feeTypeColumns}
+              rows={feeTypes}
+              getRowKey={(row) => row.id}
+              defaultSort={{ columnId: 'order', direction: 'asc' }}
+              search={{ placeholder: 'Head name or description' }}
+              filters={[
+                {
+                  id: 'category',
+                  label: 'Category',
+                  allLabel: 'Every category',
+                  options: CATEGORY_OPTIONS,
+                  rowValue: (row) => row.feeCategory,
+                },
+                {
+                  id: 'status',
+                  label: 'Status',
+                  allLabel: 'Active and retired',
+                  options: [
+                    { value: 'active', label: 'Active' },
+                    { value: 'retired', label: 'Retired' },
+                  ],
+                  rowValue: (row) => (row.isActive ? 'active' : 'retired'),
+                },
+              ]}
+              itemNoun={{ singular: 'fee head', plural: 'fee heads' }}
+              emptyTitle="No fee heads yet"
+              noResultTitle="No fee heads match those filters"
+              noResultDescription="Widen the category or clear the search."
+            />
           </div>
         </Card>
       )}

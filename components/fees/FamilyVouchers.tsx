@@ -5,16 +5,9 @@ import { useCallback, useEffect, useState } from 'react';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { Card, CardTitle } from '@/components/ui/Card';
+import { DataTable, type DataTableColumn } from '@/components/ui/DataTable';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeaderCell,
-  TableRow,
-} from '@/components/ui/Table';
 
 interface Member {
   challanId: string;
@@ -71,7 +64,8 @@ export function FamilyVouchers({ canWrite, defaultMonth, defaultYear }: FamilyVo
   const [dueDate, setDueDate] = useState('');
 
   const [groups, setGroups] = useState<Group[] | null>(null);
-  const [issued, setIssued] = useState<Issued[]>([]);
+  const [issued, setIssued] = useState<Issued[] | null>(null);
+  const [loadingGroups, setLoadingGroups] = useState(true);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -89,6 +83,10 @@ export function FamilyVouchers({ canWrite, defaultMonth, defaultYear }: FamilyVo
 
   const loadGroups = useCallback(async () => {
     setError(null);
+    // Changing the month refetches, so the pending flag is set here rather
+    // than derived from `groups === null` — the second month's wait would
+    // otherwise show the first month's families as though they were current.
+    setLoadingGroups(true);
     const query = new URLSearchParams({ month, year });
     try {
       const response = await fetch(`/api/school/family-challans?${query.toString()}`);
@@ -101,6 +99,8 @@ export function FamilyVouchers({ canWrite, defaultMonth, defaultYear }: FamilyVo
       else setError(payload.error?.message ?? 'Could not read those challans.');
     } catch {
       setError('Could not read those challans.');
+    } finally {
+      setLoadingGroups(false);
     }
   }, [month, year]);
 
@@ -205,6 +205,225 @@ export function FamilyVouchers({ canWrite, defaultMonth, defaultYear }: FamilyVo
     [amount, method, reference, loadGroups, loadIssued],
   );
 
+  const groupColumns: Array<DataTableColumn<Group>> = [
+    {
+      id: 'family',
+      header: 'Family',
+      sortValue: (group) => group.guardianName,
+      searchValue: (group) =>
+        `${group.guardianName} ${group.phone} ${group.members
+          .map((member) => member.studentName)
+          .join(' ')}`,
+      cell: (group) => (
+        <>
+          <p className="font-medium text-ink">{group.guardianName}</p>
+          <p className="font-mono text-xs text-ink-muted">{group.phone}</p>
+        </>
+      ),
+    },
+    {
+      id: 'children',
+      header: 'Children',
+      muted: true,
+      sortValue: (group) => group.members.length,
+      cell: (group) => (
+        <ul className="text-sm text-ink-muted">
+          {group.members.map((member) => (
+            <li key={member.challanId}>
+              {member.studentName} · {member.challanNumber} · PKR {member.totalAmount}
+            </li>
+          ))}
+        </ul>
+      ),
+    },
+    {
+      id: 'total',
+      header: 'Total',
+      kind: 'money',
+      sortValue: (group) => Number(group.total),
+      cell: (group) => (
+        <span className="font-mono text-sm text-ink">PKR {group.total}</span>
+      ),
+    },
+  ];
+
+  if (canWrite) {
+    groupColumns.push({
+      id: 'issue',
+      header: 'Action',
+      align: 'end',
+      cell: (group) => (
+        <Button
+          size="sm"
+          isLoading={busyId === group.guardianId}
+          disabled={dueDate === ''}
+          title={dueDate === '' ? 'Choose a due date first' : undefined}
+          onClick={() => {
+            void issue(group);
+          }}
+        >
+          Issue one voucher
+        </Button>
+      ),
+    });
+  }
+
+  const issuedColumns: Array<DataTableColumn<Issued>> = [
+    {
+      id: 'voucher',
+      header: 'Voucher',
+      className: 'font-mono text-xs',
+      sortValue: (row) => row.challanNumber,
+      searchValue: (row) => row.challanNumber,
+      cell: (row) => row.challanNumber,
+    },
+    {
+      id: 'family',
+      header: 'Family',
+      sortValue: (row) => row.guardianName,
+      searchValue: (row) => `${row.guardianName} ${row.phone}`,
+      cell: (row) => (
+        <>
+          {row.guardianName}
+          <span className="block font-mono text-xs text-ink-muted">{row.phone}</span>
+        </>
+      ),
+    },
+    {
+      id: 'children',
+      header: 'Children',
+      kind: 'number',
+      muted: true,
+      sortValue: (row) => row.memberCount,
+      cell: (row) => row.memberCount,
+    },
+    {
+      id: 'due',
+      header: 'Due',
+      kind: 'date',
+      muted: true,
+      className: 'font-mono text-xs',
+      sortValue: (row) => row.dueDate,
+      cell: (row) => row.dueDate,
+    },
+    {
+      id: 'status',
+      header: 'Status',
+      sortValue: (row) => row.status,
+      cell: (row) => (
+        <Badge
+          variant={
+            row.status === 'paid'
+              ? 'success'
+              : row.status === 'cancelled'
+                ? 'neutral'
+                : row.status === 'partial'
+                  ? 'warning'
+                  : 'danger'
+          }
+        >
+          {row.status}
+        </Badge>
+      ),
+    },
+    {
+      id: 'total',
+      header: 'Total',
+      kind: 'money',
+      className: 'font-mono',
+      // Sorted on what is still owed rather than on the label, which is
+      // sometimes "paid / billed" and would sort as text.
+      sortValue: (row) => Number(row.totalAmount) - Number(row.paidAmount),
+      cell: (row) =>
+        row.paidAmount === '0.00'
+          ? row.totalAmount
+          : `${row.paidAmount} / ${row.totalAmount}`,
+    },
+  ];
+
+  if (canWrite) {
+    issuedColumns.push({
+      id: 'payment',
+      header: 'Payment',
+      align: 'numeric',
+      cell: (row) =>
+        row.status === 'paid' || row.status === 'cancelled' ? (
+          <span className="text-xs text-ink-muted">—</span>
+        ) : payingId === row.id ? (
+          <div className="flex flex-nowrap items-center justify-end gap-2 whitespace-nowrap">
+            <input
+              type="number"
+              aria-label={`Amount received for ${row.challanNumber}`}
+              placeholder="Amount"
+              value={amount}
+              className="w-28 rounded-lg border border-line-strong px-2 py-1 text-sm"
+              onChange={(event) => {
+                setAmount(event.target.value);
+              }}
+            />
+            <select
+              aria-label="Payment method"
+              value={method}
+              className="rounded-lg border border-line-strong px-2 py-1 text-sm"
+              onChange={(event) => {
+                setMethod(event.target.value);
+              }}
+            >
+              <option value="cash">Cash</option>
+              <option value="bank_transfer">Bank transfer</option>
+              <option value="cheque">Cheque</option>
+            </select>
+            <input
+              type="text"
+              aria-label="Reference"
+              placeholder="Slip no."
+              value={reference}
+              className="w-24 rounded-lg border border-line-strong px-2 py-1 text-sm"
+              onChange={(event) => {
+                setReference(event.target.value);
+              }}
+            />
+            <Button
+              size="sm"
+              isLoading={busyId === row.id}
+              disabled={Number(amount) <= 0}
+              onClick={() => {
+                void pay(row);
+              }}
+            >
+              Record
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              disabled={busyId === row.id}
+              onClick={() => {
+                setPayingId(null);
+              }}
+            >
+              Cancel
+            </Button>
+          </div>
+        ) : (
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={() => {
+              setPayingId(row.id);
+              // Pre-filled with what is still owed, because paying the voucher
+              // in full is the ordinary case and retyping it is how a digit
+              // gets dropped.
+              setAmount((Number(row.totalAmount) - Number(row.paidAmount)).toFixed(2));
+              setError(null);
+              setNotice(null);
+            }}
+          >
+            Take payment
+          </Button>
+        ),
+    });
+  }
+
   return (
     <div className="space-y-4">
       {error !== null ? (
@@ -256,198 +475,66 @@ export function FamilyVouchers({ canWrite, defaultMonth, defaultYear }: FamilyVo
           />
         }
       >
-        {groups === null ? (
-          <p className="text-sm text-ink-muted">Loading…</p>
-        ) : groups.length === 0 ? (
-          <p className="text-sm text-ink-muted">
-            No family has more than one open challan for this month. Nothing to
-            combine.
-          </p>
-        ) : (
-          <ul className="divide-y divide-line">
-            {groups.map((group) => (
-              <li key={group.guardianId} className="flex flex-wrap items-start justify-between gap-4 py-3">
-                <div>
-                  <p className="font-medium text-ink">{group.guardianName}</p>
-                  <p className="font-mono text-xs text-ink-muted">{group.phone}</p>
-                  <ul className="mt-1 text-sm text-ink-muted">
-                    {group.members.map((member) => (
-                      <li key={member.challanId}>
-                        {member.studentName} · {member.challanNumber} · PKR{' '}
-                        {member.totalAmount}
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-
-                <div className="flex flex-nowrap items-center gap-3 whitespace-nowrap">
-                  <span className="font-mono text-sm text-ink">
-                    PKR {group.total}
-                  </span>
-                  {canWrite ? (
-                    <Button
-                      size="sm"
-                      isLoading={busyId === group.guardianId}
-                      disabled={dueDate === ''}
-                      title={dueDate === '' ? 'Choose a due date first' : undefined}
-                      onClick={() => {
-                        void issue(group);
-                      }}
-                    >
-                      Issue one voucher
-                    </Button>
-                  ) : null}
-                </div>
-              </li>
-            ))}
-          </ul>
-        )}
+        <DataTable
+          caption="Families that could share one voucher"
+          columns={groupColumns}
+          rows={groups ?? []}
+          getRowKey={(group) => group.guardianId}
+          pending={loadingGroups}
+          defaultSort={{ columnId: 'total', direction: 'desc' }}
+          search={{ placeholder: 'Guardian, phone or child' }}
+          filters={[
+            {
+              id: 'size',
+              label: 'Children',
+              allLabel: 'Any number',
+              options: [
+                { value: '2', label: 'Two' },
+                { value: '3', label: 'Three' },
+                { value: '4+', label: 'Four or more' },
+              ],
+              rowValue: (group) =>
+                group.members.length >= 4 ? '4+' : String(group.members.length),
+            },
+          ]}
+          itemNoun={{ singular: 'family', plural: 'families' }}
+          emptyTitle="Nothing to combine"
+          emptyDescription="No family has more than one open challan for this month."
+          noResultTitle="No families match those filters"
+          noResultDescription="Widen the search or the number of children."
+        />
       </Card>
 
-      {issued.length > 0 ? (
-        <Card className="p-0" header={<CardTitle title="Issued vouchers" />}>
-          <div className="overflow-x-auto">
-            <Table caption="Family vouchers" className="rounded-none border-0">
-              <TableHead>
-                <TableRow>
-                  <TableHeaderCell>Voucher</TableHeaderCell>
-                  <TableHeaderCell>Family</TableHeaderCell>
-                  <TableHeaderCell>Children</TableHeaderCell>
-                  <TableHeaderCell>Due</TableHeaderCell>
-                  <TableHeaderCell>Status</TableHeaderCell>
-                  <TableHeaderCell align="numeric">Total</TableHeaderCell>
-                  {canWrite ? (
-                    <TableHeaderCell align="numeric">
-                      Payment
-                    </TableHeaderCell>
-                  ) : null}
-                </TableRow>
-              </TableHead>
-              <TableBody>
-                {issued.map((row) => (
-                  <TableRow key={row.id}>
-                    <TableCell className="font-mono text-xs">
-                      {row.challanNumber}
-                    </TableCell>
-                    <TableCell>
-                      {row.guardianName}
-                      <span className="block font-mono text-xs text-ink-muted">
-                        {row.phone}
-                      </span>
-                    </TableCell>
-                    <TableCell muted>{row.memberCount}</TableCell>
-                    <TableCell muted className="font-mono text-xs">
-                      {row.dueDate}
-                    </TableCell>
-                    <TableCell>
-                      <Badge
-                        variant={
-                          row.status === 'paid'
-                            ? 'success'
-                            : row.status === 'cancelled'
-                              ? 'neutral'
-                              : row.status === 'partial'
-                                ? 'warning'
-                                : 'danger'
-                        }
-                      >
-                        {row.status}
-                      </Badge>
-                    </TableCell>
-                    <TableCell align="numeric" className="font-mono">
-                      {row.paidAmount === '0.00'
-                        ? row.totalAmount
-                        : `${row.paidAmount} / ${row.totalAmount}`}
-                    </TableCell>
-                    {canWrite ? (
-                      <TableCell align="numeric">
-                        {row.status === 'paid' || row.status === 'cancelled' ? (
-                          <span className="text-xs text-ink-muted">—</span>
-                        ) : payingId === row.id ? (
-                          <div className="flex flex-nowrap items-center justify-end gap-2 whitespace-nowrap">
-                            <input
-                              type="number"
-                              aria-label={`Amount received for ${row.challanNumber}`}
-                              placeholder="Amount"
-                              value={amount}
-                              className="w-28 rounded-lg border border-line-strong px-2 py-1 text-sm"
-                              onChange={(event) => {
-                                setAmount(event.target.value);
-                              }}
-                            />
-                            <select
-                              aria-label="Payment method"
-                              value={method}
-                              className="rounded-lg border border-line-strong px-2 py-1 text-sm"
-                              onChange={(event) => {
-                                setMethod(event.target.value);
-                              }}
-                            >
-                              <option value="cash">Cash</option>
-                              <option value="bank_transfer">Bank transfer</option>
-                              <option value="cheque">Cheque</option>
-                            </select>
-                            <input
-                              type="text"
-                              aria-label="Reference"
-                              placeholder="Slip no."
-                              value={reference}
-                              className="w-24 rounded-lg border border-line-strong px-2 py-1 text-sm"
-                              onChange={(event) => {
-                                setReference(event.target.value);
-                              }}
-                            />
-                            <Button
-                              size="sm"
-                              isLoading={busyId === row.id}
-                              disabled={Number(amount) <= 0}
-                              onClick={() => {
-                                void pay(row);
-                              }}
-                            >
-                              Record
-                            </Button>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              disabled={busyId === row.id}
-                              onClick={() => {
-                                setPayingId(null);
-                              }}
-                            >
-                              Cancel
-                            </Button>
-                          </div>
-                        ) : (
-                          <Button
-                            variant="secondary"
-                            size="sm"
-                            onClick={() => {
-                              setPayingId(row.id);
-                              // Pre-filled with what is still owed, because
-                              // paying the voucher in full is the ordinary case
-                              // and retyping it is how a digit gets dropped.
-                              setAmount(
-                                (
-                                  Number(row.totalAmount) - Number(row.paidAmount)
-                                ).toFixed(2),
-                              );
-                              setError(null);
-                              setNotice(null);
-                            }}
-                          >
-                            Take payment
-                          </Button>
-                        )}
-                      </TableCell>
-                    ) : null}
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </div>
-        </Card>
-      ) : null}
+      <Card className="p-0" header={<CardTitle title="Issued vouchers" />}>
+        <DataTable
+          caption="Family vouchers"
+          columns={issuedColumns}
+          rows={issued ?? []}
+          getRowKey={(row) => row.id}
+          pending={issued === null}
+          defaultSort={{ columnId: 'due', direction: 'desc' }}
+          search={{ placeholder: 'Voucher number, family or phone' }}
+          filters={[
+            {
+              id: 'status',
+              label: 'Status',
+              allLabel: 'Every voucher',
+              options: [
+                { value: 'unpaid', label: 'Unpaid' },
+                { value: 'partial', label: 'Part paid' },
+                { value: 'paid', label: 'Paid' },
+                { value: 'cancelled', label: 'Cancelled' },
+              ],
+              rowValue: (row) => row.status,
+            },
+          ]}
+          itemNoun={{ singular: 'voucher', plural: 'vouchers' }}
+          emptyTitle="No family vouchers issued yet"
+          emptyDescription="Combine a family above and the voucher appears here."
+          noResultTitle="No vouchers match those filters"
+          noResultDescription="Clear the search or choose another status."
+        />
+      </Card>
     </div>
   );
 }

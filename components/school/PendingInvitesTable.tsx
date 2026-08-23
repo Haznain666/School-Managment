@@ -6,15 +6,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { Card, CardTitle } from '@/components/ui/Card';
-import { EmptyState } from '@/components/ui/EmptyState';
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeaderCell,
-  TableRow,
-} from '@/components/ui/Table';
+import { DataTable, type DataTableColumn } from '@/components/ui/DataTable';
 import { ROLE_LABELS, isUserRole } from '@/types/school-auth';
 
 interface PendingInvite {
@@ -94,13 +86,90 @@ export function PendingInvitesTable() {
     [load],
   );
 
-  if (invites === null) {
-    return (
-      <Card header={<CardTitle title="Pending invitations" />}>
-        <p className="text-sm text-ink-muted">{error ?? 'Loading invitations…'}</p>
-      </Card>
-    );
-  }
+  const columns: Array<DataTableColumn<PendingInvite>> = [
+    {
+      id: 'name',
+      header: 'Name',
+      rowHeader: true,
+      sortValue: (invite) => invite.name,
+      searchValue: (invite) => `${invite.name} ${invite.email ?? ''} ${invite.phone}`,
+      cell: (invite) => invite.name,
+    },
+    {
+      id: 'role',
+      header: 'Role',
+      muted: true,
+      sortValue: (invite) =>
+        isUserRole(invite.role) ? ROLE_LABELS[invite.role] : invite.role,
+      cell: (invite) => (isUserRole(invite.role) ? ROLE_LABELS[invite.role] : invite.role),
+    },
+    {
+      // A phone number is compared digit by digit, so it takes the mono face
+      // like every other identifier in the product.
+      id: 'phone',
+      header: 'Phone',
+      muted: true,
+      className: 'font-mono text-xs',
+      sortValue: (invite) => invite.phone,
+      cell: (invite) => invite.phone,
+    },
+    {
+      id: 'delivered',
+      header: 'Delivered',
+      sortValue: (invite) => (invite.emailSent ? 0 : 1),
+      cell: (invite) => (
+        <div className="flex gap-1">
+          {/*
+            "queued", not "sent": the message is handed to the outbox and
+            delivered outside the request, so at the moment this row was written
+            nothing had reached an SMTP server yet. A badge reading "Email" next
+            to a message that later bounced is the lie this wording avoids.
+          */}
+          {invite.emailSent ? (
+            <Badge variant="neutral">Email queued</Badge>
+          ) : (
+            <Badge variant="danger">Not delivered</Badge>
+          )}
+        </div>
+      ),
+    },
+    {
+      id: 'expires',
+      header: 'Expires',
+      kind: 'date',
+      muted: true,
+      sortValue: (invite) => invite.expiresAt,
+      cell: (invite) => expiresIn(invite.expiresAt),
+    },
+    {
+      id: 'actions',
+      header: 'Actions',
+      cell: (invite) => (
+        <div className="flex gap-2">
+          <Button
+            variant="ghost"
+            size="sm"
+            isLoading={pendingId === invite.id}
+            onClick={() => {
+              void act(invite.id, 'resend');
+            }}
+          >
+            Resend
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            disabled={pendingId !== null}
+            onClick={() => {
+              void act(invite.id, 'cancel');
+            }}
+          >
+            Cancel
+          </Button>
+        </div>
+      ),
+    },
+  ];
 
   return (
     <Card
@@ -110,7 +179,6 @@ export function PendingInvitesTable() {
           description="Sent but not yet accepted. Links are valid for 72 hours."
         />
       }
-      className="p-0"
     >
       {error !== null ? (
         <p role="alert" className="mx-4 mt-4 rounded-lg bg-status-danger-subtle px-3 py-2 text-sm text-status-danger-ink">
@@ -118,85 +186,35 @@ export function PendingInvitesTable() {
         </p>
       ) : null}
 
-      {invites.length === 0 ? (
-        <EmptyState
-          bare
-          tone="empty"
-          icon={MailPlus}
-          title="No invitations are pending"
-          description="Everyone you have invited has either accepted or been cancelled."
+      <div>
+        <DataTable
+          caption="Pending invitations"
+          columns={columns}
+          rows={invites ?? []}
+          getRowKey={(invite) => invite.id}
+          pending={invites === null}
+          defaultSort={{ columnId: 'expires', direction: 'asc' }}
+          search={{ placeholder: 'Name, phone or email' }}
+          filters={[
+            {
+              id: 'delivered',
+              label: 'Delivery',
+              allLabel: 'Every invitation',
+              options: [
+                { value: 'queued', label: 'Email queued' },
+                { value: 'failed', label: 'Not delivered' },
+              ],
+              rowValue: (invite) => (invite.emailSent ? 'queued' : 'failed'),
+            },
+          ]}
+          itemNoun={{ singular: 'invitation', plural: 'invitations' }}
+          emptyIcon={MailPlus}
+          emptyTitle="No invitations are pending"
+          emptyDescription="Everyone you have invited has either accepted or been cancelled."
+          noResultTitle="No invitations match those filters"
+          noResultDescription="Clear the search, or show every invitation."
         />
-      ) : (
-        <Table caption="Pending invitations" className="rounded-none border-0">
-          <TableHead>
-            <TableRow>
-              <TableHeaderCell>Name</TableHeaderCell>
-              <TableHeaderCell>Role</TableHeaderCell>
-              <TableHeaderCell>Phone</TableHeaderCell>
-              <TableHeaderCell>Delivered</TableHeaderCell>
-              <TableHeaderCell>Expires</TableHeaderCell>
-              <TableHeaderCell>Actions</TableHeaderCell>
-            </TableRow>
-          </TableHead>
-          <TableBody>
-              {invites.map((invite) => (
-                <TableRow key={invite.id}>
-                  <TableCell rowHeader>{invite.name}</TableCell>
-                  <TableCell muted>
-                    {isUserRole(invite.role) ? ROLE_LABELS[invite.role] : invite.role}
-                  </TableCell>
-                  {/* A phone number is compared digit by digit, so it takes the
-                      mono face like every other identifier in the product. */}
-                  <TableCell muted className="font-mono text-xs">
-                    {invite.phone}
-                  </TableCell>
-                  <TableCell>
-                    <div className="flex gap-1">
-                      {/*
-                        "queued", not "sent": the message is handed to the
-                        outbox and delivered outside the request, so at the
-                        moment this row was written nothing had reached an SMTP
-                        server yet. A badge reading "Email" next to a message
-                        that later bounced is the lie this wording avoids.
-                      */}
-                      {invite.emailSent ? (
-                        <Badge variant="neutral">Email queued</Badge>
-                      ) : null}
-                      {!invite.emailSent ? (
-                        <Badge variant="danger">Not delivered</Badge>
-                      ) : null}
-                    </div>
-                  </TableCell>
-                  <TableCell muted>{expiresIn(invite.expiresAt)}</TableCell>
-                  <TableCell>
-                    <div className="flex gap-2">
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        isLoading={pendingId === invite.id}
-                        onClick={() => {
-                          void act(invite.id, 'resend');
-                        }}
-                      >
-                        Resend
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        disabled={pendingId !== null}
-                        onClick={() => {
-                          void act(invite.id, 'cancel');
-                        }}
-                      >
-                        Cancel
-                      </Button>
-                    </div>
-                  </TableCell>
-                </TableRow>
-              ))}
-          </TableBody>
-        </Table>
-      )}
+      </div>
     </Card>
   );
 }

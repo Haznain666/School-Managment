@@ -54,6 +54,18 @@ import {
   listStudentExams,
 } from '../lib/portal-results';
 import {
+  getChildSnapshot,
+  getStudentDay,
+  getStudentSectionId,
+  getTeacherClasses,
+  getTeacherDay,
+  getTeacherTasks,
+  monthToDate,
+  sectionRegisterFacts,
+  sectionsMarkedOn,
+  weekdayIndex,
+} from '../lib/portal-dashboard';
+import {
   listLeaveTypeOptions,
   listOwnLeave,
   listOwnPayslips,
@@ -63,6 +75,16 @@ import {
 /** A syntactically valid id that belongs to no tenant. */
 const NOBODY = '00000000-0000-0000-0000-000000000000';
 const NO_ONE = '00000000-0000-0000-0000-000000000001';
+
+/**
+ * A Wednesday, at 11:00.
+ *
+ * The three timetable reads short-circuit at the weekend — correctly, there
+ * being no `day_of_week` for Saturday — which on a Sunday would leave the queries
+ * behind them as the ones this script never runs. Two of every three runs would
+ * pass without executing them, which is the worst kind of check.
+ */
+const MIDWEEK = new Date('2026-08-19T11:00:00');
 
 let failures = 0;
 
@@ -236,6 +258,36 @@ function checkScope(): void {
 }
 
 /* -----------------------------------------------------------------------------
+ * Sprint 15 — the portal dashboards' own arithmetic, with no database.
+ *
+ * `weekdayIndex` decides which column of the timetable is "today". An off-by-one
+ * shows a teacher Tuesday's periods on a Wednesday, and the screen is a
+ * perfectly plausible day: right rooms, right subjects, wrong day. Nothing
+ * about it looks broken, which is why it is asserted here rather than reviewed.
+ * -------------------------------------------------------------------------- */
+
+function checkPortalDay(): void {
+  console.log('\nThe portal dashboards — no database:');
+
+  // `timetable_entries.day_of_week` is 0 = Monday and runs to 4 = Friday.
+  assert('Monday is column 0', weekdayIndex(new Date('2026-08-17T09:00:00')) === 0);
+  assert('Wednesday is column 2', weekdayIndex(new Date('2026-08-19T09:00:00')) === 2);
+  assert('Friday is column 4', weekdayIndex(new Date('2026-08-21T09:00:00')) === 4);
+  assert('Saturday is not a school day', weekdayIndex(new Date('2026-08-22T09:00:00')) === null);
+  assert('nor is Sunday', weekdayIndex(new Date('2026-08-23T09:00:00')) === null);
+
+  const window = monthToDate(new Date(2026, 7, 19));
+  assert('the month starts on the 1st', window.from === '2026-08-01');
+  assert('and ends today, not at the month end', window.to === '2026-08-19');
+
+  const firstOfMonth = monthToDate(new Date(2026, 7, 1));
+  assert(
+    'on the 1st the window is one day, not empty',
+    firstOfMonth.from === '2026-08-01' && firstOfMonth.to === '2026-08-01',
+  );
+}
+
+/* -----------------------------------------------------------------------------
  * Every new query, against the real schema.
  * -------------------------------------------------------------------------- */
 
@@ -260,6 +312,36 @@ const CHECKS: Array<[string, () => Promise<unknown>]> = [
   ['listOwnPayslips', () => listOwnPayslips(NOBODY, NO_ONE)],
   ['listOwnLeave', () => listOwnLeave(NOBODY, NO_ONE)],
   ['listLeaveTypeOptions', () => listLeaveTypeOptions(NOBODY)],
+
+  /*
+   * Sprint 15 — the three portal dashboards.
+   *
+   * Each of these fans out into four or five feature modules that know nothing
+   * about each other, and the SQL underneath is the anti-join form ("classes
+   * with no register today") that reads perfectly and returns everything the
+   * day somebody puts a condition on the wrong side of the join. Nothing else
+   * in this repository executes them: the portals cannot be signed into from a
+   * development machine (`STATE.md` §5d).
+   */
+  ['getTeacherDay', () => getTeacherDay(NOBODY, NO_ONE, NO_ONE, MIDWEEK)],
+  ['getTeacherTasks', () => getTeacherTasks(NOBODY, NO_ONE, NO_ONE, NO_ONE, MIDWEEK)],
+  ['getTeacherClasses', () => getTeacherClasses(NOBODY, NO_ONE, NO_ONE)],
+  ['getChildSnapshot', () => getChildSnapshot(NOBODY, NO_ONE, NO_ONE, MIDWEEK)],
+  ['getStudentSectionId', () => getStudentSectionId(NOBODY, NO_ONE, NO_ONE)],
+  ['getStudentDay', () => getStudentDay(NOBODY, NO_ONE, NO_ONE, MIDWEEK)],
+
+  /*
+   * The two anti-joins behind "My classes" and "registers not taken", called
+   * directly with a section id.
+   *
+   * `getTeacherClasses` and `getTeacherTasks` above both reach a school with no
+   * sections and stop before these run — correctly, since `in ()` can only
+   * return nothing — which would leave the joins they contain as the queries
+   * this script never executed. Handing them an id belonging to no section
+   * makes Postgres parse, plan and run them while reading nothing.
+   */
+  ['sectionsMarkedOn', () => sectionsMarkedOn(NOBODY, [NO_ONE], '2026-08-19')],
+  ['sectionRegisterFacts', () => sectionRegisterFacts(NOBODY, NO_ONE, [NO_ONE])],
 ];
 
 function loadDatabaseUrl(): void {
@@ -290,6 +372,7 @@ async function main(): Promise<void> {
   checkCalendar();
   checkWeeks();
   checkScope();
+  checkPortalDay();
 
   const pureFailures = failures;
 

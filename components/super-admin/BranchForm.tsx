@@ -69,6 +69,17 @@ export interface BranchFormProps {
   initial?: BranchFormValues;
   /** Where to go once saved. Defaults to the panel's branch list. */
   doneUrl?: string;
+  /**
+   * Called instead of navigating, when this form is step 2 of the wizard.
+   *
+   * Takes precedence over `doneUrl`. The wizard has three more steps to run and
+   * cannot afford to leave the page to report a success.
+   */
+  onSaved?: () => void;
+  /** Overrides the submit button's label. */
+  submitLabel?: string;
+  /** Hides the Cancel button, for a host that provides its own navigation. */
+  hideCancel?: boolean;
 }
 
 const EMPTY: BranchFormValues = {
@@ -117,7 +128,14 @@ const CURRICULUM_OPTIONS = CURRICULUM_LEVELS.map((level) => ({
  * curriculum re-filters what is already ticked rather than silently keeping
  * rungs the new curriculum does not have.
  */
-export function BranchForm({ schoolId, initial, doneUrl }: BranchFormProps) {
+export function BranchForm({
+  schoolId,
+  initial,
+  doneUrl,
+  onSaved,
+  submitLabel,
+  hideCancel = false,
+}: BranchFormProps) {
   const router = useRouter();
   const isEdit = initial?.id !== undefined;
 
@@ -265,6 +283,13 @@ export function BranchForm({ schoolId, initial, doneUrl }: BranchFormProps) {
           }
         }
 
+        if (onSaved !== undefined) {
+          // The wizard owns what happens next, and keeps the form disabled
+          // while it moves on so a second submit cannot create a second branch.
+          onSaved();
+          return;
+        }
+
         router.push(doneUrl ?? `/super-admin/schools/${schoolId}/branches`);
         router.refresh();
       } catch (caught) {
@@ -276,7 +301,17 @@ export function BranchForm({ schoolId, initial, doneUrl }: BranchFormProps) {
         setIsSubmitting(false);
       }
     },
-    [values, isEdit, initial?.id, schoolId, router, canInvite, isPlatform, doneUrl],
+    [
+      values,
+      isEdit,
+      initial?.id,
+      schoolId,
+      router,
+      canInvite,
+      isPlatform,
+      doneUrl,
+      onSaved,
+    ],
   );
 
   const curriculumHint =
@@ -297,24 +332,76 @@ export function BranchForm({ schoolId, initial, doneUrl }: BranchFormProps) {
     >
       <Card>
         <div className="grid gap-4 sm:grid-cols-2">
-          {/* First: it proposes the code two fields below. */}
+          {/*
+            1. Main branch, first.
+
+            It is the only answer on this form that changes another record — it
+            clears whichever campus currently holds the flag — and it is the one
+            an operator knows before they know anything else, because the first
+            campus they enter is almost always the main one. Asked last, as it
+            used to be, it was routinely missed on exactly that campus.
+          */}
+          <div className="sm:col-span-2">
+            <Toggle
+              label="Main Branch"
+              description="Only one branch per school can be the main one. Setting this clears the current holder."
+              checked={values.isMainBranch}
+              disabled={isSubmitting}
+              onChange={(next) => {
+                setField('isMainBranch', next);
+              }}
+            />
+          </div>
+
+          {/* 2. What the school calls this campus. Nothing derives it. */}
+          <div className="sm:col-span-2">
+            <Input
+              label="Branch Name"
+              required
+              value={values.name}
+              onChange={(event) => {
+                setField('name', event.target.value);
+              }}
+              disabled={isSubmitting}
+              placeholder="Johar Town Campus"
+              hint="What the school calls this campus."
+            />
+          </div>
+
+          {/* 3. Street Address. */}
+          <div className="sm:col-span-2">
+            <AddressAutocomplete
+              label="Street Address"
+              value={{
+                address: values.address,
+                latitude: values.latitude,
+                longitude: values.longitude,
+              }}
+              onChange={(next) => {
+                setValues((current) => ({
+                  ...current,
+                  address: next.address,
+                  latitude: next.latitude,
+                  longitude: next.longitude,
+                }));
+              }}
+              disabled={isSubmitting}
+            />
+          </div>
+
+          {/*
+            4. City, and the branch code it proposes, side by side.
+
+            The city is still asked immediately before the code for the reason
+            it used to be asked first: choosing Karachi fills the field to its
+            right with `KHI-MAIN`, and a proposal that arrives after the operator
+            has typed over it is worse than no proposal at all.
+          */}
           <CitySelect
             value={values.city}
             onChange={handleCityChange}
             disabled={isSubmitting}
             required
-          />
-
-          <Input
-            label="Branch name"
-            required
-            value={values.name}
-            onChange={(event) => {
-              setField('name', event.target.value);
-            }}
-            disabled={isSubmitting}
-            placeholder="Johar Town Campus"
-            hint="What the school calls this campus."
           />
 
           <Input
@@ -334,18 +421,91 @@ export function BranchForm({ schoolId, initial, doneUrl }: BranchFormProps) {
             placeholder="KHI-MAIN"
           />
 
-          <Select
-            label="Curriculum level"
-            options={CURRICULUM_OPTIONS}
-            placeholder="Select a curriculum"
-            required
-            value={values.curriculumLevel}
-            disabled={isSubmitting}
-            hint={curriculumHint}
+          {/* 5 and 6. */}
+          <Input
+            label="Branch Landline Number"
+            type="tel"
+            inputMode="numeric"
+            value={values.landline}
             onChange={(event) => {
-              handleCurriculumChange(event.target.value as CurriculumLevel);
+              // Reformatted on every keystroke, so the operator never has to be
+              // told where the brackets go.
+              setField('landline', formatLandline(event.target.value));
             }}
+            disabled={isSubmitting}
+            placeholder={LANDLINE_PLACEHOLDER}
+            hint={LANDLINE_HINT}
+            error={isValidLandline(values.landline) ? undefined : 'Incomplete landline number.'}
           />
+
+          <Input
+            label="Branch Mobile Number"
+            type="tel"
+            inputMode="numeric"
+            value={values.phone}
+            onChange={(event) => {
+              setField('phone', formatMobile(event.target.value));
+            }}
+            disabled={isSubmitting}
+            placeholder={MOBILE_PLACEHOLDER}
+            hint={MOBILE_HINT}
+            error={isValidMobile(values.phone) ? undefined : 'Enter eleven digits, e.g. (0321) 123-4567.'}
+          />
+
+          {/* 7. */}
+          <div className="sm:col-span-2">
+            <Input
+              label="Branch Email"
+              type="email"
+              value={values.email}
+              onChange={(event) => {
+                setField('email', event.target.value);
+              }}
+              disabled={isSubmitting}
+              placeholder="campus@school.edu.pk"
+              error={emailRejectionReason(values.email) ?? undefined}
+            />
+          </div>
+
+          {/*
+            Offered only on create, and only once there is an email to attach it
+            to. An email typed here used to go nowhere at all, which is what
+            "the email is not being sent to the user" meant. It sits directly
+            under the address it acts on rather than at the foot of the form.
+          */}
+          {isPlatform && !isEdit && values.email.trim() !== '' ? (
+            <div className="sm:col-span-2">
+              <Toggle
+                label="Invite this email as the branch administrator"
+                description={
+                  canInvite
+                    ? `${values.email.trim()} will be given a branch administrator account for this campus and emailed a link to set their password.`
+                    : 'A mobile number is needed as well — it is how a member is identified within a school. Add one above to enable this.'
+                }
+                checked={canInvite && values.inviteAsBranchAdmin}
+                disabled={isSubmitting || !canInvite}
+                onChange={(next) => {
+                  setField('inviteAsBranchAdmin', next);
+                }}
+              />
+            </div>
+          ) : null}
+
+          {/* 8. Curriculum level — it decides what 9 may contain. */}
+          <div className="sm:col-span-2">
+            <Select
+              label="Curriculum Level"
+              options={CURRICULUM_OPTIONS}
+              placeholder="Select a curriculum"
+              required
+              value={values.curriculumLevel}
+              disabled={isSubmitting}
+              hint={curriculumHint}
+              onChange={(event) => {
+                handleCurriculumChange(event.target.value as CurriculumLevel);
+              }}
+            />
+          </div>
 
           {/*
             Only for MIXED. The other three levels name their own board, so
@@ -367,9 +527,10 @@ export function BranchForm({ schoolId, initial, doneUrl }: BranchFormProps) {
             </div>
           ) : null}
 
+          {/* 9. */}
           <div className="sm:col-span-2">
             <MultiSelect
-              label="Classes taught"
+              label="Classes Taught"
               options={classOptions}
               value={values.classLevels}
               onChange={(next) => {
@@ -381,111 +542,21 @@ export function BranchForm({ schoolId, initial, doneUrl }: BranchFormProps) {
             />
           </div>
 
-          <Input
-            label="Landline"
-            type="tel"
-            inputMode="numeric"
-            value={values.landline}
-            onChange={(event) => {
-              // Reformatted on every keystroke, so the operator never has to be
-              // told where the brackets go.
-              setField('landline', formatLandline(event.target.value));
-            }}
-            disabled={isSubmitting}
-            placeholder={LANDLINE_PLACEHOLDER}
-            hint={LANDLINE_HINT}
-            error={isValidLandline(values.landline) ? undefined : 'Incomplete landline number.'}
-          />
-
-          <Input
-            label="Mobile phone"
-            type="tel"
-            inputMode="numeric"
-            value={values.phone}
-            onChange={(event) => {
-              setField('phone', formatMobile(event.target.value));
-            }}
-            disabled={isSubmitting}
-            placeholder={MOBILE_PLACEHOLDER}
-            hint={MOBILE_HINT}
-            error={isValidMobile(values.phone) ? undefined : 'Enter eleven digits, e.g. (0321) 123-4567.'}
-          />
-
-          <div className="sm:col-span-2">
-            <Input
-              label="Email"
-              type="email"
-              value={values.email}
-              onChange={(event) => {
-                setField('email', event.target.value);
-              }}
-              disabled={isSubmitting}
-              placeholder="campus@school.edu.pk"
-              error={emailRejectionReason(values.email) ?? undefined}
-            />
-          </div>
-
-          <div className="sm:col-span-2">
-            <AddressAutocomplete
-              value={{
-                address: values.address,
-                latitude: values.latitude,
-                longitude: values.longitude,
-              }}
-              onChange={(next) => {
-                setValues((current) => ({
-                  ...current,
-                  address: next.address,
-                  latitude: next.latitude,
-                  longitude: next.longitude,
-                }));
-              }}
-              disabled={isSubmitting}
-            />
-          </div>
-
           {/*
-            Offered only on create, and only once there is an address and a
-            mobile to attach it to. An email typed here used to go nowhere at
-            all, which is what "the email is not being sent to the user" meant.
+            Deactivating is an operator's control, not a school's. Inside the
+            portal an inactive branch is simply invisible — it disappears from
+            every picker, including this form's own school's — so a school
+            administrator who switched it off would have hidden a campus with
+            no screen left that shows it again.
+
+            No principal field anywhere on this form, and that is deliberate:
+            principals are assigned per campus in School Admin → Settings, where
+            `components/school/PrincipalAssignments.tsx` already handles the
+            single- and multiple-principal models. A second place to type a
+            principal's name would be a second answer to the same question.
           */}
-          {isPlatform && !isEdit && values.email.trim() !== '' ? (
+          {isPlatform ? (
             <div className="sm:col-span-2">
-              <Toggle
-                label="Invite this email as the branch administrator"
-                description={
-                  canInvite
-                    ? `${values.email.trim()} will be given a branch administrator account for this campus and emailed a link to set their password.`
-                    : 'A mobile number is needed as well — it is how a member is identified within a school. Add one above to enable this.'
-                }
-                checked={canInvite && values.inviteAsBranchAdmin}
-                disabled={isSubmitting || !canInvite}
-                onChange={(next) => {
-                  setField('inviteAsBranchAdmin', next);
-                }}
-              />
-            </div>
-          ) : null}
-
-          <div className="space-y-3 sm:col-span-2">
-            <Toggle
-              label="Main branch"
-              description="Only one branch per school can be the main one. Setting this clears the current holder."
-              checked={values.isMainBranch}
-              disabled={isSubmitting}
-              onChange={(next) => {
-                setField('isMainBranch', next);
-              }}
-            />
-
-            {/*
-              Deactivating is an operator's control, not a school's. Inside the
-              portal an inactive branch is simply invisible — it disappears from
-              every picker, including this form's own school's — so a school
-              administrator who switched it off would have hidden a campus with
-              no screen left that shows it again.
-            */}
-            {isPlatform ? (
               <Toggle
                 label="Active"
                 description="Inactive branches stay on record but are hidden from the school portal."
@@ -495,8 +566,8 @@ export function BranchForm({ schoolId, initial, doneUrl }: BranchFormProps) {
                   setField('isActive', next);
                 }}
               />
-            ) : null}
-          </div>
+            </div>
+          ) : null}
         </div>
       </Card>
 
@@ -508,18 +579,20 @@ export function BranchForm({ schoolId, initial, doneUrl }: BranchFormProps) {
 
       <div className="flex gap-3">
         <Button type="submit" isLoading={isSubmitting}>
-          {isEdit ? 'Save changes' : 'Create branch'}
+          {submitLabel ?? (isEdit ? 'Save changes' : 'Create branch')}
         </Button>
-        <Button
-          type="button"
-          variant="secondary"
-          disabled={isSubmitting}
-          onClick={() => {
-            router.back();
-          }}
-        >
-          Cancel
-        </Button>
+        {hideCancel ? null : (
+          <Button
+            type="button"
+            variant="secondary"
+            disabled={isSubmitting}
+            onClick={() => {
+              router.back();
+            }}
+          >
+            Cancel
+          </Button>
+        )}
       </div>
     </form>
   );

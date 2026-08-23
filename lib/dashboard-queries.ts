@@ -1,6 +1,6 @@
 import 'server-only';
 
-import { and, asc, desc, eq, gte, inArray, lt, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, gte, inArray, isNull, lt, lte, or, sql } from 'drizzle-orm';
 
 import {
   APPLICATION_STATUSES,
@@ -20,6 +20,7 @@ import {
   studentEnrollments,
 } from '@/db/schema';
 
+import { academicYearBounds } from './academics-queries';
 import { getActiveAcademicYear } from './admissions-queries';
 import { db } from './drizzle';
 import {
@@ -71,6 +72,81 @@ export interface NamedCount {
   value: number;
 }
 
+/* -----------------------------------------------------------------------------
+ * Scope — BR4, expressed once for every aggregate below.
+ * -------------------------------------------------------------------------- */
+
+/**
+ * The slice of a school an aggregate is allowed to count.
+ *
+ * `gradeIds: null` narrows nothing and is what every school administrator,
+ * every accountant and every school on `principal_model = 'single'` gets. A
+ * principal at a school running several heads gets the grades their assignments
+ * reach, resolved once per request by `resolveDashboardScope` in
+ * `lib/school-dashboard.ts`.
+ *
+ * ── Why *grades*, and not branches as well ───────────────────────────────
+ * Because that is how the rest of the product already narrows a head. A branch
+ * reaches the data through its grades — `lib/admissions-queries.ts` filters
+ * students on `grades.branch_id` — so resolving both axes down to one list of
+ * grade ids gives every aggregate here a single condition to apply and makes
+ * "did this query get scoped" answerable by reading one line of it.
+ *
+ * ── An empty list is a real answer ───────────────────────────────────────
+ * An unassigned head reaches no grade. `[]` means exactly that, and every
+ * aggregate short-circuits on it rather than issuing `in ()` — which is both a
+ * pointless round trip and, on some Drizzle versions, invalid SQL.
+ */
+export interface AggregateScope {
+  gradeIds: string[] | null;
+}
+
+/** The scope that narrows nothing. */
+export const EVERY_GRADE: AggregateScope = { gradeIds: null };
+
+/** True when the reader reaches no grade at all, so there is nothing to count. */
+function reachesNothing(scope: AggregateScope): boolean {
+  return scope.gradeIds !== null && scope.gradeIds.length === 0;
+}
+
+/**
+ * The students inside the scope, as a *subquery* rather than a fetched list.
+ *
+ * A materialised list would be thousands of uuids on a large school and would
+ * be sent over the wire twice — once out, once back inside an `IN`. As a
+ * subquery Postgres plans it as a semi-join against indexes it already has, and
+ * the outer query keeps the exact shape it has when nothing is scoped, which is
+ * what makes the unscoped path provably unchanged.
+ */
+function studentsInScope(locationId: string, gradeIds: string[]) {
+  return db
+    .selectDistinct({ id: studentEnrollments.studentProfileId })
+    .from(studentEnrollments)
+    .innerJoin(
+      sections,
+      and(eq(sections.id, studentEnrollments.sectionId), eq(sections.locationId, locationId)),
+    )
+    .where(
+      and(
+        eq(studentEnrollments.locationId, locationId),
+        inArray(sections.gradeId, gradeIds),
+      ),
+    );
+}
+
+/** The challans belonging to those students — the door money-side reads use. */
+function challansInScope(locationId: string, gradeIds: string[]) {
+  return db
+    .select({ id: feeChallans.id })
+    .from(feeChallans)
+    .where(
+      and(
+        eq(feeChallans.locationId, locationId),
+        inArray(feeChallans.studentProfileId, studentsInScope(locationId, gradeIds)),
+      ),
+    );
+}
+
 /** The last `count` months ending with the current one, oldest first. */
 function recentMonths(count: number): Array<{ month: string; label: string; start: string; end: string }> {
   const out: Array<{ month: string; label: string; start: string; end: string }> = [];
@@ -112,13 +188,66 @@ function alignToMonths(
 }
 
 /* -----------------------------------------------------------------------------
+ * Failure isolation.
+ * -------------------------------------------------------------------------- */
+
+/**
+ * Runs one dashboard read and turns a failure into an absent tile.
+ *
+ * ── The outage this exists for ───────────────────────────────────────────
+ * On 2026-08-22 the whole school-admin dashboard rendered as "Could not load
+ * the dashboard" with a digest and nothing else, at a school where every screen
+ * behind it worked. The cause was one query: `getAccountingOverview` counting
+ * `ledger_transactions`, a table migration `0027` creates and which had never
+ * been applied to that database. `Promise.all` rejects on the first rejection,
+ * so one missing table for one tile took the students count, the staff count,
+ * three charts and every quick action with it.
+ *
+ * A dashboard is the screen its reader forms their impression of the product
+ * from, and it is assembled from a dozen independent reads that have nothing to
+ * do with each other. It degrades one tile at a time or it is not a dashboard.
+ *
+ * It lives here rather than beside one page because Sprint 15 put the same
+ * assembly on all five portals, and the version that mattered was the one only
+ * the school-admin page had.
+ *
+ * ── What must *not* be wrapped ───────────────────────────────────────────
+ * The reads that decide whether there is a page at all — the caller's profile,
+ * the module flags, the permission list, the active academic year. If those
+ * fail there is nothing to render and an empty frame would say "your school has
+ * nothing in it", which is worse than an error. They still throw.
+ *
+ * The failure is logged with the location id so it is findable, and the caller
+ * falls back to `StatTile`'s `unavailable` state rather than to a zero. A zero
+ * is indistinguishable from a real zero and is how a school comes to believe it
+ * collected nothing today.
+ */
+export async function settle<T>(
+  label: string,
+  locationId: string,
+  read: () => Promise<T>,
+): Promise<T | null> {
+  try {
+    return await read();
+  } catch (error) {
+    console.error(`[dashboard] ${label} failed for ${locationId}:`, error);
+    return null;
+  }
+}
+
+/* -----------------------------------------------------------------------------
  * Fees.
  * -------------------------------------------------------------------------- */
 
 /** Collections per month, from payments actually received. */
-export async function getCollectionTrend(locationId: string): Promise<MonthPoint[]> {
+export async function getCollectionTrend(
+  locationId: string,
+  scope: AggregateScope = EVERY_GRADE,
+): Promise<MonthPoint[]> {
   const months = recentMonths(TREND_MONTHS);
   const first = months[0]!.start;
+
+  if (reachesNothing(scope)) return alignToMonths([], months);
 
   const rows = await db
     .select({
@@ -126,7 +255,15 @@ export async function getCollectionTrend(locationId: string): Promise<MonthPoint
       value: sql<string>`coalesce(sum(${feePayments.amount}), 0)`,
     })
     .from(feePayments)
-    .where(and(eq(feePayments.locationId, locationId), gte(feePayments.paymentDate, first)))
+    .where(
+      and(
+        eq(feePayments.locationId, locationId),
+        gte(feePayments.paymentDate, first),
+        scope.gradeIds === null
+          ? undefined
+          : inArray(feePayments.challanId, challansInScope(locationId, scope.gradeIds)),
+      ),
+    )
     .groupBy(sql`to_char(${feePayments.paymentDate}, 'YYYY-MM')`);
 
   return alignToMonths(
@@ -149,9 +286,13 @@ export interface FeeStatusSplit {
  * sums to more than the total it claims to divide, which is worse than no
  * chart. The three therefore add up to everything billed this year.
  */
-export async function getFeeStatusSplit(locationId: string): Promise<FeeStatusSplit | null> {
+export async function getFeeStatusSplit(
+  locationId: string,
+  scope: AggregateScope = EVERY_GRADE,
+): Promise<FeeStatusSplit | null> {
   const activeYear = await getActiveAcademicYear(locationId);
   if (activeYear === null) return null;
+  if (reachesNothing(scope)) return { collected: 0, outstanding: 0, overdue: 0 };
 
   const today = toDateOnly(new Date());
 
@@ -169,6 +310,12 @@ export async function getFeeStatusSplit(locationId: string): Promise<FeeStatusSp
         // Cancelled and waived challans are not money anybody expects, so they
         // are excluded rather than shown as permanently outstanding.
         inArray(feeChallans.status, ['unpaid', 'partial', 'paid']),
+        scope.gradeIds === null
+          ? undefined
+          : inArray(
+              feeChallans.studentProfileId,
+              studentsInScope(locationId, scope.gradeIds),
+            ),
       ),
     );
 
@@ -194,8 +341,13 @@ export interface AgingBucket {
  * `90+` is deliberately open-ended — past a quarter the exact age stops
  * changing what anybody does about it.
  */
-export async function getAgingBuckets(locationId: string): Promise<AgingBucket[]> {
+export async function getAgingBuckets(
+  locationId: string,
+  scope: AggregateScope = EVERY_GRADE,
+): Promise<AgingBucket[]> {
   const today = toDateOnly(new Date());
+
+  if (reachesNothing(scope)) return [];
 
   const rows = await db
     .select({
@@ -210,6 +362,12 @@ export async function getAgingBuckets(locationId: string): Promise<AgingBucket[]
       and(
         eq(feeChallans.locationId, locationId),
         inArray(feeChallans.status, ['unpaid', 'partial']),
+        scope.gradeIds === null
+          ? undefined
+          : inArray(
+              feeChallans.studentProfileId,
+              studentsInScope(locationId, scope.gradeIds),
+            ),
       ),
     );
 
@@ -246,9 +404,12 @@ const CONSIDERED = sql`count(*) filter (where ${attendanceRecords.status} <> 'ho
 /** Attendance rate per month, as a percentage. `null` where nothing was marked. */
 export async function getAttendanceTrend(
   locationId: string,
+  scope: AggregateScope = EVERY_GRADE,
 ): Promise<Array<MonthPoint & { value: number }>> {
   const months = recentMonths(TREND_MONTHS);
   const first = months[0]!.start;
+
+  if (reachesNothing(scope)) return alignToMonths([], months);
 
   const rows = await db
     .select({
@@ -258,7 +419,18 @@ export async function getAttendanceTrend(
       value: sql<string>`case when ${CONSIDERED} = 0 then 0 else round(100.0 * ${ATTENDED} / ${CONSIDERED}, 1) end`,
     })
     .from(attendanceRecords)
-    .where(and(eq(attendanceRecords.locationId, locationId), gte(attendanceRecords.date, first)))
+    .where(
+      and(
+        eq(attendanceRecords.locationId, locationId),
+        gte(attendanceRecords.date, first),
+        scope.gradeIds === null
+          ? undefined
+          : inArray(
+              attendanceRecords.studentProfileId,
+              studentsInScope(locationId, scope.gradeIds),
+            ),
+      ),
+    )
     .groupBy(sql`to_char(${attendanceRecords.date}, 'YYYY-MM')`);
 
   return alignToMonths(
@@ -268,8 +440,13 @@ export async function getAttendanceTrend(
 }
 
 /** Attendance rate per class for the last 30 days. */
-export async function getAttendanceByClass(locationId: string): Promise<NamedCount[]> {
+export async function getAttendanceByClass(
+  locationId: string,
+  scope: AggregateScope = EVERY_GRADE,
+): Promise<NamedCount[]> {
   const since = toDateOnly(new Date(Date.now() - 30 * 24 * 60 * 60 * 1000));
+
+  if (reachesNothing(scope)) return [];
 
   const rows = await db
     .select({
@@ -295,7 +472,13 @@ export async function getAttendanceByClass(locationId: string): Promise<NamedCou
       grades,
       and(eq(grades.id, sections.gradeId), eq(grades.locationId, locationId)),
     )
-    .where(and(eq(attendanceRecords.locationId, locationId), gte(attendanceRecords.date, since)))
+    .where(
+      and(
+        eq(attendanceRecords.locationId, locationId),
+        gte(attendanceRecords.date, since),
+        scope.gradeIds === null ? undefined : inArray(sections.gradeId, scope.gradeIds),
+      ),
+    )
     .groupBy(grades.name, sections.name, grades.sortOrder)
     .orderBy(grades.sortOrder, sections.name);
 
@@ -310,9 +493,13 @@ export async function getAttendanceByClass(locationId: string): Promise<NamedCou
  * -------------------------------------------------------------------------- */
 
 /** Active students per class in the active year. */
-export async function getClassStrength(locationId: string): Promise<NamedCount[]> {
+export async function getClassStrength(
+  locationId: string,
+  scope: AggregateScope = EVERY_GRADE,
+): Promise<NamedCount[]> {
   const activeYear = await getActiveAcademicYear(locationId);
   if (activeYear === null) return [];
+  if (reachesNothing(scope)) return [];
 
   const rows = await db
     .select({
@@ -334,6 +521,7 @@ export async function getClassStrength(locationId: string): Promise<NamedCount[]
         eq(studentEnrollments.locationId, locationId),
         eq(studentEnrollments.academicYearId, activeYear.id),
         eq(studentEnrollments.status, 'active'),
+        scope.gradeIds === null ? undefined : inArray(sections.gradeId, scope.gradeIds),
       ),
     )
     .groupBy(grades.name, sections.name, grades.sortOrder)
@@ -343,15 +531,34 @@ export async function getClassStrength(locationId: string): Promise<NamedCount[]
 }
 
 /** Admission applications by status — the funnel, in the order it is walked. */
-export async function getAdmissionsFunnel(locationId: string): Promise<NamedCount[]> {
-  const rows = await db
-    .select({
-      status: admissionApplications.status,
-      value: sql<number>`count(*)`.mapWith(Number),
-    })
-    .from(admissionApplications)
-    .where(eq(admissionApplications.locationId, locationId))
-    .groupBy(admissionApplications.status);
+export async function getAdmissionsFunnel(
+  locationId: string,
+  scope: AggregateScope = EVERY_GRADE,
+): Promise<NamedCount[]> {
+  const rows = reachesNothing(scope)
+    ? []
+    : await db
+        .select({
+          status: admissionApplications.status,
+          value: sql<number>`count(*)`.mapWith(Number),
+        })
+        .from(admissionApplications)
+        .where(
+          and(
+            eq(admissionApplications.locationId, locationId),
+            // A grade-less application is admitted by every scope, exactly as
+            // `scopeAdmitsGrade` admits a grade-less record: an applicant who
+            // has not named a class yet belongs to the school, and hiding them
+            // from every head is how an admission goes unactioned.
+            scope.gradeIds === null
+              ? undefined
+              : or(
+                  isNull(admissionApplications.gradeId),
+                  inArray(admissionApplications.gradeId, scope.gradeIds),
+                ),
+          ),
+        )
+        .groupBy(admissionApplications.status);
 
   const byStatus = new Map(rows.map((row) => [row.status, row.value]));
 
@@ -706,7 +913,10 @@ const OUTCOME_EXAMS = 6;
 export async function getRecentExamOutcomes(
   locationId: string,
   limit: number = OUTCOME_EXAMS,
+  scope: AggregateScope = EVERY_GRADE,
 ): Promise<ExamOutcome[]> {
+  if (reachesNothing(scope)) return [];
+
   const examRows = await db
     .select({
       id: exams.id,
@@ -732,7 +942,12 @@ export async function getRecentExamOutcomes(
         eq(examSubjects.resultsStatus, 'published'),
       ),
     )
-    .where(eq(exams.locationId, locationId))
+    .where(
+      and(
+        eq(exams.locationId, locationId),
+        scope.gradeIds === null ? undefined : inArray(exams.gradeId, scope.gradeIds),
+      ),
+    )
     .groupBy(exams.id, grades.id, sections.id)
     .orderBy(desc(exams.examDate), asc(exams.title))
     .limit(limit);
@@ -808,9 +1023,16 @@ export interface TodaySnapshot {
  * taken yet, because at 8am those are opposite statements and a tile reading
  * "0%" first thing every morning trains people to ignore it.
  */
-export async function getTodaySnapshot(locationId: string): Promise<TodaySnapshot> {
+export async function getTodaySnapshot(
+  locationId: string,
+  scope: AggregateScope = EVERY_GRADE,
+): Promise<TodaySnapshot> {
   const today = toDateOnly(new Date());
   const tomorrow = toDateOnly(new Date(Date.now() + 24 * 60 * 60 * 1000));
+
+  if (reachesNothing(scope)) {
+    return { collectedToday: 0, attendanceRateToday: null };
+  }
 
   const [collected, attendance] = await Promise.all([
     db
@@ -821,6 +1043,9 @@ export async function getTodaySnapshot(locationId: string): Promise<TodaySnapsho
           eq(feePayments.locationId, locationId),
           gte(feePayments.paymentDate, today),
           lt(feePayments.paymentDate, tomorrow),
+          scope.gradeIds === null
+            ? undefined
+            : inArray(feePayments.challanId, challansInScope(locationId, scope.gradeIds)),
         ),
       ),
     db
@@ -830,7 +1055,16 @@ export async function getTodaySnapshot(locationId: string): Promise<TodaySnapsho
       })
       .from(attendanceRecords)
       .where(
-        and(eq(attendanceRecords.locationId, locationId), eq(attendanceRecords.date, today)),
+        and(
+          eq(attendanceRecords.locationId, locationId),
+          eq(attendanceRecords.date, today),
+          scope.gradeIds === null
+            ? undefined
+            : inArray(
+                attendanceRecords.studentProfileId,
+                studentsInScope(locationId, scope.gradeIds),
+              ),
+        ),
       ),
   ]);
 
@@ -841,5 +1075,241 @@ export async function getTodaySnapshot(locationId: string): Promise<TodaySnapsho
     collectedToday: Number(collected[0]?.value ?? '0'),
     attendanceRateToday:
       considered === 0 ? null : Math.round((1000 * attended) / considered) / 10,
+  };
+}
+
+/* -----------------------------------------------------------------------------
+ * Comparisons.
+ *
+ * Every headline tile on the school-admin dashboard carries one. A KPI without
+ * a benchmark is a number, not an indicator: "PKR 812,000 collected" is a fact
+ * nobody can act on, and "PKR 812,000, 14% behind this point last month" is a
+ * morning's work. Four of the five tiles on the old screen had none.
+ *
+ * The comparisons are all *like for like in the period elapsed*. Comparing a
+ * month that is nine days old against a whole month reports every school as
+ * collapsing until the 28th, which is the one way to make a comparison worse
+ * than no comparison at all.
+ * -------------------------------------------------------------------------- */
+
+/** Two figures and the same number of days of each month behind them. */
+export interface MonthComparison {
+  thisMonth: number;
+  /** Last month, cut at the same day of the month. */
+  lastMonthToDate: number;
+}
+
+/**
+ * Collections so far this month, against the same point last month.
+ *
+ * The cut is the day of the month, clamped to the length of the shorter month —
+ * so the 31st of March compares against the whole of February rather than
+ * against a date that does not exist.
+ */
+export async function getCollectionComparison(
+  locationId: string,
+  scope: AggregateScope = EVERY_GRADE,
+  now: Date = new Date(),
+): Promise<MonthComparison> {
+  if (reachesNothing(scope)) return { thisMonth: 0, lastMonthToDate: 0 };
+
+  const year = now.getFullYear();
+  const month = now.getMonth();
+  const day = now.getDate();
+
+  const thisStart = new Date(year, month, 1);
+  const lastStart = new Date(year, month - 1, 1);
+  const lastMonthLength = new Date(year, month, 0).getDate();
+  const lastCut = new Date(year, month - 1, Math.min(day, lastMonthLength));
+
+  const narrow =
+    scope.gradeIds === null
+      ? undefined
+      : inArray(feePayments.challanId, challansInScope(locationId, scope.gradeIds));
+
+  const sumBetween = async (from: Date, to: Date): Promise<number> => {
+    const rows = await db
+      .select({ value: sql<string>`coalesce(sum(${feePayments.amount}), 0)` })
+      .from(feePayments)
+      .where(
+        and(
+          eq(feePayments.locationId, locationId),
+          gte(feePayments.paymentDate, toDateOnly(from)),
+          lte(feePayments.paymentDate, toDateOnly(to)),
+          narrow,
+        ),
+      );
+
+    return Number(rows[0]?.value ?? '0');
+  };
+
+  const [thisMonth, lastMonthToDate] = await Promise.all([
+    sumBetween(thisStart, now),
+    sumBetween(lastStart, lastCut),
+  ]);
+
+  return { thisMonth, lastMonthToDate };
+}
+
+/** What is still owed, and how many families are behind on it. */
+export interface OutstandingSummary {
+  /** PKR still owed on challans billed for the current calendar month. */
+  outstandingThisMonth: number;
+  /** Challans past their due date and not settled — of any month. */
+  overdueCount: number;
+  /** Distinct students behind on at least one challan. */
+  defaulterCount: number;
+}
+
+/**
+ * The outstanding tile, scoped.
+ *
+ * `getFeeOverview` answers the same first two figures and is what the fee
+ * module's own screens use, but it takes no scope and never will — it is the
+ * bursar's view of the whole school. A principal's dashboard must not print the
+ * school's arrears under a heading that says "yours", so the dashboard has its
+ * own read. The definitions are deliberately identical to `getFeeOverview`'s so
+ * an unscoped head teacher sees the same number on both screens.
+ */
+export async function getOutstandingSummary(
+  locationId: string,
+  scope: AggregateScope = EVERY_GRADE,
+  now: Date = new Date(),
+): Promise<OutstandingSummary> {
+  if (reachesNothing(scope)) {
+    return { outstandingThisMonth: 0, overdueCount: 0, defaulterCount: 0 };
+  }
+
+  const today = toDateOnly(now);
+  const narrow =
+    scope.gradeIds === null
+      ? undefined
+      : inArray(feeChallans.studentProfileId, studentsInScope(locationId, scope.gradeIds));
+
+  const rows = await db
+    .select({
+      outstanding: sql<string>`coalesce(sum(${feeChallans.totalAmount} - ${feeChallans.paidAmount}) filter (where ${feeChallans.billingMonth} = ${now.getMonth() + 1} and ${feeChallans.billingYear} = ${now.getFullYear()}), 0)`,
+      overdue: sql<number>`count(*) filter (where ${feeChallans.dueDate} < ${today})`.mapWith(
+        Number,
+      ),
+      defaulters:
+        sql<number>`count(distinct ${feeChallans.studentProfileId}) filter (where ${feeChallans.dueDate} < ${today})`.mapWith(
+          Number,
+        ),
+    })
+    .from(feeChallans)
+    .where(
+      and(
+        eq(feeChallans.locationId, locationId),
+        inArray(feeChallans.status, ['unpaid', 'partial']),
+        narrow,
+      ),
+    );
+
+  const row = rows[0];
+
+  return {
+    outstandingThisMonth: Number(row?.outstanding ?? '0'),
+    overdueCount: row?.overdue ?? 0,
+    defaulterCount: row?.defaulters ?? 0,
+  };
+}
+
+/**
+ * The average attendance rate over the last `days` days.
+ *
+ * `null` when nothing was marked in the window — the same distinction
+ * `getTodaySnapshot` makes, for the same reason: a school on holiday and a
+ * school where the register is broken are not the same fact, and averaging them
+ * both to zero says the second.
+ */
+export async function getAttendanceAverage(
+  locationId: string,
+  scope: AggregateScope = EVERY_GRADE,
+  days = 30,
+): Promise<number | null> {
+  if (reachesNothing(scope)) return null;
+
+  const since = toDateOnly(new Date(Date.now() - days * 24 * 60 * 60 * 1000));
+
+  const rows = await db
+    .select({
+      considered: sql<number>`${CONSIDERED}`.mapWith(Number),
+      attended: sql<number>`${ATTENDED}`.mapWith(Number),
+    })
+    .from(attendanceRecords)
+    .where(
+      and(
+        eq(attendanceRecords.locationId, locationId),
+        gte(attendanceRecords.date, since),
+        scope.gradeIds === null
+          ? undefined
+          : inArray(
+              attendanceRecords.studentProfileId,
+              studentsInScope(locationId, scope.gradeIds),
+            ),
+      ),
+    );
+
+  const considered = rows[0]?.considered ?? 0;
+  if (considered === 0) return null;
+
+  return Math.round((1000 * (rows[0]?.attended ?? 0)) / considered) / 10;
+}
+
+/** Enrolment now, against how many were on the roll when the year opened. */
+export interface EnrolmentComparison {
+  now: number;
+  atYearStart: number;
+  activeYearName: string | null;
+}
+
+/**
+ * How the roll has moved since the academic year opened.
+ *
+ * "At year start" is enrolments dated on or before the first day of the year,
+ * counted from `enrollment_date` rather than `created_at` — a school entering
+ * its existing roll in September records the date the child actually joined,
+ * and `created_at` would report every one of them as a new admission on the day
+ * the office typed them in.
+ */
+export async function getEnrolmentComparison(
+  locationId: string,
+  scope: AggregateScope = EVERY_GRADE,
+): Promise<EnrolmentComparison> {
+  const activeYear = await getActiveAcademicYear(locationId);
+  if (activeYear === null) return { now: 0, atYearStart: 0, activeYearName: null };
+  if (reachesNothing(scope)) {
+    return { now: 0, atYearStart: 0, activeYearName: activeYear.name };
+  }
+
+  const bounds = academicYearBounds(activeYear);
+
+  const rows = await db
+    .select({
+      now: sql<number>`count(*)`.mapWith(Number),
+      atStart:
+        sql<number>`count(*) filter (where ${studentEnrollments.enrollmentDate} <= ${bounds.start})`.mapWith(
+          Number,
+        ),
+    })
+    .from(studentEnrollments)
+    .innerJoin(
+      sections,
+      and(eq(sections.id, studentEnrollments.sectionId), eq(sections.locationId, locationId)),
+    )
+    .where(
+      and(
+        eq(studentEnrollments.locationId, locationId),
+        eq(studentEnrollments.academicYearId, activeYear.id),
+        eq(studentEnrollments.status, 'active'),
+        scope.gradeIds === null ? undefined : inArray(sections.gradeId, scope.gradeIds),
+      ),
+    );
+
+  return {
+    now: rows[0]?.now ?? 0,
+    atYearStart: rows[0]?.atStart ?? 0,
+    activeYearName: activeYear.name,
   };
 }

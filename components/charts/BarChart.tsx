@@ -36,6 +36,22 @@ export interface BarSeries {
   values: readonly number[];
   /** A Tailwind fill class. Defaults walk the `chart-*` ramp. */
   fillClass?: string;
+  /**
+   * A fill for individual bars, by category index. Anything absent falls back
+   * to `fillClass`.
+   *
+   * ── What this is for, and the rule it must not break ─────────────────
+   * One chart in this product ranks classes by attendance so the reader can
+   * find the *worst* one, and a bar below the school's threshold is worth
+   * marking. That is a difference in kind between bars in one series, which
+   * `fillClass` cannot express.
+   *
+   * **Colour is never the only carrier.** The chart's `summary` names the
+   * classes it has marked and the hidden data table carries every figure, so
+   * the mark is a second signal on top of a stated fact rather than the fact
+   * itself. Do not use this for a status nothing else on the screen states.
+   */
+  fillClasses?: readonly (string | undefined)[];
 }
 
 export interface BarChartProps {
@@ -235,7 +251,9 @@ export function BarChart({
                         height={Math.max(1, barHeight - 2)}
                         rx={2}
                         className={cn(
-                          entry.fillClass ?? DEFAULT_FILLS[seriesIndex % DEFAULT_FILLS.length],
+                          entry.fillClasses?.[categoryIndex] ??
+                            entry.fillClass ??
+                            DEFAULT_FILLS[seriesIndex % DEFAULT_FILLS.length],
                         )}
                       />
                       {/*
@@ -346,7 +364,11 @@ export function BarChart({
                     width={Math.max(1, barWidth - 2)}
                     height={Math.max(height, value > 0 ? 1.5 : 0)}
                     rx={2}
-                    className={cn(entry.fillClass ?? DEFAULT_FILLS[seriesIndex % DEFAULT_FILLS.length])}
+                    className={cn(
+                      entry.fillClasses?.[categoryIndex] ??
+                        entry.fillClass ??
+                        DEFAULT_FILLS[seriesIndex % DEFAULT_FILLS.length],
+                    )}
                   />
                 );
               })}

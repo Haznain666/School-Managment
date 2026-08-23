@@ -8,15 +8,8 @@ import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { Card, CardTitle } from '@/components/ui/Card';
 import { Input } from '@/components/ui/Input';
+import { DataTable, type DataTableColumn } from '@/components/ui/DataTable';
 import { Select } from '@/components/ui/Select';
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeaderCell,
-  TableRow,
-} from '@/components/ui/Table';
 import { schoolErrorMessage, schoolFetch } from '@/lib/school-client';
 
 /**
@@ -109,6 +102,66 @@ export function ExamScheduler({
     }
   };
 
+  const examColumns: Array<DataTableColumn<SchedulerExam>> = [
+    {
+      id: 'exam',
+      header: 'Exam',
+      sortValue: (exam) => exam.title,
+      searchValue: (exam) =>
+        `${exam.title} ${exam.termName} ${exam.gradeName} ${exam.sectionName}`,
+      cell: (exam) => (
+        <>
+          <p className="font-medium text-ink">{exam.title}</p>
+          <p className="text-xs text-ink-muted">{exam.termName}</p>
+        </>
+      ),
+    },
+    {
+      id: 'class',
+      header: 'Class',
+      sortValue: (exam) => `${exam.gradeName} ${exam.sectionName}`,
+      cell: (exam) => `${exam.gradeName} — ${exam.sectionName}`,
+    },
+    {
+      id: 'starts',
+      header: 'Starts',
+      kind: 'date',
+      sortValue: (exam) => exam.examDate,
+      cell: (exam) => exam.examDate,
+    },
+    {
+      id: 'papers',
+      header: 'Papers',
+      kind: 'number',
+      sortValue: (exam) => exam.paperCount,
+      cell: (exam) => exam.paperCount,
+    },
+    {
+      id: 'datesheet',
+      header: 'Datesheet',
+      sortValue: (exam) => (exam.isPublished ? 0 : 1),
+      cell: (exam) =>
+        exam.isPublished ? (
+          <Badge variant="success">Announced</Badge>
+        ) : (
+          <Badge variant="neutral">Draft</Badge>
+        ),
+    },
+    {
+      id: 'open',
+      header: <span className="sr-only">Open</span>,
+      align: 'numeric',
+      cell: (exam) => (
+        <Link
+          href={`/dashboard/exams/${exam.id}`}
+          className="text-sm font-medium text-brand-primary hover:underline"
+        >
+          Open
+        </Link>
+      ),
+    },
+  ];
+
   return (
     <Card
       header={
@@ -193,57 +246,45 @@ export function ExamScheduler({
         </div>
       ) : null}
 
-      {exams.length === 0 ? (
-        <p className="text-sm text-ink-muted">
-          Nothing scheduled yet.
-          {terms.length === 0 ? ' Open a term first — every exam belongs to one.' : ''}
-        </p>
-      ) : (
-        <div className="overflow-x-auto">
-          <Table caption="Papers in this exam" className="rounded-none border-0">
-            <TableHead>
-              <TableRow className="border-b border-line text-left text-xs uppercase tracking-wide text-ink-muted">
-                <TableHeaderCell className="pr-3">Exam</TableHeaderCell>
-                <TableHeaderCell className="pr-3">Class</TableHeaderCell>
-                <TableHeaderCell className="pr-3">Starts</TableHeaderCell>
-                <TableHeaderCell className="pr-3">Papers</TableHeaderCell>
-                <TableHeaderCell className="pr-3">Datesheet</TableHeaderCell>
-                <TableHeaderCell />
-              </TableRow>
-            </TableHead>
-            <TableBody>
-              {exams.map((exam) => (
-                <TableRow key={exam.id}>
-                  <TableCell className="pr-3">
-                    <p className="font-medium text-ink">{exam.title}</p>
-                    <p className="text-xs text-ink-muted">{exam.termName}</p>
-                  </TableCell>
-                  <TableCell className="pr-3">
-                    {exam.gradeName} — {exam.sectionName}
-                  </TableCell>
-                  <TableCell className="pr-3">{exam.examDate}</TableCell>
-                  <TableCell className="pr-3">{exam.paperCount}</TableCell>
-                  <TableCell className="pr-3">
-                    {exam.isPublished ? (
-                      <Badge variant="success">Announced</Badge>
-                    ) : (
-                      <Badge variant="neutral">Draft</Badge>
-                    )}
-                  </TableCell>
-                  <TableCell align="numeric">
-                    <Link
-                      href={`/dashboard/exams/${exam.id}`}
-                      className="text-sm font-medium text-brand-primary hover:underline"
-                    >
-                      Open
-                    </Link>
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </div>
-      )}
+      <DataTable
+        caption="Scheduled exams"
+        columns={examColumns}
+        rows={exams}
+        getRowKey={(exam) => exam.id}
+        defaultSort={{ columnId: 'starts', direction: 'desc' }}
+        search={{ placeholder: 'Exam title, term or class' }}
+        filters={[
+          {
+            id: 'datesheet',
+            label: 'Datesheet',
+            allLabel: 'Draft and announced',
+            options: [
+              { value: 'announced', label: 'Announced' },
+              { value: 'draft', label: 'Draft' },
+            ],
+            rowValue: (exam) => (exam.isPublished ? 'announced' : 'draft'),
+          },
+          {
+            id: 'term',
+            label: 'Term',
+            allLabel: 'Every term',
+            options: [...new Set(exams.map((exam) => exam.termName))].map((name) => ({
+              value: name,
+              label: name,
+            })),
+            rowValue: (exam) => exam.termName,
+          },
+        ]}
+        itemNoun={{ singular: 'exam', plural: 'exams' }}
+        emptyTitle="Nothing scheduled yet"
+        emptyDescription={
+          terms.length === 0
+            ? 'Open a term first — every exam belongs to one.'
+            : 'Schedule an exam and it will appear here with its papers.'
+        }
+        noResultTitle="No exams match those filters"
+        noResultDescription="Widen the term, or clear the search."
+      />
     </Card>
   );
 }

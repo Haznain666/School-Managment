@@ -9,15 +9,9 @@ import { Card, CardTitle } from '@/components/ui/Card';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
+import { DataTable, type DataTableColumn } from '@/components/ui/DataTable';
+import { SkeletonTable } from '@/components/ui/Skeleton';
 import { Textarea } from '@/components/ui/Textarea';
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeaderCell,
-  TableRow,
-} from '@/components/ui/Table';
 import { parsePositiveAmountPaise } from '@/lib/accounting';
 import { formatPkr } from '@/lib/money';
 import { schoolErrorMessage, schoolFetch } from '@/lib/school-client';
@@ -159,12 +153,126 @@ export function CashCounters({ staff }: CashCountersProps) {
   };
 
   if (counters === null) {
-    return (
-      <Card>
-        <p className="text-sm text-ink-muted">Loading the cash counters…</p>
-      </Card>
-    );
+    return <SkeletonTable rows={5} columns={5} />;
   }
+
+  const counterColumns: Array<DataTableColumn<CounterRow>> = [
+    {
+      id: 'who',
+      header: 'Who',
+      sortValue: (row) => row.staffName,
+      searchValue: (row) => `${row.staffName} ${row.staffRole}`,
+      cell: (row) => (
+        <>
+          <span className="font-medium text-ink">{row.staffName}</span>
+          <span className="ml-2 text-xs text-ink-muted">{row.staffRole}</span>
+        </>
+      ),
+    },
+    {
+      id: 'drawer',
+      header: 'Drawer',
+      muted: true,
+      sortValue: (row) => row.code,
+      searchValue: (row) => `${row.code} ${row.name}`,
+      cell: (row) => `${row.code} ${row.name}`,
+    },
+    {
+      id: 'lastSettled',
+      header: 'Last settled',
+      kind: 'date',
+      muted: true,
+      sortValue: (row) => row.lastSettledOn,
+      cell: (row) => row.lastSettledOn ?? 'Never',
+    },
+    {
+      id: 'holding',
+      header: 'Holding',
+      kind: 'money',
+      sortValue: (row) => row.balancePaise,
+      cell: (row) => formatPkr(row.balancePaise / 100),
+    },
+    {
+      id: 'actions',
+      header: 'Actions',
+      align: 'end',
+      cell: (row) =>
+        row.balancePaise > 0 ? (
+          <Button
+            size="sm"
+            onClick={() =>
+              setSettling({
+                counter: row,
+                // Pre-filled with what the drawer should hold. It is typed over
+                // when the count disagrees, which is the entire point of asking.
+                amount: (row.balancePaise / 100).toFixed(2),
+                settlementDate: today(),
+                referenceNumber: '',
+                notes: '',
+              })
+            }
+          >
+            Settle
+          </Button>
+        ) : (
+          <Badge variant="success">Settled up</Badge>
+        ),
+    },
+  ];
+
+  const settlementColumns: Array<DataTableColumn<SettlementRow>> = [
+    {
+      id: 'date',
+      header: 'Date',
+      kind: 'date',
+      sortValue: (row) => row.settlementDate,
+      searchValue: (row) => row.settlementDate,
+      cell: (row) => row.settlementDate,
+    },
+    {
+      id: 'who',
+      header: 'Who',
+      sortValue: (row) => row.staffName,
+      searchValue: (row) => row.staffName,
+      cell: (row) => row.staffName,
+    },
+    {
+      id: 'to',
+      header: 'To',
+      muted: true,
+      sortValue: (row) => row.toName,
+      searchValue: (row) => `${row.toName} ${row.referenceNumber ?? ''}`,
+      cell: (row) => (
+        <>
+          {row.toName}
+          {row.referenceNumber !== null ? (
+            <span className="ml-2 text-xs">{row.referenceNumber}</span>
+          ) : null}
+        </>
+      ),
+    },
+    {
+      id: 'expected',
+      header: 'Expected',
+      kind: 'money',
+      sortValue: (row) => row.expectedPaise,
+      cell: (row) => formatPkr(row.expectedPaise / 100),
+    },
+    {
+      id: 'handedOver',
+      header: 'Handed over',
+      kind: 'money',
+      sortValue: (row) => row.amountPaise,
+      cell: (row) => formatPkr(row.amountPaise / 100),
+    },
+    {
+      id: 'left',
+      header: 'Left in drawer',
+      kind: 'money',
+      sortValue: (row) => row.shortPaise,
+      cell: (row) => (row.shortPaise === 0 ? '—' : formatPkr(row.shortPaise / 100)),
+    },
+  ];
 
   const withoutDrawer = staff.filter(
     (member) => !counters.some((counter) => counter.staffUserId === member.id),
@@ -206,57 +314,28 @@ export function CashCounters({ staff }: CashCountersProps) {
             />
           }
         >
-          <Table caption="Cash held by each fee counter">
-            <TableHead>
-              <TableRow>
-                <TableHeaderCell>Who</TableHeaderCell>
-                <TableHeaderCell>Drawer</TableHeaderCell>
-                <TableHeaderCell>Last settled</TableHeaderCell>
-                <TableHeaderCell align="numeric">Holding</TableHeaderCell>
-                <TableHeaderCell align="end">Actions</TableHeaderCell>
-              </TableRow>
-            </TableHead>
-            <TableBody>
-              {counters.map((counter) => (
-                <TableRow key={counter.accountId}>
-                  <TableCell>
-                    <span className="font-medium text-ink">{counter.staffName}</span>
-                    <span className="ml-2 text-xs text-ink-muted">{counter.staffRole}</span>
-                  </TableCell>
-                  <TableCell muted>
-                    {counter.code} {counter.name}
-                  </TableCell>
-                  <TableCell muted>{counter.lastSettledOn ?? 'Never'}</TableCell>
-                  <TableCell align="numeric">
-                    {formatPkr(counter.balancePaise / 100)}
-                  </TableCell>
-                  <TableCell align="end">
-                    {counter.balancePaise > 0 ? (
-                      <Button
-                        size="sm"
-                        onClick={() =>
-                          setSettling({
-                            counter,
-                            // Pre-filled with what the drawer should hold. It
-                            // is typed over when the count disagrees, which is
-                            // the entire point of asking.
-                            amount: (counter.balancePaise / 100).toFixed(2),
-                            settlementDate: today(),
-                            referenceNumber: '',
-                            notes: '',
-                          })
-                        }
-                      >
-                        Settle
-                      </Button>
-                    ) : (
-                      <Badge variant="success">Settled up</Badge>
-                    )}
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
+          <DataTable
+            caption="Cash held by each fee counter"
+            columns={counterColumns}
+            rows={counters}
+            getRowKey={(row) => row.accountId}
+            defaultSort={{ columnId: 'holding', direction: 'desc' }}
+            search={{ placeholder: 'Name or drawer' }}
+            filters={[
+              {
+                id: 'position',
+                label: 'Position',
+                allLabel: 'Every counter',
+                options: [
+                  { value: 'holding', label: 'Still holding cash' },
+                  { value: 'settled', label: 'Settled up' },
+                ],
+                rowValue: (row) => (row.balancePaise > 0 ? 'holding' : 'settled'),
+              },
+            ]}
+            itemNoun={{ singular: 'counter', plural: 'counters' }}
+            emptyTitle="No counters"
+          />
         </Card>
       )}
 
@@ -359,37 +438,28 @@ export function CashCounters({ staff }: CashCountersProps) {
 
       {settlements.length > 0 ? (
         <Card header={<CardTitle title="Settlements" description="What has been handed in." />}>
-          <Table caption="Recorded cash settlements">
-            <TableHead>
-              <TableRow>
-                <TableHeaderCell>Date</TableHeaderCell>
-                <TableHeaderCell>Who</TableHeaderCell>
-                <TableHeaderCell>To</TableHeaderCell>
-                <TableHeaderCell align="numeric">Expected</TableHeaderCell>
-                <TableHeaderCell align="numeric">Handed over</TableHeaderCell>
-                <TableHeaderCell align="numeric">Left in drawer</TableHeaderCell>
-              </TableRow>
-            </TableHead>
-            <TableBody>
-              {settlements.map((row) => (
-                <TableRow key={row.id}>
-                  <TableCell>{row.settlementDate}</TableCell>
-                  <TableCell>{row.staffName}</TableCell>
-                  <TableCell muted>
-                    {row.toName}
-                    {row.referenceNumber !== null ? (
-                      <span className="ml-2 text-xs">{row.referenceNumber}</span>
-                    ) : null}
-                  </TableCell>
-                  <TableCell align="numeric">{formatPkr(row.expectedPaise / 100)}</TableCell>
-                  <TableCell align="numeric">{formatPkr(row.amountPaise / 100)}</TableCell>
-                  <TableCell align="numeric">
-                    {row.shortPaise === 0 ? '—' : formatPkr(row.shortPaise / 100)}
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
+          <DataTable
+            caption="Recorded cash settlements"
+            columns={settlementColumns}
+            rows={settlements}
+            getRowKey={(row) => row.id}
+            defaultSort={{ columnId: 'date', direction: 'desc' }}
+            search={{ placeholder: 'Who, or a slip number' }}
+            filters={[
+              {
+                id: 'short',
+                label: 'Shortfall',
+                allLabel: 'Every settlement',
+                options: [
+                  { value: 'short', label: 'Left something in the drawer' },
+                  { value: 'clean', label: 'Handed over in full' },
+                ],
+                rowValue: (row) => (row.shortPaise === 0 ? 'clean' : 'short'),
+              },
+            ]}
+            itemNoun={{ singular: 'settlement', plural: 'settlements' }}
+            emptyTitle="Nothing settled yet"
+          />
         </Card>
       ) : null}
     </div>

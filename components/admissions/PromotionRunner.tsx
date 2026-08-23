@@ -5,15 +5,8 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { Card, CardTitle } from '@/components/ui/Card';
+import { DataTable, type DataTableColumn } from '@/components/ui/DataTable';
 import { Select } from '@/components/ui/Select';
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeaderCell,
-  TableRow,
-} from '@/components/ui/Table';
 
 export interface GradeOption {
   id: string;
@@ -410,106 +403,159 @@ export function PromotionRunner({
     );
   }
 
+  const decisionColumns: Array<DataTableColumn<DecisionRow>> = [
+    {
+      id: 'student',
+      header: 'Student',
+      sortValue: (row) => row.name,
+      searchValue: (row) => `${row.name} ${row.studentId}`,
+      cell: (row) => (
+        <>
+          <span className="font-medium text-ink">{row.name}</span>
+          <span className="block font-mono text-xs text-ink-muted">{row.studentId}</span>
+        </>
+      ),
+    },
+    {
+      id: 'from',
+      header: 'Now in',
+      muted: true,
+      sortValue: (row) => row.fromSectionName,
+      searchValue: (row) => row.fromSectionName,
+      cell: (row) => row.fromSectionName,
+    },
+    {
+      id: 'decision',
+      header: 'Decision',
+      sortValue: (row) => DECISION_LABELS[row.decision],
+      cell: (row) => (
+        <select
+          aria-label={`Decision for ${row.name}`}
+          className="rounded-lg border border-line-strong px-2 py-1 text-sm"
+          value={row.decision}
+          onChange={(event) => {
+            const decision = event.target.value as Decision;
+            setRow(row.id, {
+              decision,
+              toSectionId: decision === 'promote' ? row.toSectionId : null,
+            });
+          }}
+        >
+          {(['promote', 'retain', 'graduate'] as const).map((decision) => (
+            <option key={decision} value={decision}>
+              {DECISION_LABELS[decision]}
+            </option>
+          ))}
+        </select>
+      ),
+    },
+    {
+      id: 'to',
+      header: 'Goes to',
+      cell: (row) =>
+        row.decision === 'promote' ? (
+          <select
+            aria-label={`Class for ${row.name}`}
+            className="rounded-lg border border-line-strong px-2 py-1 text-sm"
+            value={row.toSectionId ?? ''}
+            onChange={(event) => {
+              setRow(row.id, { toSectionId: event.target.value || null });
+            }}
+          >
+            <option value="">Choose…</option>
+            {destinations.map((section) => (
+              <option key={section.id} value={section.id}>
+                {section.label}
+              </option>
+            ))}
+          </select>
+        ) : (
+          <span className="text-ink-muted">
+            {row.decision === 'retain' ? 'Stays put' : '—'}
+          </span>
+        ),
+    },
+    {
+      id: 'note',
+      header: 'Note',
+      className: 'text-xs text-status-warning-onSubtle',
+      sortValue: (row) => row.note,
+      searchValue: (row) => row.note ?? '',
+      cell: (row) => row.note ?? '',
+    },
+  ];
+
   return (
     <div className="space-y-4">
       {banner}
 
-      <Card
-        header={
-          <CardTitle
-            title="Review every student"
-            description="Nothing has been changed yet."
-            action={
-              <div className="flex flex-nowrap gap-2 whitespace-nowrap">
-                {(['promote', 'retain', 'graduate'] as const).map((decision) => (
-                  <Button
-                    key={decision}
-                    variant="secondary"
-                    size="sm"
-                    onClick={() => {
-                      setAll(decision);
-                    }}
-                  >
-                    All {DECISION_LABELS[decision].toLowerCase()}
-                  </Button>
-                ))}
-              </div>
-            }
-          />
+      {/*
+        Sorted, filtered and paged in the browser and nowhere else: the draft is
+        already in memory, and every decision on it is unsaved state. A page
+        change that went back to the server would be a page change that threw
+        away the decisions made on the page being left.
+
+        Apply still acts on every row of the run, not on the page in view. The
+        filter is there to *find* the twelve students with no class chosen among
+        three hundred, which is the one thing this screen was hard to do.
+      */}
+      <DataTable
+        caption="Students in this promotion"
+        columns={decisionColumns}
+        rows={rows}
+        getRowKey={(row) => row.id}
+        defaultSort={{ columnId: 'student', direction: 'asc' }}
+        search={{ placeholder: 'Name or student ID' }}
+        filters={[
+          {
+            id: 'decision',
+            label: 'Decision',
+            allLabel: 'Every decision',
+            options: (['promote', 'retain', 'graduate'] as const).map((decision) => ({
+              value: decision,
+              label: DECISION_LABELS[decision],
+            })),
+            rowValue: (row) => row.decision,
+          },
+          {
+            id: 'ready',
+            label: 'Ready',
+            allLabel: 'Everyone',
+            options: [
+              { value: 'incomplete', label: 'No class chosen' },
+              { value: 'flagged', label: 'Has a note' },
+              { value: 'ready', label: 'Ready to apply' },
+            ],
+            rowValue: (row) => {
+              const flags: string[] = [];
+              if (row.decision === 'promote' && row.toSectionId === null) {
+                flags.push('incomplete');
+              }
+              if (row.note !== null && row.note !== '') flags.push('flagged');
+              if (flags.length === 0) flags.push('ready');
+              return flags;
+            },
+          },
+        ]}
+        itemNoun={{ singular: 'student', plural: 'students' }}
+        emptyTitle="Nobody in this run"
+        actions={
+          <div className="flex flex-nowrap gap-2 whitespace-nowrap">
+            {(['promote', 'retain', 'graduate'] as const).map((decision) => (
+              <Button
+                key={decision}
+                variant="secondary"
+                size="sm"
+                onClick={() => {
+                  setAll(decision);
+                }}
+              >
+                All {DECISION_LABELS[decision].toLowerCase()}
+              </Button>
+            ))}
+          </div>
         }
-        className="p-0"
-      >
-        <div className="overflow-x-auto">
-          <Table caption="Students in this promotion" className="rounded-none border-0">
-            <TableHead>
-              <TableRow>
-                <TableHeaderCell>Student</TableHeaderCell>
-                <TableHeaderCell>Now in</TableHeaderCell>
-                <TableHeaderCell>Decision</TableHeaderCell>
-                <TableHeaderCell>Goes to</TableHeaderCell>
-                <TableHeaderCell>Note</TableHeaderCell>
-              </TableRow>
-            </TableHead>
-            <TableBody>
-              {rows.map((row) => (
-                <TableRow key={row.id}>
-                  <TableCell>
-                    <span className="font-medium text-ink">{row.name}</span>
-                    <span className="block font-mono text-xs text-ink-muted">
-                      {row.studentId}
-                    </span>
-                  </TableCell>
-                  <TableCell muted>{row.fromSectionName}</TableCell>
-                  <TableCell>
-                    <select
-                      aria-label={`Decision for ${row.name}`}
-                      className="rounded-lg border border-line-strong px-2 py-1 text-sm"
-                      value={row.decision}
-                      onChange={(event) => {
-                        const decision = event.target.value as Decision;
-                        setRow(row.id, {
-                          decision,
-                          toSectionId: decision === 'promote' ? row.toSectionId : null,
-                        });
-                      }}
-                    >
-                      {(['promote', 'retain', 'graduate'] as const).map((decision) => (
-                        <option key={decision} value={decision}>
-                          {DECISION_LABELS[decision]}
-                        </option>
-                      ))}
-                    </select>
-                  </TableCell>
-                  <TableCell>
-                    {row.decision === 'promote' ? (
-                      <select
-                        aria-label={`Class for ${row.name}`}
-                        className="rounded-lg border border-line-strong px-2 py-1 text-sm"
-                        value={row.toSectionId ?? ''}
-                        onChange={(event) => {
-                          setRow(row.id, { toSectionId: event.target.value || null });
-                        }}
-                      >
-                        <option value="">Choose…</option>
-                        {destinations.map((section) => (
-                          <option key={section.id} value={section.id}>
-                            {section.label}
-                          </option>
-                        ))}
-                      </select>
-                    ) : (
-                      <span className="text-ink-muted">
-                        {row.decision === 'retain' ? 'Stays put' : '—'}
-                      </span>
-                    )}
-                  </TableCell>
-                  <TableCell className="text-xs text-status-warning-onSubtle">{row.note ?? ''}</TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </div>
-      </Card>
+      />
 
       {missingSection > 0 ? (
         <p className="rounded-lg bg-status-warning-subtle px-3 py-2 text-sm text-status-warning-onSubtle">

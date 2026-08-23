@@ -6,6 +6,7 @@ what is not there yet. They are not the engineering handover — that is
 
 | Sprint | Theme | Migration | Notes |
 | --- | --- | --- | --- |
+| — | School creation wizard, the 429 status, the clipped address list (not a sprint) | `0031` **written, not applied** | [read](RELEASE-NOTES-SCHOOL-WIZARD-AND-PROVISIONING.md) |
 | — | School onboarding, fixed (not a sprint) | — | [read](RELEASE-NOTES-SCHOOL-ONBOARDING-FIXES.md) |
 | — | Address & phone fields — one shape everywhere (not a sprint) | — | [read](RELEASE-NOTES-ADDRESS-AND-PHONE-FIELDS.md) |
 | — | SMTP delivery and wildcard subdomains (not a sprint) | — | [read](RELEASE-NOTES-SMTP-AND-WILDCARD-SUBDOMAINS.md) |

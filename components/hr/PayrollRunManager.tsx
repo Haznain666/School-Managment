@@ -7,15 +7,8 @@ import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { Card, CardTitle } from '@/components/ui/Card';
 import { Input } from '@/components/ui/Input';
+import { DataTable, type DataTableColumn } from '@/components/ui/DataTable';
 import { Select } from '@/components/ui/Select';
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeaderCell,
-  TableRow,
-} from '@/components/ui/Table';
 import {
   PAYROLL_MONTH_NAMES,
   PAYROLL_RUN_STATUS_LABELS,
@@ -163,6 +156,77 @@ export function PayrollRunManager({ canEdit }: PayrollRunManagerProps) {
     label: String(value),
   }));
 
+  const runColumns: Array<DataTableColumn<RunRow>> = [
+    {
+      id: 'period',
+      header: 'Period',
+      // Year and month as one number, so December 2025 sorts before January
+      // 2026 rather than after it as text.
+      sortValue: (row) => row.payrollYear * 100 + row.payrollMonth,
+      searchValue: (row) =>
+        `${formatPayrollPeriod(row.payrollMonth, row.payrollYear)} ${
+          row.branchName ?? 'Whole school'
+        }`,
+      cell: (row) => (
+        <>
+          <p className="font-medium text-ink">
+            {formatPayrollPeriod(row.payrollMonth, row.payrollYear)}
+          </p>
+          <p className="text-xs text-ink-muted">
+            {row.branchName ?? 'Whole school'} · {row.workingDays} working days
+          </p>
+        </>
+      ),
+    },
+    {
+      id: 'staff',
+      header: 'Staff',
+      kind: 'number',
+      muted: true,
+      sortValue: (row) => row.staffCount,
+      cell: (row) => row.staffCount,
+    },
+    {
+      id: 'gross',
+      header: 'Gross',
+      kind: 'money',
+      muted: true,
+      sortValue: (row) => Number(row.grossTotal),
+      cell: (row) => formatPkr(row.grossTotal),
+    },
+    {
+      id: 'net',
+      header: 'Net',
+      kind: 'money',
+      rowHeader: true,
+      sortValue: (row) => Number(row.netTotal),
+      cell: (row) => formatPkr(row.netTotal),
+    },
+    {
+      id: 'status',
+      header: 'Status',
+      sortValue: (row) => PAYROLL_RUN_STATUS_LABELS[row.status],
+      cell: (row) => (
+        <Badge variant={STATUS_VARIANT[row.status]}>
+          {PAYROLL_RUN_STATUS_LABELS[row.status]}
+        </Badge>
+      ),
+    },
+    {
+      id: 'open',
+      header: <span className="sr-only">Open</span>,
+      align: 'numeric',
+      cell: (row) => (
+        <Link
+          href={`/dashboard/payroll/runs/${row.id}`}
+          className="text-sm font-medium text-brand-primary hover:underline"
+        >
+          Open
+        </Link>
+      ),
+    },
+  ];
+
   return (
     <div className="space-y-4">
       {error !== null ? (
@@ -253,79 +317,32 @@ export function PayrollRunManager({ canEdit }: PayrollRunManagerProps) {
         </Card>
       ) : null}
 
-      {runs === null ? (
-        <Card>
-          <p className="text-sm text-ink-muted">Loading payroll runs…</p>
-        </Card>
-      ) : runs.length === 0 ? (
-        <Card>
-          <p className="text-sm text-ink-muted">
-            No payroll has been run yet. A run needs active staff with salary
-            structures assigned — set those up under Staff first.
-          </p>
-        </Card>
-      ) : (
-        <Card
-          header={
-            <CardTitle
-              title="Payroll runs"
-              description={`${runs.length} run${runs.length === 1 ? '' : 's'}.`}
-            />
-          }
-          className="p-0"
-        >
-          <div className="overflow-x-auto">
-            <Table caption="Payroll runs" className="rounded-none border-0">
-              <TableHead>
-                <TableRow>
-                  <TableHeaderCell>Period</TableHeaderCell>
-                  <TableHeaderCell>Staff</TableHeaderCell>
-                  <TableHeaderCell>Gross</TableHeaderCell>
-                  <TableHeaderCell>Net</TableHeaderCell>
-                  <TableHeaderCell>Status</TableHeaderCell>
-                  <TableHeaderCell>
-                    <span className="sr-only">Open</span>
-                  </TableHeaderCell>
-                </TableRow>
-              </TableHead>
-              <TableBody>
-                {runs.map((row) => (
-                  <TableRow key={row.id}>
-                    <TableCell>
-                      <p className="font-medium text-ink">
-                        {formatPayrollPeriod(row.payrollMonth, row.payrollYear)}
-                      </p>
-                      <p className="text-xs text-ink-muted">
-                        {row.branchName ?? 'Whole school'} · {row.workingDays} working days
-                      </p>
-                    </TableCell>
-                    <TableCell muted>{row.staffCount}</TableCell>
-                    <TableCell muted>
-                      {formatPkr(row.grossTotal)}
-                    </TableCell>
-                    <TableCell rowHeader>
-                      {formatPkr(row.netTotal)}
-                    </TableCell>
-                    <TableCell>
-                      <Badge variant={STATUS_VARIANT[row.status]}>
-                        {PAYROLL_RUN_STATUS_LABELS[row.status]}
-                      </Badge>
-                    </TableCell>
-                    <TableCell align="numeric">
-                      <Link
-                        href={`/dashboard/payroll/runs/${row.id}`}
-                        className="text-sm font-medium text-brand-primary hover:underline"
-                      >
-                        Open
-                      </Link>
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </div>
-        </Card>
-      )}
+      <DataTable
+        caption="Payroll runs"
+        columns={runColumns}
+        rows={runs ?? []}
+        getRowKey={(row) => row.id}
+        pending={runs === null}
+        defaultSort={{ columnId: 'period', direction: 'desc' }}
+        search={{ placeholder: 'Month, year or campus' }}
+        filters={[
+          {
+            id: 'status',
+            label: 'Status',
+            allLabel: 'Every run',
+            options: Object.entries(PAYROLL_RUN_STATUS_LABELS).map(([value, label]) => ({
+              value,
+              label,
+            })),
+            rowValue: (row) => row.status,
+          },
+        ]}
+        itemNoun={{ singular: 'run', plural: 'runs' }}
+        emptyTitle="No payroll has been run yet"
+        emptyDescription="A run needs active staff with salary structures assigned — set those up under Staff first."
+        noResultTitle="No runs match those filters"
+        noResultDescription="Clear the search or choose another status."
+      />
     </div>
   );
 }

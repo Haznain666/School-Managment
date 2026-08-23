@@ -6,16 +6,9 @@ import { useCallback, useEffect, useState } from 'react';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { Card, CardTitle } from '@/components/ui/Card';
+import { DataTable, type DataTableColumn } from '@/components/ui/DataTable';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeaderCell,
-  TableRow,
-} from '@/components/ui/Table';
 import { schoolErrorMessage, schoolFetch } from '@/lib/school-client';
 
 /**
@@ -137,12 +130,90 @@ export function ExpenseCategories({ canEdit }: ExpenseCategoriesProps) {
     }
   };
 
-  if (categories === null) {
-    return (
-      <Card>
-        <p className="text-sm text-ink-muted">Loading the categories…</p>
-      </Card>
-    );
+  const columns: Array<DataTableColumn<CategoryRow>> = [
+    {
+      id: 'name',
+      header: 'Category',
+      sortValue: (row) => row.name,
+      searchValue: (row) => row.name,
+      cell: (row) =>
+        renaming?.id === row.id ? (
+          <Input
+            label="Name"
+            hideLabel
+            value={renaming.name}
+            onChange={(event) => setRenaming({ id: row.id, name: event.target.value })}
+          />
+        ) : (
+          <>
+            <span className="font-medium text-ink">{row.name}</span>
+            {!row.isActive ? (
+              <Badge className="ml-2" variant="neutral">
+                Switched off
+              </Badge>
+            ) : null}
+          </>
+        ),
+    },
+    {
+      id: 'account',
+      header: 'Posts to',
+      muted: true,
+      sortValue: (row) => row.accountCode,
+      searchValue: (row) => `${row.accountCode} ${row.accountName}`,
+      cell: (row) => `${row.accountCode} ${row.accountName}`,
+    },
+    {
+      id: 'filed',
+      header: 'Filed',
+      kind: 'number',
+      sortValue: (row) => row.expenseCount,
+      cell: (row) => row.expenseCount,
+    },
+  ];
+
+  if (canEdit) {
+    columns.push({
+      id: 'actions',
+      header: 'Actions',
+      align: 'end',
+      cell: (row) => (
+        <div className="flex justify-end gap-2">
+          {renaming?.id === row.id ? (
+            <>
+              <Button
+                size="sm"
+                isLoading={busy === row.id}
+                onClick={() => void patch(row.id, { name: renaming.name.trim() })}
+              >
+                Save
+              </Button>
+              <Button size="sm" variant="ghost" onClick={() => setRenaming(null)}>
+                Cancel
+              </Button>
+            </>
+          ) : (
+            <>
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => setRenaming({ id: row.id, name: row.name })}
+              >
+                Rename
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                isLoading={busy === row.id}
+                onClick={() => void patch(row.id, { isActive: !row.isActive })}
+              >
+                {row.isActive ? 'Switch off' : 'Switch on'}
+              </Button>
+            </>
+          )}
+        </div>
+      ),
+    });
   }
 
   return (
@@ -210,87 +281,30 @@ export function ExpenseCategories({ canEdit }: ExpenseCategoriesProps) {
           />
         }
       >
-        <Table caption="Expense categories and the accounts they post to">
-          <TableHead>
-            <TableRow>
-              <TableHeaderCell>Category</TableHeaderCell>
-              <TableHeaderCell>Posts to</TableHeaderCell>
-              <TableHeaderCell align="numeric">Filed</TableHeaderCell>
-              {canEdit ? <TableHeaderCell align="end">Actions</TableHeaderCell> : null}
-            </TableRow>
-          </TableHead>
-          <TableBody>
-            {categories.map((row) => (
-              <TableRow key={row.id}>
-                <TableCell>
-                  {renaming?.id === row.id ? (
-                    <Input
-                      label="Name"
-                      hideLabel
-                      value={renaming.name}
-                      onChange={(event) =>
-                        setRenaming({ id: row.id, name: event.target.value })
-                      }
-                    />
-                  ) : (
-                    <>
-                      <span className="font-medium text-ink">{row.name}</span>
-                      {!row.isActive ? (
-                        <Badge className="ml-2" variant="neutral">
-                          Switched off
-                        </Badge>
-                      ) : null}
-                    </>
-                  )}
-                </TableCell>
-                <TableCell muted>
-                  {row.accountCode} {row.accountName}
-                </TableCell>
-                <TableCell align="numeric">{row.expenseCount}</TableCell>
-                {canEdit ? (
-                  <TableCell align="end">
-                    <div className="flex justify-end gap-2">
-                      {renaming?.id === row.id ? (
-                        <>
-                          <Button
-                            size="sm"
-                            isLoading={busy === row.id}
-                            onClick={() =>
-                              void patch(row.id, { name: renaming.name.trim() })
-                            }
-                          >
-                            Save
-                          </Button>
-                          <Button size="sm" variant="ghost" onClick={() => setRenaming(null)}>
-                            Cancel
-                          </Button>
-                        </>
-                      ) : (
-                        <>
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            onClick={() => setRenaming({ id: row.id, name: row.name })}
-                          >
-                            Rename
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            isLoading={busy === row.id}
-                            onClick={() => void patch(row.id, { isActive: !row.isActive })}
-                          >
-                            {row.isActive ? 'Switch off' : 'Switch on'}
-                          </Button>
-                        </>
-                      )}
-                    </div>
-                  </TableCell>
-                ) : null}
-              </TableRow>
-            ))}
-          </TableBody>
-        </Table>
+        <DataTable
+          caption="Expense categories and the accounts they post to"
+          columns={columns}
+          rows={categories ?? []}
+          getRowKey={(row) => row.id}
+          pending={categories === null}
+          defaultSort={{ columnId: 'name', direction: 'asc' }}
+          search={{ placeholder: 'Category or account' }}
+          filters={[
+            {
+              id: 'status',
+              label: 'Status',
+              allLabel: 'Every category',
+              options: [
+                { value: 'active', label: 'Switched on' },
+                { value: 'inactive', label: 'Switched off' },
+              ],
+              rowValue: (row) => (row.isActive ? 'active' : 'inactive'),
+            },
+          ]}
+          itemNoun={{ singular: 'category', plural: 'categories' }}
+          emptyTitle="No expense categories yet"
+          emptyDescription="A category is the word a clerk picks from when filing a bill. Add the first one to start recording expenses."
+        />
       </Card>
     </div>
   );
