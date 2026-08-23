@@ -7515,7 +7515,7 @@ seconds. Not touched by this sprint. Worth a look.
 
 ---
 
-## 5az. Sprint 15.5 — one table primitive, thirty listings — 2026-08-23
+## 5bb. Sprint 15 — one table primitive, thirty listings — 2026-08-23
 
 Requirement 5 of Sprint 15: **every record listing on every portal has filters,
 sorting toggled from the column title, pagination capped at 100 rows, and a
