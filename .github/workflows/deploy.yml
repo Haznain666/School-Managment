@@ -205,9 +205,22 @@ jobs:
           if [ -z "$expected" ]; then expected=$(git rev-parse HEAD); fi
           expected=$(printf '%s' "$expected" | cut -c1-12)
 
-          body=$(curl -fsS --max-time 25 "$PRODUCTION_URL/api/internal/build" 2>/dev/null || true)
+          # A trailing slash on the secret makes this `…//api/internal/build`,
+          # which the host answers with a 308. `curl` without `-L` does not
+          # follow it, so the body came back empty and the branch below then
+          # announced a stale deploy that had in fact shipped — on 2026-08-23,
+          # against a site that was serving the expected commit at that moment.
+          # This workflow exists to stop exactly that claim being made, so it
+          # must not be the thing making it. Normalise, and follow redirects.
+          base="${PRODUCTION_URL%/}"
+
+          status=$(curl -sSL --max-time 25 -o /tmp/build.json -w '%{http_code}' \
+            "$base/api/internal/build" 2>/dev/null || echo "000")
+          body=$(cat /tmp/build.json 2>/dev/null || true)
           live=$(printf '%s' "$body" | sed -n 's/.*"buildId":"\([^"]*\)".*/\1/p')
 
+          echo "url:      $base/api/internal/build"
+          echo "status:   $status"
           echo "expected: $expected"
           echo "live:     ${live:-<no answer>}"
 
@@ -217,7 +230,12 @@ jobs:
           fi
 
           if [ -z "$live" ]; then
-            echo "::error::/api/internal/build did not answer. The running build predates that route, so Hostinger has not deployed a commit from 2026-08-21 or later."
+            # Report what happened; do not infer a cause from an absent answer.
+            # "The running build predates that route" was asserted here
+            # unconditionally, and it is only one of several explanations — a
+            # wrong PRODUCTION_URL, a redirect, a timeout and an outage all look
+            # identical from here, and three of them are not about the deploy.
+            echo "::error::/api/internal/build did not answer (HTTP $status). Check PRODUCTION_URL is the site's origin with no trailing path, that the site is up, and — if the status is 000 — that the request left the runner at all. A build older than 2026-08-21 would also 404 here, but that is not the only cause."
           else
             echo "::error::The live site is running $live, not $expected."
           fi
