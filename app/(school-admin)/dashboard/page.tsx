@@ -316,9 +316,11 @@ export default async function SchoolDashboardPage() {
             }
             delta={collection === null ? undefined : percentDelta(collection.thisMonth, collection.lastMonthToDate)}
             deltaMeaning={
-              collection === null || collection.thisMonth >= collection.lastMonthToDate
-                ? 'good'
-                : 'bad'
+              collection === null || collection.thisMonth === collection.lastMonthToDate
+                ? 'neutral'
+                : collection.thisMonth > collection.lastMonthToDate
+                  ? 'good'
+                  : 'bad'
             }
             deltaPeriod="vs the same point last month"
             detail={
@@ -389,9 +391,11 @@ export default async function SchoolDashboardPage() {
                   } pts`
             }
             deltaMeaning={
-              today?.attendanceRateToday == null || attendance30 == null
+              today?.attendanceRateToday == null ||
+              attendance30 == null ||
+              today.attendanceRateToday === attendance30
                 ? 'neutral'
-                : today.attendanceRateToday >= attendance30
+                : today.attendanceRateToday > attendance30
                   ? 'good'
                   : 'bad'
             }
@@ -414,7 +418,11 @@ export default async function SchoolDashboardPage() {
                 }`
           }
           deltaMeaning={
-            enrolment !== null && enrolment.now < enrolment.atYearStart ? 'bad' : 'good'
+            enrolment === null || enrolment.now === enrolment.atYearStart
+              ? 'neutral'
+              : enrolment.now > enrolment.atYearStart
+                ? 'good'
+                : 'bad'
           }
           deltaPeriod="since the year opened"
           detail={
@@ -445,9 +453,10 @@ export default async function SchoolDashboardPage() {
             value={formatPkr(accounting.monthProfitPaise / 100)}
             icon={accounting.monthProfitPaise >= 0 ? TrendingUp : TrendingDown}
             deltaMeaning={
-              accountingLast === null
+              accountingLast === null ||
+              accounting.monthProfitPaise === accountingLast.monthProfitPaise
                 ? 'neutral'
-                : accounting.monthProfitPaise >= accountingLast.monthProfitPaise
+                : accounting.monthProfitPaise > accountingLast.monthProfitPaise
                   ? 'good'
                   : 'bad'
             }
