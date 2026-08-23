@@ -6570,6 +6570,185 @@ DELETE move the whole tree in one transaction.
 
 ---
 
+## 5az. The school creation wizard, the 429 that was recorded as a refusal, and the dropdown the card was eating — 2026-08-23
+
+Three things that had nothing in common except that each one was invisible to
+every gate this repository runs. Migration **`0031_subdomain_throttled_status.sql`**
+is **written and NOT applied** — it widens one CHECK constraint and nothing
+else. Next free migration number is `0032`.
+
+### 1. Creating a school is one flow now, not one form and four tabs
+
+`/super-admin/schools/new` was a single `SchoolForm`. Everything else a new
+school needs — its first campus, its branding, its modules, its integrations —
+lived on four tabs under `/super-admin/schools/[schoolId]/…` that nothing
+pointed at and nothing said existed. The predictable outcome, and the one on the
+live deployment, is a school with no branch on it.
+
+`components/super-admin/SchoolWizard.tsx` is the five steps: School, Branch,
+Branding, Modules, Integrations.
+
+**The panels are the ones the tabs already render.** `BrandingManager`,
+`ModuleToggleGrid`, `IntegrationsPanel` and `BranchForm` are imported into the
+wizard exactly as the tab pages import them, and the tab pages are untouched.
+Nothing was copied, because a wizard with its own branding panel is a second
+place for the palette rules to live and the two would have diverged the first
+time either was edited. The tabs remain where a school is *edited*; the wizard
+is for the first ten minutes of its life.
+
+**Do not add a Back button to steps 1 or 2.** They POST — a school and a branch
+respectively — and a Back onto either is a control that offers to create a
+second one. The stepper marks them done and closes them, and only steps 3–5,
+which change settings on records that already exist and are idempotent, move in
+both directions. This is also why step 1 saves immediately: a wizard abandoned
+after it leaves a **valid school**, finishable later from its own tabs, rather
+than a half-written draft the platform would have to model.
+
+**Three of the five may be skipped, and the sentence under each says why.**
+Branding, modules and integrations all have workable defaults — the platform
+palette, the default module set, and no third-party account at all, which is the
+normal state of a school and not an unfinished one. A school with no campus does
+not run, so steps 1 and 2 have no skip. A skipped step is recorded as skipped in
+the stepper rather than silently marked done.
+
+### The field order on both forms is the product owner's, and it is not cosmetic
+
+School: head office name, street address, city, owner/administrator, landline,
+mobile, admin email, subdomain, school code. Branch: main branch, branch name,
+street address, city, branch code, landline, mobile, email, curriculum, classes.
+
+Two orderings changed for a stated reason and should not be reverted to
+"consistency with the other form":
+
+* **City no longer leads the school form.** It led because it leads the *branch*
+  form, where choosing a city proposes the branch code. On the school form it
+  proposes nothing, so it was asking an operator to answer a question about a
+  school they had not yet named.
+* **City still sits immediately before the branch code**, for exactly that
+  reason. A proposal that arrives after the operator has typed over the field is
+  worse than no proposal.
+
+Both forms are labelled by what the field *is* — "School Owner / School
+Administrator", not "Principal name". Only labels moved; no column, no payload
+key and no API contract changed.
+
+**There is no principal field on the branch form and none is to be added.**
+Principals are assigned per campus in School Admin → Settings, where
+`components/school/PrincipalAssignments.tsx` already handles both the single-
+and multiple-principal models. A second place to type a principal's name is a
+second answer to the same question. No `branches.principal_name` column exists
+and none is needed.
+
+### 2. A rate limit had been recorded as a permanent failure
+
+The live deployment's only school read:
+
+    subdomain_status = 'failed'
+    subdomain_error  = 'Hostinger refused the request (HTTP 429). {
+                         "message": "Too Many Attempts.",
+                         "correlation_id": "a28cff8a-…" }'
+
+Nothing about that request was wrong. Three defects, all in `lib/hostinger.ts`:
+
+**(a) 429 fell through to `failed`.** Every non-ok status did. `throttled` is
+now its own `ProvisionStatus` and its own `SubdomainStatus` — a *warning* badge
+reading "Rate limited", retryable, with a hint saying the host is throttling and
+to try again in a minute. Migration `0031` widens the CHECK to admit it.
+`isProvisionSetback()` is what both writing routes ask, so a status added to one
+and forgotten in the other cannot silently drop the recorded message.
+
+**(b) `request()` discarded the response headers, `Retry-After` included.** It
+now returns them and retries — at most twice, only on 429 and 5xx, honouring
+`Retry-After` when present, against a **per-provision budget of 5 seconds**. A
+wait longer than what is left of the budget is not slept through: the attempt is
+abandoned and the row is marked `throttled`, because this code runs inside a
+super-admin's create request and an operator must not be held on a form while a
+limiter cools off. A 4xx that is not 429 is never retried, and neither is a
+network error — that is the one case where the request may already have
+succeeded at the far end.
+
+**(c) The raw JSON body was being pasted into the table cell.** That is the red
+braces-and-UUID text in the operator's screenshot. `summariseResponseBody()`
+lifts `message`/`detail`/`error` out of a JSON body into one sentence and keeps
+the correlation id behind it as `(ref …)` — support needs it, an operator does
+not need it first. A body that is not JSON still falls back to truncation.
+
+**And a provision now makes three API calls instead of four**, which is what
+tripped the limiter in the first place. `ensureParkedDomain` used to list the
+aliases and then create; it creates first and lists only to disprove a refusal
+it does not recognise. `resolveDnsZone` probes the zone with a GET and now hands
+that response body back, so `ensureDnsRecord` no longer re-reads the same zone
+milliseconds later.
+
+`npm run check-provisioning` grew 27 assertions covering all of it — the JSON
+lift, the correlation id's position, `Retry-After` in both its legal forms,
+which statuses are retryable, and that `throttled` is warning-coloured and
+`failed` is not.
+
+### 3. The Mapbox dropdown was being clipped by the card it sat in
+
+`Card` sets `overflow-hidden`; `AddressAutocomplete` rendered its listbox as an
+`absolute` child. An address field sits near the bottom of nearly every card in
+this product, so the common case was a suggestion sliced in half at the card
+border.
+
+The listbox is now **portalled to `document.body`** with fixed coordinates taken
+from the control's bounding rect. `overflow-hidden` stays on `Card` — it is what
+clips table corners to the card radius, and no z-index can defeat it anyway,
+which is the whole reason a portal was the only fix.
+
+What the portal cost, and what pays it back:
+
+* it repositions on `scroll` **in the capture phase** — a scroll inside a modal
+  body or any other scrolling ancestor does not bubble to `window` — and on
+  `resize`;
+* it flips above the field when there is not room below, and matches the
+  control's width;
+* `aria-controls` and `aria-activedescendant` still name the list and the
+  option, and `aria-owns` was added because the list is no longer a DOM
+  descendant of the combobox;
+* **the blur handling had to change.** It closed the list on a timeout, on the
+  assumption that a click on an option was a click on a sibling. It now asks
+  whether focus moved *into* the list, and a document-level `pointerdown` closes
+  it when the press lands outside both. Neither is timing-dependent, which the
+  old one was.
+
+It renders at `z-modal`, not `z-dropdown`: portalled to `<body>` it is a sibling
+of any dialog rather than a descendant, so at dropdown level it would sit behind
+a modal that owns the field it belongs to.
+
+### Files
+
+- `components/super-admin/SchoolWizard.tsx` (new), and
+  `app/(super-admin)/super-admin/schools/new/page.tsx` now renders it.
+- `components/super-admin/SchoolForm.tsx`, `BranchForm.tsx` — reordered,
+  relabelled, and each given `onCreated`/`onSaved`, `submitLabel` and
+  `hideCancel` so the wizard and the standalone screens are the same component.
+- `lib/hostinger.ts`, `lib/subdomain-status.ts`, `db/schema/schools.ts`,
+  `db/migrations/0031_subdomain_throttled_status.sql`, and the two routes that
+  write `subdomain_status`.
+- `components/ui/AddressAutocomplete.tsx`, `scripts/check-provisioning.ts`.
+
+### Still open
+
+- **Migration `0031` is unapplied.** Until `sprint-devops` runs it, a provision
+  that hits the limiter will try to write `throttled` and the CHECK will refuse
+  it — the update throws inside the route's try/catch and the row keeps its
+  previous status. Expand-only and safe to apply against the running build.
+- **The recorded message still renders in `text-status-danger-ink` on the
+  schools list**, so a throttled row shows an amber badge above red text.
+  `components/super-admin/SchoolTable.tsx` was owned by another change in this
+  session and was left alone; colouring that line by the badge's variant is a
+  two-line fix for whoever is next in that file.
+- The school already sitting at `failed` with a 429 recorded against it is left
+  as it is. Nothing here can know which historical failures were really rate
+  limits; pressing Provision on that row is what corrects it.
+- Nothing in any of the three has been exercised against a browser or the live
+  host. The wizard's step transitions, the flipped dropdown and the retry path
+  are all reasoned and none is measured.
+
+---
+
 ## 6. Open items for the user
 
 1. ~~Install GitHub CLI~~ — **partly regressed.** Git has a stored credential

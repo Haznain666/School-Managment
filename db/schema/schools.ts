@@ -119,6 +119,12 @@ export const schools = pgTable(
      * `ready`        — verified reachable over HTTPS.
      * `failed`       — the last attempt failed; `subdomainError` says why and
      *                  the operator can retry.
+     * `throttled`    — the host is rate-limiting this account (HTTP 429), so
+     *                  the attempt never reached a decision. Distinct from
+     *                  `failed` because nothing is wrong: the identical request
+     *                  succeeds a minute later. Added in migration 0031, after
+     *                  the live deployment's only school sat at `failed` with a
+     *                  429 body recorded against it.
      * `unmanaged`    — no hosting API token is configured, so provisioning is
      *                  a manual step. Deliberately distinct from `failed`:
      *                  nothing is broken and there is nothing to retry.

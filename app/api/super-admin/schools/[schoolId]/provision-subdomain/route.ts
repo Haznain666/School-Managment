@@ -7,6 +7,7 @@ import { db } from '@/lib/drizzle';
 import {
   describeReadiness,
   diagnoseSubdomain,
+  isProvisionSetback,
   provisionSchoolSubdomain,
 } from '@/lib/hostinger';
 import { requireSuperAdmin } from '@/lib/super-admin-guard';
@@ -81,9 +82,11 @@ export async function POST(
       .update(schools)
       .set({
         subdomainStatus: status,
-        subdomainError: status === 'failed' ? provision.message : null,
+        // `throttled` keeps its message too — it is the only place the operator
+        // learns that the host, not the request, is what stopped this.
+        subdomainError: isProvisionSetback(status) ? provision.message : null,
         subdomainProvisionedAt:
-          status === 'failed' || status === 'unmanaged' ? null : new Date(),
+          isProvisionSetback(status) || status === 'unmanaged' ? null : new Date(),
       })
       .where(eq(schools.id, schoolId))
       .returning();

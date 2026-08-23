@@ -1,0 +1,34 @@
+-- A rate limit is not a failure, and recording it as one cost a real school.
+--
+-- The live deployment had exactly one school on it, and it read:
+--
+--   subdomain_status = 'failed'
+--   subdomain_error  = 'Hostinger refused the request (HTTP 429). {
+--                        "message": "Too Many Attempts.",
+--                        "correlation_id": "a28cff8a-..." }'
+--
+-- Nothing about that request was wrong. HTTP 429 is Hostinger's per-account
+-- limiter saying "not now", and the same call succeeds a few seconds later.
+-- `lib/hostinger.ts` fell through to `failed` for every non-ok status, so the
+-- panel showed a red Failed badge with a JSON blob beside it — which sends an
+-- operator hunting for a misconfiguration that does not exist.
+--
+-- `throttled` is that state, told apart from `failed`:
+--
+--   failed     -- the attempt was refused on its merits. Something is wrong.
+--   throttled  -- the host would not look at it yet. Nothing is wrong, nothing
+--                 was lost, and pressing Provision again in a minute finishes
+--                 the job. Warning-coloured, not danger-coloured.
+--
+-- No column changes, no data changes: only the CHECK is widened. Every existing
+-- row satisfies both the old constraint and the new one, and no row is
+-- rewritten here — the school above stays `failed` until somebody retries it,
+-- which is honest. Guessing retrospectively at which historical `failed` rows
+-- were really 429s is not something this migration can know.
+--
+-- The constraint is dropped and re-added rather than altered because Postgres
+-- has no ALTER for a CHECK expression. Both statements are IF EXISTS-guarded on
+-- the drop so this is safe to run against a database provisioned before 0021.
+
+ALTER TABLE "schools" DROP CONSTRAINT IF EXISTS "schools_subdomain_status_check";--> statement-breakpoint
+ALTER TABLE "schools" ADD CONSTRAINT "schools_subdomain_status_check" CHECK ("schools"."subdomain_status" IN ('pending', 'provisioning', 'ready', 'failed', 'throttled', 'unmanaged'));

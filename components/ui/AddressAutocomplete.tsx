@@ -6,8 +6,10 @@ import {
   useId,
   useRef,
   useState,
+  type FocusEvent,
   type KeyboardEvent,
 } from 'react';
+import { createPortal } from 'react-dom';
 
 import { Input } from '@/components/ui/Input';
 import { Textarea } from '@/components/ui/Textarea';
@@ -59,6 +61,33 @@ import { cn } from '@/lib/utils';
  * case and is why the fetch failure is surfaced rather than swallowed: the
  * input accepts typing either way, so a blocked token is otherwise
  * indistinguishable from "no matches".
+ *
+ * ── Why the suggestion list is portalled to `<body>` ─────────────────────
+ * `Card` sets `overflow-hidden` — that is what clips a table's corners to the
+ * card radius, and removing it regresses every screen that relies on it. An
+ * absolutely-positioned listbox inside a card is therefore clipped at the card
+ * border, and an address field sits near the *bottom* of almost every card in
+ * this product, so the common case was a list sliced in half: the operator
+ * could see the top of "Gulshan-e-Iqbal" and could not read or reliably click
+ * it.
+ *
+ * A portal to `document.body` escapes every ancestor's overflow at once, which
+ * no amount of z-index can do — `overflow: hidden` clips a descendant whatever
+ * its stacking order. The cost is that the list is no longer a DOM sibling of
+ * the field, so three things it used to get for free are now explicit:
+ *
+ *   1. **Position.** Fixed coordinates measured from the control's bounding
+ *      rect, re-measured on scroll (capture phase, so an inner scrolling
+ *      container counts) and on resize.
+ *   2. **Dismissal.** `onBlur` used to close after a timeout on the assumption
+ *      that a click on an option was a click on a sibling. It now asks whether
+ *      focus moved *into the list*, and a document-level `pointerdown` closes
+ *      the list when the press lands outside both.
+ *   3. **The accessibility tree.** `aria-controls` still names the listbox and
+ *      `aria-activedescendant` still names the option, which is all the ARIA
+ *      contract requires — ids are document-wide, not subtree-wide. `aria-owns`
+ *      is added so assistive technology that walks the DOM still sees the list
+ *      as belonging to the combobox.
  */
 
 export interface LocationValue {
@@ -98,6 +127,24 @@ type SearchState =
   | { status: 'failed' };
 
 const DEFAULT_PLACEHOLDER = 'Plot 12, Block 6, PECHS, Karachi';
+
+/** Where the portalled listbox sits, in viewport coordinates. */
+interface ListboxPlacement {
+  left: number;
+  width: number;
+  /** Set when the list hangs below the field. */
+  top?: number;
+  /** Set instead of `top` when it has been flipped above. */
+  bottom?: number;
+  maxHeight: number;
+}
+
+/** Breathing room between the control and the list. */
+const LIST_GAP_PX = 4;
+/** The old `max-h-64`, kept so the flip does not change how tall the list is. */
+const MAX_LIST_HEIGHT_PX = 256;
+/** Below this, "below the field" is not somewhere a list can usefully go. */
+const MIN_LIST_HEIGHT_PX = 160;
 
 export function AddressAutocomplete({
   label = 'Address',
@@ -280,6 +327,88 @@ export function AddressAutocomplete({
   const suggestions = search.status === 'done' ? search.suggestions : [];
   const listOpen = open && hasToken && !disabled && suggestions.length > 0;
 
+  /* -- The portalled listbox: mounting, measuring, dismissing ---------------- */
+
+  /**
+   * `document` exists only after mount, and this component renders on the
+   * server like every other. The portal is therefore created on the second
+   * render and never during the first — which costs nothing, because a list
+   * with no suggestions in it is not rendered on the first render either.
+   */
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  /** The wrapper around the control. One control inside it, always. */
+  const fieldRef = useRef<HTMLDivElement | null>(null);
+  const listRef = useRef<HTMLUListElement | null>(null);
+
+  const [placement, setPlacement] = useState<ListboxPlacement | null>(null);
+
+  const measure = useCallback(() => {
+    const control = fieldRef.current?.querySelector('input, textarea');
+    if (control === null || control === undefined) return;
+
+    const rect = control.getBoundingClientRect();
+    const spaceBelow = window.innerHeight - rect.bottom - LIST_GAP_PX;
+    const spaceAbove = rect.top - LIST_GAP_PX;
+
+    // Flip only when below genuinely cannot hold a usable list *and* above is
+    // roomier. Flipping on a marginal difference makes the list jump around as
+    // the page scrolls, which is worse than a slightly short list.
+    const flip = spaceBelow < MIN_LIST_HEIGHT_PX && spaceAbove > spaceBelow;
+
+    setPlacement({
+      left: rect.left,
+      width: rect.width,
+      top: flip ? undefined : rect.bottom + LIST_GAP_PX,
+      bottom: flip ? window.innerHeight - rect.top + LIST_GAP_PX : undefined,
+      maxHeight: Math.min(MAX_LIST_HEIGHT_PX, flip ? spaceAbove : spaceBelow),
+    });
+  }, []);
+
+  useEffect(() => {
+    if (!listOpen) {
+      setPlacement(null);
+      return;
+    }
+
+    measure();
+
+    // Capture phase: a scroll inside a modal body or any other scrolling
+    // ancestor does not bubble to `window`, and that is precisely where a form
+    // long enough to need this component tends to live.
+    const reposition = () => {
+      measure();
+    };
+    window.addEventListener('scroll', reposition, true);
+    window.addEventListener('resize', reposition);
+
+    return () => {
+      window.removeEventListener('scroll', reposition, true);
+      window.removeEventListener('resize', reposition);
+    };
+  }, [listOpen, suggestions.length, measure]);
+
+  useEffect(() => {
+    if (!listOpen) return;
+
+    const onPointerDown = (event: PointerEvent) => {
+      const target = event.target;
+      if (!(target instanceof Node)) return;
+      if (fieldRef.current?.contains(target) === true) return;
+      if (listRef.current?.contains(target) === true) return;
+      setOpen(false);
+      setActiveIndex(-1);
+    };
+
+    document.addEventListener('pointerdown', onPointerDown);
+    return () => {
+      document.removeEventListener('pointerdown', onPointerDown);
+    };
+  }, [listOpen]);
+
   const handleKeyDown = (event: KeyboardEvent<HTMLElement>) => {
     if (event.key === 'Escape') {
       setOpen(false);
@@ -325,14 +454,22 @@ export function AddressAutocomplete({
     hint,
     placeholder,
     onKeyDown: handleKeyDown,
-    // The listbox is a sibling of the field rather than a child, so blur must
-    // not close it before the option's click lands. A frame's delay is enough
-    // and is why this is a timeout rather than a `relatedTarget` check, which
-    // is unreliable when the option is reached by touch.
-    onBlur: () => {
-      setTimeout(() => {
-        setOpen(false);
-      }, 150);
+    /*
+     * The listbox is portalled to `<body>`, so "focus left the field" no longer
+     * implies "focus left the widget". It was a timeout before, on the reasoning
+     * that a click on an option would land within a frame or two — which is
+     * true for a mouse and is a race for anything slower.
+     *
+     * Two mechanisms replace it, and neither is timing-dependent: focus moving
+     * *into* the list keeps the list open, and a press anywhere outside both the
+     * field and the list closes it (the `pointerdown` listener above). Between
+     * them, an option is selectable by mouse, by touch and by keyboard, and the
+     * list still shuts when the operator tabs away.
+     */
+    onBlur: (event: FocusEvent<HTMLElement>) => {
+      const next = event.relatedTarget;
+      if (next instanceof Node && listRef.current?.contains(next) === true) return;
+      setOpen(false);
     },
     onFocus: () => {
       if (suggestions.length > 0) setOpen(true);
@@ -340,6 +477,9 @@ export function AddressAutocomplete({
     role: 'combobox' as const,
     'aria-expanded': listOpen,
     'aria-controls': listboxId,
+    // The list is not a descendant of the combobox any more. `aria-owns` puts
+    // it back in the accessibility tree where the DOM no longer does.
+    'aria-owns': listOpen ? listboxId : undefined,
     'aria-autocomplete': 'list' as const,
     'aria-activedescendant':
       activeIndex >= 0 ? `${listboxId}-option-${String(activeIndex)}` : undefined,
@@ -355,7 +495,7 @@ export function AddressAutocomplete({
 
   return (
     <div className={cn('w-full', className)}>
-      <div className="relative">
+      <div className="relative" ref={fieldRef}>
         {multiline ? (
           <Textarea
             {...shared}
@@ -373,51 +513,69 @@ export function AddressAutocomplete({
           />
         )}
 
-        {listOpen ? (
-          <ul
-            id={listboxId}
-            role="listbox"
-            aria-label="Address suggestions"
-            className={cn(
-              'absolute z-30 mt-1 max-h-64 w-full overflow-auto rounded-lg border border-line-strong',
-              'bg-surface-raised py-1 shadow-lg',
-            )}
-          >
-            {suggestions.map((suggestion, index) => (
-              <li
-                key={suggestion.id}
-                id={`${listboxId}-option-${String(index)}`}
-                role="option"
-                aria-selected={index === activeIndex}
+        {listOpen && mounted && placement !== null
+          ? createPortal(
+              <ul
+                id={listboxId}
+                ref={listRef}
+                role="listbox"
+                aria-label="Address suggestions"
+                style={{
+                  position: 'fixed',
+                  left: placement.left,
+                  width: placement.width,
+                  top: placement.top,
+                  bottom: placement.bottom,
+                  maxHeight: placement.maxHeight,
+                }}
+                className={cn(
+                  // `z-modal` rather than `z-dropdown`: portalled to `<body>`,
+                  // this list is a sibling of any dialog on the page rather
+                  // than a descendant of it, so at dropdown level it would
+                  // render *behind* a modal that owns the field it belongs to.
+                  'z-modal overflow-auto rounded-lg border border-line-strong',
+                  'bg-surface-raised py-1 shadow-lg',
+                )}
               >
-                <button
-                  type="button"
-                  // `onMouseDown` rather than `onClick`: the field's blur fires
-                  // first on a click, and preventing the default here keeps the
-                  // caret in the input so the operator can keep editing.
-                  onMouseDown={(event) => {
-                    event.preventDefault();
-                    select(suggestion);
-                  }}
-                  onMouseEnter={() => {
-                    setActiveIndex(index);
-                  }}
-                  className={cn(
-                    'block w-full px-3 py-2 text-left text-sm',
-                    index === activeIndex ? 'bg-surface-sunken text-ink' : 'text-ink',
-                  )}
-                >
-                  <span className="block font-medium">{suggestion.name}</span>
-                  {suggestion.context !== '' ? (
-                    <span className="block text-xs text-ink-muted">
-                      {suggestion.context}
-                    </span>
-                  ) : null}
-                </button>
-              </li>
-            ))}
-          </ul>
-        ) : null}
+                {suggestions.map((suggestion, index) => (
+                  <li
+                    key={suggestion.id}
+                    id={`${listboxId}-option-${String(index)}`}
+                    role="option"
+                    aria-selected={index === activeIndex}
+                  >
+                    <button
+                      type="button"
+                      // `onMouseDown` rather than `onClick`: the field's blur
+                      // fires first on a click, and preventing the default here
+                      // keeps the caret in the input so the operator can keep
+                      // editing. It also means the field never loses focus, so
+                      // the portal has not changed what this handler has to do.
+                      onMouseDown={(event) => {
+                        event.preventDefault();
+                        select(suggestion);
+                      }}
+                      onMouseEnter={() => {
+                        setActiveIndex(index);
+                      }}
+                      className={cn(
+                        'block w-full px-3 py-2 text-left text-sm',
+                        index === activeIndex ? 'bg-surface-sunken text-ink' : 'text-ink',
+                      )}
+                    >
+                      <span className="block font-medium">{suggestion.name}</span>
+                      {suggestion.context !== '' ? (
+                        <span className="block text-xs text-ink-muted">
+                          {suggestion.context}
+                        </span>
+                      ) : null}
+                    </button>
+                  </li>
+                ))}
+              </ul>,
+              document.body,
+            )
+          : null}
       </div>
 
       {/*

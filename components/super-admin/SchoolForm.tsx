@@ -43,6 +43,25 @@ export interface SchoolFormProps {
   /** Absent for create, present for edit. */
   initial?: SchoolFormValues;
   appDomain: string;
+  /**
+   * Called instead of navigating, when this form is step 1 of the wizard.
+   *
+   * The wizard needs the new school's id to run steps 2–5 against, and it must
+   * not lose the page while doing so. Everything else about the form — the
+   * validation, the payload, the endpoint — is identical either way, which is
+   * the point: there is one school form in this product, not a wizard copy that
+   * drifts from the edit screen.
+   *
+   * `needsAttention` carries the same judgement the standalone form acts on: a
+   * school whose first administrator was not created, or was created and never
+   * emailed, is recorded but not reachable. The wizard says so at the end
+   * rather than silently landing on the overview.
+   */
+  onCreated?: (created: { schoolId: string; needsAttention: boolean }) => void;
+  /** Overrides the submit button's label. */
+  submitLabel?: string;
+  /** Hides the Cancel button, for a host that provides its own navigation. */
+  hideCancel?: boolean;
 }
 
 const EMPTY: SchoolFormValues = {
@@ -65,8 +84,29 @@ type SlugState =
   | { status: 'available' }
   | { status: 'unavailable'; reason: string };
 
-/** Shared create/edit form for a school. */
-export function SchoolForm({ initial, appDomain }: SchoolFormProps) {
+/**
+ * Shared create/edit form for a school.
+ *
+ * ── The field order is the product owner's, and it is not arbitrary ──────
+ * Head office name, street address, city, owner, landline, mobile, email,
+ * subdomain, code. That is the order the information appears on a school's own
+ * letterhead and on the form their office already fills in on paper, which is
+ * what an operator is copying from. City used to come first, because on the
+ * *branch* form choosing a city proposes the branch code; here it proposes
+ * nothing, so leading with it asked the operator to answer a question about a
+ * school they had not yet named.
+ *
+ * The two that are not on the letterhead — subdomain and code — sit at the
+ * bottom together, because both are derived from the name by default and both
+ * are platform concerns rather than school ones.
+ */
+export function SchoolForm({
+  initial,
+  appDomain,
+  onCreated,
+  submitLabel,
+  hideCancel = false,
+}: SchoolFormProps) {
   const router = useRouter();
   const isEdit = initial?.id !== undefined;
 
@@ -226,6 +266,15 @@ export function SchoolForm({ initial, appDomain }: SchoolFormProps) {
           const needsAttention =
             created.admin.status !== 'created' || !created.adminEmail.queued;
 
+          if (onCreated !== undefined) {
+            // The wizard owns the navigation from here. It also owns the
+            // spinner: leaving `isSubmitting` set keeps the fields locked
+            // while the next step mounts, so a second submit cannot create a
+            // second school out of the same form.
+            onCreated({ schoolId: created.school.id, needsAttention });
+            return;
+          }
+
           router.push(
             needsAttention
               ? `/super-admin/schools/${created.school.id}/users`
@@ -242,7 +291,7 @@ export function SchoolForm({ initial, appDomain }: SchoolFormProps) {
         setIsSubmitting(false);
       }
     },
-    [values, isEdit, initial?.id, slugState, router],
+    [values, isEdit, initial?.id, slugState, router, onCreated],
   );
 
   // Shows what the server will derive when the field is left blank, so the
@@ -268,26 +317,13 @@ export function SchoolForm({ initial, appDomain }: SchoolFormProps) {
       <Card>
         <div className="grid gap-4 sm:grid-cols-2">
           {/*
-            City first, as on the branch form. There it produces the branch
-            code; here it produces nothing, but the two forms sitting one click
-            apart and asking the same questions in different orders is its own
-            small tax on an operator setting up a school and its campuses in one
-            sitting.
+            1. Head Office Name. The one thing only the school can tell us, and
+            the field every other default on this form is derived from — the
+            subdomain tracks it, and the school code is proposed from it.
           */}
           <div className="sm:col-span-2">
-            <CitySelect
-              value={values.city}
-              onChange={(city) => {
-                setField('city', city);
-              }}
-              disabled={isSubmitting}
-              required
-            />
-          </div>
-
-          <div className="sm:col-span-2">
             <Input
-              label="School name"
+              label="Head Office Name"
               required
               value={values.name}
               onChange={(event) => {
@@ -298,6 +334,113 @@ export function SchoolForm({ initial, appDomain }: SchoolFormProps) {
             />
           </div>
 
+          {/* 2. Street Address. */}
+          <div className="sm:col-span-2">
+            <AddressAutocomplete
+              label="Street Address"
+              value={{
+                address: values.address,
+                latitude: values.latitude,
+                longitude: values.longitude,
+              }}
+              onChange={(next) => {
+                setValues((current) => ({
+                  ...current,
+                  address: next.address,
+                  latitude: next.latitude,
+                  longitude: next.longitude,
+                }));
+              }}
+              disabled={isSubmitting}
+            />
+          </div>
+
+          {/* 3. City. */}
+          <CitySelect
+            value={values.city}
+            onChange={(city) => {
+              setField('city', city);
+            }}
+            disabled={isSubmitting}
+            required
+          />
+
+          {/*
+            4. The person the platform holds responsible for this school.
+            Titled "School Owner / School Administrator" rather than
+            "Principal": a principal runs a campus, is assigned per branch in
+            School Admin → Settings, and is a different fact about a different
+            person that this field was being read as.
+          */}
+          <Input
+            label="School Owner / School Administrator"
+            value={values.principalName}
+            onChange={(event) => {
+              setField('principalName', event.target.value);
+            }}
+            disabled={isSubmitting}
+            hint={
+              isEdit
+                ? undefined
+                : 'Becomes the school’s first administrator, with the email below.'
+            }
+          />
+
+          {/* 5 and 6. Both numbers, because a school office has both. */}
+          <Input
+            label="School Landline Number"
+            type="tel"
+            inputMode="numeric"
+            value={values.landline}
+            onChange={(event) => {
+              setField('landline', formatLandline(event.target.value));
+            }}
+            disabled={isSubmitting}
+            placeholder={LANDLINE_PLACEHOLDER}
+            hint={LANDLINE_HINT}
+            error={isValidLandline(values.landline) ? undefined : 'Incomplete landline number.'}
+          />
+
+          <Input
+            label="School Mobile Number"
+            type="tel"
+            inputMode="numeric"
+            value={values.phone}
+            onChange={(event) => {
+              setField('phone', formatMobile(event.target.value));
+            }}
+            disabled={isSubmitting}
+            placeholder={MOBILE_PLACEHOLDER}
+            hint={
+              // Was: "this also becomes the principal's login, so use a mobile
+              // that can receive WhatsApp". Both halves stopped being true at
+              // Stage 4 — the login is the email address below, and no passcode
+              // goes to a handset — so the form was telling operators to choose
+              // this field carefully for a reason that no longer exists.
+              MOBILE_HINT
+            }
+            error={isValidMobile(values.phone) ? undefined : 'Enter eleven digits, e.g. (0321) 123-4567.'}
+          />
+
+          {/* 7. The sign-in address, which is why the label says so. */}
+          <div className="sm:col-span-2">
+            <Input
+              label="School Admin Email"
+              type="email"
+              value={values.email}
+              onChange={(event) => {
+                setField('email', event.target.value);
+              }}
+              disabled={isSubmitting}
+              placeholder="office@school.edu.pk"
+              hint={
+                isEdit ? undefined : 'Becomes the first administrator’s sign-in address.'
+              }
+              error={emailRejectionReason(values.email) ?? undefined}
+            />
+          </div>
+
+          {/* 8. Subdomain, and 9. the code — the two platform-side fields. */}
           <div className="sm:col-span-2">
             <Input
               label="Subdomain"
@@ -339,91 +482,6 @@ export function SchoolForm({ initial, appDomain }: SchoolFormProps) {
               values.schoolCode.trim() === '' ? ' Leave blank to derive it from the name.' : ''
             }`}
           />
-
-          <Input
-            label="Principal name"
-            value={values.principalName}
-            onChange={(event) => {
-              setField('principalName', event.target.value);
-            }}
-            disabled={isSubmitting}
-            hint={
-              isEdit
-                ? undefined
-                : 'Becomes the school’s first administrator, with the phone below.'
-            }
-          />
-
-          <Input
-            label="Landline"
-            type="tel"
-            inputMode="numeric"
-            value={values.landline}
-            onChange={(event) => {
-              setField('landline', formatLandline(event.target.value));
-            }}
-            disabled={isSubmitting}
-            placeholder={LANDLINE_PLACEHOLDER}
-            hint={LANDLINE_HINT}
-            error={isValidLandline(values.landline) ? undefined : 'Incomplete landline number.'}
-          />
-
-          <Input
-            label="Mobile phone"
-            type="tel"
-            inputMode="numeric"
-            value={values.phone}
-            onChange={(event) => {
-              setField('phone', formatMobile(event.target.value));
-            }}
-            disabled={isSubmitting}
-            placeholder={MOBILE_PLACEHOLDER}
-            hint={
-              // Was: "this also becomes the principal's login, so use a mobile
-              // that can receive WhatsApp". Both halves stopped being true at
-              // Stage 4 — the login is the email address below, and no passcode
-              // goes to a handset — so the form was telling operators to choose
-              // this field carefully for a reason that no longer exists.
-              MOBILE_HINT
-            }
-            error={isValidMobile(values.phone) ? undefined : 'Enter eleven digits, e.g. (0321) 123-4567.'}
-          />
-
-          <div className="sm:col-span-2">
-            <Input
-              label="Email"
-              type="email"
-              value={values.email}
-              onChange={(event) => {
-                setField('email', event.target.value);
-              }}
-              disabled={isSubmitting}
-              placeholder="office@school.edu.pk"
-              hint={
-                isEdit ? undefined : 'Becomes the first administrator’s sign-in address.'
-              }
-              error={emailRejectionReason(values.email) ?? undefined}
-            />
-          </div>
-
-          <div className="sm:col-span-2">
-            <AddressAutocomplete
-              value={{
-                address: values.address,
-                latitude: values.latitude,
-                longitude: values.longitude,
-              }}
-              onChange={(next) => {
-                setValues((current) => ({
-                  ...current,
-                  address: next.address,
-                  latitude: next.latitude,
-                  longitude: next.longitude,
-                }));
-              }}
-              disabled={isSubmitting}
-            />
-          </div>
         </div>
       </Card>
 
@@ -435,18 +493,20 @@ export function SchoolForm({ initial, appDomain }: SchoolFormProps) {
 
       <div className="flex gap-3">
         <Button type="submit" isLoading={isSubmitting}>
-          {isEdit ? 'Save changes' : 'Create school'}
+          {submitLabel ?? (isEdit ? 'Save changes' : 'Create school')}
         </Button>
-        <Button
-          type="button"
-          variant="secondary"
-          disabled={isSubmitting}
-          onClick={() => {
-            router.back();
-          }}
-        >
-          Cancel
-        </Button>
+        {hideCancel ? null : (
+          <Button
+            type="button"
+            variant="secondary"
+            disabled={isSubmitting}
+            onClick={() => {
+              router.back();
+            }}
+          >
+            Cancel
+          </Button>
+        )}
       </div>
     </form>
   );

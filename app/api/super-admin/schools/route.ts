@@ -15,7 +15,7 @@ import {
   readLandlineField,
   readMobileField,
 } from '@/lib/profile-fields';
-import { provisionSchoolSubdomain } from '@/lib/hostinger';
+import { isProvisionSetback, provisionSchoolSubdomain } from '@/lib/hostinger';
 import { createFirstSchoolAdmin, seedResultSubcategories } from '@/lib/school-bootstrap';
 import { deriveSchoolCode, schoolCodeRejectionReason } from '@/lib/school-code';
 import { slugRejectionReason } from '@/lib/slug';
@@ -294,9 +294,12 @@ export async function POST(request: NextRequest) {
       .update(schools)
       .set({
         subdomainStatus: provision.status,
-        subdomainError: provision.status === 'failed' ? provision.message : null,
+        // `throttled` records its message for the same reason `failed` does:
+        // the row is the only place an operator finds out why the subdomain is
+        // not there yet. It is not a failure, and the badge says so.
+        subdomainError: isProvisionSetback(provision.status) ? provision.message : null,
         subdomainProvisionedAt:
-          provision.status === 'failed' || provision.status === 'unmanaged'
+          isProvisionSetback(provision.status) || provision.status === 'unmanaged'
             ? null
             : new Date(),
       })

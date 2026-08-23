@@ -56,7 +56,59 @@ export const TLS_ISSUANCE_HINT_MS = 3 * 60 * 1000;
  */
 export const DNS_TTL_SECONDS = 300;
 
-export type ProvisionStatus = 'provisioning' | 'ready' | 'failed' | 'unmanaged';
+/**
+ * Retries, and the ceiling on what they may cost.
+ *
+ * ── Why this is bounded so tightly ───────────────────────────────────────
+ * These calls happen *inside* a super-admin's "Create school" request, which
+ * already waits on a database insert, an administrator invitation and an email
+ * queue. Retrying is worth doing because a 429 succeeds seconds later; it is
+ * not worth making an operator watch a spinner for half a minute to find out.
+ *
+ * So: at most two extra attempts, and at most five seconds of added waiting in
+ * total across a whole provision. A `Retry-After` longer than what is left of
+ * that budget is not slept through — the attempt is abandoned and the school is
+ * marked `throttled`, which the operator can retry with one click when the row
+ * is in front of them rather than while they are held on a form.
+ */
+const MAX_RETRIES = 2;
+const RETRY_BUDGET_MS = 5_000;
+/** Doubling, and only consulted when the host did not say `Retry-After`. */
+const RETRY_BASE_DELAY_MS = 500;
+
+/**
+ * `throttled` is a fourth outcome and not a kind of `failed`.
+ *
+ * ── What it cost to conflate them ────────────────────────────────────────
+ * The one school on the live deployment sat at `failed` with
+ * `Hostinger refused the request (HTTP 429). {"message":"Too Many Attempts."…}`
+ * recorded against it. Nothing about that request was wrong. The account had
+ * simply made too many calls in the window — four per provision, two of which
+ * were avoidable — and the *same* request would have succeeded a few seconds
+ * later.
+ *
+ * "Refused" is therefore the wrong word in the wrong colour: an operator
+ * reading a red Failed badge goes looking for a misconfiguration that does not
+ * exist. `throttled` is a warning, says the host is rate-limiting, and says it
+ * will be retried.
+ */
+export type ProvisionStatus =
+  | 'provisioning'
+  | 'ready'
+  | 'failed'
+  | 'throttled'
+  | 'unmanaged';
+
+/**
+ * Statuses that mean nothing was provisioned and the message is worth keeping.
+ *
+ * Both routes that write `subdomain_status` ask this rather than each spelling
+ * out the list, because a status added to one and not the other is a school
+ * whose recorded error silently disappears.
+ */
+export function isProvisionSetback(status: ProvisionStatus): boolean {
+  return status === 'failed' || status === 'throttled';
+}
 
 export interface ProvisionResult {
   status: ProvisionStatus;
@@ -243,11 +295,30 @@ function dnsZoneUrl(zone: string): string {
  * Not memoised: it is two cheap GETs on an operation that already creates a
  * domain, and a cached wrong answer here is a school that never resolves.
  */
-async function resolveDnsZone(
-  config: HostingerConfig,
-): Promise<{ zone: string; message: string } | { zone: null; message: string }> {
+interface ResolvedZone {
+  zone: string | null;
+  message: string;
+  /**
+   * The probe's response body, when the zone was found by probing it.
+   *
+   * The probe *is* a read of the zone, and the very next thing `ensureDnsRecord`
+   * used to do was read the same zone again to look for the record name. Two
+   * identical GETs, milliseconds apart, against an account with a rate limiter.
+   * Handing the body back turns four calls per provision into three.
+   */
+  body: string | null;
+  /** The zone could not be read because the host is rate-limiting, not because it is wrong. */
+  throttled: boolean;
+}
+
+async function resolveDnsZone(config: HostingerConfig): Promise<ResolvedZone> {
   if (config.dnsZone !== '') {
-    return { zone: config.dnsZone, message: `zone ${config.dnsZone} (from HOSTINGER_DNS_ZONE)` };
+    return {
+      zone: config.dnsZone,
+      message: `zone ${config.dnsZone} (from HOSTINGER_DNS_ZONE)`,
+      body: null,
+      throttled: false,
+    };
   }
 
   const candidates = [config.baseDomain, registrableDomain(config.baseDomain)].filter(
@@ -255,11 +326,20 @@ async function resolveDnsZone(
   );
 
   const rejections: string[] = [];
+  let throttled = false;
 
   for (const candidate of candidates) {
     try {
       const probe = await request(dnsZoneUrl(candidate), { method: 'GET' }, config.token);
-      if (probe.ok) return { zone: candidate, message: `zone ${candidate}` };
+      if (probe.ok) {
+        return {
+          zone: candidate,
+          message: `zone ${candidate}`,
+          body: probe.body,
+          throttled: false,
+        };
+      }
+      if (probe.status === 429) throttled = true;
       rejections.push(`${candidate} → HTTP ${String(probe.status)}`);
     } catch (error) {
       rejections.push(`${candidate} → ${describeNetworkError(error)}`);
@@ -268,10 +348,15 @@ async function resolveDnsZone(
 
   return {
     zone: null,
-    message:
-      `None of the candidate DNS zones could be read (${rejections.join('; ')}). ` +
-      'Set HOSTINGER_DNS_ZONE to the zone that holds tenant records, and check ' +
-      'that the API token carries DNS scope as well as hosting scope.',
+    body: null,
+    throttled,
+    message: throttled
+      ? 'Hostinger is rate-limiting this account, so its DNS zones could not be ' +
+        'read (HTTP 429). Nothing is wrong with the configuration — try again in ' +
+        'a minute.'
+      : `None of the candidate DNS zones could be read (${rejections.join('; ')}). ` +
+        'Set HOSTINGER_DNS_ZONE to the zone that holds tenant records, and check ' +
+        'that the API token carries DNS scope as well as hosting scope.',
   };
 }
 
@@ -322,7 +407,13 @@ function desiredRecordFor(
   return { name, type: 'CNAME', content: `${config.websiteDomain}.` };
 }
 
-export type DnsOutcome = 'created' | 'already-present' | 'failed' | 'skipped';
+export type DnsOutcome =
+  | 'created'
+  | 'already-present'
+  | 'failed'
+  /** The host is rate-limiting. Nothing is wrong and nothing was written. */
+  | 'throttled'
+  | 'skipped';
 
 export interface DnsResult {
   outcome: DnsOutcome;
@@ -387,7 +478,10 @@ export async function ensureDnsRecord(
   const resolved = await resolveDnsZone(config);
 
   if (resolved.zone === null) {
-    return { outcome: 'failed', message: resolved.message };
+    return {
+      outcome: resolved.throttled ? 'throttled' : 'failed',
+      message: resolved.message,
+    };
   }
 
   const zone = resolved.zone;
@@ -405,22 +499,34 @@ export async function ensureDnsRecord(
   const url = dnsZoneUrl(zone);
 
   // -- 1. Does the name already exist? --------------------------------------
+  //
+  // The zone probe above already read this zone, so its body is reused when it
+  // has one. Only an explicit HOSTINGER_DNS_ZONE — which skips the probe — still
+  // pays for a read here.
   try {
-    const existing = await request(url, { method: 'GET' }, config.token);
+    let zoneBody = resolved.body;
 
-    if (existing.ok && zoneAlreadyHasName(existing.body, desired.name)) {
+    if (zoneBody === null) {
+      const existing = await request(url, { method: 'GET' }, config.token);
+
+      if (!existing.ok) {
+        return {
+          outcome: existing.status === 429 ? 'throttled' : 'failed',
+          message:
+            existing.status === 429
+              ? throttleMessage(existing, `reading the DNS zone ${zone}`)
+              : `Could not read the DNS zone ${zone} (HTTP ${String(existing.status)}). ` +
+                `${summariseResponseBody(existing.body)} The API token needs DNS scope as well as hosting scope.`,
+        };
+      }
+
+      zoneBody = existing.body;
+    }
+
+    if (zoneAlreadyHasName(zoneBody, desired.name)) {
       return {
         outcome: 'already-present',
         message: `A DNS record for ${desired.name}.${zone} already exists; it was left untouched.`,
-      };
-    }
-
-    if (!existing.ok) {
-      return {
-        outcome: 'failed',
-        message:
-          `Could not read the DNS zone ${zone} (HTTP ${String(existing.status)}). ` +
-          `${summarise(existing.body)} The API token needs DNS scope as well as hosting scope.`,
       };
     }
   } catch (error) {
@@ -455,6 +561,16 @@ export async function ensureDnsRecord(
       };
     }
 
+    // A rate limit is not a rejection of the record. Said before the resolver
+    // is consulted, because the resolver cannot tell us anything about a
+    // request the host never looked at.
+    if (written.status === 429) {
+      return {
+        outcome: 'throttled',
+        message: throttleMessage(written, `writing the DNS record for ${fqdn}`),
+      };
+    }
+
     /*
      * A refusal is not proof of failure. "Conflicts with another resource
      * record" is exactly what a *successful earlier run* looks like on a
@@ -473,7 +589,7 @@ export async function ensureDnsRecord(
       outcome: 'failed',
       message:
         `Hostinger refused the DNS record for "${desired.name}" in zone ${zone} ` +
-        `(HTTP ${String(written.status)}). ${summarise(written.body)}` +
+        `(HTTP ${String(written.status)}). ${summariseResponseBody(written.body)}` +
         explainDnsRejection(written.body, zone, desired),
     };
   } catch (error) {
@@ -655,40 +771,129 @@ function parkedDomainsUrl(config: HostingerConfig): string {
   );
 }
 
+interface HostingerResponse {
+  ok: boolean;
+  status: number;
+  body: string;
+  /**
+   * `Retry-After`, in milliseconds, when the host sent one.
+   *
+   * The header was being discarded entirely. It is the only thing in the whole
+   * exchange that says *how long* the limiter wants us to wait, and guessing
+   * instead is how a retry becomes another 429.
+   */
+  retryAfterMs: number | null;
+}
+
 /**
- * One request, with a timeout and no secret in anything it can throw.
+ * How much longer this provision may spend waiting on retries.
+ *
+ * A module-level budget rather than a per-call one, because the ceiling that
+ * matters is what the operator waits, and one provision makes several calls. It
+ * is reset by `provisionSchoolSubdomain` at the start of each run; a caller that
+ * reaches `request` by another path simply inherits whatever is left, which
+ * errs towards fewer retries and never towards more.
+ */
+let retryBudgetRemainingMs = RETRY_BUDGET_MS;
+
+/** `Retry-After` is either a count of seconds or an HTTP date. Both are legal. */
+export function retryAfterMsFrom(header: string | null): number | null {
+  if (header === null) return null;
+
+  const trimmed = header.trim();
+  if (trimmed === '') return null;
+
+  const seconds = Number(trimmed);
+  if (Number.isFinite(seconds)) return Math.max(0, seconds * 1000);
+
+  const date = Date.parse(trimmed);
+  if (Number.isNaN(date)) return null;
+  return Math.max(0, date - Date.now());
+}
+
+/** Only a rate limit or a server fault. A 4xx will fail the same way twice. */
+export function isRetryableStatus(status: number): boolean {
+  return status === 429 || status >= 500;
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((done) => setTimeout(done, ms));
+}
+
+/**
+ * One request, with a timeout, a bounded retry, and no secret in anything it
+ * can throw.
  *
  * `fetch` failures embed the request URL, which is harmless here, but an error
  * built from a response body is not necessarily — so the body is read and
  * truncated deliberately rather than interpolated whole.
+ *
+ * ── What is retried, and what is deliberately not ────────────────────────
+ * 429 and 5xx: the request was fine and the host was not ready to serve it.
+ * Nothing else. A 401 retried is a second rejected token; a 422 retried is the
+ * same invalid record submitted twice, and both would spend the budget that
+ * exists for the one case where waiting helps.
+ *
+ * A network failure or a timeout is not retried either. It is the one case
+ * where the request may already have *succeeded* at the far end — a parked
+ * domain created and its response lost — and repeating it inside the same
+ * operator request would trade a clear "retry to check" for an ambiguous
+ * duplicate.
  */
 async function request(
   url: string,
   init: RequestInit,
   token: string,
-): Promise<{ ok: boolean; status: number; body: string }> {
-  const controller = new AbortController();
-  const timer = setTimeout(() => {
-    controller.abort();
-  }, REQUEST_TIMEOUT_MS);
+): Promise<HostingerResponse> {
+  let attempt = 0;
 
-  try {
-    const response = await fetch(url, {
-      ...init,
-      signal: controller.signal,
-      headers: {
-        ...init.headers,
-        Authorization: `Bearer ${token}`,
-        'Content-Type': 'application/json',
-        Accept: 'application/json',
-      },
-      cache: 'no-store',
-    });
+  for (;;) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => {
+      controller.abort();
+    }, REQUEST_TIMEOUT_MS);
+
+    let response: Response;
+    try {
+      response = await fetch(url, {
+        ...init,
+        signal: controller.signal,
+        headers: {
+          ...init.headers,
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+          Accept: 'application/json',
+        },
+        cache: 'no-store',
+      });
+    } finally {
+      clearTimeout(timer);
+    }
 
     const body = (await response.text()).slice(0, 500);
-    return { ok: response.ok, status: response.status, body };
-  } finally {
-    clearTimeout(timer);
+    const retryAfterMs = retryAfterMsFrom(response.headers.get('Retry-After'));
+    const result: HostingerResponse = {
+      ok: response.ok,
+      status: response.status,
+      body,
+      retryAfterMs,
+    };
+
+    if (result.ok || attempt >= MAX_RETRIES || !isRetryableStatus(result.status)) {
+      return result;
+    }
+
+    // The host's own number when it gave one, doubling otherwise.
+    const wait = retryAfterMs ?? RETRY_BASE_DELAY_MS * 2 ** attempt;
+
+    // Waiting longer than the budget allows is the same as not retrying, except
+    // that the operator watches it happen. Hand the response back instead and
+    // let the caller record `throttled`.
+    if (wait > retryBudgetRemainingMs) return result;
+
+    retryBudgetRemainingMs -= wait;
+    attempt += 1;
+    await sleep(wait);
   }
 }
 
@@ -711,15 +916,27 @@ function reportsAlreadyExists(status: number, body: string): boolean {
  * Three independent layers, because this is called both automatically and from
  * a retry button and must be safe to run any number of times:
  *
- *   1. The existing aliases are listed first, and a match short-circuits.
- *   2. An "already exists" rejection from the create call is treated as
+ *   1. An "already exists" rejection from the create call is treated as
  *      success, which closes the race between two concurrent retries.
+ *   2. If a refusal is neither that nor a rate limit, the aliases are listed
+ *      and a match still counts as provisioned — the same guarantee the
+ *      up-front listing used to give, at one call instead of two per run.
  *   3. Nothing is ever deleted here. The only destructive operation Hostinger
  *      offers on this resource is deliberately not wrapped in this module.
+ *
+ * ── The call budget ──────────────────────────────────────────────────────
+ * A provision was four API calls: list aliases, create alias, read zone, write
+ * record. Two of them were avoidable and both are gone — the listing is now a
+ * fallback, and the zone probe's response is reused as the zone read. Three
+ * calls on the happy path, which is what a per-account rate limiter counts.
  */
 export async function provisionSchoolSubdomain(slug: string): Promise<ProvisionResult> {
   const config = readConfig();
   const fqdn = subdomainFor(slug) ?? slug;
+
+  // One budget per provision, not per call: what is bounded is how long the
+  // operator waits for the whole operation.
+  retryBudgetRemainingMs = RETRY_BUDGET_MS;
 
   if (config === null) {
     return {
@@ -739,7 +956,21 @@ export async function provisionSchoolSubdomain(slug: string): Promise<ProvisionR
   // site, which is worse than a name that does not resolve.
   if (parked.status === 'failed') return parked;
 
+  // A throttled alias is the end of it too, for a different reason: the DNS
+  // half is two more calls into a limiter that has just said no, and it would
+  // turn one recoverable state into two.
+  if (parked.status === 'throttled') return parked;
+
   const dns = await ensureDnsRecord(config, fqdn);
+
+  if (dns.outcome === 'throttled') {
+    return {
+      status: 'throttled',
+      message: `${fqdn} is parked. Its DNS record was not written yet: ${dns.message}`,
+      fqdn,
+      alreadyExisted: parked.alreadyExisted,
+    };
+  }
 
   if (dns.outcome === 'failed') {
     return {
@@ -777,25 +1008,21 @@ async function ensureParkedDomain(
 ): Promise<ProvisionResult> {
   const url = parkedDomainsUrl(config);
 
-  // -- 1. Already provisioned? ----------------------------------------------
   try {
-    const existing = await request(url, { method: 'GET' }, config.token);
-    if (existing.ok && existing.body.toLowerCase().includes(fqdn.toLowerCase())) {
-      return {
-        status: 'provisioning',
-        message: `${fqdn} is already parked on ${config.websiteDomain}.`,
-        fqdn,
-        alreadyExisted: true,
-      };
-    }
-  } catch {
-    // A failed *check* is not a failed provision. Fall through and let the
-    // create call be the thing that decides, since it is authoritative and
-    // handles the duplicate case on its own.
-  }
-
-  // -- 2. Create ------------------------------------------------------------
-  try {
+    /*
+     * -- Create first, list only if that goes wrong -------------------------
+     *
+     * This used to list the existing aliases and *then* create, which made two
+     * calls every time to save nothing: the create call already reports a
+     * duplicate, and that report is handled two lines below. Two calls here
+     * plus two in the DNS half is four per provision, and four per provision
+     * against Hostinger's limiter is what produced the 429 this module now has
+     * a status for.
+     *
+     * The list has not been deleted, only demoted: it runs when the create
+     * fails in a way that is not obviously "already there", where its answer
+     * is the difference between reporting a failure and reporting the truth.
+     */
     const created = await request(
       url,
       { method: 'POST', body: JSON.stringify({ parked_domain: fqdn }) },
@@ -820,9 +1047,30 @@ async function ensureParkedDomain(
       };
     }
 
+    if (created.status === 429) {
+      return {
+        status: 'throttled',
+        message: throttleMessage(created, `parking ${fqdn}`),
+        fqdn,
+        alreadyExisted: false,
+      };
+    }
+
+    // A refusal that is neither a duplicate nor a rate limit. Ask what is
+    // actually on the account before calling it a failure — a rejection whose
+    // wording `reportsAlreadyExists` does not recognise looks exactly like this.
+    if (await parkedDomainExists(config, fqdn)) {
+      return {
+        status: 'provisioning',
+        message: `${fqdn} is already parked on ${config.websiteDomain}.`,
+        fqdn,
+        alreadyExisted: true,
+      };
+    }
+
     return {
       status: 'failed',
-      message: `Hostinger refused the request (HTTP ${String(created.status)}). ${summarise(created.body)}`,
+      message: `Hostinger refused the request (HTTP ${String(created.status)}). ${summariseResponseBody(created.body)}`,
       fqdn,
       alreadyExisted: false,
     };
@@ -834,6 +1082,46 @@ async function ensureParkedDomain(
       alreadyExisted: false,
     };
   }
+}
+
+/** Is the alias on the account already? Asked only to disprove a failure. */
+async function parkedDomainExists(
+  config: HostingerConfig,
+  fqdn: string,
+): Promise<boolean> {
+  try {
+    const existing = await request(
+      parkedDomainsUrl(config),
+      { method: 'GET' },
+      config.token,
+    );
+    return existing.ok && existing.body.toLowerCase().includes(fqdn.toLowerCase());
+  } catch {
+    // A failed *check* is not proof of anything. The caller keeps its refusal.
+    return false;
+  }
+}
+
+/**
+ * What a rate limit reads like once the retries are spent.
+ *
+ * One sentence, no braces, and the wait the host asked for when it named one —
+ * which is the only actionable number in a 429 and was being thrown away with
+ * the rest of the headers.
+ */
+function throttleMessage(response: HostingerResponse, doing: string): string {
+  const wait =
+    response.retryAfterMs === null
+      ? ''
+      : ` It asked to be left alone for about ${String(
+          Math.max(1, Math.round(response.retryAfterMs / 1000)),
+        )}s.`;
+
+  return (
+    `Hostinger is rate-limiting this account, so ${doing} was not completed ` +
+    `(HTTP 429).${wait} Nothing is wrong with the request and nothing was lost — ` +
+    `press Provision again in a minute. ${summariseResponseBody(response.body)}`
+  );
 }
 
 /**
@@ -946,11 +1234,60 @@ export async function checkSubdomainReachable(fqdn: string): Promise<boolean> {
   }
 }
 
-/** A response body, trimmed to something safe to show an operator. */
-function summarise(body: string): string {
+/**
+ * A response body, turned into one sentence an operator can read.
+ *
+ * ── What this used to do, and why it was reported as a bug ───────────────
+ * It pasted the first 200 characters of the raw body into the table cell:
+ *
+ *     Hostinger refused the request (HTTP 429). {
+ *      "message": "Too Many Attempts.",
+ *      "correlation_id": "a28cff8a-…"
+ *     }
+ *
+ * — braces, newlines, a UUID and all, in red, on the schools list. Everything
+ * the operator needed was the two words in the middle; everything else was
+ * noise that made the row look like a stack trace.
+ *
+ * So a JSON body has its message lifted out. The correlation id is *kept* —
+ * support cannot trace a request without it — but demoted behind the sentence
+ * rather than made the headline. A body that is not JSON falls back to the old
+ * truncation, which is still better than nothing and is what an HTML error page
+ * from a proxy will hit.
+ */
+export function summariseResponseBody(body: string): string {
   const trimmed = body.trim();
   if (trimmed === '') return 'No details were returned.';
-  return trimmed.length > 200 ? `${trimmed.slice(0, 200)}…` : trimmed;
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(trimmed);
+  } catch {
+    return trimmed.length > 200 ? `${trimmed.slice(0, 200)}…` : trimmed;
+  }
+
+  if (typeof parsed !== 'object' || parsed === null) {
+    return trimmed.length > 200 ? `${trimmed.slice(0, 200)}…` : trimmed;
+  }
+
+  const record = parsed as Record<string, unknown>;
+
+  // Hostinger says `message`; `detail` and `error` are the other two spellings
+  // a JSON API uses for the same field, and costing nothing to accept.
+  const headline = ['message', 'detail', 'error']
+    .map((key) => record[key])
+    .find((value): value is string => typeof value === 'string' && value.trim() !== '');
+
+  if (headline === undefined) {
+    return trimmed.length > 200 ? `${trimmed.slice(0, 200)}…` : trimmed;
+  }
+
+  const sentence = headline.trim().replace(/\s+/g, ' ');
+  const correlation = record.correlation_id;
+
+  return typeof correlation === 'string' && correlation.trim() !== ''
+    ? `${sentence} (ref ${correlation.trim()})`
+    : sentence;
 }
 
 function describeNetworkError(error: unknown): string {

@@ -18,6 +18,7 @@ export type SubdomainStatus =
   | 'provisioning'
   | 'ready'
   | 'failed'
+  | 'throttled'
   | 'unmanaged';
 
 export interface SubdomainStatusDescriptor {
@@ -52,6 +53,23 @@ const DESCRIPTORS: Record<SubdomainStatus, SubdomainStatusDescriptor> = {
     label: 'Failed',
     variant: 'danger',
     hint: 'The last attempt did not succeed. Retrying is safe — provisioning never deletes an existing domain.',
+    retryable: true,
+  },
+  throttled: {
+    label: 'Rate limited',
+    variant: 'warning',
+    hint: 'Hostinger is rate-limiting this account, so the last attempt was not completed. Nothing is wrong with the request and nothing was lost — press Provision again in a minute.',
+    /*
+     * Warning, not danger, and that colour is the whole point of this status.
+     *
+     * A 429 is the host saying "not now", and the module used to record it as
+     * `failed` with the raw JSON body beside it. The one school on the live
+     * deployment therefore carried a red badge reading
+     * `Hostinger refused the request (HTTP 429). { "message": "Too Many
+     * Attempts.", "correlation_id": … }` — which sends an operator looking for
+     * a misconfiguration that does not exist, in a request that was correct and
+     * would have succeeded seconds later.
+     */
     retryable: true,
   },
   unmanaged: {
