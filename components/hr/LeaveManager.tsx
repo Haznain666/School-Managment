@@ -7,15 +7,8 @@ import { Button } from '@/components/ui/Button';
 import { Card, CardTitle } from '@/components/ui/Card';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
+import { DataTable, type DataTableColumn } from '@/components/ui/DataTable';
 import { Textarea } from '@/components/ui/Textarea';
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeaderCell,
-  TableRow,
-} from '@/components/ui/Table';
 import { LEAVE_STATUS_LABELS, type LeaveStatus } from '@/db/schema/leave-requests';
 import { schoolErrorMessage, schoolFetch } from '@/lib/school-client';
 
@@ -104,8 +97,12 @@ export function LeaveManager({ canEdit }: LeaveManagerProps) {
   const [draft, setDraft] = useState<Draft | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
+  const [pending, setPending] = useState(true);
 
   const load = useCallback(async () => {
+    // The status filter refetches, so the table shows a skeleton for the
+    // second load as well as the first.
+    setPending(true);
     try {
       const query = statusFilter === '' ? '' : `?status=${statusFilter}`;
 
@@ -123,6 +120,8 @@ export function LeaveManager({ canEdit }: LeaveManagerProps) {
       setError(null);
     } catch (caught) {
       setError(schoolErrorMessage(caught, 'Could not load leave.'));
+    } finally {
+      setPending(false);
     }
   }, [statusFilter]);
 
@@ -212,6 +211,107 @@ export function LeaveManager({ canEdit }: LeaveManagerProps) {
 
   const activeTypes = (types ?? []).filter((row) => row.isActive);
 
+  const requestColumns: Array<DataTableColumn<LeaveRequestRow>> = [
+    {
+      id: 'staff',
+      header: 'Staff',
+      sortValue: (row) => row.staffName,
+      searchValue: (row) => `${row.staffName} ${row.employeeCode}`,
+      cell: (row) => (
+        <>
+          <p className="font-medium text-ink">{row.staffName}</p>
+          <p className="text-xs text-ink-muted">{row.employeeCode}</p>
+        </>
+      ),
+    },
+    {
+      id: 'type',
+      header: 'Type',
+      muted: true,
+      sortValue: (row) => row.leaveTypeName,
+      searchValue: (row) => row.leaveTypeName,
+      cell: (row) => (
+        <>
+          {row.leaveTypeName}
+          {row.isPaid ? null : (
+            <Badge className="ml-2" variant="danger">
+              Unpaid
+            </Badge>
+          )}
+        </>
+      ),
+    },
+    {
+      id: 'dates',
+      header: 'Dates',
+      kind: 'date',
+      muted: true,
+      sortValue: (row) => row.startDate,
+      cell: (row) => (
+        <>
+          {row.startDate} → {row.endDate}
+          {row.reason === null || row.reason === '' ? null : (
+            <p className="text-xs text-ink-muted">{row.reason}</p>
+          )}
+        </>
+      ),
+    },
+    {
+      id: 'days',
+      header: 'Days',
+      kind: 'number',
+      muted: true,
+      sortValue: (row) => Number(row.totalDays),
+      cell: (row) => row.totalDays,
+    },
+    {
+      id: 'status',
+      header: 'Status',
+      sortValue: (row) => LEAVE_STATUS_LABELS[row.status],
+      cell: (row) => (
+        <>
+          <Badge variant={STATUS_VARIANT[row.status]}>
+            {LEAVE_STATUS_LABELS[row.status]}
+          </Badge>
+          {row.decisionNote === null || row.decisionNote === '' ? null : (
+            <p className="mt-1 text-xs text-ink-muted">{row.decisionNote}</p>
+          )}
+        </>
+      ),
+    },
+  ];
+
+  if (canEdit) {
+    requestColumns.push({
+      id: 'decide',
+      header: <span className="sr-only">Decide</span>,
+      align: 'end',
+      cell: (row) =>
+        row.status === 'pending' ? (
+          <div className="flex justify-end gap-2">
+            <Button
+              size="sm"
+              isLoading={busy === row.id}
+              onClick={() => {
+                void decide(row, 'approved');
+              }}
+            >
+              Approve
+            </Button>
+            <Button
+              size="sm"
+              variant="secondary"
+              onClick={() => {
+                void decide(row, 'rejected');
+              }}
+            >
+              Reject
+            </Button>
+          </div>
+        ) : null,
+    });
+  }
+
   return (
     <div className="space-y-6">
       {error !== null ? (
@@ -268,37 +368,6 @@ export function LeaveManager({ canEdit }: LeaveManagerProps) {
             ))}
           </ul>
         )}
-      </Card>
-
-      <Card>
-        <div className="grid gap-4 sm:grid-cols-3">
-          <Select
-            label="Show"
-            options={STATUS_FILTERS}
-            value={statusFilter}
-            onChange={(event) => {
-              setStatusFilter(event.target.value);
-            }}
-          />
-          {canEdit && draft === null && activeTypes.length > 0 ? (
-            <div className="flex items-end">
-              <Button
-                onClick={() => {
-                  setDraft({
-                    staffId: '',
-                    leaveTypeId: activeTypes[0]?.id ?? '',
-                    startDate: '',
-                    endDate: '',
-                    totalDays: '',
-                    reason: '',
-                  });
-                }}
-              >
-                File a request
-              </Button>
-            </div>
-          ) : null}
-        </div>
       </Card>
 
       {draft !== null ? (
@@ -389,103 +458,56 @@ export function LeaveManager({ canEdit }: LeaveManagerProps) {
         </Card>
       ) : null}
 
-      {requests === null ? (
-        <Card>
-          <p className="text-sm text-ink-muted">Loading requests…</p>
-        </Card>
-      ) : requests.length === 0 ? (
-        <Card>
-          <p className="text-sm text-ink-muted">No leave requests to show.</p>
-        </Card>
-      ) : (
-        <Card
-          header={
-            <CardTitle
-              title="Leave requests"
-              description={`${requests.length} request${requests.length === 1 ? '' : 's'}.`}
+      <DataTable
+        caption="Leave requests"
+        columns={requestColumns}
+        rows={requests ?? []}
+        getRowKey={(row) => row.id}
+        pending={pending}
+        defaultSort={{ columnId: 'dates', direction: 'desc' }}
+        search={{ placeholder: 'Staff name, code or leave type' }}
+        /*
+         * The state filter stays a server round trip — the API narrows by it,
+         * and a queue of pending requests is what an approver opens this screen
+         * for. Everything else is over what came back, which is one state's
+         * worth of rows and already in memory.
+         */
+        extraFilters={
+          <div className="w-full sm:w-52">
+            <Select
+              label="Show"
+              options={STATUS_FILTERS}
+              value={statusFilter}
+              onChange={(event) => {
+                setStatusFilter(event.target.value);
+              }}
             />
-          }
-          className="p-0"
-        >
-          <div className="overflow-x-auto">
-            <Table caption="Leave requests" className="rounded-none border-0">
-              <TableHead>
-                <TableRow>
-                  <TableHeaderCell>Staff</TableHeaderCell>
-                  <TableHeaderCell>Type</TableHeaderCell>
-                  <TableHeaderCell>Dates</TableHeaderCell>
-                  <TableHeaderCell>Days</TableHeaderCell>
-                  <TableHeaderCell>Status</TableHeaderCell>
-                  {canEdit ? (
-                    <TableHeaderCell>
-                      <span className="sr-only">Decide</span>
-                    </TableHeaderCell>
-                  ) : null}
-                </TableRow>
-              </TableHead>
-              <TableBody>
-                {requests.map((row) => (
-                  <TableRow key={row.id}>
-                    <TableCell>
-                      <p className="font-medium text-ink">{row.staffName}</p>
-                      <p className="text-xs text-ink-muted">{row.employeeCode}</p>
-                    </TableCell>
-                    <TableCell muted>
-                      {row.leaveTypeName}
-                      {row.isPaid ? null : (
-                        <Badge className="ml-2" variant="danger">
-                          Unpaid
-                        </Badge>
-                      )}
-                    </TableCell>
-                    <TableCell muted>
-                      {row.startDate} → {row.endDate}
-                      {row.reason === null || row.reason === '' ? null : (
-                        <p className="text-xs text-ink-muted">{row.reason}</p>
-                      )}
-                    </TableCell>
-                    <TableCell muted>{row.totalDays}</TableCell>
-                    <TableCell>
-                      <Badge variant={STATUS_VARIANT[row.status]}>
-                        {LEAVE_STATUS_LABELS[row.status]}
-                      </Badge>
-                      {row.decisionNote === null || row.decisionNote === '' ? null : (
-                        <p className="mt-1 text-xs text-ink-muted">{row.decisionNote}</p>
-                      )}
-                    </TableCell>
-                    {canEdit ? (
-                      <TableCell>
-                        {row.status === 'pending' ? (
-                          <div className="flex justify-end gap-2">
-                            <Button
-                              size="sm"
-                              isLoading={busy === row.id}
-                              onClick={() => {
-                                void decide(row, 'approved');
-                              }}
-                            >
-                              Approve
-                            </Button>
-                            <Button
-                              size="sm"
-                              variant="secondary"
-                              onClick={() => {
-                                void decide(row, 'rejected');
-                              }}
-                            >
-                              Reject
-                            </Button>
-                          </div>
-                        ) : null}
-                      </TableCell>
-                    ) : null}
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
           </div>
-        </Card>
-      )}
+        }
+        actions={
+          canEdit && draft === null && activeTypes.length > 0 ? (
+            <Button
+              onClick={() => {
+                setDraft({
+                  staffId: '',
+                  leaveTypeId: activeTypes[0]?.id ?? '',
+                  startDate: '',
+                  endDate: '',
+                  totalDays: '',
+                  reason: '',
+                });
+              }}
+            >
+              File a request
+            </Button>
+          ) : undefined
+        }
+        itemNoun={{ singular: 'request', plural: 'requests' }}
+        emptyTitle="No leave requests to show"
+        emptyDescription="Applications filed by staff appear here for a decision."
+        noResultTitle="No requests in that state"
+        noResultDescription="Choose another state, or show every request."
+      />
     </div>
   );
 }

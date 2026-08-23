@@ -7515,6 +7515,108 @@ seconds. Not touched by this sprint. Worth a look.
 
 ---
 
+## 5az. Sprint 15.5 — one table primitive, thirty listings — 2026-08-23
+
+Requirement 5 of Sprint 15: **every record listing on every portal has filters,
+sorting toggled from the column title, pagination capped at 100 rows, and a
+visible loader while a filter or page change is in flight.** No migration, no
+new permission key — this is a UI and query-parameter sprint.
+
+### What was built
+
+**`components/ui/DataTable.tsx`** is the whole of it. It layers on the existing
+`Table` and `Pagination` primitives rather than replacing either, and it runs in
+one of two modes:
+
+| Mode | For | State |
+| --- | --- | --- |
+| `client` (default) | rows already in the browser — fee types, salary components, the chart of accounts, one section's attendance | owned internally; never touches the network |
+| `server` | listings that grow without bound — students, challans, applications, expenses, the day book, users, schools | fully controlled by the caller, which turns it into query parameters |
+
+**`lib/list-query.ts`** is the server half. `readListQuery(search, { sortable,
+defaultSort })` caps the page size at 100 and matches the sort column against a
+whitelist the route owns. The cap has to exist on the server as well as in the
+browser — a request typed into the address bar never runs the browser's code —
+and a column name off the wire never reaches the query builder.
+
+### Decisions — do not re-litigate these
+
+**Sorting is type-aware, and `money` is one of the types.** Money is integer
+paise everywhere in this codebase; sorted as text, 1000 comes before 900, and
+the wrong number sits at the top of the fee report with nothing to say why.
+`kind` on a column decides the comparator, and blanks sort last in *both*
+directions — an absent value is not "the smallest".
+
+**Empty and filtered-to-nothing are different screens.** `EmptyState` has drawn
+that distinction since Sprint 10.5; this is what finally honours it on every
+list. If any filter or the search box carries a value, the empty result offers
+"Clear filters" and never "Add a student". Telling a school with 400 students
+that it has none is the defect this prevents.
+
+**A sort clears a multi-row selection, exactly as a filter does.** On the
+challan register and both user tables the selection feeds a bulk action — print,
+delete — and a re-ordered result set is a different set of rows. The rule was
+already written for filters in STATE.md §5e; sorting joins it.
+
+**Six components were deliberately not converted.** They render a `<Table>` and
+are not record listings: `PermissionMatrix` (a role × permission grid),
+`TimetableGrid` and `TimetableBuilder` (week grids — and the CLAUDE.md rule
+about resolving a section's own period schedule is why paging one would be
+worse than useless), `MarksEntry` and `FeeStructureMatrix` (entry matrices whose
+row order is the thing being edited), and `StudentImporter` (a CSV preview
+before a commit). Two more were left for the same reason inside components that
+were otherwise converted: the salary-structure grid in `StaffDetailPanel`, whose
+footer totals the rows above it, and the band editor in `GradingSchemeEditor`,
+whose rows are unsaved drafts keyed by position. Sorting a form is not a
+feature.
+
+**`ReportTable` split rather than became a client component.** The printed sheet
+must render every row in the report's own order with no controls on it; the
+screen wants all four. `ReportDataTable` is the screen half, `ReportTable` keeps
+the print half, and both read `definition.columns` — neither has a column list
+of its own, which was the property Sprint 12 was built around.
+
+**`StaffManager` moved the other way, to client mode.** A school's staff is
+bounded by its payroll — tens, occasionally a couple of hundred — so the whole
+directory arrives once and is searched in the browser. It was costing a round
+trip per keystroke for a list that fits in memory several times over.
+
+### API routes extended
+
+All six stay tenant-scoped exactly as they were: `auth.locationId` from the
+verified session, never from a parameter. Only sort, direction, page and size
+were added.
+
+| Route | Added |
+| --- | --- |
+| `GET /api/school/students` | `sort`, `direction`; page size now capped centrally |
+| `GET /api/school/applications` | `sort`, `direction`, `page`, plus `total` in the response |
+| `GET /api/school/fees/challans` | `sort` (including a computed `balance`), `direction` |
+| `GET /api/school/accounting/entries` | `page`, `limit`, `direction`, plus `total` |
+| `GET /api/school/accounting/expenses` | `sort`, `direction`, `page`, `search`, plus `total` and `approvedPaise` |
+| `GET /api/school/users` | `sort`, `direction` |
+| `GET /api/super-admin/schools` | `sort`, `direction`, `page`, plus `total` |
+
+Two of those are worth calling out. **The day book used to answer with the most
+recent 500 rows and say nothing about the rest** — a school in its third year
+has more than that, and a silently truncated ledger is a set of books that does
+not add up on screen. **The expense register's footer now totals every page of
+the filter, not the fifty rows on screen**; the old one was a different number
+on every page of the same register with nothing to say so.
+
+### What is still open
+
+- Nothing on the parent and student portals rendered a `<Table>`, so nothing
+  there changed. When those listings arrive they get `DataTable`.
+- The day book sorts on `entryDate` only. Its amount is a `SUM` over the lines,
+  and a sort the server computes per page would disagree with itself between
+  pages.
+- `UserTable`'s status column is not sortable: the server groups it with a SQL
+  expression for the facet counts, and a sort that disagreed with the counts
+  beside it would be worse than no sort.
+
+---
+
 ## 8. Working agreement
 
 - **Update this file at the end of every development step.** It is the contract

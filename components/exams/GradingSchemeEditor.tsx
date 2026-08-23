@@ -6,6 +6,7 @@ import { useState } from 'react';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { Card, CardTitle } from '@/components/ui/Card';
+import { DataTable, type DataTableColumn } from '@/components/ui/DataTable';
 import { Input } from '@/components/ui/Input';
 import {
   Table,
@@ -139,6 +140,78 @@ export function GradingSchemeEditor({ schemes, canWrite }: GradingSchemeEditorPr
 
   const isEditing = isCreating || editingId !== null;
 
+  const schemeColumns: Array<DataTableColumn<SchemeRow>> = [
+    {
+      id: 'name',
+      header: 'Scheme',
+      sortValue: (scheme) => scheme.name,
+      searchValue: (scheme) =>
+        `${scheme.name} ${scheme.bands.map((band) => band.label).join(' ')}`,
+      cell: (scheme) => (
+        <div className="min-w-0">
+          <p className="font-medium text-ink">{scheme.name}</p>
+          <p className="text-xs text-ink-muted">
+            {scheme.bands.map((band) => `${band.label} ${band.minPercentage}+`).join(' · ')}
+          </p>
+        </div>
+      ),
+    },
+    {
+      id: 'bands',
+      header: 'Bands',
+      kind: 'number',
+      muted: true,
+      sortValue: (scheme) => scheme.bands.length,
+      cell: (scheme) => scheme.bands.length,
+    },
+    {
+      id: 'state',
+      header: 'State',
+      // The default first, then active, then retired — the order somebody
+      // scanning for "which one is in force" reads in.
+      sortValue: (scheme) => (scheme.isDefault ? 0 : scheme.isActive ? 1 : 2),
+      cell: (scheme) => (
+        <div className="flex flex-nowrap items-center gap-2 whitespace-nowrap">
+          {scheme.isDefault ? <Badge variant="success">Default</Badge> : null}
+          {scheme.isActive ? null : <Badge variant="neutral">Retired</Badge>}
+        </div>
+      ),
+    },
+    {
+      id: 'actions',
+      header: <span className="sr-only">Actions</span>,
+      align: 'end',
+      cell: (scheme) => (
+        <div className="flex flex-nowrap items-center justify-end gap-2 whitespace-nowrap">
+          {canWrite && !scheme.isDefault ? (
+            <Button
+              size="sm"
+              variant="ghost"
+              isLoading={busy === `default-${scheme.id}`}
+              onClick={() => {
+                void makeDefault(scheme.id);
+              }}
+            >
+              Make default
+            </Button>
+          ) : null}
+
+          {canWrite ? (
+            <Button
+              size="sm"
+              variant="secondary"
+              onClick={() => {
+                startEdit(scheme);
+              }}
+            >
+              Edit
+            </Button>
+          ) : null}
+        </div>
+      ),
+    },
+  ];
+
   return (
     <div className="space-y-4">
       <Card
@@ -188,62 +261,36 @@ export function GradingSchemeEditor({ schemes, canWrite }: GradingSchemeEditorPr
           </p>
         ) : null}
 
-        {schemes.length === 0 && !isEditing ? (
-          <p className="text-sm text-ink-muted">
-            No grading scheme yet, so report cards will print marks and
-            percentages but no letter grades. That is a real state, not a
-            failure — until the school says what an A is, nothing here is
-            entitled to guess.
-          </p>
-        ) : (
-          <ul className="divide-y divide-line">
-            {schemes.map((scheme) => (
-              <li
-                key={scheme.id}
-                className="flex flex-wrap items-center justify-between gap-3 py-3"
-              >
-                <div className="min-w-0">
-                  <p className="font-medium text-ink">{scheme.name}</p>
-                  <p className="text-xs text-ink-muted">
-                    {scheme.bands
-                      .map((band) => `${band.label} ${band.minPercentage}+`)
-                      .join(' · ')}
-                  </p>
-                </div>
-
-                <div className="flex flex-nowrap items-center gap-2 whitespace-nowrap">
-                  {scheme.isDefault ? <Badge variant="success">Default</Badge> : null}
-                  {scheme.isActive ? null : <Badge variant="neutral">Retired</Badge>}
-
-                  {canWrite && !scheme.isDefault ? (
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      isLoading={busy === `default-${scheme.id}`}
-                      onClick={() => {
-                        void makeDefault(scheme.id);
-                      }}
-                    >
-                      Make default
-                    </Button>
-                  ) : null}
-
-                  {canWrite ? (
-                    <Button
-                      size="sm"
-                      variant="secondary"
-                      onClick={() => {
-                        startEdit(scheme);
-                      }}
-                    >
-                      Edit
-                    </Button>
-                  ) : null}
-                </div>
-              </li>
-            ))}
-          </ul>
-        )}
+        <DataTable
+          caption="Grading schemes"
+          columns={schemeColumns}
+          rows={schemes}
+          getRowKey={(scheme) => scheme.id}
+          defaultSort={{ columnId: 'name', direction: 'asc' }}
+          search={{ placeholder: 'Scheme name' }}
+          filters={[
+            {
+              id: 'state',
+              label: 'State',
+              allLabel: 'Every scheme',
+              options: [
+                { value: 'default', label: 'The default' },
+                { value: 'active', label: 'Active' },
+                { value: 'retired', label: 'Retired' },
+              ],
+              rowValue: (scheme) => {
+                const states = [scheme.isActive ? 'active' : 'retired'];
+                if (scheme.isDefault) states.push('default');
+                return states;
+              },
+            },
+          ]}
+          itemNoun={{ singular: 'scheme', plural: 'schemes' }}
+          emptyTitle="No grading scheme yet"
+          emptyDescription="Report cards will print marks and percentages but no letter grades. That is a real state, not a failure — until the school says what an A is, nothing here is entitled to guess."
+          noResultTitle="No schemes match those filters"
+          noResultDescription="Clear the search, or widen the state."
+        />
       </Card>
 
       {isEditing ? (

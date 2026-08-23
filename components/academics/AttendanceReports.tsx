@@ -3,15 +3,9 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { Card, CardTitle } from '@/components/ui/Card';
+import { DataTable, type DataTableColumn } from '@/components/ui/DataTable';
+import { EmptyState } from '@/components/ui/EmptyState';
 import { Select } from '@/components/ui/Select';
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeaderCell,
-  TableRow,
-} from '@/components/ui/Table';
 import { MONTH_NAMES } from '@/db/schema/academic-years';
 import { schoolErrorMessage, schoolFetch } from '@/lib/school-client';
 
@@ -161,6 +155,104 @@ export function AttendanceReports({
   const students = payload?.students ?? [];
   const monthLabel = MONTH_NAMES[Number(month) - 1] ?? '';
 
+  const attendanceColumns: Array<DataTableColumn<ReportRow>> = [
+    {
+      id: 'student',
+      header: 'Student',
+      sortValue: (row) => row.studentName,
+      searchValue: (row) =>
+        `${row.studentName} ${row.studentId} ${row.rollNumber ?? ''}`,
+      cell: (row) => (
+        <>
+          <p className="font-medium text-ink">{row.studentName}</p>
+          <p className="text-xs text-ink-muted">
+            {row.rollNumber === null || row.rollNumber === ''
+              ? 'No roll number'
+              : `Roll ${row.rollNumber}`}{' '}
+            · <span className="font-mono">{row.studentId}</span>
+          </p>
+        </>
+      ),
+    },
+    {
+      id: 'present',
+      header: 'P',
+      kind: 'number',
+      muted: true,
+      sortValue: (row) => row.present,
+      cell: (row) => row.present,
+    },
+    {
+      id: 'absent',
+      header: 'A',
+      kind: 'number',
+      muted: true,
+      sortValue: (row) => row.absent,
+      cell: (row) => row.absent,
+    },
+    {
+      id: 'late',
+      header: 'L',
+      kind: 'number',
+      muted: true,
+      sortValue: (row) => row.late,
+      cell: (row) => row.late,
+    },
+    {
+      id: 'excused',
+      header: 'E',
+      kind: 'number',
+      muted: true,
+      sortValue: (row) => row.excused,
+      cell: (row) => row.excused,
+    },
+    {
+      id: 'holiday',
+      header: 'H',
+      kind: 'number',
+      muted: true,
+      sortValue: (row) => row.holiday,
+      cell: (row) => row.holiday,
+    },
+    {
+      id: 'days',
+      header: 'Days',
+      kind: 'number',
+      muted: true,
+      sortValue: (row) => row.total,
+      cell: (row) => row.total,
+    },
+    {
+      id: 'attendance',
+      header: 'Attendance',
+      headerClassName: 'w-48',
+      // Sorted on the number behind the bar. The bar is a picture of it, and a
+      // picture does not compare.
+      sortValue: (row) => row.percentage,
+      cell: (row) => (
+        <div className="flex items-center gap-2">
+          <div
+            className="h-2 w-full overflow-hidden rounded-full bg-surface-sunken"
+            role="img"
+            aria-label={`${row.percentage}% attendance`}
+          >
+            <div
+              className={`h-full rounded-full ${barColor(row.percentage)}`}
+              style={{ width: `${Math.min(row.percentage, 100)}%` }}
+            />
+          </div>
+          <span
+            className={`w-14 shrink-0 text-right text-xs font-semibold ${textColor(
+              row.percentage,
+            )}`}
+          >
+            {row.percentage.toFixed(1)}%
+          </span>
+        </div>
+      ),
+    },
+  ];
+
   return (
     <div className="space-y-4">
       <Card header={<CardTitle title="Choose a class and a month" />}>
@@ -223,99 +315,66 @@ export function AttendanceReports({
       ) : null}
 
       {sectionId === '' ? (
-        <Card>
-          <p className="text-sm text-ink-muted">
-            Choose a class to see its month.
-          </p>
-        </Card>
-      ) : isLoading ? (
-        <Card>
-          <p className="text-sm text-ink-muted">Loading the report…</p>
-        </Card>
-      ) : students.length === 0 ? (
-        <Card>
-          <p className="text-sm text-ink-muted">
-            No students are actively enrolled in this section for this year.
-          </p>
-        </Card>
+        <EmptyState
+          tone="no-result"
+          title="Choose a class to see its month"
+          description="Attendance is reported one section at a time — pick a grade and a section above."
+        />
       ) : (
         <Card
           header={
             <CardTitle
               title={`${monthLabel} ${calendarYear}`}
-              description={`${students.length} student${students.length === 1 ? '' : 's'}. Late counts as present; holidays are excluded from the percentage.`}
+              description={`${students.length} student${
+                students.length === 1 ? '' : 's'
+              }. Late counts as present; holidays are excluded from the percentage.`}
               action={
                 <div className="text-right">
                   <p className="text-xs font-medium uppercase tracking-wide text-ink-muted">
                     Class average
                   </p>
-                  <p
-                    className={`text-2xl font-bold ${textColor(payload?.classAverage ?? 0)}`}
-                  >
+                  <p className={`text-2xl font-bold ${textColor(payload?.classAverage ?? 0)}`}>
                     {(payload?.classAverage ?? 0).toFixed(1)}%
                   </p>
                 </div>
               }
             />
           }
-          className="p-0"
         >
-          <div className="overflow-x-auto">
-            <Table caption="Attendance by student" className="rounded-none border-0">
-              <TableHead>
-                <TableRow>
-                  <TableHeaderCell>Student</TableHeaderCell>
-                  <TableHeaderCell align="numeric">P</TableHeaderCell>
-                  <TableHeaderCell align="numeric">A</TableHeaderCell>
-                  <TableHeaderCell align="numeric">L</TableHeaderCell>
-                  <TableHeaderCell align="numeric">E</TableHeaderCell>
-                  <TableHeaderCell align="numeric">H</TableHeaderCell>
-                  <TableHeaderCell align="numeric">Days</TableHeaderCell>
-                  <TableHeaderCell className="w-48">Attendance</TableHeaderCell>
-                </TableRow>
-              </TableHead>
-              <TableBody>
-                {students.map((row) => (
-                  <TableRow key={row.studentProfileId}>
-                    <TableCell>
-                      <p className="font-medium text-ink">{row.studentName}</p>
-                      <p className="text-xs text-ink-muted">
-                        {row.rollNumber === null || row.rollNumber === ''
-                          ? 'No roll number'
-                          : `Roll ${row.rollNumber}`}{' '}
-                        · <span className="font-mono">{row.studentId}</span>
-                      </p>
-                    </TableCell>
-                    <TableCell align="numeric" muted>{row.present}</TableCell>
-                    <TableCell align="numeric" muted>{row.absent}</TableCell>
-                    <TableCell align="numeric" muted>{row.late}</TableCell>
-                    <TableCell align="numeric" muted>{row.excused}</TableCell>
-                    <TableCell align="numeric" muted>{row.holiday}</TableCell>
-                    <TableCell align="numeric" muted>{row.total}</TableCell>
-                    <TableCell>
-                      <div className="flex items-center gap-2">
-                        <div
-                          className="h-2 w-full overflow-hidden rounded-full bg-surface-sunken"
-                          role="img"
-                          aria-label={`${row.percentage}% attendance`}
-                        >
-                          <div
-                            className={`h-full rounded-full ${barColor(row.percentage)}`}
-                            style={{ width: `${Math.min(row.percentage, 100)}%` }}
-                          />
-                        </div>
-                        <span
-                          className={`w-14 shrink-0 text-right text-xs font-semibold ${textColor(row.percentage)}`}
-                        >
-                          {row.percentage.toFixed(1)}%
-                        </span>
-                      </div>
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </div>
+          <DataTable
+            caption="Attendance by student"
+            columns={attendanceColumns}
+            rows={students}
+            getRowKey={(row) => row.studentProfileId}
+            pending={isLoading}
+            defaultSort={{ columnId: 'attendance', direction: 'asc' }}
+            search={{ placeholder: 'Name, roll number or student ID' }}
+            filters={[
+              {
+                /*
+                 * The three bands this screen already colours by. Filtering on
+                 * "below 75" is the action the colour was inviting: a head
+                 * teacher wants the list of children to chase, not a scan of
+                 * forty bars for the red ones.
+                 */
+                id: 'band',
+                label: 'Attendance',
+                allLabel: 'Every band',
+                options: [
+                  { value: 'healthy', label: '90% and above' },
+                  { value: 'watch', label: '75–90%' },
+                  { value: 'act', label: 'Below 75%' },
+                ],
+                rowValue: (row) =>
+                  row.percentage >= 90 ? 'healthy' : row.percentage >= 75 ? 'watch' : 'act',
+              },
+            ]}
+            itemNoun={{ singular: 'student', plural: 'students' }}
+            emptyTitle="Nobody is enrolled here"
+            emptyDescription="No students are actively enrolled in this section for this year."
+            noResultTitle="No students in that band"
+            noResultDescription="Widen the band, or clear the search."
+          />
         </Card>
       )}
     </div>

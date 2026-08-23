@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 
-import { and, desc, eq, ilike, or, type SQL } from 'drizzle-orm';
+import { and, asc, count, desc, eq, ilike, or, type SQL } from 'drizzle-orm';
 import type { NextRequest } from 'next/server';
 
 import { schools } from '@/db/schema';
@@ -9,6 +9,7 @@ import { seedChartOfAccounts } from '@/lib/accounting-queries';
 import { apiFailure, apiSuccess, handleApiError, readJsonBody } from '@/lib/api-response';
 import { isPakistaniCity } from '@/lib/cities';
 import { db } from '@/lib/drizzle';
+import { readListQuery } from '@/lib/list-query';
 import {
   readCoordinate,
   readEmailField,
@@ -59,13 +60,47 @@ export async function GET(request: NextRequest) {
     if (status === 'active') conditions.push(eq(schools.isActive, true));
     if (status === 'inactive') conditions.push(eq(schools.isActive, false));
 
-    const rows = await db
-      .select()
-      .from(schools)
-      .where(conditions.length === 0 ? undefined : and(...conditions))
-      .orderBy(desc(schools.createdAt));
+    /*
+     * Paged and sorted from 2026-08-23. The directory used to answer with every
+     * tenant on the platform in one response, which was fine at a dozen schools
+     * and is the sort of thing nobody notices until it is not.
+     *
+     * The sort column is matched against a whitelist in `readListQuery`; a
+     * column name off the wire never reaches the query builder.
+     */
+    const list = readListQuery(url.searchParams, {
+      sortable: ['name', 'city', 'slug', 'isActive', 'createdAt'] as const,
+      defaultSort: 'createdAt',
+      defaultDirection: 'desc',
+    });
 
-    return apiSuccess({ schools: rows });
+    const where = conditions.length === 0 ? undefined : and(...conditions);
+    const order = list.direction === 'asc' ? asc : desc;
+    const sortColumn = {
+      name: schools.name,
+      city: schools.city,
+      slug: schools.slug,
+      isActive: schools.isActive,
+      createdAt: schools.createdAt,
+    }[list.sort];
+
+    const [rows, totals] = await Promise.all([
+      db
+        .select()
+        .from(schools)
+        .where(where)
+        .orderBy(order(sortColumn))
+        .limit(list.limit)
+        .offset(list.offset),
+      db.select({ value: count() }).from(schools).where(where),
+    ]);
+
+    return apiSuccess({
+      schools: rows,
+      total: totals[0]?.value ?? 0,
+      page: list.page,
+      limit: list.limit,
+    });
   } catch (error) {
     return handleApiError(error);
   }

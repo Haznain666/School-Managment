@@ -4,18 +4,13 @@ import Link from 'next/link';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { Badge } from '@/components/ui/Badge';
-import { Card } from '@/components/ui/Card';
-import { Input } from '@/components/ui/Input';
-import { Select } from '@/components/ui/Select';
-import { Button } from '@/components/ui/Button';
 import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeaderCell,
-  TableRow,
-} from '@/components/ui/Table';
+  DataTable,
+  DATA_TABLE_DEFAULT_PAGE_SIZE,
+  type DataTableColumn,
+  type DataTableSort,
+} from '@/components/ui/DataTable';
+import { Button } from '@/components/ui/Button';
 import { MAX_BULK_DELETE, type DeletionOutcome } from '@/lib/user-deletion';
 import { ROLE_LABELS, isUserRole } from '@/types/school-auth';
 
@@ -103,6 +98,9 @@ export function UserTable({ branches, lockedBranchId, canManage }: UserTableProp
   const [branchId, setBranchId] = useState(lockedBranchId ?? '');
   const [status, setStatus] = useState('');
   const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(DATA_TABLE_DEFAULT_PAGE_SIZE);
+  const [sort, setSort] = useState<DataTableSort>({ columnId: 'name', direction: 'asc' });
+  const [pending, setPending] = useState(true);
 
   const [data, setData] = useState<UsersResponse['data'] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -117,7 +115,13 @@ export function UserTable({ branches, lockedBranchId, canManage }: UserTableProp
 
   const load = useCallback(
     async (signal: AbortSignal) => {
-      const query = new URLSearchParams({ page: String(page), limit: '20' });
+      setPending(true);
+      const query = new URLSearchParams({
+        page: String(page),
+        limit: String(pageSize),
+        sort: sort.columnId,
+        direction: sort.direction,
+      });
       if (search.trim() !== '') query.set('search', search.trim());
       if (role !== '') query.set('role', role);
       if (branchId !== '') query.set('branchId', branchId);
@@ -137,9 +141,11 @@ export function UserTable({ branches, lockedBranchId, canManage }: UserTableProp
       } catch (caught) {
         if (caught instanceof DOMException && caught.name === 'AbortError') return;
         setError('Could not load users.');
+      } finally {
+        if (!signal.aborted) setPending(false);
       }
     },
-    [search, role, branchId, status, page],
+    [search, role, branchId, status, page, pageSize, sort],
   );
 
   // Debounced so typing in the search box does not fire a request per keystroke.
@@ -251,10 +257,9 @@ export function UserTable({ branches, lockedBranchId, canManage }: UserTableProp
     (
       facets: readonly FacetCount[] | undefined,
       current: string,
-      allLabel: string,
       labelFor: (facet: FacetCount) => string,
     ) => {
-      const options = [{ value: '', label: allLabel }];
+      const options: Array<{ value: string; label: string }> = [];
       const seen = new Set<string>();
 
       for (const facet of facets ?? []) {
@@ -276,82 +281,118 @@ export function UserTable({ branches, lockedBranchId, canManage }: UserTableProp
     [branches],
   );
 
-  const roleOptions = facetOptions(data?.facets.roles, role, 'All roles', (facet) =>
+  const roleOptions = facetOptions(data?.facets.roles, role, (facet) =>
     isUserRole(facet.value) ? ROLE_LABELS[facet.value] : facet.value,
   );
 
-  const branchOptions = facetOptions(
-    data?.facets.branches,
-    branchId,
-    'All branches',
-    (facet) =>
-      facet.value === UNASSIGNED_BRANCH
-        ? 'No branch (school-wide)'
-        : (branchNames.get(facet.value) ?? facet.label),
+  const branchOptions = facetOptions(data?.facets.branches, branchId, (facet) =>
+    facet.value === UNASSIGNED_BRANCH
+      ? 'No branch (school-wide)'
+      : (branchNames.get(facet.value) ?? facet.label),
   );
 
-  const statusOptions = facetOptions(
-    data?.facets.statuses,
-    status,
-    'All statuses',
-    (facet) => STATUS_LABELS[facet.value] ?? facet.value,
+  const statusOptions = facetOptions(data?.facets.statuses, status, (facet) =>
+    STATUS_LABELS[facet.value] ?? facet.value,
   );
-
-  const totalPages =
-    data === undefined || data === null ? 1 : Math.max(Math.ceil(data.total / data.limit), 1);
 
   const overCap = selected.size > MAX_BULK_DELETE;
 
+  const columns: Array<DataTableColumn<UserRow>> = [];
+
+  if (canManage) {
+    columns.push({
+      id: 'select',
+      headerClassName: 'w-10',
+      className: 'w-10',
+      header: (
+        <input
+          ref={headerCheckbox}
+          type="checkbox"
+          aria-label="Select every user on this page"
+          className="h-4 w-4 rounded border-line-strong"
+          checked={pageIds.length > 0 && selectedOnPage === pageIds.length}
+          onChange={togglePage}
+        />
+      ),
+      cell: (user) => (
+        <input
+          type="checkbox"
+          aria-label={`Select ${user.name}`}
+          className="h-4 w-4 rounded border-line-strong"
+          checked={selected.has(user.id)}
+          onChange={() => {
+            toggle(user.id);
+          }}
+        />
+      ),
+    });
+  }
+
+  columns.push(
+    {
+      id: 'name',
+      header: 'Name',
+      rowHeader: true,
+      sortable: true,
+      cell: (user) => user.name,
+    },
+    {
+      id: 'role',
+      header: 'Role',
+      muted: true,
+      sortable: true,
+      cell: (user) => (isUserRole(user.role) ? ROLE_LABELS[user.role] : user.role),
+    },
+    {
+      id: 'branch',
+      header: 'Branch',
+      muted: true,
+      sortable: true,
+      cell: (user) => user.branchName ?? 'All branches',
+    },
+    {
+      id: 'phone',
+      header: 'Phone',
+      muted: true,
+      sortable: true,
+      className: 'font-mono text-xs',
+      cell: (user) => user.phone,
+    },
+    {
+      id: 'status',
+      header: 'Status',
+      /*
+        Read from `authUserId`, not `joinedAt` — having a Supabase identity is
+        what "has signed in" means, and it is the same source the filter groups
+        on, so the badge and the filter cannot disagree. Not sortable: the
+        server groups on an expression rather than a column, and a sort that
+        disagreed with the facet counts beside it would be worse than none.
+      */
+      cell: (user) =>
+        !user.isActive ? (
+          <Badge variant="danger">Deactivated</Badge>
+        ) : user.authUserId === null ? (
+          <Badge variant="warning">Never signed in</Badge>
+        ) : (
+          <Badge variant="success">Active</Badge>
+        ),
+    },
+    {
+      id: 'actions',
+      header: 'Actions',
+      cell: (user) => (
+        <Link
+          href={`/dashboard/users/${user.id}`}
+          className="text-sm font-medium text-brand-primary hover:underline"
+        >
+          View
+        </Link>
+      ),
+    },
+  );
+
   return (
     <div className="space-y-4">
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <Input
-          label="Search"
-          placeholder="Name, phone or email"
-          value={search}
-          onChange={(event) => {
-            const next = event.target.value;
-            changeFilter(() => {
-              setSearch(next);
-            });
-          }}
-        />
-        <Select
-          label="Role"
-          options={roleOptions}
-          value={role}
-          onChange={(event) => {
-            const next = event.target.value;
-            changeFilter(() => {
-              setRole(next);
-            });
-          }}
-        />
-        <Select
-          label="Branch"
-          options={branchOptions}
-          value={branchId}
-          disabled={lockedBranchId !== null}
-          onChange={(event) => {
-            const next = event.target.value;
-            changeFilter(() => {
-              setBranchId(next);
-            });
-          }}
-        />
-        <Select
-          label="Status"
-          options={statusOptions}
-          value={status}
-          onChange={(event) => {
-            const next = event.target.value;
-            changeFilter(() => {
-              setStatus(next);
-            });
-          }}
-        />
-      </div>
-
       {error !== null ? (
         <p role="alert" className="rounded-lg bg-status-danger-subtle px-3 py-2 text-sm text-status-danger-ink">
           {error}
@@ -441,131 +482,102 @@ export function UserTable({ branches, lockedBranchId, canManage }: UserTableProp
         </div>
       ) : null}
 
-      {data === null || data === undefined ? (
-        <Card>
-          <p className="text-sm text-ink-muted">Loading users…</p>
-        </Card>
-      ) : users.length === 0 ? (
-        <Card>
-          <p className="text-sm text-ink-muted">No users match those filters.</p>
-        </Card>
-      ) : (
-        <>
-          <Card className="p-0">
-            <div className="overflow-x-auto">
-              <Table
-                caption="School users and staff"
-                className="rounded-none border-0"
-                maxHeight="34rem"
-              >
-                <TableHead>
-                  <TableRow>
-                    {canManage ? (
-                      <TableHeaderCell className="w-10">
-                        <input
-                          ref={headerCheckbox}
-                          type="checkbox"
-                          aria-label="Select every user on this page"
-                          className="h-4 w-4 rounded border-line-strong"
-                          checked={pageIds.length > 0 && selectedOnPage === pageIds.length}
-                          onChange={togglePage}
-                        />
-                      </TableHeaderCell>
-                    ) : null}
-                    <TableHeaderCell>Name</TableHeaderCell>
-                    <TableHeaderCell>Role</TableHeaderCell>
-                    <TableHeaderCell>Branch</TableHeaderCell>
-                    <TableHeaderCell>Phone</TableHeaderCell>
-                    <TableHeaderCell>Status</TableHeaderCell>
-                    <TableHeaderCell>Actions</TableHeaderCell>
-                  </TableRow>
-                </TableHead>
-                <TableBody>
-                  {users.map((user) => (
-                    <TableRow key={user.id} selected={selected.has(user.id)}>
-                      {canManage ? (
-                        <TableCell>
-                          <input
-                            type="checkbox"
-                            aria-label={`Select ${user.name}`}
-                            className="h-4 w-4 rounded border-line-strong"
-                            checked={selected.has(user.id)}
-                            onChange={() => {
-                              toggle(user.id);
-                            }}
-                          />
-                        </TableCell>
-                      ) : null}
-                      <TableCell rowHeader>{user.name}</TableCell>
-                      <TableCell muted>
-                        {isUserRole(user.role) ? ROLE_LABELS[user.role] : user.role}
-                      </TableCell>
-                      <TableCell muted>
-                        {user.branchName ?? 'All branches'}
-                      </TableCell>
-                      <TableCell muted className="font-mono text-xs">
-                        {user.phone}
-                      </TableCell>
-                      <TableCell>
-                        {/*
-                          Read from `authUserId`, not `joinedAt` — having a
-                          Supabase identity is what "has signed in" means, and
-                          it is the same source the filter groups on, so the
-                          badge and the filter cannot disagree.
-                        */}
-                        {!user.isActive ? (
-                          <Badge variant="danger">Deactivated</Badge>
-                        ) : user.authUserId === null ? (
-                          <Badge variant="warning">Never signed in</Badge>
-                        ) : (
-                          <Badge variant="success">Active</Badge>
-                        )}
-                      </TableCell>
-                      <TableCell>
-                        <Link
-                          href={`/dashboard/users/${user.id}`}
-                          className="text-sm font-medium text-brand-primary hover:underline"
-                        >
-                          View
-                        </Link>
-                      </TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </div>
-          </Card>
-
-          <div className="flex items-center justify-between text-sm text-ink-muted">
-            <span>
-              {data.total} user{data.total === 1 ? '' : 's'} · page {data.page} of{' '}
-              {totalPages}
-            </span>
-            <div className="flex gap-2">
-              <Button
-                variant="secondary"
-                size="sm"
-                disabled={data.page <= 1}
-                onClick={() => {
-                  setPage((current) => Math.max(current - 1, 1));
-                }}
-              >
-                Previous
-              </Button>
-              <Button
-                variant="secondary"
-                size="sm"
-                disabled={data.page >= totalPages}
-                onClick={() => {
-                  setPage((current) => current + 1);
-                }}
-              >
-                Next
-              </Button>
-            </div>
-          </div>
-        </>
-      )}
+      <DataTable
+        mode="server"
+        caption="School users and staff"
+        maxHeight="34rem"
+        columns={columns}
+        rows={users}
+        getRowKey={(user) => user.id}
+        rowSelected={(user) => selected.has(user.id)}
+        pending={pending}
+        sort={sort}
+        onSortChange={(next) => {
+          // A sort is a new result set, so it clears the selection for the same
+          // reason a filter does — see the docblock at the top of this file.
+          changeFilter(() => {
+            setSort(next);
+          });
+        }}
+        page={page}
+        pageSize={pageSize}
+        totalItems={data?.total ?? 0}
+        onPageChange={setPage}
+        onPageSizeChange={setPageSize}
+        search={{
+          value: search,
+          onChange: (value) => {
+            changeFilter(() => {
+              setSearch(value);
+            });
+          },
+          placeholder: 'Name, phone or email',
+        }}
+        /*
+         * The counts on each option come from the server's facets, computed
+         * with that dimension excluded, which is what lets somebody change
+         * their mind about a filter they have already applied.
+         */
+        filters={[
+          {
+            id: 'role',
+            label: 'Role',
+            allLabel: 'All roles',
+            options: roleOptions,
+            value: role,
+            onChange: (value) => {
+              changeFilter(() => {
+                setRole(value);
+              });
+            },
+          },
+          {
+            id: 'branch',
+            label: 'Branch',
+            allLabel: 'All branches',
+            options: branchOptions,
+            value: branchId,
+            disabled: lockedBranchId !== null,
+            onChange: (value) => {
+              changeFilter(() => {
+                setBranchId(value);
+              });
+            },
+          },
+          {
+            id: 'status',
+            label: 'Status',
+            allLabel: 'All statuses',
+            options: statusOptions,
+            value: status,
+            onChange: (value) => {
+              changeFilter(() => {
+                setStatus(value);
+              });
+            },
+          },
+        ]}
+        filtersActive={
+          search.trim() !== '' ||
+          role !== '' ||
+          status !== '' ||
+          (branchId !== '' && lockedBranchId === null)
+        }
+        onClearFilters={() => {
+          changeFilter(() => {
+            setSearch('');
+            setRole('');
+            setStatus('');
+            // A branch-bound administrator's branch is not a filter they chose.
+            if (lockedBranchId === null) setBranchId('');
+          });
+        }}
+        itemNoun={{ singular: 'user', plural: 'users' }}
+        emptyTitle="Nobody in the directory yet"
+        emptyDescription="Invite a colleague, or add a member directly, and they will appear here."
+        noResultTitle="No users match those filters"
+        noResultDescription="Each dropdown shows how many rows it would return — widen the one with the smallest count."
+      />
     </div>
   );
 }

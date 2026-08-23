@@ -7,15 +7,8 @@ import { useState } from 'react';
 
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
+import { DataTable, type DataTableColumn } from '@/components/ui/DataTable';
 import { EmptyState } from '@/components/ui/EmptyState';
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeaderCell,
-  TableRow,
-} from '@/components/ui/Table';
 import { formatMonthYear } from '@/db/schema/academic-years';
 import { schoolErrorMessage, schoolFetch } from '@/lib/school-client';
 
@@ -94,6 +87,92 @@ export function AcademicYearTable({ years, canEdit }: AcademicYearTableProps) {
     );
   }
 
+  const columns: Array<DataTableColumn<AcademicYearRow>> = [
+    {
+      id: 'name',
+      header: 'Name',
+      rowHeader: true,
+      sortValue: (year) => year.name,
+      searchValue: (year) => year.name,
+      cell: (year) => year.name,
+    },
+    {
+      id: 'starts',
+      header: 'Starts',
+      muted: true,
+      kind: 'date',
+      // Sorted on the year and month, not on the label: "April 2026" sorts
+      // before "January 2026" as text, which is a school year in the wrong
+      // order every time.
+      sortValue: (year) => year.startYear * 100 + year.startMonth,
+      cell: (year) => formatMonthYear(year.startMonth, year.startYear),
+    },
+    {
+      id: 'ends',
+      header: 'Ends',
+      muted: true,
+      sortValue: (year) => year.endYear * 100 + year.endMonth,
+      cell: (year) => formatMonthYear(year.endMonth, year.endYear),
+    },
+    {
+      id: 'status',
+      header: 'Status',
+      sortValue: (year) => (year.isActive ? 0 : 1),
+      cell: (year) => (
+        <Badge variant={year.isActive ? 'success' : 'neutral'}>
+          {year.isActive ? 'Active' : 'Inactive'}
+        </Badge>
+      ),
+    },
+    {
+      // A count is a quantity, so it aligns and sets like one.
+      id: 'students',
+      header: 'Students',
+      kind: 'number',
+      muted: true,
+      sortValue: (year) => year.studentCount,
+      cell: (year) => year.studentCount,
+    },
+    {
+      id: 'actions',
+      header: 'Actions',
+      cell: (year) =>
+        canEdit ? (
+          <div className="flex flex-wrap gap-2">
+            {year.isActive ? null : (
+              <Button
+                size="sm"
+                variant="secondary"
+                isLoading={busyId === year.id}
+                onClick={() => {
+                  void activate(year.id);
+                }}
+              >
+                Set as active
+              </Button>
+            )}
+
+            {/* Deleting a year with enrolments would take the history with it,
+                so the button is not offered. */}
+            {year.studentCount === 0 && !year.isActive ? (
+              <Button
+                size="sm"
+                variant="ghost"
+                isLoading={busyId === year.id}
+                onClick={() => {
+                  void remove(year.id);
+                }}
+              >
+                Delete
+              </Button>
+            ) : null}
+          </div>
+        ) : (
+          <span className="text-xs text-ink-muted">View only</span>
+        ),
+    },
+  ];
+
   return (
     <div className="space-y-4">
       {error !== null ? (
@@ -102,73 +181,28 @@ export function AcademicYearTable({ years, canEdit }: AcademicYearTableProps) {
         </p>
       ) : null}
 
-      <Table caption="Academic years">
-        <TableHead>
-          <TableRow>
-            <TableHeaderCell>Name</TableHeaderCell>
-            <TableHeaderCell>Starts</TableHeaderCell>
-            <TableHeaderCell>Ends</TableHeaderCell>
-            <TableHeaderCell>Status</TableHeaderCell>
-            {/* A count is a quantity, so it aligns and sets like one. */}
-            <TableHeaderCell align="numeric">Students</TableHeaderCell>
-            <TableHeaderCell>Actions</TableHeaderCell>
-          </TableRow>
-        </TableHead>
-        <TableBody>
-              {years.map((year) => (
-                <TableRow key={year.id}>
-                  <TableCell rowHeader>{year.name}</TableCell>
-                  <TableCell muted>
-                    {formatMonthYear(year.startMonth, year.startYear)}
-                  </TableCell>
-                  <TableCell muted>
-                    {formatMonthYear(year.endMonth, year.endYear)}
-                  </TableCell>
-                  <TableCell>
-                    <Badge variant={year.isActive ? 'success' : 'neutral'}>
-                      {year.isActive ? 'Active' : 'Inactive'}
-                    </Badge>
-                  </TableCell>
-                  <TableCell align="numeric" muted>{year.studentCount}</TableCell>
-                  <TableCell>
-                    {canEdit ? (
-                      <div className="flex flex-wrap gap-2">
-                        {year.isActive ? null : (
-                          <Button
-                            size="sm"
-                            variant="secondary"
-                            isLoading={busyId === year.id}
-                            onClick={() => {
-                              void activate(year.id);
-                            }}
-                          >
-                            Set as active
-                          </Button>
-                        )}
-
-                        {/* Deleting a year with enrolments would take the
-                            history with it, so the button is not offered. */}
-                        {year.studentCount === 0 && !year.isActive ? (
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            isLoading={busyId === year.id}
-                            onClick={() => {
-                              void remove(year.id);
-                            }}
-                          >
-                            Delete
-                          </Button>
-                        ) : null}
-                      </div>
-                    ) : (
-                      <span className="text-xs text-ink-muted">View only</span>
-                    )}
-                  </TableCell>
-                </TableRow>
-              ))}
-        </TableBody>
-      </Table>
+      <DataTable
+        caption="Academic years"
+        columns={columns}
+        rows={years}
+        getRowKey={(year) => year.id}
+        defaultSort={{ columnId: 'starts', direction: 'desc' }}
+        search={{ placeholder: 'Year name' }}
+        filters={[
+          {
+            id: 'status',
+            label: 'Status',
+            allLabel: 'Every year',
+            options: [
+              { value: 'active', label: 'Active' },
+              { value: 'inactive', label: 'Inactive' },
+            ],
+            rowValue: (year) => (year.isActive ? 'active' : 'inactive'),
+          },
+        ]}
+        itemNoun={{ singular: 'academic year', plural: 'academic years' }}
+        emptyTitle="No academic years yet"
+      />
     </div>
   );
 }

@@ -8,15 +8,8 @@ import { Button } from '@/components/ui/Button';
 import { Card, CardTitle } from '@/components/ui/Card';
 import { Input } from '@/components/ui/Input';
 import { PhoneField } from '@/components/ui/PhoneField';
+import { DataTable, type DataTableColumn } from '@/components/ui/DataTable';
 import { Select } from '@/components/ui/Select';
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeaderCell,
-  TableRow,
-} from '@/components/ui/Table';
 import {
   EMPLOYMENT_TYPE_LABELS,
   EMPLOYMENT_TYPES,
@@ -54,10 +47,10 @@ export interface StaffManagerProps {
   canEdit: boolean;
 }
 
-const STATUS_FILTER_OPTIONS = [
-  { value: '', label: 'All statuses' },
-  ...STAFF_STATUSES.map((value) => ({ value, label: STAFF_STATUS_LABELS[value] })),
-];
+const STATUS_FILTER_OPTIONS = STAFF_STATUSES.map((value) => ({
+  value,
+  label: STAFF_STATUS_LABELS[value],
+}));
 
 const EMPLOYMENT_OPTIONS = [
   { value: '', label: 'Not set' },
@@ -102,29 +95,29 @@ const EMPTY_DRAFT: Draft = {
 
 export function StaffManager({ canEdit }: StaffManagerProps) {
   const [rows, setRows] = useState<StaffRow[] | null>(null);
-  const [search, setSearch] = useState('');
-  const [status, setStatus] = useState('');
   const [draft, setDraft] = useState<Draft | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
 
+  /*
+   * The whole directory arrives once and is searched, sorted and paged in the
+   * browser.
+   *
+   * This is the one listing where that is the right answer rather than the lazy
+   * one: a school's staff is bounded by its payroll — tens, occasionally a
+   * couple of hundred — where students and challans are not. Filtering here
+   * used to cost a round trip per keystroke for a list that fits in memory
+   * several times over.
+   */
   const load = useCallback(async () => {
-    const params = new URLSearchParams();
-    if (search.trim() !== '') params.set('search', search.trim());
-    if (status !== '') params.set('status', status);
-
-    const query = params.toString();
-
     try {
-      const payload = await schoolFetch<{ staff: StaffRow[] }>(
-        `/api/school/hr/staff${query === '' ? '' : `?${query}`}`,
-      );
+      const payload = await schoolFetch<{ staff: StaffRow[] }>('/api/school/hr/staff');
       setRows(payload.staff);
       setError(null);
     } catch (caught) {
       setError(schoolErrorMessage(caught, 'Could not load the staff directory.'));
     }
-  }, [search, status]);
+  }, []);
 
   useEffect(() => {
     void load();
@@ -171,6 +164,66 @@ export function StaffManager({ canEdit }: StaffManagerProps) {
     }
   };
 
+  const staffColumns: Array<DataTableColumn<StaffRow>> = [
+    {
+      id: 'name',
+      header: 'Name',
+      sortValue: (row) => row.fullName,
+      searchValue: (row) =>
+        `${row.fullName} ${row.employeeCode} ${row.designation ?? ''} ${row.department ?? ''}`,
+      cell: (row) => (
+        <>
+          <p className="font-medium text-ink">{row.fullName}</p>
+          {row.department === null ? null : (
+            <p className="text-xs text-ink-muted">{row.department}</p>
+          )}
+        </>
+      ),
+    },
+    {
+      id: 'code',
+      header: 'Code',
+      muted: true,
+      sortValue: (row) => row.employeeCode,
+      cell: (row) => row.employeeCode,
+    },
+    {
+      id: 'designation',
+      header: 'Designation',
+      muted: true,
+      sortValue: (row) => row.designation,
+      cell: (row) => row.designation ?? '—',
+    },
+    {
+      id: 'branch',
+      header: 'Branch',
+      muted: true,
+      sortValue: (row) => row.branchName,
+      cell: (row) => row.branchName ?? 'All branches',
+    },
+    {
+      id: 'status',
+      header: 'Status',
+      sortValue: (row) => STAFF_STATUS_LABELS[row.status],
+      cell: (row) => (
+        <Badge variant={STATUS_VARIANT[row.status]}>{STAFF_STATUS_LABELS[row.status]}</Badge>
+      ),
+    },
+    {
+      id: 'open',
+      header: <span className="sr-only">Open</span>,
+      align: 'numeric',
+      cell: (row) => (
+        <Link
+          href={`/dashboard/hr/staff/${row.id}`}
+          className="text-sm font-medium text-brand-primary hover:underline"
+        >
+          Open
+        </Link>
+      ),
+    },
+  ];
+
   return (
     <div className="space-y-4">
       {error !== null ? (
@@ -179,37 +232,6 @@ export function StaffManager({ canEdit }: StaffManagerProps) {
         </p>
       ) : null}
 
-      <Card>
-        <div className="grid gap-4 sm:grid-cols-3">
-          <Input
-            label="Search"
-            placeholder="Name, code or designation"
-            value={search}
-            onChange={(event) => {
-              setSearch(event.target.value);
-            }}
-          />
-          <Select
-            label="Status"
-            options={STATUS_FILTER_OPTIONS}
-            value={status}
-            onChange={(event) => {
-              setStatus(event.target.value);
-            }}
-          />
-          {canEdit && draft === null ? (
-            <div className="flex items-end">
-              <Button
-                onClick={() => {
-                  setDraft({ ...EMPTY_DRAFT });
-                }}
-              >
-                Add staff member
-              </Button>
-            </div>
-          ) : null}
-        </div>
-      </Card>
 
       {draft !== null ? (
         <Card
@@ -346,77 +368,49 @@ export function StaffManager({ canEdit }: StaffManagerProps) {
         </Card>
       ) : null}
 
-      {rows === null ? (
-        <Card>
-          <p className="text-sm text-ink-muted">Loading staff…</p>
-        </Card>
-      ) : rows.length === 0 ? (
-        <Card>
-          <p className="text-sm text-ink-muted">
-            No staff match this filter. Add your staff before setting up payroll —
-            a run pays whoever is active and has a salary structure.
-          </p>
-        </Card>
-      ) : (
-        <Card
-          header={
-            <CardTitle
-              title="Staff"
-              description={`${rows.length} record${rows.length === 1 ? '' : 's'}.`}
-            />
-          }
-          className="p-0"
-        >
-          <div className="overflow-x-auto">
-            <Table caption="Staff" className="rounded-none border-0">
-              <TableHead>
-                <TableRow>
-                  <TableHeaderCell>Name</TableHeaderCell>
-                  <TableHeaderCell>Code</TableHeaderCell>
-                  <TableHeaderCell>Designation</TableHeaderCell>
-                  <TableHeaderCell>Branch</TableHeaderCell>
-                  <TableHeaderCell>Status</TableHeaderCell>
-                  <TableHeaderCell>
-                    <span className="sr-only">Open</span>
-                  </TableHeaderCell>
-                </TableRow>
-              </TableHead>
-              <TableBody>
-                {rows.map((row) => (
-                  <TableRow key={row.id}>
-                    <TableCell>
-                      <p className="font-medium text-ink">{row.fullName}</p>
-                      {row.department === null ? null : (
-                        <p className="text-xs text-ink-muted">{row.department}</p>
-                      )}
-                    </TableCell>
-                    <TableCell muted>{row.employeeCode}</TableCell>
-                    <TableCell muted>
-                      {row.designation ?? '—'}
-                    </TableCell>
-                    <TableCell muted>
-                      {row.branchName ?? 'All branches'}
-                    </TableCell>
-                    <TableCell>
-                      <Badge variant={STATUS_VARIANT[row.status]}>
-                        {STAFF_STATUS_LABELS[row.status]}
-                      </Badge>
-                    </TableCell>
-                    <TableCell align="numeric">
-                      <Link
-                        href={`/dashboard/hr/staff/${row.id}`}
-                        className="text-sm font-medium text-brand-primary hover:underline"
-                      >
-                        Open
-                      </Link>
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </div>
-        </Card>
-      )}
+      <DataTable
+        caption="Staff"
+        columns={staffColumns}
+        rows={rows ?? []}
+        getRowKey={(row) => row.id}
+        pending={rows === null}
+        defaultSort={{ columnId: 'name', direction: 'asc' }}
+        search={{ placeholder: 'Name, code, designation or department' }}
+        filters={[
+          {
+            id: 'status',
+            label: 'Status',
+            allLabel: 'All statuses',
+            options: STATUS_FILTER_OPTIONS,
+            rowValue: (row) => row.status,
+          },
+          {
+            id: 'branch',
+            label: 'Branch',
+            allLabel: 'Every branch',
+            options: [
+              ...new Set((rows ?? []).map((row) => row.branchName ?? 'All branches')),
+            ].map((name) => ({ value: name, label: name })),
+            rowValue: (row) => row.branchName ?? 'All branches',
+          },
+        ]}
+        itemNoun={{ singular: 'staff record', plural: 'staff records' }}
+        emptyTitle="No staff recorded yet"
+        emptyDescription="Add your staff before setting up payroll — a run pays whoever is active and has a salary structure."
+        noResultTitle="No staff match those filters"
+        noResultDescription="Widen the status or branch, or clear the search."
+        actions={
+          canEdit && draft === null ? (
+            <Button
+              onClick={() => {
+                setDraft({ ...EMPTY_DRAFT });
+              }}
+            >
+              Add staff member
+            </Button>
+          ) : undefined
+        }
+      />
     </div>
   );
 }

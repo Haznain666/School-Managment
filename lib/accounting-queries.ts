@@ -6,9 +6,11 @@ import {
   desc,
   eq,
   gte,
+  ilike,
   inArray,
   lte,
   notInArray,
+  or,
   sql,
   type SQL,
 } from 'drizzle-orm';
@@ -349,10 +351,24 @@ export interface DayBookEntry {
  * reversed 50,000 payment must still be on the sheet, struck through, beside
  * the entry that cancelled it.
  */
-export async function listDayBook(
-  locationId: string,
-  window: BalanceWindow & { source?: LedgerSource; accountId?: string; limit?: number } = {},
-): Promise<DayBookEntry[]> {
+export interface DayBookWindow extends BalanceWindow {
+  source?: LedgerSource;
+  accountId?: string;
+  limit?: number;
+  /** 0-based row offset. The day book is paged, not truncated. */
+  offset?: number;
+  /** Which way round the dates run. Newest first unless asked otherwise. */
+  direction?: 'asc' | 'desc';
+}
+
+/**
+ * The conditions a day book page and its count both have to agree on.
+ *
+ * Shared rather than written twice: a count that filters differently from the
+ * page it counts is a pager that offers a page 7 with nothing on it, and the
+ * two drift the first time a filter is added to one and not the other.
+ */
+function dayBookConditions(locationId: string, window: DayBookWindow): SQL[] {
   const conditions = transactionWindow(locationId, window);
   if (window.source !== undefined) {
     conditions.push(eq(ledgerTransactions.source, window.source));
@@ -367,6 +383,30 @@ export async function listDayBook(
       )`,
     );
   }
+
+  return conditions;
+}
+
+/** How many transactions the same filters match — the pager's denominator. */
+export async function countDayBook(
+  locationId: string,
+  window: DayBookWindow = {},
+): Promise<number> {
+  const [row] = await db
+    .select({ total: sql<number>`count(*)::int` })
+    .from(ledgerTransactions)
+    .where(and(...dayBookConditions(locationId, window)));
+
+  return row?.total ?? 0;
+}
+
+export async function listDayBook(
+  locationId: string,
+  window: DayBookWindow = {},
+): Promise<DayBookEntry[]> {
+  const conditions = dayBookConditions(locationId, window);
+
+  const order = window.direction === 'asc' ? asc : desc;
 
   const transactions = await db
     .select({
@@ -384,8 +424,9 @@ export async function listDayBook(
     .from(ledgerTransactions)
     .leftJoin(branches, eq(branches.id, ledgerTransactions.branchId))
     .where(and(...conditions))
-    .orderBy(desc(ledgerTransactions.entryDate), desc(ledgerTransactions.createdAt))
-    .limit(window.limit ?? 500);
+    .orderBy(order(ledgerTransactions.entryDate), order(ledgerTransactions.createdAt))
+    .limit(window.limit ?? 500)
+    .offset(window.offset ?? 0);
 
   if (transactions.length === 0) return [];
 
@@ -512,6 +553,17 @@ export interface ExpenseRow {
   createdAt: Date;
 }
 
+/** What the register is allowed to be ordered by. */
+export const EXPENSE_SORT_COLUMNS = [
+  'expenseDate',
+  'amount',
+  'payee',
+  'status',
+  'category',
+] as const;
+
+export type ExpenseSortColumn = (typeof EXPENSE_SORT_COLUMNS)[number];
+
 export interface ExpenseFilter {
   from?: string;
   to?: string;
@@ -519,13 +571,23 @@ export interface ExpenseFilter {
   categoryId?: string;
   branchId?: string;
   expenseId?: string;
+  /** Payee, bill number or category — one box, the three things people recall. */
+  search?: string;
   limit?: number;
+  /** 0-based row offset. */
+  offset?: number;
+  sort?: ExpenseSortColumn;
+  direction?: 'asc' | 'desc';
 }
 
-export async function listExpenses(
-  locationId: string,
-  filter: ExpenseFilter = {},
-): Promise<ExpenseRow[]> {
+/**
+ * The filters a page of the register and its count both apply.
+ *
+ * One function, because a count that disagrees with its page is a pager
+ * offering an empty last page — and the two drift the moment a filter is added
+ * to one of them.
+ */
+function expenseConditions(locationId: string, filter: ExpenseFilter): SQL[] {
   const conditions: SQL[] = [eq(expenses.locationId, locationId)];
   if (filter.from !== undefined) conditions.push(gte(expenses.expenseDate, filter.from));
   if (filter.to !== undefined) conditions.push(lte(expenses.expenseDate, filter.to));
@@ -535,6 +597,68 @@ export async function listExpenses(
   }
   if (filter.branchId !== undefined) conditions.push(eq(expenses.branchId, filter.branchId));
   if (filter.expenseId !== undefined) conditions.push(eq(expenses.id, filter.expenseId));
+
+  if (filter.search !== undefined && filter.search.trim() !== '') {
+    // `ilike` rather than a raw template: the operator maps the value through
+    // the column, which is the rule in CLAUDE.md and the reason no scheduled
+    // announcement went out for nine sprints.
+    const needle = `%${filter.search.trim()}%`;
+    const match = or(
+      ilike(expenses.payee, needle),
+      ilike(expenses.referenceNumber, needle),
+      ilike(expenseCategories.name, needle),
+    );
+    if (match !== undefined) conditions.push(match);
+  }
+
+  return conditions;
+}
+
+/** How many expenses the same filters match. */
+export async function countExpenses(
+  locationId: string,
+  filter: ExpenseFilter = {},
+): Promise<number> {
+  const [row] = await db
+    .select({ total: sql<number>`count(*)::int` })
+    .from(expenses)
+    // Joined even when nothing is being searched: the count has to see exactly
+    // the rows the page sees, and the page joins it unconditionally.
+    .innerJoin(expenseCategories, eq(expenseCategories.id, expenses.categoryId))
+    .where(and(...expenseConditions(locationId, filter)));
+
+  return row?.total ?? 0;
+}
+
+/** The approved total across every page the filters match, not just this one. */
+export async function sumApprovedExpenses(
+  locationId: string,
+  filter: ExpenseFilter = {},
+): Promise<number> {
+  const [row] = await db
+    .select({ total: sql<string>`coalesce(sum(${expenses.amount}), 0)` })
+    .from(expenses)
+    .innerJoin(expenseCategories, eq(expenseCategories.id, expenses.categoryId))
+    .where(
+      and(...expenseConditions(locationId, filter), eq(expenses.status, 'approved')),
+    );
+
+  return toPaise(row?.total ?? '0');
+}
+
+export async function listExpenses(
+  locationId: string,
+  filter: ExpenseFilter = {},
+): Promise<ExpenseRow[]> {
+  const conditions = expenseConditions(locationId, filter);
+  const order = filter.direction === 'asc' ? asc : desc;
+  const sortColumn = {
+    expenseDate: expenses.expenseDate,
+    amount: expenses.amount,
+    payee: expenses.payee,
+    status: expenses.status,
+    category: expenseCategories.name,
+  }[filter.sort ?? 'expenseDate'];
 
   const rows = await db
     .select({
@@ -573,8 +697,9 @@ export async function listExpenses(
     .leftJoin(branches, eq(branches.id, expenses.branchId))
     .leftJoin(schoolUsers, eq(schoolUsers.id, expenses.approvedBy))
     .where(and(...conditions))
-    .orderBy(desc(expenses.expenseDate), desc(expenses.createdAt))
-    .limit(filter.limit ?? 200);
+    .orderBy(order(sortColumn), order(expenses.createdAt))
+    .limit(filter.limit ?? 200)
+    .offset(filter.offset ?? 0);
 
   return rows.map((row) => ({
     ...row,

@@ -6,15 +6,8 @@ import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { Card, CardTitle } from '@/components/ui/Card';
 import { Input } from '@/components/ui/Input';
+import { DataTable, type DataTableColumn } from '@/components/ui/DataTable';
 import { PhoneField } from '@/components/ui/PhoneField';
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeaderCell,
-  TableRow,
-} from '@/components/ui/Table';
 import { superAdminFetch, SuperAdminApiError } from '@/lib/super-admin-client';
 import { MAX_BULK_DELETE, type DeletionOutcome } from '@/lib/user-deletion';
 import { ROLE_LABELS, isUserRole } from '@/types/school-auth';
@@ -315,6 +308,188 @@ export function SchoolUsersTable({ schoolId }: SchoolUsersTableProps) {
     );
   }
 
+  const columns: Array<DataTableColumn<SchoolUserRow>> = [
+    {
+      id: 'select',
+      headerClassName: 'w-10',
+      className: 'w-10',
+      header: (
+        <input
+          ref={headerCheckbox}
+          type="checkbox"
+          aria-label="Select every user"
+          className="h-4 w-4 rounded border-line-strong"
+          checked={users.length > 0 && selectedCount === users.length}
+          onChange={togglePage}
+        />
+      ),
+      cell: (user) => (
+        <input
+          type="checkbox"
+          aria-label={`Select ${user.name}`}
+          className="h-4 w-4 rounded border-line-strong"
+          checked={selected.has(user.id)}
+          onChange={() => {
+            toggle(user.id);
+          }}
+        />
+      ),
+    },
+    {
+      id: 'name',
+      header: 'Name',
+      sortValue: (user) => user.name,
+      searchValue: (user) => `${user.name} ${user.email ?? ''} ${user.phone}`,
+      cell: (user) => (
+        <>
+          <span className="font-medium text-ink">{user.name}</span>
+          {user.branchName !== null ? (
+            <span className="block text-xs text-ink-muted">{user.branchName}</span>
+          ) : null}
+        </>
+      ),
+    },
+    {
+      id: 'role',
+      header: 'Role',
+      muted: true,
+      sortValue: (user) => (isUserRole(user.role) ? ROLE_LABELS[user.role] : user.role),
+      cell: (user) => (isUserRole(user.role) ? ROLE_LABELS[user.role] : user.role),
+    },
+    {
+      id: 'email',
+      header: 'Email',
+      muted: true,
+      // Blank sorts last, which puts the accounts that cannot sign in at the
+      // bottom rather than at the top of an ascending sort by accident.
+      sortValue: (user) => user.email,
+      cell: (user) =>
+        user.email !== null && user.email !== '' ? (
+          user.email
+        ) : (
+          <span
+            className="text-status-warning-ink"
+            title="Sign-in is by email, so this account cannot be used."
+          >
+            None — cannot sign in
+          </span>
+        ),
+    },
+    {
+      id: 'phone',
+      header: 'Phone',
+      muted: true,
+      className: 'font-mono text-xs',
+      sortValue: (user) => user.phone,
+      cell: (user) => user.phone,
+    },
+    {
+      id: 'status',
+      header: 'Status',
+      sortValue: (user) => (!user.isActive ? 2 : user.hasAuthAccount ? 0 : 1),
+      cell: (user) =>
+        !user.isActive ? (
+          <Badge variant="danger">Deactivated</Badge>
+        ) : user.hasAuthAccount ? (
+          <Badge variant="success">Active</Badge>
+        ) : (
+          <Badge variant="warning">Never signed in</Badge>
+        ),
+    },
+    {
+      id: 'actions',
+      header: 'Actions',
+      align: 'numeric',
+      cell: (user) => {
+        const busy = pendingId === user.id;
+        const hasEmail = user.email !== null && user.email !== '';
+
+        return confirmDelete === user.id ? (
+          <div className="flex flex-nowrap items-center justify-end gap-2 whitespace-nowrap">
+            <span className="text-xs text-status-danger-ink">
+              Delete {user.name} permanently?
+            </span>
+            <Button
+              variant="danger"
+              size="sm"
+              isLoading={busy}
+              onClick={() => {
+                void remove(user);
+              }}
+            >
+              Delete
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              disabled={busy}
+              onClick={() => {
+                setConfirmDelete(null);
+              }}
+            >
+              Cancel
+            </Button>
+          </div>
+        ) : (
+          <div className="flex flex-nowrap items-center justify-end gap-2 whitespace-nowrap">
+            {user.isActive && hasEmail ? (
+              <Button
+                variant="secondary"
+                size="sm"
+                isLoading={busy}
+                title="Emails them the portal address and how to set a password."
+                onClick={() => {
+                  void sendSignIn(user);
+                }}
+              >
+                {user.hasAuthAccount ? 'Resend sign-in email' : 'Send sign-in email'}
+              </Button>
+            ) : null}
+
+            {user.hasAuthAccount && user.isActive ? (
+              <Button
+                variant="secondary"
+                size="sm"
+                isLoading={busy}
+                title="Single-use link that signs them in, for when email is unavailable."
+                onClick={() => {
+                  void generate(user.id);
+                }}
+              >
+                Emergency link
+              </Button>
+            ) : null}
+
+            <Button
+              variant="ghost"
+              size="sm"
+              isLoading={busy}
+              onClick={() => {
+                void setActive(user, !user.isActive);
+              }}
+            >
+              {user.isActive ? 'Deactivate' : 'Reactivate'}
+            </Button>
+
+            <Button
+              variant="ghost"
+              size="sm"
+              disabled={busy}
+              className="text-status-danger-ink hover:bg-red-50"
+              onClick={() => {
+                setConfirmDelete(user.id);
+                setError(null);
+                setNotice(null);
+              }}
+            >
+              Delete
+            </Button>
+          </div>
+        );
+      },
+    },
+  ];
+
   const addForm = (
     <Card
       header={
@@ -523,219 +698,82 @@ export function SchoolUsersTable({ schoolId }: SchoolUsersTableProps) {
         </div>
       ) : null}
 
-      {users.length === 0 ? (
-        <Card>
-          <p className="text-sm text-ink-muted">
-            This school has no users yet — and nobody can be invited until it has
-            one, because invitations are sent from inside the school portal.
-            Create the first administrator here to open it up.
-          </p>
-          {isAdding ? null : (
-            <Button
-              className="mt-4"
-              onClick={() => {
-                setIsAdding(true);
-                setNotice(null);
-              }}
-            >
-              Add first administrator
-            </Button>
-          )}
-        </Card>
-      ) : (
-        <Card
-          className="p-0"
-          header={
-            <CardTitle
-              title="Members"
-              description={`${users.length} user${users.length === 1 ? '' : 's'} at this school.`}
-              action={
-                isAdding ? undefined : (
-                  <Button
-                    size="sm"
-                    variant="secondary"
-                    onClick={() => {
-                      setIsAdding(true);
-                      setNotice(null);
-                    }}
-                  >
-                    Add administrator
-                  </Button>
-                )
-              }
-            />
+      <Card
+        header={
+          <CardTitle
+            title="Members"
+            description={`${users.length} user${
+              users.length === 1 ? '' : 's'
+            } at this school.`}
+            action={
+              isAdding ? undefined : (
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  onClick={() => {
+                    setIsAdding(true);
+                    setNotice(null);
+                  }}
+                >
+                  Add administrator
+                </Button>
+              )
+            }
+          />
+        }
+      >
+        <DataTable
+          caption="Users at this school"
+          columns={columns}
+          rows={users}
+          getRowKey={(user) => user.id}
+          rowSelected={(user) => selected.has(user.id)}
+          rowClassName={(user) => (user.isActive ? undefined : 'bg-surface-sunken')}
+          defaultSort={{ columnId: 'name', direction: 'asc' }}
+          search={{ placeholder: 'Name, email or phone' }}
+          filters={[
+            {
+              id: 'role',
+              label: 'Role',
+              allLabel: 'Every role',
+              options: [...new Set(users.map((user) => user.role))].map((role) => ({
+                value: role,
+                label: isUserRole(role) ? ROLE_LABELS[role] : role,
+              })),
+              rowValue: (user) => user.role,
+            },
+            {
+              id: 'status',
+              label: 'Status',
+              allLabel: 'Every status',
+              options: [
+                { value: 'active', label: 'Active' },
+                { value: 'pending', label: 'Never signed in' },
+                { value: 'inactive', label: 'Deactivated' },
+              ],
+              rowValue: (user) =>
+                !user.isActive ? 'inactive' : user.hasAuthAccount ? 'active' : 'pending',
+            },
+          ]}
+          itemNoun={{ singular: 'user', plural: 'users' }}
+          emptyTitle="This school has no users yet"
+          emptyDescription="Nobody can be invited until it has one, because invitations are sent from inside the school portal. Create the first administrator to open it up."
+          emptyAction={
+            isAdding ? undefined : (
+              <Button
+                onClick={() => {
+                  setIsAdding(true);
+                  setNotice(null);
+                }}
+              >
+                Add first administrator
+              </Button>
+            )
           }
-        >
-          <div className="overflow-x-auto">
-            <Table caption="Users at this school" className="rounded-none border-0">
-              <TableHead>
-                <TableRow>
-                  <TableHeaderCell className="w-10">
-                    <input
-                      ref={headerCheckbox}
-                      type="checkbox"
-                      aria-label="Select every user"
-                      className="h-4 w-4 rounded border-line-strong"
-                      checked={users.length > 0 && selectedCount === users.length}
-                      onChange={togglePage}
-                    />
-                  </TableHeaderCell>
-                  <TableHeaderCell>Name</TableHeaderCell>
-                  <TableHeaderCell>Role</TableHeaderCell>
-                  <TableHeaderCell>Email</TableHeaderCell>
-                  <TableHeaderCell>Phone</TableHeaderCell>
-                  <TableHeaderCell>Status</TableHeaderCell>
-                  <TableHeaderCell align="numeric">Actions</TableHeaderCell>
-                </TableRow>
-              </TableHead>
-              <TableBody>
-                {users.map((user) => {
-                  const busy = pendingId === user.id;
-                  const confirming = confirmDelete === user.id;
-                  const hasEmail = user.email !== null && user.email !== '';
-
-                  return (
-                    <TableRow key={user.id} className={user.isActive ? undefined : 'bg-surface-sunken'}>
-                      <TableCell>
-                        <input
-                          type="checkbox"
-                          aria-label={`Select ${user.name}`}
-                          className="h-4 w-4 rounded border-line-strong"
-                          checked={selected.has(user.id)}
-                          onChange={() => {
-                            toggle(user.id);
-                          }}
-                        />
-                      </TableCell>
-                      <TableCell>
-                        <span className="font-medium text-ink">{user.name}</span>
-                        {user.branchName !== null ? (
-                          <span className="block text-xs text-ink-muted">
-                            {user.branchName}
-                          </span>
-                        ) : null}
-                      </TableCell>
-                      <TableCell muted>
-                        {isUserRole(user.role) ? ROLE_LABELS[user.role] : user.role}
-                      </TableCell>
-                      <TableCell muted>
-                        {hasEmail ? (
-                          user.email
-                        ) : (
-                          <span
-                            className="text-status-warning-ink"
-                            title="Sign-in is by email, so this account cannot be used."
-                          >
-                            None — cannot sign in
-                          </span>
-                        )}
-                      </TableCell>
-                      <TableCell muted className="font-mono text-xs">
-                        {user.phone}
-                      </TableCell>
-                      <TableCell>
-                        {!user.isActive ? (
-                          <Badge variant="danger">Deactivated</Badge>
-                        ) : user.hasAuthAccount ? (
-                          <Badge variant="success">Active</Badge>
-                        ) : (
-                          <Badge variant="warning">Never signed in</Badge>
-                        )}
-                      </TableCell>
-                      <TableCell>
-                        {confirming ? (
-                          <div className="flex flex-nowrap items-center justify-end gap-2 whitespace-nowrap">
-                            <span className="text-xs text-status-danger-ink">
-                              Delete {user.name} permanently?
-                            </span>
-                            <Button
-                              variant="danger"
-                              size="sm"
-                              isLoading={busy}
-                              onClick={() => {
-                                void remove(user);
-                              }}
-                            >
-                              Delete
-                            </Button>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              disabled={busy}
-                              onClick={() => {
-                                setConfirmDelete(null);
-                              }}
-                            >
-                              Cancel
-                            </Button>
-                          </div>
-                        ) : (
-                          <div className="flex flex-nowrap items-center justify-end gap-2 whitespace-nowrap">
-                            {user.isActive && hasEmail ? (
-                              <Button
-                                variant="secondary"
-                                size="sm"
-                                isLoading={busy}
-                                title="Emails them the portal address and how to set a password."
-                                onClick={() => {
-                                  void sendSignIn(user);
-                                }}
-                              >
-                                {user.hasAuthAccount
-                                  ? 'Resend sign-in email'
-                                  : 'Send sign-in email'}
-                              </Button>
-                            ) : null}
-
-                            {user.hasAuthAccount && user.isActive ? (
-                              <Button
-                                variant="secondary"
-                                size="sm"
-                                isLoading={busy}
-                                title="Single-use link that signs them in, for when email is unavailable."
-                                onClick={() => {
-                                  void generate(user.id);
-                                }}
-                              >
-                                Emergency link
-                              </Button>
-                            ) : null}
-
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              isLoading={busy}
-                              onClick={() => {
-                                void setActive(user, !user.isActive);
-                              }}
-                            >
-                              {user.isActive ? 'Deactivate' : 'Reactivate'}
-                            </Button>
-
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              disabled={busy}
-                              className="text-status-danger-ink hover:bg-red-50"
-                              onClick={() => {
-                                setConfirmDelete(user.id);
-                                setError(null);
-                                setNotice(null);
-                              }}
-                            >
-                              Delete
-                            </Button>
-                          </div>
-                        )}
-                      </TableCell>
-                    </TableRow>
-                  );
-                })}
-              </TableBody>
-            </Table>
-          </div>
-        </Card>
-      )}
+          noResultTitle="No members match those filters"
+          noResultDescription="Widen the role or status, or clear the search."
+        />
+      </Card>
     </div>
   );
 }
