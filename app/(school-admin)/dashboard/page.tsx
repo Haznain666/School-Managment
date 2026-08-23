@@ -7,28 +7,45 @@ import {
   Receipt,
   TrendingDown,
   TrendingUp,
-  Users,
 } from 'lucide-react';
 
 import { BarChart } from '@/components/charts/BarChart';
+import { DonutChart } from '@/components/charts/DonutChart';
 import { LineChart } from '@/components/charts/LineChart';
 import { Sparkline } from '@/components/charts/Sparkline';
 import { Card, CardTitle } from '@/components/ui/Card';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { StatTile, StatTileGrid } from '@/components/ui/StatTile';
 import {
+  getAdmissionsFunnel,
+  getAgingBuckets,
+  getAttendanceAverage,
+  getAttendanceByClass,
   getAttendanceTrend,
   getClassStrength,
+  getCollectionComparison,
   getCollectionTrend,
+  getEnrolmentComparison,
+  getFeeStatusSplit,
+  getOutstandingSummary,
+  getRecentExamOutcomes,
   getTodaySnapshot,
+  settle,
+  type AggregateScope,
 } from '@/lib/dashboard-queries';
+import {
+  getDashboardExceptions,
+  resolveDashboardScope,
+  type DashboardException,
+} from '@/lib/school-dashboard';
 import { getAccountingOverview } from '@/lib/accounting-queries';
-import { getFeeOverview } from '@/lib/fee-queries';
+import { getActiveAcademicYear } from '@/lib/admissions-queries';
 import { formatPkr } from '@/lib/money';
 import { PLATFORM_MODULES } from '@/lib/platform-modules';
+import { describeScope, resolvePrincipalScope } from '@/lib/principal-resolver';
 import { requireSchoolRole } from '@/lib/school-guard';
 import { permissionsForRole } from '@/lib/permission-queries';
-import { getDashboardCounts, getModuleFlags } from '@/lib/school-queries';
+import { getDashboardCounts, getModuleFlags, getSchoolUserByUid } from '@/lib/school-queries';
 import { ADMIN_PORTAL_ROLES } from '@/types/school-auth';
 
 export const metadata: Metadata = {
@@ -69,92 +86,72 @@ const MODULE_DESCRIPTIONS: Partial<Record<string, string>> = {
   fee_management: 'Generate challans, record payments and chase what is overdue.',
 };
 
+/** Below this, an attendance bar is marked as well as measured. */
+const ATTENDANCE_CONCERN = 85;
+
 /**
  * Administrative overview.
  *
- * Every count is scoped to the caller's own school — the location id comes
- * from their verified session, so there is no request parameter that could
- * widen it to another tenant.
+ * **Decision it informs:** where today's attention goes — money, attendance, or
+ * an exception.
  *
- * ── What is charted, and what is deliberately not ────────────────────────
- * Collections, attendance and class strength are charted because all three
- * come from tables this product already writes to and a head teacher reads
- * them as trends rather than as numbers.
+ * Every count is scoped to the caller's own school — the location id comes from
+ * their verified session, so there is no request parameter that could widen it
+ * to another tenant.
  *
- * **Profit is the tile Sprint 13.5 answered.** It used to be the one that said
- * it could not: profit needs the accounting ledger, and a tile reading `PKR 0`
- * for a school that collected three lakh this morning is confidently wrong
- * with no way for the reader to tell. The ledger exists now, so the tile shows
- * income less expenses for the calendar month — but only where the Accounts &
- * Finance module is on, the caller may read it, *and* the school has actually
- * set up a chart of accounts. Where any of those is false it goes back to
- * `StatTile`'s `unavailable` state and says which one, because the old
- * reasoning has not changed: this is the screen a head teacher forms their
- * impression of the product from.
+ * ── BR4: this screen is served to principals too ─────────────────────────
+ * Every count, chart and exception passes through `resolveDashboardScope`,
+ * which turns a `PrincipalScope` into the grade list the aggregates filter on.
+ * `scoped: false` — every school administrator, every accountant, and every
+ * school running one head — narrows nothing, so this is byte-for-byte the old
+ * behaviour for them.
+ *
+ * The quick actions are gated on **permissions**, never on the role name. A
+ * principal does not hold `settings.write`, `permissions.manage` or
+ * `principals.manage`, so the three actions those guard disappear on their own;
+ * gating them on `role === 'school_admin'` would have been a second list to
+ * keep in step with the first, and the first is the one the routes enforce.
+ *
+ * ── Every headline tile carries a comparison ─────────────────────────────
+ * A KPI without a benchmark is a number, not an indicator. Four of the five
+ * tiles on the previous version of this screen had none: "PKR 812,000
+ * collected" is a fact nobody can act on, and "14% behind this point last
+ * month" is a morning's work.
+ *
+ * ── Nothing here renders a zero it cannot vouch for ──────────────────────
+ * `settle` turns a failed read into one absent tile with a reason, never a
+ * zero and never a blank page. `PKR 0` on a school that collected three lakh
+ * this morning is confidently wrong and unfalsifiable by the reader.
  */
-/**
- * The calendar month we are in, as two `YYYY-MM-DD` strings.
- *
- * Day zero of the next month is the last day of this one, which gets February
- * right in a leap year without anybody having to think about it.
- */
-function currentMonth(today = new Date()): { from: string; to: string } {
-  const year = today.getUTCFullYear();
-  const month = today.getUTCMonth();
+
+/** The calendar month containing `at`, as two `YYYY-MM-DD` strings. */
+function monthOf(at: Date): { from: string; to: string } {
+  const year = at.getUTCFullYear();
+  const month = at.getUTCMonth();
   return {
     from: new Date(Date.UTC(year, month, 1)).toISOString().slice(0, 10),
     to: new Date(Date.UTC(year, month + 1, 0)).toISOString().slice(0, 10),
   };
 }
 
-/**
- * Runs one of the optional reads and turns a failure into an absent tile.
- *
- * ── The outage this exists for ───────────────────────────────────────────
- * On 2026-08-22 the whole dashboard rendered as "Could not load the dashboard"
- * with a digest and nothing else, at a school where every screen behind it
- * worked. The cause was one query: `getAccountingOverview` counting
- * `ledger_transactions`, a table migration `0027` creates and which had never
- * been applied to that database. `Promise.all` rejects on the first rejection,
- * so one missing table for one tile took the students count, the staff count,
- * three charts and every quick action with it.
- *
- * A dashboard is the screen a head teacher forms their impression of the
- * product from, and it is assembled from six independent reads that have
- * nothing to do with each other. It should degrade one tile at a time.
- *
- * ── What is deliberately *not* wrapped ───────────────────────────────────
- * `getDashboardCounts`, `getModuleFlags` and `permissionsForRole`. If those
- * fail there is no page — no counts, no idea which modules are on, no idea
- * what the caller may see — and rendering an empty frame would say "your
- * school has nothing in it", which is worse than an error. They still throw.
- *
- * The failure is logged with the location id so it is findable, and the tile
- * falls back to its `unavailable` state rather than to a zero. A zero here is
- * indistinguishable from a real zero and is how a school comes to believe it
- * collected nothing today.
- */
-async function optional<T>(
-  label: string,
-  locationId: string,
-  read: () => Promise<T>,
-): Promise<T | null> {
-  try {
-    return await read();
-  } catch (error) {
-    console.error(`[dashboard] ${label} failed for ${locationId}:`, error);
-    return null;
-  }
-}
-
 export default async function SchoolDashboardPage() {
   const { claims, locationId } = await requireSchoolRole(ADMIN_PORTAL_ROLES);
 
-  const [counts, moduleFlags, permissions] = await Promise.all([
+  // Not wrapped, deliberately: without the counts, the module flags, the
+  // permission list or the scope there is no page, and an empty frame would say
+  // "your school has nothing in it", which is worse than an error.
+  const [counts, moduleFlags, permissions, me, activeYear] = await Promise.all([
     getDashboardCounts(locationId),
     getModuleFlags(locationId),
     permissionsForRole(locationId, claims.role),
+    getSchoolUserByUid(locationId, claims.uid),
+    getActiveAcademicYear(locationId),
   ]);
+
+  const principalScope = await resolvePrincipalScope(locationId, claims.role, me?.id ?? null);
+  const scope = await resolveDashboardScope(locationId, principalScope);
+  const aggregateScope: AggregateScope = { gradeIds: scope.gradeIds };
+  const scopeNote = describeScope(principalScope);
 
   const canInvite = permissions.includes('users.write');
   const enabledModules = PLATFORM_MODULES.filter((entry) => moduleFlags[entry.key]);
@@ -170,26 +167,118 @@ export default async function SchoolDashboardPage() {
   const showAttendance = moduleFlags.academics && permissions.includes('academics.read');
   const showEnrolment = moduleFlags.admissions && permissions.includes('admissions.read');
   const showAccounting = moduleFlags.accounts && permissions.includes('accounting.read');
+  // Exams have no module flag of their own — they ship inside Academics — so
+  // the flag is Academics and the gate is the exam permission.
+  const showExams = moduleFlags.academics && permissions.includes('exams.read');
+  const showLeave = moduleFlags.hr_payroll && permissions.includes('hr.read');
 
-  const [fees, collectionTrend, today, attendanceTrend, classStrength, accounting] =
-    await Promise.all([
-      showFees ? optional('fee overview', locationId, () => getFeeOverview(locationId)) : null,
-      showFees
-        ? optional('collection trend', locationId, () => getCollectionTrend(locationId))
-        : null,
-      optional('today snapshot', locationId, () => getTodaySnapshot(locationId)),
-      showAttendance
-        ? optional('attendance trend', locationId, () => getAttendanceTrend(locationId))
-        : null,
-      showEnrolment
-        ? optional('class strength', locationId, () => getClassStrength(locationId))
-        : null,
-      showAccounting
-        ? optional('accounting overview', locationId, () =>
-            getAccountingOverview(locationId, currentMonth()),
-          )
-        : null,
-    ]);
+  const now = new Date();
+  const lastMonth = new Date(now.getUTCFullYear(), now.getUTCMonth() - 1, 1);
+
+  const [
+    today,
+    collection,
+    outstanding,
+    collectionTrend,
+    feeSplit,
+    aging,
+    attendanceTrend,
+    attendanceByClass,
+    attendance30,
+    enrolment,
+    classStrength,
+    funnel,
+    outcomes,
+    accounting,
+    accountingLast,
+  ] = await Promise.all([
+    settle('today snapshot', locationId, () => getTodaySnapshot(locationId, aggregateScope)),
+    showFees
+      ? settle('collection comparison', locationId, () =>
+          getCollectionComparison(locationId, aggregateScope, now),
+        )
+      : null,
+    showFees
+      ? settle('outstanding summary', locationId, () =>
+          getOutstandingSummary(locationId, aggregateScope, now),
+        )
+      : null,
+    showFees
+      ? settle('collection trend', locationId, () =>
+          getCollectionTrend(locationId, aggregateScope),
+        )
+      : null,
+    showFees
+      ? settle('fee status split', locationId, () =>
+          getFeeStatusSplit(locationId, aggregateScope),
+        )
+      : null,
+    showFees
+      ? settle('ageing buckets', locationId, () => getAgingBuckets(locationId, aggregateScope))
+      : null,
+    showAttendance
+      ? settle('attendance trend', locationId, () =>
+          getAttendanceTrend(locationId, aggregateScope),
+        )
+      : null,
+    showAttendance
+      ? settle('attendance by class', locationId, () =>
+          getAttendanceByClass(locationId, aggregateScope),
+        )
+      : null,
+    showAttendance
+      ? settle('attendance average', locationId, () =>
+          getAttendanceAverage(locationId, aggregateScope),
+        )
+      : null,
+    settle('enrolment comparison', locationId, () =>
+      getEnrolmentComparison(locationId, aggregateScope),
+    ),
+    showEnrolment
+      ? settle('class strength', locationId, () => getClassStrength(locationId, aggregateScope))
+      : null,
+    showEnrolment
+      ? settle('admissions funnel', locationId, () =>
+          getAdmissionsFunnel(locationId, aggregateScope),
+        )
+      : null,
+    showExams
+      ? settle('recent exam outcomes', locationId, () =>
+          getRecentExamOutcomes(locationId, undefined, aggregateScope),
+        )
+      : null,
+    showAccounting
+      ? settle('accounting overview', locationId, () =>
+          getAccountingOverview(locationId, monthOf(now)),
+        )
+      : null,
+    showAccounting
+      ? settle('accounting last month', locationId, () =>
+          getAccountingOverview(locationId, monthOf(lastMonth)),
+        )
+      : null,
+  ]);
+
+  // The exceptions read depends on the outstanding count, which is already in
+  // hand, so it costs four queries rather than five.
+  const exceptions = await settle('exceptions', locationId, () =>
+    getDashboardExceptions(
+      locationId,
+      aggregateScope,
+      {
+        fees: showFees,
+        attendance: showAttendance,
+        exams: showExams,
+        hr: showLeave,
+        email: permissions.includes('comms.read'),
+      },
+      {
+        academicYearId: activeYear?.id ?? null,
+        overdueChallans: outstanding?.overdueCount ?? 0,
+      },
+      now,
+    ),
+  );
 
   const totalStrength = classStrength?.reduce((sum, row) => sum + row.value, 0) ?? 0;
 
@@ -204,39 +293,72 @@ export default async function SchoolDashboardPage() {
         }
       />
 
+      {/*
+        BR4's sentence. Without it a narrowed head reads a short list as a
+        broken page, which is the failure `describeScope` exists to prevent.
+      */}
+      {scopeNote === null ? null : (
+        <Card>
+          <p className="text-sm text-ink-muted">{scopeNote}</p>
+        </Card>
+      )}
+
+      <ExceptionsStrip exceptions={exceptions} />
+
       <StatTileGrid>
-        <StatTile
-          label="Students"
-          value={counts.students.toLocaleString()}
-          icon={GraduationCap}
-          detail={
-            counts.activeYearName === null
-              ? 'No active academic year'
-              : `Enrolled in ${counts.activeYearName}`
-          }
-        />
-
-        <StatTile
-          label="Staff"
-          value={counts.staff.toLocaleString()}
-          icon={Users}
-          detail="Teachers and administration"
-        />
-
         {showFees ? (
           <StatTile
-            label="Collected today"
-            value={today === null ? undefined : formatPkr(today.collectedToday)}
-            unavailable={today === null ? 'Today’s figures could not be read.' : undefined}
+            label="Collected this month"
             icon={Banknote}
-            detail="Payments received today"
+            value={collection === null ? undefined : formatPkr(collection.thisMonth)}
+            unavailable={
+              collection === null ? 'This month’s collections could not be read.' : undefined
+            }
+            delta={collection === null ? undefined : percentDelta(collection.thisMonth, collection.lastMonthToDate)}
+            deltaMeaning={
+              collection === null || collection.thisMonth >= collection.lastMonthToDate
+                ? 'good'
+                : 'bad'
+            }
+            deltaPeriod="vs the same point last month"
+            detail={
+              today === null ? undefined : `${formatPkr(today.collectedToday)} received today`
+            }
             visual={
-              collectionTrend === null ? undefined : (
+              collectionTrend === null || collectionTrend.length === 0 ? undefined : (
                 <Sparkline
                   values={collectionTrend.map((point) => point.value)}
                   label={`Collections over the last ${collectionTrend.length} months`}
                 />
               )
+            }
+          />
+        ) : null}
+
+        {showFees ? (
+          <StatTile
+            label="Outstanding this month"
+            icon={Receipt}
+            value={
+              outstanding === null ? undefined : formatPkr(outstanding.outstandingThisMonth)
+            }
+            unavailable={outstanding === null ? 'The fee figures could not be read.' : undefined}
+            delta={
+              outstanding === null || outstanding.overdueCount === 0
+                ? undefined
+                : `${outstanding.overdueCount.toLocaleString()} past due`
+            }
+            deltaMeaning={
+              outstanding !== null && outstanding.overdueCount > 0 ? 'bad' : 'neutral'
+            }
+            detail={
+              outstanding === null
+                ? undefined
+                : outstanding.defaulterCount === 0
+                  ? 'Nobody is behind'
+                  : `${outstanding.defaulterCount.toLocaleString()} student${
+                      outstanding.defaulterCount === 1 ? '' : 's'
+                    } behind on a challan`
             }
           />
         ) : null}
@@ -259,43 +381,89 @@ export default async function SchoolDashboardPage() {
                   ? 'No register taken yet today.'
                   : undefined
             }
+            delta={
+              today?.attendanceRateToday == null || attendance30 == null
+                ? undefined
+                : `${today.attendanceRateToday >= attendance30 ? '+' : ''}${
+                    Math.round((today.attendanceRateToday - attendance30) * 10) / 10
+                  } pts`
+            }
+            deltaMeaning={
+              today?.attendanceRateToday == null || attendance30 == null
+                ? 'neutral'
+                : today.attendanceRateToday >= attendance30
+                  ? 'good'
+                  : 'bad'
+            }
+            deltaPeriod="vs the 30-day average"
             detail="Present or late, of everyone marked"
           />
         ) : null}
 
-        {showFees ? (
-          <StatTile
-            label="Outstanding this month"
-            value={fees === null ? undefined : formatPkr(fees.outstandingThisMonth)}
-            unavailable={fees === null ? 'The fee figures could not be read.' : undefined}
-            icon={Receipt}
-            detail={
-              fees === null
-                ? undefined
-                : `${fees.overdueCount.toLocaleString()} challans past due`
-            }
-          />
-        ) : null}
+        <StatTile
+          label="Enrolled students"
+          icon={GraduationCap}
+          value={
+            enrolment === null ? counts.students.toLocaleString() : enrolment.now.toLocaleString()
+          }
+          delta={
+            enrolment === null
+              ? undefined
+              : `${enrolment.now >= enrolment.atYearStart ? '+' : ''}${
+                  enrolment.now - enrolment.atYearStart
+                }`
+          }
+          deltaMeaning={
+            enrolment !== null && enrolment.now < enrolment.atYearStart ? 'bad' : 'good'
+          }
+          deltaPeriod="since the year opened"
+          detail={
+            counts.activeYearName === null
+              ? 'No active academic year'
+              : `Enrolled in ${counts.activeYearName}`
+          }
+        />
 
         {/*
-          Sprint 13.5 gave this tile an answer, and left the honest silence in
-          place for the cases where there still isn't one. See the docblock:
-          three separate conditions have to hold before a figure appears here,
+          Three separate conditions have to hold before a figure appears here —
+          the module on, `accounting.read` held, and a chart of accounts set up —
           and a zero would be a lie under any of them.
+
+          A fourth condition was added in Sprint 15: the ledger is not divided by
+          division, so a scoped principal is told that rather than shown the
+          whole school's net under a heading that says "yours".
         */}
-        {accounting !== null && accounting.isSetUp ? (
+        {scope.gradeIds !== null ? (
           <StatTile
-            label="Profit this month"
+            label="Net this month"
+            icon={TrendingUp}
+            unavailable="The ledger is kept for the whole school, not per division."
+          />
+        ) : accounting !== null && accounting.isSetUp ? (
+          <StatTile
+            label="Net this month"
             value={formatPkr(accounting.monthProfitPaise / 100)}
             icon={accounting.monthProfitPaise >= 0 ? TrendingUp : TrendingDown}
-            deltaMeaning={accounting.monthProfitPaise >= 0 ? 'good' : 'bad'}
+            deltaMeaning={
+              accountingLast === null
+                ? 'neutral'
+                : accounting.monthProfitPaise >= accountingLast.monthProfitPaise
+                  ? 'good'
+                  : 'bad'
+            }
+            delta={
+              accountingLast === null
+                ? undefined
+                : percentDelta(accounting.monthProfitPaise, accountingLast.monthProfitPaise)
+            }
+            deltaPeriod="vs last month"
             detail={`${formatPkr(accounting.monthIncomePaise / 100)} in, ${formatPkr(
               accounting.monthExpensePaise / 100,
             )} out`}
           />
         ) : (
           <StatTile
-            label="Profit this month"
+            label="Net this month"
             icon={TrendingUp}
             unavailable={
               !showAccounting
@@ -309,31 +477,26 @@ export default async function SchoolDashboardPage() {
       </StatTileGrid>
 
       {/*
-        The card stays even when its read failed, and says so.
+        Each card stays even when its read failed, and says so.
 
         Dropping it was the original behaviour and it is the wrong failure: a
         dashboard missing its collection chart looks exactly like a dashboard
         for a school that has no fee module, and an administrator has no way to
-        tell "this is not for you" from "this broke". `optional()` above says
-        the tile should fall back to an unavailable state; these two cards are
-        the same rule at card size.
+        tell "this is not for you" from "this broke".
       */}
-      {showFees || showAttendance ? (
+      {showFees ? (
         <div className="grid gap-5 lg:grid-cols-2">
-          {!showFees ? null : collectionTrend === null ? (
-            <Card
-              header={
-                <CardTitle title="Fee collection" description="Payments received per month" />
-              }
-            >
+          <Card
+            header={
+              <CardTitle
+                title={trendTitle('Collections', collectionTrend)}
+                description="Payments received per month"
+              />
+            }
+          >
+            {collectionTrend === null ? (
               <ChartUnavailable />
-            </Card>
-          ) : (
-            <Card
-              header={
-                <CardTitle title="Fee collection" description="Payments received per month" />
-              }
-            >
+            ) : (
               <LineChart
                 title="Fee collection by month"
                 summary={summariseTrend(collectionTrend, (value) => formatPkr(value))}
@@ -343,23 +506,110 @@ export default async function SchoolDashboardPage() {
                 ]}
                 area
               />
-            </Card>
-          )}
+            )}
+          </Card>
 
-          {!showAttendance ? null : attendanceTrend === null ? (
-            <Card
-              header={
-                <CardTitle title="Attendance" description="Monthly rate across the school" />
-              }
-            >
+          <Card
+            header={
+              <CardTitle
+                title="This year's billing"
+                description="Collected, still to fall due, and past due"
+              />
+            }
+          >
+            {feeSplit === null ? (
               <ChartUnavailable />
-            </Card>
-          ) : (
-            <Card
-              header={
-                <CardTitle title="Attendance" description="Monthly rate across the school" />
-              }
-            >
+            ) : (
+              <DonutChart
+                title="Fee status"
+                summary={feeSplitSummary(feeSplit)}
+                slices={[
+                  {
+                    label: 'Collected',
+                    value: feeSplit.collected,
+                    fillClass: 'fill-status-success',
+                  },
+                  {
+                    label: 'Not yet due',
+                    value: feeSplit.outstanding,
+                    fillClass: 'fill-status-info',
+                  },
+                  { label: 'Overdue', value: feeSplit.overdue, fillClass: 'fill-status-danger' },
+                ]}
+                format={(value) => formatPkr(value)}
+                centerValue={formatPkr(
+                  feeSplit.collected + feeSplit.outstanding + feeSplit.overdue,
+                )}
+                centerLabel="billed this year"
+              />
+            )}
+          </Card>
+
+          <Card
+            header={
+              <CardTitle
+                title="Ageing of receivables"
+                description="What is owed, by how long it has been owed"
+              />
+            }
+          >
+            {aging === null ? (
+              <ChartUnavailable />
+            ) : (
+              // Ordered buckets, so the x axis is *not* sorted by value. The
+              // order is the information: money moving right across this chart
+              // is money getting harder to collect.
+              <BarChart
+                title="Outstanding by age"
+                summary={agingSummary(aging)}
+                categories={aging.map((row) => row.label)}
+                series={[{ label: 'Outstanding', values: aging.map((row) => row.value) }]}
+                format={(value) => formatPkr(value)}
+              />
+            )}
+          </Card>
+
+          <Card
+            header={
+              <CardTitle
+                title="Admissions funnel"
+                description="Every application this school has taken, by stage"
+              />
+            }
+          >
+            {!showEnrolment ? (
+              <p className="py-8 text-center text-sm text-ink-muted">
+                Needs the Admissions module.
+              </p>
+            ) : funnel === null ? (
+              <ChartUnavailable />
+            ) : (
+              <BarChart
+                title="Applications by stage"
+                summary={funnelSummary(funnel)}
+                categories={funnel.map((row) => row.label)}
+                series={[{ label: 'Applications', values: funnel.map((row) => row.value) }]}
+                format={(value) => String(Math.round(value))}
+                orientation="horizontal"
+              />
+            )}
+          </Card>
+        </div>
+      ) : null}
+
+      {showAttendance ? (
+        <div className="grid gap-5 lg:grid-cols-2">
+          <Card
+            header={
+              <CardTitle
+                title={trendTitle('Attendance', attendanceTrend)}
+                description="Monthly rate across the school"
+              />
+            }
+          >
+            {attendanceTrend === null ? (
+              <ChartUnavailable />
+            ) : (
               <LineChart
                 title="Attendance rate by month"
                 summary={summariseTrend(attendanceTrend, (value) => `${value}%`)}
@@ -369,8 +619,23 @@ export default async function SchoolDashboardPage() {
                 ]}
                 format={(value) => `${Math.round(value)}%`}
               />
-            </Card>
-          )}
+            )}
+          </Card>
+
+          <Card
+            header={
+              <CardTitle
+                title="Attendance by class"
+                description={`Worst first, over the last 30 days. Anything under ${ATTENDANCE_CONCERN}% is marked.`}
+              />
+            }
+          >
+            {attendanceByClass === null ? (
+              <ChartUnavailable />
+            ) : (
+              <WorstClasses rows={attendanceByClass} />
+            )}
+          </Card>
         </div>
       ) : null}
 
@@ -393,6 +658,40 @@ export default async function SchoolDashboardPage() {
         </Card>
       ) : null}
 
+      {showExams && outcomes !== null && outcomes.length > 0 ? (
+        <Card
+          header={
+            <CardTitle
+              title="Recent exam outcomes"
+              description="Pass rate and average for the most recently published papers"
+            />
+          }
+        >
+          {/*
+            Percentages, never letter grades. Each exam is graded against its own
+            term's scheme, so an "A" column would stack two different meanings of
+            A for a school that changed schemes between terms.
+          */}
+          <BarChart
+            title="Pass rate and average by exam"
+            summary={outcomesSummary(outcomes)}
+            categories={outcomes.map((row) => `${row.title} · ${row.className}`)}
+            series={[
+              {
+                label: 'Pass rate',
+                values: outcomes.map((row) => row.passRate ?? 0),
+              },
+              {
+                label: 'Average',
+                values: outcomes.map((row) => row.average ?? 0),
+              },
+            ]}
+            format={(value) => `${Math.round(value)}%`}
+            orientation="horizontal"
+          />
+        </Card>
+      ) : null}
+
       <section className="space-y-3">
         <h2 className="text-sm font-semibold uppercase tracking-wide text-ink-muted">
           Quick actions
@@ -402,16 +701,37 @@ export default async function SchoolDashboardPage() {
           {canInvite ? (
             <ActionTile
               href="/dashboard/users/invite"
-              title="Invite Staff"
+              title="Invite staff"
               description="Send an email invitation to a new team member."
             />
           ) : null}
 
-          {claims.role === 'school_admin' ? (
+          {/*
+            Gated on the permission the route itself enforces, never on the role
+            name. A principal holds none of these three and so sees none of
+            them, without this file having to know that.
+          */}
+          {permissions.includes('settings.write') ? (
             <ActionTile
               href="/dashboard/settings"
-              title="School Settings"
+              title="School settings"
               description="Review your school profile and branding."
+            />
+          ) : null}
+
+          {permissions.includes('permissions.manage') ? (
+            <ActionTile
+              href="/dashboard/settings/permissions"
+              title="Roles and permissions"
+              description="Decide what each role in your school may see and do."
+            />
+          ) : null}
+
+          {permissions.includes('principals.manage') ? (
+            <ActionTile
+              href="/dashboard/settings"
+              title="Principals and divisions"
+              description="Assign heads to campuses and grades."
             />
           ) : null}
 
@@ -434,6 +754,82 @@ export default async function SchoolDashboardPage() {
   );
 }
 
+/**
+ * The morning's exceptions, above everything else on the screen.
+ *
+ * Absent entirely when nothing is wrong. A strip that is loud on a good day
+ * trains people to ignore it on the day it is not, which is exactly the failure
+ * mode of a dashboard with a permanent red badge on it.
+ */
+function ExceptionsStrip({ exceptions }: { exceptions: DashboardException[] | null }) {
+  if (exceptions === null || exceptions.length === 0) return null;
+
+  return (
+    <section aria-label="Needs attention" className="flex flex-wrap gap-3">
+      {exceptions.map((entry) => (
+        <Link
+          key={entry.key}
+          href={entry.href}
+          className="flex items-baseline gap-2 rounded-card border border-status-danger bg-status-danger-subtle px-4 py-2.5 text-status-danger-onSubtle transition hover:shadow-raised"
+        >
+          <span className="text-lg font-bold tabular-nums">
+            {entry.count.toLocaleString()}
+          </span>
+          {/* The number is never alone: the label is the status. */}
+          <span className="text-sm">{entry.label}</span>
+        </Link>
+      ))}
+    </section>
+  );
+}
+
+/**
+ * Attendance by class, worst first, with the classes below the line marked.
+ *
+ * Sorted *ascending* on purpose: the point of this panel is finding the class
+ * that needs a phone call, and a chart sorted by the best class buries it at
+ * the bottom. The threshold is stated in the card's description and the marked
+ * classes are named in the summary, so the colour is a second signal on a fact
+ * already in words rather than the only carrier of it.
+ */
+function WorstClasses({ rows }: { rows: ReadonlyArray<{ label: string; value: number }> }) {
+  if (rows.length === 0) {
+    return (
+      <p className="py-8 text-center text-sm text-ink-muted">
+        No register has been taken in the last 30 days.
+      </p>
+    );
+  }
+
+  const sorted = [...rows].sort((left, right) => left.value - right.value).slice(0, 10);
+  const concerning = sorted.filter((row) => row.value < ATTENDANCE_CONCERN);
+
+  return (
+    <BarChart
+      title="Attendance rate by class"
+      summary={
+        concerning.length === 0
+          ? `Every class is at or above ${ATTENDANCE_CONCERN}%. The lowest is ${sorted[0]!.label} at ${sorted[0]!.value}%.`
+          : `${concerning.length} class${concerning.length === 1 ? '' : 'es'} below ${ATTENDANCE_CONCERN}%: ${concerning
+              .map((row) => `${row.label} at ${row.value}%`)
+              .join(', ')}.`
+      }
+      categories={sorted.map((row) => row.label)}
+      series={[
+        {
+          label: 'Attendance',
+          values: sorted.map((row) => row.value),
+          fillClasses: sorted.map((row) =>
+            row.value < ATTENDANCE_CONCERN ? 'fill-status-warning' : undefined,
+          ),
+        },
+      ]}
+      format={(value) => `${Math.round(value)}%`}
+      orientation="horizontal"
+    />
+  );
+}
+
 /** Stands in for a chart whose data could not be read. */
 function ChartUnavailable() {
   return (
@@ -441,6 +837,35 @@ function ChartUnavailable() {
       This chart could not be loaded. Everything else on this page is current.
     </p>
   );
+}
+
+/** `+12%`, `-4%`, or `—` where last month was nothing to divide by. */
+function percentDelta(now: number, before: number): string | undefined {
+  if (before === 0) return now === 0 ? undefined : 'New';
+  const change = Math.round((100 * (now - before)) / Math.abs(before));
+  return `${change >= 0 ? '+' : ''}${change}%`;
+}
+
+/**
+ * A card title that states the insight when there is one, and the metric when
+ * there is not. A title asserting a trend the data does not show is worse than
+ * a label.
+ */
+function trendTitle(
+  noun: string,
+  points: ReadonlyArray<{ value: number }> | null,
+): string {
+  if (points === null || points.length < 4) return noun;
+
+  const half = Math.floor(points.length / 2);
+  const early = points.slice(0, half).reduce((sum, point) => sum + point.value, 0);
+  const late = points.slice(half).reduce((sum, point) => sum + point.value, 0);
+  if (early === 0 || early === late) return noun;
+
+  const change = Math.round((100 * (late - early)) / early);
+  if (Math.abs(change) < 5) return `${noun} are steady`;
+
+  return `${noun} ${change > 0 ? 'up' : 'down'} ${Math.abs(change)}% on the first half of the year`;
 }
 
 /**
@@ -464,4 +889,48 @@ function summariseTrend(
   const peak = points.reduce((best, point) => (point.value > best.value ? point : best), first);
 
   return `${direction} from ${format(first.value)} in ${first.label} to ${format(last.value)} in ${last.label}, peaking at ${format(peak.value)} in ${peak.label}.`;
+}
+
+function feeSplitSummary(split: {
+  collected: number;
+  outstanding: number;
+  overdue: number;
+}): string {
+  const total = split.collected + split.outstanding + split.overdue;
+  if (total === 0) return 'Nothing has been billed this academic year yet.';
+
+  const share = (value: number): string => `${Math.round((100 * value) / total)}%`;
+
+  return `Of ${formatPkr(total)} billed this year, ${share(split.collected)} is collected, ${share(
+    split.outstanding,
+  )} is not yet due and ${share(split.overdue)} is overdue.`;
+}
+
+function agingSummary(rows: ReadonlyArray<{ label: string; value: number }>): string {
+  const total = rows.reduce((sum, row) => sum + row.value, 0);
+  if (total === 0) return 'Nothing is outstanding.';
+
+  const oldest = rows[rows.length - 1]!;
+
+  return `${formatPkr(total)} outstanding, of which ${formatPkr(oldest.value)} has been owed for more than 90 days.`;
+}
+
+function funnelSummary(rows: ReadonlyArray<{ label: string; value: number }>): string {
+  const total = rows.reduce((sum, row) => sum + row.value, 0);
+  if (total === 0) return 'No applications yet.';
+
+  const parts = rows.filter((row) => row.value > 0).map((row) => `${row.value} ${row.label}`);
+
+  return `${total} application${total === 1 ? '' : 's'}: ${parts.join(', ')}.`;
+}
+
+function outcomesSummary(
+  rows: ReadonlyArray<{ title: string; className: string; passRate: number | null }>,
+): string {
+  const graded = rows.filter((row) => row.passRate !== null);
+  if (graded.length === 0) return 'No exam has published marks yet.';
+
+  const worst = graded.reduce((low, row) => (row.passRate! < low.passRate! ? row : low), graded[0]!);
+
+  return `${graded.length} exam${graded.length === 1 ? '' : 's'} with published marks. Lowest pass rate: ${worst.title}, ${worst.className}, at ${worst.passRate}%.`;
 }

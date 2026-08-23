@@ -6749,6 +6749,153 @@ a modal that owns the field it belongs to.
 
 ---
 
+## 5ba. Sprint 15 §4 — dashboards on all five portals — 2026-08-23
+
+Built to `SPRINT-15-DASHBOARDS.md`. **No migration.** Every number on all five
+screens is derivable from the current schema, which is what the spec said and
+what turned out to be true; nothing here took a migration number and `0031` is
+somebody else's.
+
+### The rule the whole sprint is built on
+
+**A tile that cannot be computed says so. It never renders a zero.** `PKR 0` on
+a school that collected three lakh this morning is confidently wrong and
+*unfalsifiable by the reader* — they have no way to tell it from a real zero.
+
+The enforcement is `settle()`, now exported from `lib/dashboard-queries.ts` and
+used by all five pages. It was `optional()`, private to the school-admin page,
+written after the 2026-08-22 outage in which one missing table (`0027`'s
+`ledger_transactions`) took an entire dashboard down through a `Promise.all`.
+Sprint 15 put the same nine-read assembly on four more portals, so the helper
+that survived that outage had to move somewhere all five could reach.
+
+**Do not re-litigate:** the reads that decide whether there is a page at all —
+the caller's profile, the module flags, the permission list, the active year —
+are deliberately *not* wrapped. An empty frame says "your school has nothing in
+it", which is worse than an error.
+
+### What each portal now shows
+
+| Portal | Tiles | Panels |
+| --- | --- | --- |
+| Super Admin | Active schools, **Tenants needing attention**, Students, Email delivery — all four with a 30-day comparison or a stated state | Tenant growth (line), provisioning state (donut), students by school (bar), schools by city (bar), **the needs-attention table**, recent schools demoted below it |
+| School Admin | Collected this month, Outstanding, Attendance today, Enrolled students, Net this month — **every one carries a benchmark** | Exceptions strip, collections (line), fee status (donut), ageing (bar), admissions funnel (bar), attendance (line), attendance by class worst-first (bar), class strength (bar), recent exam outcomes (bar) |
+| Teacher | Periods today, Registers not taken, Marks outstanding | "Needs you", today's timetable with the current period marked, my classes, announcements |
+| Parent | Children, Total outstanding, Lowest attendance | **One card per child** — attendance + sparkline, fees due, latest published result, next exam — then announcements |
+| Student | Attendance this month, Next exam, Latest result, Fee balance | Today's timetable, results across terms (line), announcements |
+
+### The five aggregates that already existed and were on no screen
+
+`getFeeStatusSplit`, `getAgingBuckets`, `getAttendanceByClass`,
+`getAdmissionsFunnel` and `getRecentExamOutcomes` were written, covered by
+`npm run check-dashboard`, and rendered nowhere. All five are now on the
+school-admin dashboard. That was the cheapest half of this sprint and it is
+worth remembering the shape of it: **a green check script is not a shipped
+feature.**
+
+### BR4 — how principal scoping is applied
+
+`resolveDashboardScope` in `lib/school-dashboard.ts` turns a `PrincipalScope`
+into **one list of grade ids**, and every aggregate takes it as an optional
+`AggregateScope`.
+
+**Why grades and not both axes:** that is already how the product narrows a
+head. `listStudents` filters campuses through `grades.branch_id`, so a branch
+reaches its data through its grades and nothing is lost by collapsing them.
+What is gained is that "is this query scoped" is answerable by reading one line
+of it.
+
+**Why sub-selects and not joins:** a scoped aggregate adds one condition —
+`inArray(feeChallans.studentProfileId, studentsInScope(…))` — and keeps the
+exact query shape it has unscoped. That is what makes the unscoped path
+*provably* unchanged for every school administrator and every school on
+`principal_model = 'single'`.
+
+**The dangerous bug here is the inverse one.** Treating "no assignment" as "no
+filter" hands a head the whole school's finances and the screen looks entirely
+normal. `resolveDashboardScope` returns `[]` for an unassigned head, every
+aggregate short-circuits on it, and `check-dashboard` asserts all three branches
+with no database at all.
+
+**The quick actions are gated on permissions, never on the role name.** A
+principal holds none of `settings.write`, `permissions.manage` or
+`principals.manage`, so those three actions disappear without this file knowing
+what a principal is. `role === 'school_admin'` would have been a second list to
+keep in step with the one the routes already enforce.
+
+**The Net-this-month tile is `unavailable` for a scoped principal, with a
+reason.** The ledger is kept for the whole school and has no grade on it, so
+there is no honest scoped figure. Showing the school's net under a heading that
+says "yours" would be a BR4 breach that reads as a feature.
+
+### Decisions not to re-litigate
+
+1. **Attendance-by-class is a 30-day window, not today.** The spec's table says
+   "today"; a one-day version is empty at 08:00 and noise at 09:30, and the
+   existing check-covered aggregate is 30 days. The panel exists to find the
+   class that needs a phone call, and 30 days is the window that answers that.
+2. **"Marks not entered past their deadline" is the exam date.** `exam_subjects`
+   has no deadline column and this sprint adds no migration. A paper sat last
+   Tuesday and still `draft` is late by anybody's reckoning. One line to change
+   when a deadline column arrives — `papersAwaitingMarks`.
+3. **The Super Admin attention tile links to the table below it, not to a
+   filtered schools list.** `/super-admin/schools` has no status filter and
+   adding one belongs to whoever owns that route. The table *is* the filtered
+   list and it carries the reasons, which an index would not.
+4. **`throttled` does not exist.** The spec names it as a subdomain status;
+   `lib/subdomain-status.ts` has five values and that is not one of them. The
+   tile counts `failed`, `pending` and `unmanaged`, plus no-branch and
+   no-administrator. **No status was invented.**
+5. **`provisioning` is not an exception.** It resolves itself in minutes, and a
+   tile that went red for it would be red most of the day an operator onboards
+   four schools.
+6. **The parent dashboard dropped `?child=`.** It selected among children the
+   page already had in hand, and a parent of three answered "is everyone fine"
+   by loading the page three times — anything wrong with the two they did not
+   click never appeared. Cards stack now.
+7. **Dashboards preview notices; they do not mark them read.** `NoticeBoard`
+   mounts `MarkNoticesRead`, which is right on the announcements screen and
+   wrong on a screen landed on six times a day. `DashboardNotices` is a preview
+   with a link, and the link is where the reading happens.
+8. **`fillClasses` on `BarSeries` marks individual bars, and colour is never the
+   only carrier.** The chart summary names every class it has marked and the
+   hidden data table carries every figure.
+
+### What the check scripts now cover
+
+`npm run check-dashboard` went from 11 aggregates to **41**, and that is the
+number that matters: **every aggregate is registered twice, unscoped and
+scoped**, because the scoped path is *different SQL* that the unscoped path
+never issues. It also runs the nine Super Admin reads, both exception passes,
+and asserts the three scope short-circuits with no database.
+
+`npm run check-portals` went from 14 queries to **22** — the three teacher
+reads, the two family reads, the student day, and `weekdayIndex`/`monthToDate`
+asserted purely. `MIDWEEK` is a fixed Wednesday on purpose: the timetable reads
+short-circuit at the weekend, so two runs in seven would otherwise have passed
+without executing them.
+
+**`sectionsMarkedOn` and `sectionRegisterFacts` were lifted out of
+`getTeacherClasses`/`getTeacherTasks` for exactly this reason.** They sat behind
+an `if (sectionIds.length === 0) return`, which is necessary and which fired on
+every run of a script that reads a school belonging to nobody — so those two
+joins were the queries the script never executed. Exported, they can be handed a
+section id and made to run.
+
+### Still open
+
+- **Nothing has been seen against real data.** Every gate is green and the check
+  scripts read a tenant that does not exist. No dashboard in this sprint has
+  been rendered for a school with students, challans and a timetable in it.
+- The exceptions strip's email row counts `email_outbox` rows carrying this
+  school's `location_id`. Rows written before that column was populated are not
+  attributed to anybody and will not appear.
+- `getEnrolmentComparison` counts "at year start" from `enrollment_date`, not
+  `created_at`, so a school that back-dates its existing roll reports correctly
+  and one that does not will show its whole roll as new admissions.
+
+---
+
 ## 6. Open items for the user
 
 1. ~~Install GitHub CLI~~ — **partly regressed.** Git has a stored credential

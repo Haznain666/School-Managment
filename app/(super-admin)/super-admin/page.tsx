@@ -1,12 +1,14 @@
-import { and, count, desc, eq, sql } from 'drizzle-orm';
 import type { Metadata } from 'next';
 import Link from 'next/link';
+import { AlertTriangle, Building2, GraduationCap, Mail } from 'lucide-react';
 
-import { branches, schoolModules, schools, students } from '@/db/schema';
 import { BarChart } from '@/components/charts/BarChart';
+import { DonutChart } from '@/components/charts/DonutChart';
+import { LineChart } from '@/components/charts/LineChart';
 import { EmailDeliveryHealth } from '@/components/super-admin/EmailDeliveryHealth';
 import { Badge } from '@/components/ui/Badge';
 import { Card, CardTitle } from '@/components/ui/Card';
+import { StatTile, StatTileGrid } from '@/components/ui/StatTile';
 import {
   Table,
   TableBody,
@@ -15,7 +17,19 @@ import {
   TableHeaderCell,
   TableRow,
 } from '@/components/ui/Table';
-import { db } from '@/lib/drizzle';
+import { settle } from '@/lib/dashboard-queries';
+import {
+  getActiveSchoolCount,
+  getEmailHealth,
+  getPlatformStudentCount,
+  getProvisioningSplit,
+  getSchoolsByCity,
+  getStudentsBySchool,
+  getTenantGrowth,
+  listRecentSchools,
+  listTenantsNeedingAttention,
+} from '@/lib/platform-dashboard';
+import { describeSubdomainStatus } from '@/lib/subdomain-status';
 
 export const metadata: Metadata = {
   title: 'Dashboard',
@@ -23,217 +37,305 @@ export const metadata: Metadata = {
 
 export const dynamic = 'force-dynamic';
 
-interface StatCardProps {
-  label: string;
-  value: number;
-  hint: string;
-}
-
-function StatCard({ label, value, hint }: StatCardProps) {
-  return (
-    <Card>
-      <p className="text-xs font-medium uppercase tracking-wide text-ink-muted">
-        {label}
-      </p>
-      <p className="mt-2 text-3xl font-bold text-ink">{value}</p>
-      <p className="mt-1 text-xs text-ink-muted">{hint}</p>
-    </Card>
-  );
-}
+/** The estate has no tenant; `settle` still wants somewhere to log from. */
+const PLATFORM = 'platform';
 
 /**
  * Super Admin dashboard.
  *
- * Counts are read server-side with aggregate queries rather than pulled into
- * the client — the panel is an operator tool, and a page render is cheaper
- * than shipping every school row to count them in the browser.
+ * **Decision it informs:** which tenant needs attention today, and is the
+ * platform healthy.
+ *
+ * ── What was removed, and must not come back ─────────────────────────────
+ * "Total schools ever created", "Total branches" and "Modules enabled" were the
+ * three tiles this screen opened with. All three are trophies: an operator acts
+ * on *active* tenants and on *broken* ones, and no number in that list changes
+ * what they do next. Module adoption in particular was already removed once, as
+ * a chart, and the docblock that removed it is still the argument.
+ *
+ * ── What replaced them ───────────────────────────────────────────────────
+ * **Tenants needing attention.** A school whose subdomain failed, or that has
+ * no campus, or that has no administrator, is a school nobody can use — and
+ * until Sprint 15 none of those three states appeared anywhere on this screen.
+ * The failed subdomain in the product owner's screenshot was reachable only by
+ * scrolling the schools table past a red badge.
+ *
+ * The tile links to the table below rather than to a filtered schools list,
+ * because the schools screen has no status filter and adding one belongs to
+ * whoever owns that route. The table *is* the filtered list, and it carries the
+ * reasons, which a filtered index would not.
+ *
+ * ── Failure isolation ────────────────────────────────────────────────────
+ * Nine independent reads, each through `settle`. A dashboard assembled from
+ * nine queries that have nothing to do with each other degrades one tile at a
+ * time or it is not a dashboard — see the docblock on `settle` for the outage
+ * that taught this.
  */
 export default async function SuperAdminDashboardPage() {
-  const [totalRows, activeRows, branchRows, moduleRows, recent, growthRows, sizeRows] =
-    await Promise.all([
-    db.select({ value: count() }).from(schools),
-    db.select({ value: count() }).from(schools).where(eq(schools.isActive, true)),
-    db.select({ value: count() }).from(branches).where(eq(branches.isActive, true)),
-    db
-      .select({ value: count() })
-      .from(schoolModules)
-      .where(eq(schoolModules.isEnabled, true)),
-    db
-      .select({
-        id: schools.id,
-        name: schools.name,
-        city: schools.city,
-        slug: schools.slug,
-        isActive: schools.isActive,
-        createdAt: schools.createdAt,
-      })
-      .from(schools)
-      .orderBy(desc(schools.createdAt))
-      .limit(5),
-    /**
-     * Schools created per month, for the last twelve.
-     *
-     * ── What replaced module adoption, and why ─────────────────────────
-     * This panel used to draw "how many schools have each module switched
-     * on" — eleven long module names, and eleven bars that between them
-     * answered a product-research question nobody on this screen was asking.
-     * It was also the tallest thing on the page by some margin.
-     *
-     * A platform operator's two standing questions are *is the estate
-     * growing* and *which tenants are actually being used*. These two
-     * queries answer them, and both fit in a compact chart because their
-     * labels are three characters and a school name rather than
-     * "Academics & Timetable".
-     *
-     * Truncated to the month in SQL so the grouping happens once, in the
-     * database, rather than over rows pulled into the request.
-     */
-    db
-      .select({
-        month: sql<string>`to_char(date_trunc('month', ${schools.createdAt}), 'YYYY-MM')`,
-        value: count(),
-      })
-      .from(schools)
-      .where(sql`${schools.createdAt} >= date_trunc('month', now()) - interval '11 months'`)
-      .groupBy(sql`date_trunc('month', ${schools.createdAt})`),
-
-    // Enrolled students per school. `enrolled` only: a graduated or withdrawn
-    // student is history, and counting them would make a school that has run
-    // for years look larger than one that is currently teaching more children.
-    db
-      .select({ name: schools.name, value: count(students.id) })
-      .from(schools)
-      .leftJoin(
-        students,
-        and(
-          eq(students.locationId, schools.locationId),
-          eq(students.status, 'enrolled'),
-        ),
-      )
-      .groupBy(schools.id, schools.name)
-      .orderBy(desc(count(students.id)))
-      .limit(6),
+  const [
+    activeSchools,
+    platformStudents,
+    problems,
+    growth,
+    provisioning,
+    bySchool,
+    byCity,
+    recent,
+    email,
+  ] = await Promise.all([
+    settle('active schools', PLATFORM, () => getActiveSchoolCount()),
+    settle('platform students', PLATFORM, () => getPlatformStudentCount()),
+    settle('tenants needing attention', PLATFORM, () => listTenantsNeedingAttention()),
+    settle('tenant growth', PLATFORM, () => getTenantGrowth()),
+    settle('provisioning split', PLATFORM, () => getProvisioningSplit()),
+    settle('students by school', PLATFORM, () => getStudentsBySchool()),
+    settle('schools by city', PLATFORM, () => getSchoolsByCity()),
+    settle('recent schools', PLATFORM, () => listRecentSchools()),
+    settle('email health', PLATFORM, () => getEmailHealth()),
   ]);
 
-  const totalSchools = totalRows[0]?.value ?? 0;
-  const activeSchools = activeRows[0]?.value ?? 0;
-  const totalBranches = branchRows[0]?.value ?? 0;
-  const enabledModules = moduleRows[0]?.value ?? 0;
-
-  /**
-   * The last twelve months, including the ones with no signups.
-   *
-   * Built from a generated list rather than from the query's own rows, because
-   * a month in which nothing happened returns no row at all — and a growth
-   * chart that silently omits its empty months draws a flat line through a
-   * quiet quarter and calls it steady. The gaps are the information.
-   */
-  const growth = (() => {
-    const byMonth = new Map(growthRows.map((row) => [row.month, row.value]));
-    const now = new Date();
-    const months: { label: string; value: number }[] = [];
-
-    for (let back = 11; back >= 0; back -= 1) {
-      const when = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - back, 1));
-      const key = `${when.getUTCFullYear()}-${String(when.getUTCMonth() + 1).padStart(2, '0')}`;
-      months.push({
-        // Three letters: this is a twelve-category x axis, and it is exactly
-        // the label width the vertical chart was designed around.
-        label: when.toLocaleString('en-GB', { month: 'short', timeZone: 'UTC' }),
-        value: byMonth.get(key) ?? 0,
-      });
-    }
-
-    return months;
-  })();
-
-  const bySize = sizeRows.filter((row) => row.value > 0);
+  const added = activeSchools === null ? 0 : activeSchools.now - activeSchools.thirtyDaysAgo;
+  const newStudents =
+    platformStudents === null ? 0 : platformStudents.now - platformStudents.thirtyDaysAgo;
+  const stuck = email === null ? 0 : email.struggling + email.failed;
 
   return (
     <div className="space-y-6">
+      <StatTileGrid>
+        <StatTile
+          label="Active schools"
+          icon={Building2}
+          value={activeSchools === null ? undefined : activeSchools.now.toLocaleString()}
+          unavailable={activeSchools === null ? 'The school count could not be read.' : undefined}
+          delta={activeSchools === null ? undefined : `+${added}`}
+          deltaMeaning="good"
+          deltaPeriod="added in the last 30 days"
+          detail="Tenants whose portal is reachable"
+        />
+
+        {/*
+          The exception tile. Red at one, because one unusable tenant is a
+          school that paid and cannot sign in — and the number it replaces
+          ("total schools") could not go wrong.
+        */}
+        <StatTile
+          label="Needing attention"
+          icon={AlertTriangle}
+          value={problems === null ? undefined : problems.length.toLocaleString()}
+          unavailable={problems === null ? 'The tenant checks could not run.' : undefined}
+          deltaMeaning={problems !== null && problems.length > 0 ? 'bad' : 'good'}
+          delta={
+            problems === null
+              ? undefined
+              : problems.length === 0
+                ? 'All healthy'
+                : 'Needs a person'
+          }
+          detail="No subdomain, no campus or no administrator"
+        />
+
+        <StatTile
+          label="Students"
+          icon={GraduationCap}
+          value={platformStudents === null ? undefined : platformStudents.now.toLocaleString()}
+          unavailable={
+            platformStudents === null ? 'The student count could not be read.' : undefined
+          }
+          delta={platformStudents === null ? undefined : `+${newStudents}`}
+          deltaMeaning="good"
+          deltaPeriod="enrolled in the last 30 days"
+          detail="Currently enrolled, across every tenant"
+        />
+
+        <StatTile
+          label="Email delivery"
+          icon={Mail}
+          value={email === null ? undefined : stuck === 0 ? 'Healthy' : stuck.toLocaleString()}
+          unavailable={email === null ? 'The outbox could not be read.' : undefined}
+          deltaMeaning={stuck > 0 ? 'bad' : 'good'}
+          delta={
+            email === null ? undefined : stuck === 0 ? 'Nothing stuck' : 'Queued after a failure'
+          }
+          detail="Invitations, sign-in emails and fee notices"
+        />
+      </StatTileGrid>
+
       {/*
-        Above the tiles. Silent email is the failure a school reports as "the
-        system did not invite my administrator", and until this card existed the
-        only way to see it was to query the database.
+        Kept, and kept above the charts. Silent email is the failure a school
+        reports as "the system did not invite my administrator", and the tile
+        above only says how many — this card says what the mail server replied.
       */}
       <EmailDeliveryHealth />
 
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <StatCard label="Total Schools" value={totalSchools} hint="All tenants" />
-        <StatCard label="Active Schools" value={activeSchools} hint="Portals reachable" />
-        <StatCard
-          label="Total Branches"
-          value={totalBranches}
-          hint="Active campuses across all schools"
-        />
-        <StatCard
-          label="Modules Enabled"
-          value={enabledModules}
-          hint="Across all schools"
-        />
-      </div>
-
-      {totalSchools === 0 ? null : (
-        <div className="grid gap-4 xl:grid-cols-2">
-          <Card
-            header={
-              <CardTitle
-                title="Platform growth"
-                description="Schools added in each of the last twelve months"
-              />
-            }
-          >
-            {/*
-              Vertical, and compact. Twelve three-letter labels is precisely
-              what the default chart geometry was built for — unlike the eleven
-              module names this replaced, which needed a whole chart mode of
-              their own and still took half the page.
-            */}
-            <BarChart
+      <div className="grid gap-4 xl:grid-cols-2">
+        <Card
+          header={
+            <CardTitle
+              title={growthTitle(growth)}
+              description="Schools added in each of the last twelve months"
+            />
+          }
+        >
+          {growth === null ? (
+            <ChartUnavailable />
+          ) : (
+            <LineChart
               title="Schools added per month"
               summary={growthSummary(growth)}
               categories={growth.map((row) => row.label)}
               series={[{ label: 'Schools', values: growth.map((row) => row.value) }]}
               format={(value) => String(Math.round(value))}
+              area
             />
-          </Card>
+          )}
+        </Card>
 
-          <Card
-            header={
-              <CardTitle
-                title="Where the students are"
-                description="Enrolled students at the six largest schools"
-              />
-            }
-          >
-            {/*
-              The figure that separates a tenant in use from an empty shell,
-              which on an estate carrying test schools is the thing an operator
-              most needs to see. Six rows, so it stays short.
-            */}
-            {bySize.length === 0 ? (
-              <p className="text-sm text-ink-muted">
-                No school has enrolled a student yet.
-              </p>
-            ) : (
-              <BarChart
-                title="Enrolled students per school"
-                summary={sizeSummary(bySize)}
-                categories={bySize.map((row) => row.name)}
-                series={[{ label: 'Students', values: bySize.map((row) => row.value) }]}
-                format={(value) => String(Math.round(value))}
-                orientation="horizontal"
-              />
-            )}
-          </Card>
-        </div>
-      )}
+        <Card
+          header={
+            <CardTitle
+              title="Provisioning across the estate"
+              description="Where each active tenant's subdomain has got to"
+            />
+          }
+        >
+          {provisioning === null ? (
+            <ChartUnavailable />
+          ) : (
+            <DonutChart
+              title="Subdomain state"
+              summary={provisioningSummary(provisioning)}
+              slices={[
+                { label: 'Ready', value: provisioning[0]?.value ?? 0, fillClass: 'fill-status-success' },
+                {
+                  label: 'Provisioning',
+                  value: provisioning[1]?.value ?? 0,
+                  fillClass: 'fill-status-info',
+                },
+                { label: 'Failed', value: provisioning[2]?.value ?? 0, fillClass: 'fill-status-danger' },
+                {
+                  label: 'Needs a hand',
+                  value: provisioning[3]?.value ?? 0,
+                  fillClass: 'fill-status-warning',
+                },
+              ]}
+              centerValue={String(provisioning.reduce((sum, row) => sum + row.value, 0))}
+              centerLabel="active schools"
+            />
+          )}
+        </Card>
+
+        <Card
+          header={
+            <CardTitle
+              title="Where the students are"
+              description="Enrolled students at the six largest schools"
+            />
+          }
+        >
+          {bySchool === null ? (
+            <ChartUnavailable />
+          ) : bySchool.length === 0 ? (
+            <p className="text-sm text-ink-muted">No school has enrolled a student yet.</p>
+          ) : (
+            <BarChart
+              title="Enrolled students per school"
+              summary={rankSummary(bySchool, 'students')}
+              categories={bySchool.map((row) => row.label)}
+              series={[{ label: 'Students', values: bySchool.map((row) => row.value) }]}
+              format={(value) => String(Math.round(value))}
+              orientation="horizontal"
+            />
+          )}
+        </Card>
+
+        <Card
+          header={
+            <CardTitle
+              title="Schools by city"
+              description="Where the estate is, with the long tail merged"
+            />
+          }
+        >
+          {byCity === null ? (
+            <ChartUnavailable />
+          ) : byCity.length === 0 ? (
+            <p className="text-sm text-ink-muted">No active schools yet.</p>
+          ) : (
+            <BarChart
+              title="Active schools per city"
+              summary={rankSummary(byCity, 'schools')}
+              categories={byCity.map((row) => row.label)}
+              series={[{ label: 'Schools', values: byCity.map((row) => row.value) }]}
+              format={(value) => String(Math.round(value))}
+              orientation="horizontal"
+            />
+          )}
+        </Card>
+      </div>
+
+      <Card
+        id="needs-attention"
+        header={
+          <CardTitle
+            title="Tenants needing attention"
+            description="A school here cannot be used until somebody acts. Most recently created first."
+          />
+        }
+        className="p-0"
+      >
+        {problems === null ? (
+          <p className="px-5 py-4 text-sm text-ink-muted">
+            The tenant checks could not run. Everything else on this page is current.
+          </p>
+        ) : problems.length === 0 ? (
+          <p className="px-5 py-4 text-sm text-ink-muted">
+            Every active tenant has a subdomain, a campus and an administrator.
+          </p>
+        ) : (
+          <Table caption="Tenants needing attention">
+            <TableHead>
+              <TableRow>
+                <TableHeaderCell>School</TableHeaderCell>
+                <TableHeaderCell>City</TableHeaderCell>
+                <TableHeaderCell>Subdomain</TableHeaderCell>
+                <TableHeaderCell>What is wrong</TableHeaderCell>
+              </TableRow>
+            </TableHead>
+            <TableBody>
+              {problems.map((school) => (
+                <TableRow key={school.id}>
+                  <TableCell>
+                    <Link
+                      href={`/super-admin/schools/${school.id}`}
+                      className="font-medium text-ink hover:text-brand-primary"
+                    >
+                      {school.name}
+                    </Link>
+                  </TableCell>
+                  <TableCell muted>{school.city}</TableCell>
+                  <TableCell>
+                    <Badge variant={describeSubdomainStatus(school.subdomainStatus).variant}>
+                      {describeSubdomainStatus(school.subdomainStatus).label}
+                    </Badge>
+                  </TableCell>
+                  {/*
+                    Written out rather than left to the badge's colour. A row is
+                    on this table for up to three separate reasons and only one
+                    of them is the subdomain.
+                  */}
+                  <TableCell muted>{school.reasons.join(' · ')}</TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        )}
+      </Card>
 
       <Card
         header={
           <CardTitle
-            title="Recent schools"
-            description="The five most recently added tenants"
+            title="Recently added"
+            description="The five newest tenants"
             action={
               <Link
                 href="/super-admin/schools"
@@ -246,8 +348,10 @@ export default async function SuperAdminDashboardPage() {
         }
         className="p-0"
       >
-        {recent.length === 0 ? (
-          <p className="text-sm text-ink-muted">
+        {recent === null ? (
+          <p className="px-5 py-4 text-sm text-ink-muted">This list could not be read.</p>
+        ) : recent.length === 0 ? (
+          <p className="px-5 py-4 text-sm text-ink-muted">
             No schools yet.{' '}
             <Link
               href="/super-admin/schools/new"
@@ -259,45 +363,37 @@ export default async function SuperAdminDashboardPage() {
           </p>
         ) : (
           <Table caption="Recently added schools">
-              <TableHead>
-                <TableRow>
-                  <TableHeaderCell>
-                    Name
-                  </TableHeaderCell>
-                  <TableHeaderCell>
-                    City
-                  </TableHeaderCell>
-                  <TableHeaderCell>
-                    Subdomain
-                  </TableHeaderCell>
-                  <TableHeaderCell>
-                    Status
-                  </TableHeaderCell>
+            <TableHead>
+              <TableRow>
+                <TableHeaderCell>Name</TableHeaderCell>
+                <TableHeaderCell>City</TableHeaderCell>
+                <TableHeaderCell>Subdomain</TableHeaderCell>
+                <TableHeaderCell>Status</TableHeaderCell>
+              </TableRow>
+            </TableHead>
+            <TableBody>
+              {recent.map((school) => (
+                <TableRow key={school.id}>
+                  <TableCell>
+                    <Link
+                      href={`/super-admin/schools/${school.id}`}
+                      className="font-medium text-ink hover:text-brand-primary"
+                    >
+                      {school.name}
+                    </Link>
+                  </TableCell>
+                  <TableCell muted>{school.city}</TableCell>
+                  <TableCell muted className="font-mono text-xs">
+                    {school.slug}
+                  </TableCell>
+                  <TableCell>
+                    <Badge variant={school.isActive ? 'success' : 'danger'}>
+                      {school.isActive ? 'Active' : 'Inactive'}
+                    </Badge>
+                  </TableCell>
                 </TableRow>
-              </TableHead>
-              <TableBody>
-                {recent.map((school) => (
-                  <TableRow key={school.id}>
-                    <TableCell>
-                      <Link
-                        href={`/super-admin/schools/${school.id}`}
-                        className="font-medium text-ink hover:text-brand-primary"
-                      >
-                        {school.name}
-                      </Link>
-                    </TableCell>
-                    <TableCell muted>{school.city}</TableCell>
-                    <TableCell muted className="font-mono text-xs">
-                      {school.slug}
-                    </TableCell>
-                    <TableCell>
-                      <Badge variant={school.isActive ? 'success' : 'danger'}>
-                        {school.isActive ? 'Active' : 'Inactive'}
-                      </Badge>
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
+              ))}
+            </TableBody>
           </Table>
         )}
       </Card>
@@ -305,11 +401,32 @@ export default async function SuperAdminDashboardPage() {
   );
 }
 
+/** Stands in for a chart whose data could not be read. */
+function ChartUnavailable() {
+  return (
+    <p className="py-8 text-center text-sm text-ink-muted">
+      This chart could not be loaded. Everything else on this page is current.
+    </p>
+  );
+}
+
 /**
- * Names the most and least adopted modules, which is the whole point of that
- * chart — and what a screen-reader user would otherwise have to assemble bar
- * by bar.
+ * The card's own heading states the insight where there is one.
+ *
+ * Where there is not — a flat twelve months — it states the metric. A title
+ * that asserts a trend the data does not show is worse than a label.
  */
+function growthTitle(rows: ReadonlyArray<{ label: string; value: number }> | null): string {
+  if (rows === null || rows.length < 2) return 'Platform growth';
+
+  const half = Math.floor(rows.length / 2);
+  const early = rows.slice(0, half).reduce((sum, row) => sum + row.value, 0);
+  const late = rows.slice(half).reduce((sum, row) => sum + row.value, 0);
+
+  if (early === late) return 'Platform growth';
+  return late > early ? 'Platform growth is accelerating' : 'Platform growth has slowed';
+}
+
 function growthSummary(rows: ReadonlyArray<{ label: string; value: number }>): string {
   const total = rows.reduce((sum, row) => sum + row.value, 0);
   if (total === 0) return 'No schools were added in the last twelve months.';
@@ -324,12 +441,26 @@ function growthSummary(rows: ReadonlyArray<{ label: string; value: number }>): s
   );
 }
 
+function provisioningSummary(rows: ReadonlyArray<{ label: string; value: number }>): string {
+  const total = rows.reduce((sum, row) => sum + row.value, 0);
+  if (total === 0) return 'No active schools yet.';
+
+  const parts = rows
+    .filter((row) => row.value > 0)
+    .map((row) => `${row.value} ${row.label.toLowerCase()}`);
+
+  return `${total} active school${total === 1 ? '' : 's'}: ${parts.join(', ')}.`;
+}
+
 /** One sentence for a screen reader, and the headline a sighted reader takes. */
-function sizeSummary(rows: ReadonlyArray<{ name: string; value: number }>): string {
-  if (rows.length === 0) return 'No school has enrolled a student yet.';
+function rankSummary(
+  rows: ReadonlyArray<{ label: string; value: number }>,
+  noun: string,
+): string {
+  if (rows.length === 0) return `No ${noun} to rank yet.`;
 
   const top = rows[0]!;
   const total = rows.reduce((sum, row) => sum + row.value, 0);
 
-  return `${top.name} is the largest with ${top.value} enrolled; ${total} across the ${rows.length} shown.`;
+  return `${top.label} leads with ${top.value}; ${total} ${noun} across the ${rows.length} shown.`;
 }
