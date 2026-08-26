@@ -6,8 +6,8 @@ step, before the session ends.
 
 **Last updated:** 2026-08-26 (**Sprint 16 — school feedback both ways, global
 search on all five portals, the setup-progress panel, and three dashboard
-fixes — §5bd. `0032` APPLIED and verified. Merged to `main` LOCALLY as
-`--no-ff`; nothing pushed, at the product owner's instruction. The second
+fixes — §5bd. `0032` APPLIED and verified. **DEPLOYED AND LIVE as `47e072c1f058`**,
+PR #32 merged, cache purged and the commit confirmed by the workflow. The second
 scrollbar was `sr-only`: it is `position: absolute`, and with no positioned
 ancestor those spans escaped `<main>`'s `overflow-y` and grew the document
 behind it.**;
@@ -29,6 +29,22 @@ error that named nothing — §5aw. `0027` and `0028` are both APPLIED to the li
 database.**; 2026-08-21: Sprint 13.5 — §5au, driven end to end — §5av;
 2026-08-20: Sprint 13.8 — sibling identity, §5as; the announcement sweep, §5at;
 Sprint 13.7 — §5ar; 2026-08-19: §5aq, §5ap, §5ao, §5an, §5am, §5al, §5ai–§5ak)
+
+> ✅ **Sprint 16 is DEPLOYED AND LIVE — 2026-08-26.** `/api/internal/build`
+> answers `{"buildId":"47e072c1f058"}`, which is the merge commit, and every
+> prerendered page carries `<!--47e072c1f058-->`.
+>
+> The sequence, and it is the one to repeat: migration first and verified,
+> branch pushed, PR #32 opened and merged, `main` pushed, then **watch the build
+> id change** rather than assuming. It took **three minutes** — the origin
+> restarted at 13:32:36 still on `232f8af` and came back at 13:35:30 on
+> `47e072c1f058`, so a probe taken in the first two minutes would have read the
+> old build and looked like a failed deploy. Poll it.
+>
+> *Verify the live deployment* then ran green end to end: **Cache cleared (HTTP
+> 200)**, `expected: 47e072c1f058` / `live: 47e072c1f058`, and the smoke test
+> passed. The three new platform endpoints answer **401**, not 404, which is
+> what proves the new routes are actually on the host and guarded.
 
 > ✅ **Migration `0032` is APPLIED to the live database — 2026-08-26.** The
 > bookkeeping table held 32 rows before and **33** after. Verified against the
@@ -7285,7 +7301,7 @@ to `gte` anyway, so the pattern is no longer in the codebase to be copied.
 
 | Date | Session did | Next |
 | --- | --- | --- |
-| 2026-08-26 | **Sprint 16 — feedback, global search, and three dashboard fixes** (§5bd). Four new tables in `0032`, applied and verified with the CHECKs made to fire inside a rolled-back transaction. A school sends a bug or a suggestion with up to five PNG/JPEG/PDF files; the platform is notified in-app and by email, reads a four-section queue with filters, sorting, pagination and a counter toggle, and replies, decides or deletes — each of which notifies the school both ways. Driven end to end against the live database with two real schools: a real PNG and PDF round-tripped byte-exact, tenancy isolation gave 404 on both the attachment and the reply, and every notification and email row was read back out of Postgres. Global search on all five portals, five scoped functions rather than one with a role parameter. **The second scrollbar was `sr-only`** — `position: absolute` with no positioned ancestor escapes `<main>`'s `overflow-y` and grows the root; the bottom-most hidden `<figcaption>` sat at document y = 1185, which was `scrollHeight` exactly. Five QA defects found and fixed, one of them only findable against real data: *Teachers 0* at a school with a teacher on the HR register and no portal account. **Merged to `main` locally, `--no-ff`, nothing pushed.** | The product owner's word on the push. Then, on the live deployment: purge the CDN cache with *Verify the live deployment*, and press **Provision** on both schools (still outstanding from §5bc). Still nobody has signed in as a teacher, parent or student — that is now three sprints of scoping asserted in code and never held in a hand. |
+| 2026-08-26 | **Sprint 16 — feedback, global search, and three dashboard fixes** (§5bd). Four new tables in `0032`, applied and verified with the CHECKs made to fire inside a rolled-back transaction. A school sends a bug or a suggestion with up to five PNG/JPEG/PDF files; the platform is notified in-app and by email, reads a four-section queue with filters, sorting, pagination and a counter toggle, and replies, decides or deletes — each of which notifies the school both ways. Driven end to end against the live database with two real schools: a real PNG and PDF round-tripped byte-exact, tenancy isolation gave 404 on both the attachment and the reply, and every notification and email row was read back out of Postgres. Global search on all five portals, five scoped functions rather than one with a role parameter. **The second scrollbar was `sr-only`** — `position: absolute` with no positioned ancestor escapes `<main>`'s `overflow-y` and grows the root; the bottom-most hidden `<figcaption>` sat at document y = 1185, which was `scrollHeight` exactly. Five QA defects found and fixed, one of them only findable against real data: *Teachers 0* at a school with a teacher on the HR register and no portal account. **Merged to `main` locally, `--no-ff`, nothing pushed.** | **Pushed, merged (PR #32) and live as `47e072c1f058`** the same day; the cache purge and commit confirmation both ran green. Left on the live deployment: press **Provision** on both schools (outstanding from §5bc). Still nobody has signed in as a teacher, parent or student — that is now three sprints of scoping asserted in code and never held in a hand, and it is the next thing worth an hour. |
 | 2026-08-22 | **The deploy was never blocked, and the probe that would have said so was gitignored** (§5ax). Asked to fix "the Hostinger SSH issue". There is none: hPanel has auto-deployment on from GitHub, and it built `17099d4` at 16:52 in 2m29s, Completed — the WhatsApp merge had been live for hours. The five `HOSTINGER_SSH_*` secrets are leftovers from the rsync workflow #24 deleted and are read by nothing; the three `deploy.yml` actually reads are all set. **This file had said the opposite for two days**, accurately on 2026-08-20 and falsely from 2026-08-21, which is the §5aw failure one level up. **The real bug, found while disproving the false one:** `.gitignore` line 13 was a bare `build/`, which matches at any depth and therefore matched `app/api/internal/build/` — an App Router segment, not build output. `/api/internal/build` has never been committed, so Hostinger never had it and production 404s it, and the verification workflow's "which commit is live" step **could never have passed on any deploy** — its failure message blamed the deployment. Both patterns anchored to the root. **CI structurally cannot catch this** (an ignored file is absent from a fresh checkout), so `check-loaders` now asks git whether each route file on disk is tracked — 237 assertions, proven against a planted route in an ignored directory. Cache purged in hPanel. | Set `SMOKE_SUPER_ADMIN_EMAIL` and `SMOKE_SUPER_ADMIN_PASSWORD` — the only secrets genuinely missing — then run *Verify the live deployment* and watch it pass for the first time. Then the twenty minutes of clicking that three sprints have now deferred. |
 | 2026-08-22 | **WhatsApp removed from the platform, and three faults underneath it** (§5aw). Four reports, one session. **WhatsApp is gone, not gated** — `lib/channels.ts`, `ChannelToggleList`, `sendWhatsAppMessage`, `PLATFORM_CHANNELS` and the whole channel-vs-module distinction deleted; `lib/ghl-fees.ts` rewritten as `lib/fee-notices.ts` with no GHL import left in it. GHL survives as contact sync only. `0028` drops the two invitation columns and the `school_modules` row, and **re-labels** `announcement_recipients.channel = 'whatsapp'` to `'notice'` rather than deleting the school's own delivery record. **The invite form had never accepted a formatted number**: the route validated with `/^\+?[0-9\s-]{7,20}$/`, which has no brackets in it, against a client that masks every value into `(021) 444444` — so it refused its own form's output, and `identity` on the PhoneField refused a landline besides. Both now import `lib/phone-formats.ts`, the rule `PhoneField`'s own docblock already stated. **The dashboard outage was `0027`**: `getAccountingOverview` counting a `ledger_transactions` that did not exist, inside a `Promise.all`, so one tile took the students count, the staff count, three charts and every quick action with it. `0027` and `0028` are **both applied to the live database now** — 27 rows of bookkeeping before, 29 after — and each optional read is wrapped so the page degrades one tile at a time. **"Unexpected response."** was the login route being the one route on this surface with no `try`/`catch`; probing the live endpoint with a wrong address returns a correct 401 JSON, so the report was a transient the message refused to name. Both client helpers now report the status and distinguish 502/503/504 from a defect. All nine gates green, plus all five database-backed checks — `check-reports` had been failing on the same missing tables and now passes. | **Nothing here has been clicked in a browser** — the sign-in needs a password and no session may type one, so the invite form, the dashboard and the bulk-modules page are verified by query and by build, not by eye. Twenty minutes with a real login is the next thing worth doing. ~~Then deploy: `HOSTINGER_SSH_*` is still missing.~~ **Wrong — see §5ax.** It deployed by itself; Hostinger's GitHub connection has auto-deployment on. Then the automatic sibling discount. |
 | 2026-08-21 | **Sprint 13.5 merged, then actually run — and the day book had never worked** (§5av). PR #22 merged to `main` (`eec668f`) on a green CI. Then, for the first time in this project's history, a session had **PostgreSQL 16 and Chromium**: all 28 migrations applied in order, `0027`'s seed and backfill tested against a school seeded with three fee payments that **predated** it, and every screen driven in a browser. **The backfill is correct** — cash → `1000`, transfer → `1010`, cheque → `1020` and not the bank, each entry dated to the payment rather than to the migration, and a second run wrote **0 rows**. **The day book threw `column reference "id" is ambiguous` on every call**: Drizzle renders a column interpolated into a `sql` template **unqualified when the outer query has a single table in its FROM** and qualified once a join is present, so five correlated sub-selects that are correct beside a join were bare column names without one — and the one that did *not* throw compared two `ledger_entries` columns and would have printed a column of zeroes. Rewritten as two queries and a regroup. **`check-reports` is the only thing that could ever have caught it and was itself red**, asserting nine reports when 13.5 had added seven. 53 assertions through the application's own code, twelve routes in Chromium with **no console errors and no failed requests**, the balance sheet at **16,800 = 16,800**, the accountant's `POST /settlements` at **403**, all seven statements printing under `print` media and exporting as CSV. **Sign-in was stubbed** (no Supabase here) and the stubs reverted — everything behind the session is verified, the session itself is not. | **Apply `0027` to production.** It is proven and not deployed. Then real A4, still. Then Sprint 13.6 (i18n) on **`0028`**. |
@@ -7685,9 +7701,9 @@ on every page of the same register with nothing to say so.
 
 Test cases: `test-cases/TEST-CASES-SPRINT-16.md`. Release note:
 `release-notes/RELEASE-NOTES-SPRINT-16.md`. Migration `0032` applied and
-verified — see the banner at the top. **Merged to `main` locally as a
-`--no-ff` merge; nothing is pushed.** The product owner asked for the push to be
-a separate instruction, so `origin/main` is still at `232f8af`.
+verified, and the sprint is **deployed and live as `47e072c1f058`** — see both
+banners at the top. PR [#32](https://github.com/Haznain666/School-Managment/pull/32),
+merged.
 
 ### What was built
 
@@ -7925,6 +7941,36 @@ loaders** — §5bc trap 4. `@next/env` runs dotenv-expand and needs `\$`; `node
 carries an `sms-platform-qa` entry pointing at it. Regenerate it by stripping
 quotes and unescaping `\$` out of `.env.local`.
 
+### The tightening pass before the deploy, and the one real defect in it
+
+Asked to make the code tight before it went live. Five changes, and the first
+was a bug the QA run had not exercised:
+
+1. **The platform listing re-fetched page 1 on mount.** The guard against it
+   used `useState`, and `setMounted(true)` is itself a state change — so the
+   effect ran again with `mounted === true` and issued the exact request the
+   guard existed to skip. It is a `useRef` now. A ref does not re-render, so
+   there is no second run to guard against.
+2. **A value reached the driver through a raw `sql` template.**
+   `coalesce(read_at, ${now.toISOString()})` in `setFeedbackStatus`. It *worked*,
+   because the value was already a string — which is precisely what makes it the
+   wrong thing to leave in the tree: the next person to write `${now}` there
+   gets `ERR_INVALID_ARG_TYPE` and no column name to go on, which is §5at's
+   announcement bug exactly. It is `now()` now, with no parameter at all.
+   Re-verified live: setting a status *without* opening the ticket first still
+   stamps `read_at`, and the notification and email both went.
+3. **`attachment-response.ts` moved to `lib/`.** It sat inside the school route
+   tree and the platform route reached across into it with `@/app/api/…`.
+4. **Four `as never` casts removed from the search scope helper.** It took a
+   column argument it did not need — every scoped query in that module narrows
+   on `sections.grade_id` — and a cast at a call site is how the wrong column
+   eventually reaches a function whose whole job is a boundary.
+5. **Dead exports trimmed** from `lib/feedback.ts`: a re-export block nothing
+   imported, and `sectionForStatus`, which had no caller.
+
+All fifteen gates re-run green afterwards, and the changed write path was driven
+against the live database again before the push.
+
 ### What is NOT done
 
 - **The teacher, parent and student portals were not signed into.** No account
@@ -7933,7 +7979,7 @@ quotes and unescaping `\$` out of `.env.local`.
   pages refuse the wrong role (verified: three redirects, no 500s) — but nobody
   has held one of those logins.
 - **No screenshots exist**, for the reason above.
-- **Nothing is pushed.** `main` is merged locally and `origin/main` is behind.
+- ~~Nothing is pushed.~~ **Pushed, merged and live** — see the banner.
 - **Search does not cover** exams, payroll runs, lesson plans, expenses or
   ledger entries. The *Screens* category finds those screens by name.
 - **No attachments on replies.**

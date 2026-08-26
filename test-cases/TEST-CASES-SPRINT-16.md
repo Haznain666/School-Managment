@@ -2,7 +2,10 @@
 
 Traces to [`RELEASE-NOTES-SPRINT-16.md`](../release-notes/RELEASE-NOTES-SPRINT-16.md).
 Migration `0032` — **APPLIED and verified** against the live database on
-2026-08-26.
+2026-08-26. The sprint is **deployed and live as `47e072c1f058`**
+(PR [#32](https://github.com/Haznain666/School-Managment/pull/32)); the cache
+purge and the commit confirmation both ran green, and the three new platform
+endpoints answer **401** on the live host rather than 404.
 
 ## Status — 2026-08-26
 
