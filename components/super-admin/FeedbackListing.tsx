@@ -2,7 +2,7 @@
 
 import { Bug, MessageSquareText } from 'lucide-react';
 import Link from 'next/link';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { Badge } from '@/components/ui/Badge';
 import { DataTable, type DataTableSort } from '@/components/ui/DataTable';
@@ -141,19 +141,24 @@ export function FeedbackListing({
   }, [nature, page, pageSize, school, search, section, sort]);
 
   /*
-   * The first render already has the server's rows, so this effect would
-   * otherwise re-fetch the same page on mount for nothing. `skipFirst` is a
-   * ref-free version of that guard: the state it watches is exactly the state
-   * the server rendered with, so the first run is provably redundant.
+   * The first render already holds the server's rows, so this effect must not
+   * re-fetch page 1 on mount.
+   *
+   * ── Why a ref and not a piece of state ─────────────────────────────────
+   * The first version used `useState`, and it did exactly what it was written
+   * to prevent: `setMounted(true)` is itself a state change, so the effect ran
+   * again immediately with `mounted === true` and issued the very request the
+   * guard existed to skip. A ref does not re-render, so the second run never
+   * happens and the first user interaction is the first request.
    */
-  const [mounted, setMounted] = useState(false);
+  const hasMounted = useRef(false);
   useEffect(() => {
-    if (!mounted) {
-      setMounted(true);
+    if (!hasMounted.current) {
+      hasMounted.current = true;
       return;
     }
     void load();
-  }, [load, mounted]);
+  }, [load]);
 
   const filtersActive = nature !== '' || school !== '' || search.trim() !== '';
 

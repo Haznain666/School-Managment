@@ -1,10 +1,9 @@
 import { withSchoolAuth } from '@/lib/api-auth';
 import { apiFailure, handleApiError } from '@/lib/api-response';
+import { attachmentResponse } from '@/lib/attachment-response';
 import { getFeedbackAttachment } from '@/lib/feedback-queries';
 import { downloadObject } from '@/lib/storage';
 import { ADMIN_PORTAL_ROLES } from '@/types/school-auth';
-
-import { attachmentResponse } from '../../attachment-response';
 
 /**
  * GET /api/school/feedback/attachments/[attachmentId] — download one file.

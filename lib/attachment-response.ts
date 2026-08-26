@@ -2,13 +2,17 @@ import 'server-only';
 
 import { NextResponse } from 'next/server';
 
-import type { DownloadedObject } from '@/lib/storage';
+import type { DownloadedObject } from './storage';
 
 /**
  * Turns a stored object into a download.
  *
  * Shared by the school route and the platform one so the two cannot disagree
- * about the headers — and the headers are the whole security posture of this
+ * about the headers. It lives in `lib/` rather than beside either of them: a
+ * module one route tree owns and the other reaches across into is a module that
+ * gets moved carelessly the first time somebody reorganises `app/api`.
+ *
+ * The headers matter — and the headers are the whole security posture of this
  * endpoint, not a formatting detail:
  *
  * `Content-Disposition: attachment` means the browser saves the file rather

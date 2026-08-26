@@ -85,18 +85,28 @@ function group(
 }
 
 /**
- * Applies a principal's scope, or returns the conditions unchanged.
+ * A principal's grade filter, or `undefined` when nothing is narrowed.
+ *
+ * Every scoped query in this module narrows on the same column —
+ * `sections.grade_id` — so this takes no column argument. The first cut did,
+ * typed loosely enough to need an `as never` at each of its three call sites,
+ * and a cast at a call site is how the wrong column eventually gets passed to a
+ * function whose whole job is enforcing a boundary.
  *
  * `inArray` with an empty list is `false` in Drizzle, which is the reading
  * wanted and the dangerous bug avoided: an unassigned head matches no row
- * rather than every row. §5ba records why that inverse is the one to fear —
- * it hands a head the whole school and the screen looks entirely normal.
+ * rather than every row. §5ba records why that inverse is the one to fear — it
+ * hands a head the whole school and the screen looks entirely normal.
  */
-function scoped(conditions: SQL[], scope: SearchScope | undefined, column: SQL | typeof grades.id) {
-  if (scope?.gradeIds != null) {
-    conditions.push(inArray(column as never, [...scope.gradeIds]));
-  }
-  return conditions;
+function gradeScope(scope: SearchScope | undefined): SQL | undefined {
+  if (scope?.gradeIds == null) return undefined;
+  return inArray(sections.gradeId, [...scope.gradeIds]);
+}
+
+/** Appends the grade filter when there is one. */
+function withScope(conditions: SQL[], scope: SearchScope | undefined): void {
+  const condition = gradeScope(scope);
+  if (condition !== undefined) conditions.push(condition);
 }
 
 /* -------------------------------------------------------------------------- */
@@ -123,7 +133,7 @@ async function searchStudents(input: SchoolSearchInput): Promise<SearchHit[]> {
   const pattern = likePattern(input.query);
 
   const conditions: SQL[] = [eq(studentEnrollments.locationId, input.locationId)];
-  scoped(conditions, input.scope, sections.gradeId as never);
+  withScope(conditions, input.scope);
 
   const matches = or(
     ilike(schoolUsers.name, pattern),
@@ -305,7 +315,7 @@ async function searchClasses(input: SchoolSearchInput): Promise<SearchHit[]> {
   const pattern = likePattern(input.query);
 
   const conditions: SQL[] = [eq(sections.locationId, input.locationId)];
-  scoped(conditions, input.scope, sections.gradeId as never);
+  withScope(conditions, input.scope);
 
   const matches = or(
     ilike(sections.name, pattern),
@@ -381,7 +391,7 @@ async function searchChallans(input: SchoolSearchInput): Promise<SearchHit[]> {
   const pattern = likePattern(input.query);
 
   const conditions: SQL[] = [eq(feeChallans.locationId, input.locationId)];
-  scoped(conditions, input.scope, sections.gradeId as never);
+  withScope(conditions, input.scope);
 
   const matches = or(
     ilike(feeChallans.challanNumber, pattern),

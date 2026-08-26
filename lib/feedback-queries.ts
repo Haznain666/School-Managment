@@ -236,9 +236,19 @@ export async function setFeedbackStatus(
       status,
       statusChangedAt: now,
       updatedAt: now,
-      // A decision implies it was read, and a ticket decided straight off the
-      // listing would otherwise keep a null `read_at` forever.
-      readAt: sql`coalesce(${feedbackTickets.readAt}, ${now.toISOString()})`,
+      /*
+       * A decision implies it was read: a ticket decided straight off the
+       * listing would otherwise keep a null `read_at` forever.
+       *
+       * `now()` rather than an interpolated timestamp. CLAUDE.md's rule is that
+       * a value never reaches the driver through a raw `sql` template, and the
+       * first cut of this line interpolated `now.toISOString()`. That happened
+       * to work — it is already a string — which is precisely what makes it
+       * dangerous: the next person to write `${now}` there gets
+       * ERR_INVALID_ARG_TYPE and no column name to go on. There is no value
+       * here now, only a function call, so there is nothing to get wrong.
+       */
+      readAt: sql`coalesce(${feedbackTickets.readAt}, now())`,
     })
     .where(
       and(
