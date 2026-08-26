@@ -4,7 +4,14 @@
 resume without re-deriving context. Updated at the end of every development
 step, before the session ends.
 
-**Last updated:** 2026-08-24 (**Mail delivery: no invitation had sent since
+**Last updated:** 2026-08-26 (**Sprint 16 — school feedback both ways, global
+search on all five portals, the setup-progress panel, and three dashboard
+fixes — §5bd. `0032` APPLIED and verified. Merged to `main` LOCALLY as
+`--no-ff`; nothing pushed, at the product owner's instruction. The second
+scrollbar was `sr-only`: it is `position: absolute`, and with no positioned
+ancestor those spans escaped `<main>`'s `overflow-y` and grew the document
+behind it.**;
+2026-08-24: **Mail delivery: no invitation had sent since
 2026-08-20 — production held a 31-character `SMTP_PASS_B64` where the working
 password is 17, with a shadowed `SMTP_PASS` beside it. Fixed; outbox drained.
 The Mapbox dropdown and the wizard past step 1 are both verified live, and the
@@ -23,6 +30,30 @@ database.**; 2026-08-21: Sprint 13.5 — §5au, driven end to end — §5av;
 2026-08-20: Sprint 13.8 — sibling identity, §5as; the announcement sweep, §5at;
 Sprint 13.7 — §5ar; 2026-08-19: §5aq, §5ap, §5ao, §5an, §5am, §5al, §5ai–§5ak)
 
+> ✅ **Migration `0032` is APPLIED to the live database — 2026-08-26.** The
+> bookkeeping table held 32 rows before and **33** after. Verified against the
+> real schema rather than trusting the success message: four tables with
+> exactly the expected columns (13 / 7 / 7 / 10), five CHECK constraints, seven
+> foreign keys and seven indexes — and then the constraints were made to *fire*
+> inside a transaction that was rolled back, because a CHECK in the catalogue
+> that nobody has tested is a CHECK nobody has tested. An invented status, an
+> invented nature, an invented audience and a school notification with no
+> recipient were all refused; a platform notification with no recipient was
+> accepted, which is the asymmetry the schema intends. Nothing was left behind.
+>
+> It is expand-only: four new tables, no column changed and no row rewritten.
+> It had to go in **before** the merge for the reason §5aw records — both portal
+> layouts grow an unread-notification count, and a layout runs on every page of
+> its portal. Both reads are wrapped anyway.
+>
+> ⚠ **The first run of the verification script reported a false failure.** A
+> statement that errors aborts the whole Postgres transaction, so the second
+> expected-refusal test failed with the *first* one's error still in effect and
+> read as a missing constraint. Each expected failure now runs inside its own
+> `SAVEPOINT`. Write refusal tests that way or do not write them.
+>
+> **Next free migration number is `0033`.**
+
 > ✅ **Migration `0031` is APPLIED to the live database — 2026-08-23.** The
 > bookkeeping table held 31 rows before and **32** after. Verified against the
 > real schema rather than trusting the success message: the CHECK on
@@ -36,7 +67,8 @@ Sprint 13.7 — §5ar; 2026-08-19: §5aq, §5ap, §5ao, §5an, §5am, §5al, §5
 > write fails against the old constraint. Applying it while the old build was
 > still live cost nothing, since nothing yet wrote the value.
 >
-> **Next free migration number is `0032`.**
+> ~~Next free migration number is `0032`.~~ **`0032` is taken — see the Sprint
+> 16 banner above. The next free number is `0033`.**
 >
 > ⚠️ **`STATE.md` said "next free is `0030`" for a day while `0030` already
 > existed on disk.** Sprint 15 took `0031` and this line is now the record.
@@ -6926,10 +6958,11 @@ section id and made to run.
 
 ## 6. Open items for the user
 
-1. ~~Install GitHub CLI~~ — **partly regressed.** Git has a stored credential
-   and push works, but `gh` is **not on PATH** in this environment (checked
-   2026-08-08, both Bash and PowerShell). PR creation from a session does not
-   work; push and merge do.
+1. ~~Install GitHub CLI~~ — **CLOSED 2026-08-26.** `gh` **is** on PATH at
+   `/c/Program Files/GitHub CLI/gh`. The 2026-08-08 note that it was not is
+   stale and cost Sprint 16 a check. Opening a PR still needs the branch
+   pushed, so a session told not to push cannot open one — that is a
+   permission, not a missing tool.
 2. ~~Do students and parents have email addresses?~~ — moot. The internal chat
    decision (§3.3) removes the dependency on either email or phone reach.
 3. ~~Create the Supabase database~~ — done, see §5c.
@@ -7252,6 +7285,7 @@ to `gte` anyway, so the pattern is no longer in the codebase to be copied.
 
 | Date | Session did | Next |
 | --- | --- | --- |
+| 2026-08-26 | **Sprint 16 — feedback, global search, and three dashboard fixes** (§5bd). Four new tables in `0032`, applied and verified with the CHECKs made to fire inside a rolled-back transaction. A school sends a bug or a suggestion with up to five PNG/JPEG/PDF files; the platform is notified in-app and by email, reads a four-section queue with filters, sorting, pagination and a counter toggle, and replies, decides or deletes — each of which notifies the school both ways. Driven end to end against the live database with two real schools: a real PNG and PDF round-tripped byte-exact, tenancy isolation gave 404 on both the attachment and the reply, and every notification and email row was read back out of Postgres. Global search on all five portals, five scoped functions rather than one with a role parameter. **The second scrollbar was `sr-only`** — `position: absolute` with no positioned ancestor escapes `<main>`'s `overflow-y` and grows the root; the bottom-most hidden `<figcaption>` sat at document y = 1185, which was `scrollHeight` exactly. Five QA defects found and fixed, one of them only findable against real data: *Teachers 0* at a school with a teacher on the HR register and no portal account. **Merged to `main` locally, `--no-ff`, nothing pushed.** | The product owner's word on the push. Then, on the live deployment: purge the CDN cache with *Verify the live deployment*, and press **Provision** on both schools (still outstanding from §5bc). Still nobody has signed in as a teacher, parent or student — that is now three sprints of scoping asserted in code and never held in a hand. |
 | 2026-08-22 | **The deploy was never blocked, and the probe that would have said so was gitignored** (§5ax). Asked to fix "the Hostinger SSH issue". There is none: hPanel has auto-deployment on from GitHub, and it built `17099d4` at 16:52 in 2m29s, Completed — the WhatsApp merge had been live for hours. The five `HOSTINGER_SSH_*` secrets are leftovers from the rsync workflow #24 deleted and are read by nothing; the three `deploy.yml` actually reads are all set. **This file had said the opposite for two days**, accurately on 2026-08-20 and falsely from 2026-08-21, which is the §5aw failure one level up. **The real bug, found while disproving the false one:** `.gitignore` line 13 was a bare `build/`, which matches at any depth and therefore matched `app/api/internal/build/` — an App Router segment, not build output. `/api/internal/build` has never been committed, so Hostinger never had it and production 404s it, and the verification workflow's "which commit is live" step **could never have passed on any deploy** — its failure message blamed the deployment. Both patterns anchored to the root. **CI structurally cannot catch this** (an ignored file is absent from a fresh checkout), so `check-loaders` now asks git whether each route file on disk is tracked — 237 assertions, proven against a planted route in an ignored directory. Cache purged in hPanel. | Set `SMOKE_SUPER_ADMIN_EMAIL` and `SMOKE_SUPER_ADMIN_PASSWORD` — the only secrets genuinely missing — then run *Verify the live deployment* and watch it pass for the first time. Then the twenty minutes of clicking that three sprints have now deferred. |
 | 2026-08-22 | **WhatsApp removed from the platform, and three faults underneath it** (§5aw). Four reports, one session. **WhatsApp is gone, not gated** — `lib/channels.ts`, `ChannelToggleList`, `sendWhatsAppMessage`, `PLATFORM_CHANNELS` and the whole channel-vs-module distinction deleted; `lib/ghl-fees.ts` rewritten as `lib/fee-notices.ts` with no GHL import left in it. GHL survives as contact sync only. `0028` drops the two invitation columns and the `school_modules` row, and **re-labels** `announcement_recipients.channel = 'whatsapp'` to `'notice'` rather than deleting the school's own delivery record. **The invite form had never accepted a formatted number**: the route validated with `/^\+?[0-9\s-]{7,20}$/`, which has no brackets in it, against a client that masks every value into `(021) 444444` — so it refused its own form's output, and `identity` on the PhoneField refused a landline besides. Both now import `lib/phone-formats.ts`, the rule `PhoneField`'s own docblock already stated. **The dashboard outage was `0027`**: `getAccountingOverview` counting a `ledger_transactions` that did not exist, inside a `Promise.all`, so one tile took the students count, the staff count, three charts and every quick action with it. `0027` and `0028` are **both applied to the live database now** — 27 rows of bookkeeping before, 29 after — and each optional read is wrapped so the page degrades one tile at a time. **"Unexpected response."** was the login route being the one route on this surface with no `try`/`catch`; probing the live endpoint with a wrong address returns a correct 401 JSON, so the report was a transient the message refused to name. Both client helpers now report the status and distinguish 502/503/504 from a defect. All nine gates green, plus all five database-backed checks — `check-reports` had been failing on the same missing tables and now passes. | **Nothing here has been clicked in a browser** — the sign-in needs a password and no session may type one, so the invite form, the dashboard and the bulk-modules page are verified by query and by build, not by eye. Twenty minutes with a real login is the next thing worth doing. ~~Then deploy: `HOSTINGER_SSH_*` is still missing.~~ **Wrong — see §5ax.** It deployed by itself; Hostinger's GitHub connection has auto-deployment on. Then the automatic sibling discount. |
 | 2026-08-21 | **Sprint 13.5 merged, then actually run — and the day book had never worked** (§5av). PR #22 merged to `main` (`eec668f`) on a green CI. Then, for the first time in this project's history, a session had **PostgreSQL 16 and Chromium**: all 28 migrations applied in order, `0027`'s seed and backfill tested against a school seeded with three fee payments that **predated** it, and every screen driven in a browser. **The backfill is correct** — cash → `1000`, transfer → `1010`, cheque → `1020` and not the bank, each entry dated to the payment rather than to the migration, and a second run wrote **0 rows**. **The day book threw `column reference "id" is ambiguous` on every call**: Drizzle renders a column interpolated into a `sql` template **unqualified when the outer query has a single table in its FROM** and qualified once a join is present, so five correlated sub-selects that are correct beside a join were bare column names without one — and the one that did *not* throw compared two `ledger_entries` columns and would have printed a column of zeroes. Rewritten as two queries and a regroup. **`check-reports` is the only thing that could ever have caught it and was itself red**, asserting nine reports when 13.5 had added seven. 53 assertions through the application's own code, twelve routes in Chromium with **no console errors and no failed requests**, the balance sheet at **16,800 = 16,800**, the accountant's `POST /settlements` at **403**, all seven statements printing under `print` media and exporting as CSV. **Sign-in was stubbed** (no Supabase here) and the stubs reverted — everything behind the session is verified, the session itself is not. | **Apply `0027` to production.** It is proven and not deployed. Then real A4, still. Then Sprint 13.6 (i18n) on **`0028`**. |
@@ -7644,6 +7678,268 @@ on every page of the same register with nothing to say so.
   beside it would be worse than no sort.
 
 ---
+
+---
+
+## 5bd. Sprint 16 — feedback, global search, and the second scrollbar — 2026-08-26
+
+Test cases: `test-cases/TEST-CASES-SPRINT-16.md`. Release note:
+`release-notes/RELEASE-NOTES-SPRINT-16.md`. Migration `0032` applied and
+verified — see the banner at the top. **Merged to `main` locally as a
+`--no-ff` merge; nothing is pushed.** The product owner asked for the push to be
+a separate instruction, so `origin/main` is still at `232f8af`.
+
+### What was built
+
+Six requirements, and they divide into three real features and three fixes.
+
+1. **Feedback, both directions.** A school administrator writes a bug report or
+   a suggestion with up to five PNG/JPEG/PDF attachments; the platform operator
+   is notified in-app and by email, reads a four-section queue, replies, sets a
+   status or deletes. Every status change and every reply notifies the school
+   the same two ways.
+2. **Global search on all five portals**, each with its own scoped result set.
+3. **School setup progress** on the school-admin dashboard — a bar and six
+   headcounts.
+4. Class strength and Recent exam outcomes, sized like every other chart.
+5. Quick links, at the top of every dashboard, as chips.
+6. The second scrollbar, removed.
+
+### The migration is four tables and nothing else
+
+`feedback_tickets`, `feedback_attachments`, `feedback_replies` and
+`notifications`. Expand-only: no column changed, no row rewritten. It had to go
+in before the merge for the reason §5aw records — both portal layouts grow an
+unread-notification count, and a layout runs on every page of its portal.
+
+Both layout reads are wrapped anyway. A bell with no badge is the correct
+degradation; a portal that 500s is not.
+
+### `notifications` is general, and that was the decision worth taking
+
+The obvious move was to derive the bell from `feedback_tickets` — "count where
+status = 'unread'". That works for exactly the first feature that needs it and
+then has to be rewritten for the second.
+
+An announcement is a *document* a school publishes; a notification is an *event*
+that happened to one person. The two differ in every way that matters, which is
+why `announcement_reads` was not widened either. `notify()` is the one door, and
+it writes the bell row **and** queues the email in one call — two calls at each
+site is two chances to forget one, and the one that gets forgotten is always the
+mail, because the bell is the one you can see while developing.
+
+**A failed notification never fails the thing that caused it.** `notify` logs
+and returns. A school that has pressed Send has sent its feedback the moment the
+ticket row exists.
+
+### Attachments are private, in a public bucket
+
+`school-assets` is public, so a stored public URL is a permanent credential-free
+link to the object. A feedback screenshot is a picture of a school's own data —
+a fee register, a roll — and that URL works for anybody who ever sees it,
+including after the ticket is deleted.
+
+Only the object *path* is stored. `lib/storage.ts` gained `downloadObject`, and
+the two routes stream the bytes with `Content-Disposition: attachment`,
+`X-Content-Type-Options: nosniff` and `Cache-Control: private, no-store`. The
+headers live in one shared module (`app/api/school/feedback/attachment-response.ts`)
+because they *are* the security posture of the endpoint and two copies drift.
+
+`attachment` is also what the product owner asked for — clicking downloads — and
+it is the safe disposition, since an inline PDF is a scriptable document running
+on this origin. Do not "improve" it into a preview.
+
+### Five search functions, not one with a role parameter
+
+The whole risk in a global search is that it is the one feature whose job is to
+reach across everything, and tenancy is the thing it must not reach across.
+`search(query, viewer)` would put "may this person see a student" behind a
+branch inside a shared function, and **the branch that is wrong returns results
+rather than an error**.
+
+So `lib/global-search.ts` exports five entry points, each readable start to
+finish against one question: what does this person already have a screen for?
+`lib/portal-search.ts` resolves a session into the right one, and both the API
+route and the results page call it — the dropdown and the page cannot disagree
+about what somebody may see, because one function decides it.
+
+**Screens are a category**, built from `schoolNav`'s output. That is not
+padding: it is the most-used category in every CRM that ships one, and feeding
+it the caller's own navigation means a page result can never lead somewhere the
+guard would bounce, without `searchPages` knowing what a permission is.
+
+**ILIKE, not full text, and that is deliberate.** `tsvector` stems, and stemming
+is exactly wrong for admission numbers, challan numbers and a section called
+"5-A". Every query is capped at nine rows — one more than is shown, which is how
+"there are more of these" is known without a second `count(*)`. When a school
+arrives that this is slow for, the fix is a trigram index on the same columns.
+
+`likePattern` escapes `%`, `_` and `\`. Without it, searching for `100%` matches
+every row in the table.
+
+### 🐛 The second scrollbar was made of screen-reader text
+
+The product owner reported two scrollbars on the school-admin dashboard, the
+outer one exposing a blank strip. Measured at 1280×720 on the *platform*
+dashboard — so it was never school-admin-only:
+
+    innerWidth - documentElement.clientWidth   = 15    (a real root scrollbar)
+    documentElement.scrollHeight               = 1185  (viewport 720)
+
+on a page whose every `<body>` child measured exactly 720.
+
+**`sr-only` is `position: absolute`.** An absolutely positioned element is
+clipped by an ancestor's `overflow` only when that ancestor is its **containing
+block** — which means a positioned one. Nothing between those spans and `<html>`
+was positioned, so their containing block was the initial containing block: they
+escaped `<main>`'s `overflow-y: auto` and extended the *root's* scrollable
+overflow to wherever they happened to sit.
+
+The bottom-most one — the hidden `<figcaption>` summarising the schools-by-city
+chart — sat at document y = **1185**. That is `scrollHeight` exactly.
+
+`position: relative` on the scrolling `<main>` in `PortalFrame` and
+`SuperAdminShell` is the whole fix. Verified: root scrollbar 15 → 0, root max
+scroll 465 → 0, and the content keeps its own.
+
+⚠ **A first attempt clamped the four portal layout wrappers with `h-dvh
+overflow-hidden` and did nothing**, because those wrappers are not positioned
+either. It was reverted rather than left in beside the real fix: a defensive
+change carrying a wrong explanation is worse than no change.
+
+### The two charts were the wrong width, not the wrong chart
+
+`BarChart` and `LineChart` draw into a fixed 640×260 `viewBox` scaled to the
+container. Class strength and Recent exam outcomes were full-width cards, so at
+~977px the same drawing rendered at roughly twice the height of the eight charts
+above it — thicker bars, larger labels, and a card that read as a different
+component. Moving them into the existing `lg:grid-cols-2` was the entire change.
+Measured afterwards: 479px card, 177px chart, identical to Collections.
+
+### Decisions not to re-litigate
+
+1. **Feedback is gated on no permission.** A `feedback.write` toggle is a switch
+   no administrator has a reason to move, and the only thing it could do is stop
+   somebody reporting a bug. Same judgement as `/me` and `/branches`. It also
+   avoided widening the `role_permissions` CHECK — §5o records what happens when
+   that is forgotten.
+2. **Active is `unread` + `read`.** Opening a ticket must not make it vanish
+   from the list of things still to decide. The product owner's rule, and it is
+   stated once in `FEEDBACK_SECTION_STATUSES` so the listing, the counters and
+   the dashboard tile cannot disagree.
+3. **Only three statuses are settable.** `unread` and `read` are not decisions;
+   offering them would let an operator put a ticket back into a state meaning
+   "nobody has looked at this", and re-notify the school about a decision that
+   had been unmade.
+4. **`setFeedbackStatus` is a conditional `UPDATE … WHERE status <> $1
+   RETURNING`.** Notify-exactly-once-per-real-change is then a property of the
+   statement rather than of anybody remembering. A second click returns
+   `changed: false` and sends nothing.
+5. **`markFeedbackRead` is a claim, not a read-then-`if`** — CLAUDE.md's
+   background-work rule applied to a different actor with the same race: two
+   tabs, or a double-clicked link.
+6. **The counter toggle is off by default.** A permanent "0" beside three of
+   four headings is three numbers nobody reads, which would cost the fourth its
+   meaning. Read from `localStorage` after mount, never during render.
+7. **The dashboard tile counts `unread`, not `active`.** Active includes tickets
+   somebody has opened and not yet decided about — already known, and a tile
+   that stayed lit until every one was resolved would be lit permanently.
+8. **A school cannot delete its own feedback, or set a status.** A bug report a
+   school can delete is one that disappears the week before anybody looks at it.
+9. **Deleting sends no notification.** "Your feedback has been deleted" answers
+   nothing and reads as a rebuke. A school that wants a decision communicated
+   gets one of the three statuses.
+10. **The school's own list is a client-mode `DataTable`.** A school sends a
+    handful of these a year; the whole list fits in memory several times over.
+    Same judgement §5bb made about `StaffManager`.
+11. **The platform reply is signed "SMS Platform Support".** A school that
+    learns one operator's private mailbox will use it, which routes the next
+    report past this table and into an inbox with no ticket and no status.
+12. **`getSetupProgress` counts `> 0`, not a threshold.** "At least five
+    teachers" is a number this code would have invented, and every school it did
+    not fit would be told it was incomplete while working perfectly.
+
+### 🐛 Five defects QA found, and one of them could only be found against real data
+
+**Teachers read 0 at a school with a teacher on the register.** The step counted
+`school_users` with role `teacher`. Lahore Grammar School has an active `staff`
+record for a class teacher and **zero** teacher accounts — the person is on the
+HR register and has never been invited to the portal. The panel told a school to
+redo work it had already done, which is the single most misleading thing a setup
+checklist can do. It now counts active staff records **plus** teacher accounts
+with no staff record behind them, and the step is labelled *Teachers & staff*.
+
+This is the §5ba lesson again in a new costume: **a green check script is not a
+shipped feature.** `check-dashboard` ran `getSetupProgress` twice against a
+tenant that belongs to nobody, and both runs were green.
+
+The other four: the two full-width charts (above); `DataTable`'s default
+no-choice filter option rendering "All nature" and "All school"; `StatTile`
+announcing "All healthy — an improvement" to a screen reader on four tiles whose
+delta states a condition rather than a movement (fixed with a `deltaKind` prop);
+and a ticket submitted by the platform operator rendering a raw uuid where the
+sender's name belongs.
+
+Plus one measured in passing: the header search box had collapsed to **165px**
+between a long school name and the sign-out control. It now has a 16rem floor,
+and the role chip drops below `xl` to pay for it.
+
+### ⚠ The browser pane does not paint streamed content, and it is not this sprint
+
+Every route with a `loading.tsx` shows its skeleton forever in this pane. The
+server produces the complete HTML — fetching it from inside the page and parsing
+it returns the finished screen — and the trailing inline `$RC(…)` scripts that
+splice a resolved Suspense boundary into the document never execute. Screenshots
+fail for the same reason ("the Browser pane is not displayed").
+
+**Proved environmental, not this sprint:** `/super-admin/modules`, a page this
+sprint does not touch, behaves identically. §5bc records the same class of
+problem. Two pages *did* paint — the school-admin dashboard and the platform
+dashboard — and everything measurable in the DOM was measured on those.
+
+So the QA method was: fetch the server HTML and parse it for every screen, and
+drive every endpoint from the page's own JS with the real session cookie. That
+produced stronger evidence than clicking would have — a real submission with a
+real PNG and PDF, byte-exact round trips, two-school tenancy isolation, and the
+notification and email rows read out of the database afterwards.
+
+### How to sign in for QA, and the trap in it
+
+**`gh` IS on PATH now** (`/c/Program Files/GitHub CLI/gh`), contradicting §6
+item 1. PR creation still needs a push, which is why there is no PR here.
+
+There is no plaintext Super Admin password anywhere in this repository and there
+must not be. What worked: mint a **local-only** hash into
+`.env.standalone.local` — a gitignored file that exists to run the built
+artefact on this machine — and sign in with a password chosen for the session.
+`.env.local`, the hosting panel and the live deployment are untouched, and
+nothing built from this repository reads that file.
+
+From there, *Login as Admin* opens any school's portal without ever handling a
+school member's own credentials. On localhost the tenant comes from `?school=<slug>`
+or the `school_slug` cookie, so `/dashboard?school=lgs` works.
+
+⚠ **`.env.standalone.local` exists because one file cannot satisfy both
+loaders** — §5bc trap 4. `@next/env` runs dotenv-expand and needs `\$`; `node
+--env-file` does no expansion and needs the raw hash. `.claude/launch.json` now
+carries an `sms-platform-qa` entry pointing at it. Regenerate it by stripping
+quotes and unescaping `\$` out of `.env.local`.
+
+### What is NOT done
+
+- **The teacher, parent and student portals were not signed into.** No account
+  for those roles exists on the live tenant. Their search scoping is one
+  `inArray` over a list an existing check-covered query returns, and all three
+  pages refuse the wrong role (verified: three redirects, no 500s) — but nobody
+  has held one of those logins.
+- **No screenshots exist**, for the reason above.
+- **Nothing is pushed.** `main` is merged locally and `origin/main` is behind.
+- **Search does not cover** exams, payroll runs, lesson plans, expenses or
+  ledger entries. The *Screens* category finds those screens by name.
+- **No attachments on replies.**
+- **`sr-only` overflow was not swept across the whole product** — only the two
+  scroll containers every portal screen renders inside, which is where it
+  matters.
 
 ## 8. Working agreement
 

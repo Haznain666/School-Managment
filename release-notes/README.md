@@ -6,6 +6,7 @@ what is not there yet. They are not the engineering handover — that is
 
 | Sprint | Theme | Migration | Notes |
 | --- | --- | --- | --- |
+| **16** | School feedback, global search on five portals, dashboard progress and layout fixes | `0032` **APPLIED** | [read](RELEASE-NOTES-SPRINT-16.md) |
 | **15** | The school creation wizard, dashboards on five portals, one table primitive | `0031` **APPLIED** | [read](RELEASE-NOTES-SPRINT-15.md) |
 | — | School creation wizard, the 429 status, the clipped address list — **folded into Sprint 15**, kept for its detail | `0031` (see Sprint 15) | [read](RELEASE-NOTES-SCHOOL-WIZARD-AND-PROVISIONING.md) |
 | — | School onboarding, fixed (not a sprint) | — | [read](RELEASE-NOTES-SCHOOL-ONBOARDING-FIXES.md) |
