@@ -203,7 +203,39 @@ export function PortalFrame({
             // `tabIndex={-1}` makes the skip link's target focusable without
             // putting the whole content region into the tab order.
             tabIndex={-1}
-            className="flex-1 overflow-y-auto p-4 focus-visible:outline-none sm:p-6"
+            /*
+              ── `relative` is the fix for the second scrollbar, and it is not
+                 cosmetic ────────────────────────────────────────────────────
+              Every portal screen had **two** vertical scrollbars: this one, and
+              one on the document behind it that scrolled a blank strip. Measured
+              on 2026-08-26 at 1280x720 on the platform dashboard:
+              `innerWidth - documentElement.clientWidth` was **15** — a real root
+              scrollbar — and `documentElement.scrollHeight` was **1185** against
+              a 720px viewport, on a page whose every `<body>` child measured 720.
+
+              The cause is `sr-only`. Tailwind implements it as `position:
+              absolute`, and an absolutely positioned element is clipped by an
+              ancestor's `overflow` **only when that ancestor is its containing
+              block** — which means a positioned one. Nothing between these
+              spans and `<html>` was positioned, so their containing block was
+              the initial containing block: they escaped this element's
+              `overflow-y: auto` entirely and extended the *root's* scrollable
+              overflow to wherever they happened to sit.
+
+              The bottom-most one on that page — the hidden `<figcaption>`
+              summarising the schools-by-city chart — sat at document y = 1185,
+              which is `scrollHeight` exactly.
+
+              So the outer scrollbar was made of accessibility text, it scrolled
+              a region with nothing painted in it, and it grew with the length of
+              the page. `position: relative` makes this element the containing
+              block for all of them, and the `overflow` above finally applies.
+              Verified in the browser: root scrollbar 15 -> 0, root max scroll
+              465 -> 0, and this element keeps its own.
+
+              Do not remove it to "clean up". There is no visual change to see.
+            */
+            className="relative flex-1 overflow-y-auto p-4 focus-visible:outline-none sm:p-6"
           >
             {children}
           </main>

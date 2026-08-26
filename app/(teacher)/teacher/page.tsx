@@ -4,6 +4,7 @@ import { CalendarClock, ClipboardCheck, PenLine } from 'lucide-react';
 
 import { DashboardNotices } from '@/components/school/DashboardNotices';
 import { Card, CardTitle } from '@/components/ui/Card';
+import { QuickLinks } from '@/components/ui/QuickLinks';
 import { StatTile, StatTileGrid } from '@/components/ui/StatTile';
 import { getActiveAcademicYear } from '@/lib/admissions-queries';
 import { listNoticesFor } from '@/lib/announcement-queries';
@@ -108,6 +109,28 @@ export default async function TeacherDashboardPage() {
 
   return (
     <div className="space-y-6">
+      {/*
+        Shortcuts as chips, above the greeting. A teacher opens this screen
+        between periods; the register and the gradebook are what they came for,
+        and both were previously two clicks down the sidebar.
+      */}
+      <QuickLinks
+        links={[
+          {
+            label: 'Take the register',
+            href: '/teacher/attendance',
+            icon: 'attendance',
+            description: 'Mark today for a class you teach.',
+            emphasis: true,
+          },
+          { label: 'My timetable', href: '/teacher/timetable', icon: 'timetable' },
+          { label: 'My classes', href: '/teacher/classes', icon: 'students' },
+          { label: 'Gradebook', href: '/teacher/gradebook', icon: 'marks' },
+          { label: 'Lesson plans', href: '/teacher/lesson-plans', icon: 'academics' },
+          { label: 'Leave', href: '/teacher/leave', icon: 'leave' },
+        ]}
+      />
+
       <Card>
         <h2 className="text-lg font-semibold text-ink">
           {greeting()}

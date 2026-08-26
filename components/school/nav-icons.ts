@@ -15,6 +15,7 @@ import {
   Layers,
   ListChecks,
   Megaphone,
+  MessageSquareText,
   MoveUpRight,
   Receipt,
   Scale,
@@ -103,6 +104,11 @@ export const NAV_ICONS = {
   marks: ListChecks,
   schools: Building2,
   modules: Layers,
+
+  // Sprint 16. A speech bubble with lines in it, not a megaphone: a school
+  // *tells us* something here, where an announcement is the school telling
+  // everybody. Two directions, two glyphs.
+  feedback: MessageSquareText,
 } as const satisfies Record<string, LucideIcon>;
 
 export type NavIconName = keyof typeof NAV_ICONS;

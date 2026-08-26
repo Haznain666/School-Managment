@@ -348,6 +348,46 @@ export async function uploadBuffer(params: {
   };
 }
 
+/** An object read back out of Storage, ready to be streamed to a caller. */
+export interface DownloadedObject {
+  bytes: ArrayBuffer;
+  /** What Storage says it is, which is what was sent on upload. */
+  contentType: string;
+}
+
+/**
+ * Reads an object back through the service-role key.
+ *
+ * ── Why this exists when the bucket is public ────────────────────────────
+ * Because "public bucket" and "public file" are not the same decision, and
+ * feedback attachments are the first files in this product where they come
+ * apart. A logo is meant to be fetched by anybody who loads the school's login
+ * page. A screenshot attached to a bug report is a picture of a school's own
+ * data — a fee register, a student list — and its public URL would hand that to
+ * anyone who ever saw the link, forever, with no session behind it.
+ *
+ * So the path is never published. The route that serves it verifies the caller
+ * first, calls this, and streams the bytes back with
+ * `Content-Disposition: attachment`. A uuid in a path is obscurity, not access
+ * control, and the difference matters the day a link is pasted into a chat.
+ *
+ * Returns null for a missing object rather than throwing: a row whose file has
+ * been removed is a 404 to the caller, not a 500.
+ */
+export async function downloadObject(storagePath: string): Promise<DownloadedObject | null> {
+  const endpoint = `${supabaseUrl()}/storage/v1/object/${bucketName()}/${encodePath(storagePath)}`;
+
+  const response = await fetch(endpoint, { method: 'GET', headers: storageHeaders() });
+
+  if (response.status === 404) return null;
+  if (!response.ok) await storageFailure(response, 'download');
+
+  return {
+    bytes: await response.arrayBuffer(),
+    contentType: response.headers.get('content-type') ?? 'application/octet-stream',
+  };
+}
+
 /** Removes an object. Missing files are not an error. */
 export async function deleteObject(storagePath: string): Promise<void> {
   const endpoint = `${supabaseUrl()}/storage/v1/object/${bucketName()}/${encodePath(storagePath)}`;

@@ -7,6 +7,8 @@ export interface TeacherNavbarProps {
   userName: string;
   role: UserRole;
   schoolSlug: string | null;
+  searchResultsHref?: string;
+  unreadNotifications?: number;
 }
 
 /** Teacher portal top bar — the shared navbar with a fixed portal label. */

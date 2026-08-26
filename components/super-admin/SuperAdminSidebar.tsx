@@ -37,6 +37,9 @@ const NAV: readonly NavEntry[] = [
   // Cross-school rather than per-school, so it sits beside Schools rather than
   // under it — it is not a view of one tenant.
   { label: 'Modules', href: '/super-admin/modules', icon: 'modules' },
+  // Sprint 16. Cross-school, like Modules: the queue is one queue, and reading
+  // it per tenant would be reading it in four places and answering none of them.
+  { label: 'Feedback', href: '/super-admin/feedback', icon: 'feedback' },
 ];
 
 function isActive(pathname: string, href: string): boolean {

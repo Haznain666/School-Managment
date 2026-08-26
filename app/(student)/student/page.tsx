@@ -6,6 +6,7 @@ import { LineChart } from '@/components/charts/LineChart';
 import { DashboardNotices } from '@/components/school/DashboardNotices';
 import { Badge } from '@/components/ui/Badge';
 import { Card, CardTitle } from '@/components/ui/Card';
+import { QuickLinks } from '@/components/ui/QuickLinks';
 import { StatTile, StatTileGrid } from '@/components/ui/StatTile';
 import { PROMOTION_STATUS_LABELS } from '@/db/schema';
 import {
@@ -133,6 +134,17 @@ export default async function StudentDashboardPage() {
 
   return (
     <div className="space-y-6">
+      {/* Shortcuts as chips, above the greeting. */}
+      <QuickLinks
+        links={[
+          { label: 'Timetable', href: '/student/timetable', icon: 'timetable', emphasis: true },
+          { label: 'Results', href: '/student/results', icon: 'reportCards' },
+          { label: 'Exams', href: '/student/exams', icon: 'exams' },
+          { label: 'Fees', href: '/student/fees', icon: 'fees' },
+          { label: 'Notices', href: '/student/announcements', icon: 'announcements' },
+        ]}
+      />
+
       <Card>
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>

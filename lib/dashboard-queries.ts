@@ -16,8 +16,12 @@ import {
   feePayments,
   gradeLabel,
   grades,
+  schoolUsers,
   sections,
+  staff,
   studentEnrollments,
+  subjects,
+  timetableEntries,
 } from '@/db/schema';
 
 import { academicYearBounds } from './academics-queries';
@@ -1312,4 +1316,273 @@ export async function getEnrolmentComparison(
     atYearStart: rows[0]?.atStart ?? 0,
     activeYearName: activeYear.name,
   };
+}
+
+/* -----------------------------------------------------------------------------
+ * Setup progress.
+ * -------------------------------------------------------------------------- */
+
+/** One of the six things a school needs before the product does anything. */
+export interface SetupStep {
+  key: 'principal' | 'teachers' | 'classes' | 'subjects' | 'timetable' | 'students';
+  label: string;
+  /** How many of this thing exist. The headcount the requirement asks for. */
+  count: number;
+  /** Done, in the only sense that can be measured: there is at least one. */
+  done: boolean;
+  /** What to do about it when there are none. Null once it is done. */
+  href: string | null;
+  /** One line saying why it matters, shown while it is outstanding. */
+  hint: string;
+}
+
+export interface SetupProgress {
+  steps: SetupStep[];
+  completed: number;
+  total: number;
+  /** `completed / total` as a whole percentage. */
+  percent: number;
+}
+
+/**
+ * How far a school is from being usable, as six counts and a bar.
+ *
+ * ── "Done" is `count > 0`, and nothing cleverer ──────────────────────────
+ * The product owner's rule, and it is the right one. A threshold — "at least
+ * five teachers", "a timetable covering every section" — is a number this code
+ * would have invented, and every school it did not fit would be told it was
+ * incomplete while working perfectly. One of a thing is the only threshold that
+ * is true of every school: with no subjects there is no timetable, with no
+ * timetable there is no register, and with no students there is nothing at all.
+ *
+ * ── Why a principal is counted from `school_users`, not `schools` ────────
+ * `schools.principal_name` is a text field on the school profile — it is the
+ * name printed on a report card, and a school can fill it in without anybody
+ * being able to sign in. This step asks whether a *person* exists, so it counts
+ * accounts holding `principal` or `vice_principal`. A school that has typed a
+ * name and invited nobody is correctly told this step is outstanding.
+ *
+ * ── Six counts, one round trip each, in parallel ─────────────────────────
+ * They touch six unrelated tables, so a single query would be six sequential
+ * scans behind one plan. Joining them would be worse still: a join multiplies
+ * rows before counting, which is the classic way this kind of tile comes out
+ * wrong — six sections and four subjects reporting twenty-four of each.
+ *
+ * ── BR4 ──────────────────────────────────────────────────────────────────
+ * Scoped where scoping means something. Classes, the timetable and the roll
+ * narrow to a principal's own grades; subjects, teachers and the principal
+ * count are school-wide facts with no grade on them, and inventing a
+ * per-division reading of "does this school have any subjects" would produce a
+ * number nobody could act on.
+ */
+export async function getSetupProgress(
+  locationId: string,
+  scope: AggregateScope = EVERY_GRADE,
+): Promise<SetupProgress> {
+  const activeYear = await getActiveAcademicYear(locationId);
+  const gradeIds = scope.gradeIds;
+  const narrowed = gradeIds !== null;
+  const nothing = reachesNothing(scope);
+
+  const [principals, staffRecords, unlinkedTeachers, classes, subjectCount, slots, students] =
+    await Promise.all([
+    countRows(
+      db
+        .select({ value: sql<number>`count(*)`.mapWith(Number) })
+        .from(schoolUsers)
+        .where(
+          and(
+            eq(schoolUsers.locationId, locationId),
+            eq(schoolUsers.isActive, true),
+            inArray(schoolUsers.role, ['principal', 'vice_principal']),
+          ),
+        ),
+    ),
+    /*
+     * Teaching staff, counted from **both** places a school can enter one.
+     *
+     * ── Why not just one of them ─────────────────────────────────────────
+     * QA on 2026-08-26 caught this the only way it could be caught: against a
+     * real school. Lahore Grammar School has an active `staff` record for a
+     * class teacher and **zero** `school_users` rows with the role `teacher` —
+     * the person is on the HR register and has never been invited to the
+     * portal. Counting accounts alone reported "Teachers 0" to a school that
+     * had entered one, which is the single most misleading thing a setup
+     * checklist can do: it tells you to redo work you have already done.
+     *
+     * Counting `staff` alone is wrong in the other direction — the register
+     * holds the accountant and the caretaker too — but it is the *smaller*
+     * error here, because a school that has entered any staff at all has
+     * started this step. And the inverse case is real as well: a school that
+     * invites teachers to the portal before HR records exist.
+     *
+     * So: every active staff record, plus every active teacher account that
+     * has no staff record behind it. The `is null` join is what stops the one
+     * person who is both from being counted twice, which is why this is two
+     * counts and not two independent ones added together carelessly.
+     */
+    countRows(
+      db
+        .select({ value: sql<number>`count(*)`.mapWith(Number) })
+        .from(staff)
+        .where(and(eq(staff.locationId, locationId), eq(staff.status, 'active'))),
+    ),
+    countRows(
+      db
+        .select({ value: sql<number>`count(*)`.mapWith(Number) })
+        .from(schoolUsers)
+        .leftJoin(
+          staff,
+          and(
+            eq(staff.schoolUserId, schoolUsers.id),
+            eq(staff.locationId, locationId),
+            eq(staff.status, 'active'),
+          ),
+        )
+        .where(
+          and(
+            eq(schoolUsers.locationId, locationId),
+            eq(schoolUsers.isActive, true),
+            eq(schoolUsers.role, 'teacher'),
+            isNull(staff.id),
+          ),
+        ),
+    ),
+    nothing
+      ? Promise.resolve(0)
+      : countRows(
+          db
+            .select({ value: sql<number>`count(*)`.mapWith(Number) })
+            .from(sections)
+            .where(
+              and(
+                eq(sections.locationId, locationId),
+                eq(sections.isActive, true),
+                narrowed ? inArray(sections.gradeId, gradeIds) : undefined,
+              ),
+            ),
+        ),
+    countRows(
+      db
+        .select({ value: sql<number>`count(*)`.mapWith(Number) })
+        .from(subjects)
+        .where(and(eq(subjects.locationId, locationId), eq(subjects.isActive, true))),
+    ),
+    nothing
+      ? Promise.resolve(0)
+      : countRows(
+          db
+            .select({ value: sql<number>`count(*)`.mapWith(Number) })
+            .from(timetableEntries)
+            .innerJoin(
+              sections,
+              and(
+                eq(sections.id, timetableEntries.sectionId),
+                eq(sections.locationId, locationId),
+              ),
+            )
+            .where(
+              and(
+                eq(timetableEntries.locationId, locationId),
+                eq(timetableEntries.isActive, true),
+                narrowed ? inArray(sections.gradeId, gradeIds) : undefined,
+              ),
+            ),
+        ),
+    nothing || activeYear === null
+      ? Promise.resolve(0)
+      : countRows(
+          db
+            .select({ value: sql<number>`count(*)`.mapWith(Number) })
+            .from(studentEnrollments)
+            .innerJoin(
+              sections,
+              and(
+                eq(sections.id, studentEnrollments.sectionId),
+                eq(sections.locationId, locationId),
+              ),
+            )
+            .where(
+              and(
+                eq(studentEnrollments.locationId, locationId),
+                eq(studentEnrollments.academicYearId, activeYear.id),
+                eq(studentEnrollments.status, 'active'),
+                narrowed ? inArray(sections.gradeId, gradeIds) : undefined,
+              ),
+            ),
+        ),
+  ]);
+
+  const teachers = staffRecords + unlinkedTeachers;
+
+  const steps: SetupStep[] = [
+    {
+      key: 'principal',
+      label: 'Principal',
+      count: principals,
+      done: principals > 0,
+      href: '/dashboard/users/invite',
+      hint: 'Invite the head of the school so they can sign in.',
+    },
+    {
+      key: 'teachers',
+      label: 'Teachers & staff',
+      count: teachers,
+      done: teachers > 0,
+      href: '/dashboard/hr/staff',
+      hint: 'Add teaching staff. Nothing can be timetabled without them.',
+    },
+    {
+      key: 'classes',
+      label: 'Classes',
+      count: classes,
+      done: classes > 0,
+      href: '/dashboard/admissions/grades',
+      hint: 'Create your grades and their sections.',
+    },
+    {
+      key: 'subjects',
+      label: 'Subjects',
+      count: subjectCount,
+      done: subjectCount > 0,
+      href: '/dashboard/academics/subjects',
+      hint: 'Name what is taught. The timetable and exams both read this.',
+    },
+    {
+      key: 'timetable',
+      label: 'Timetable',
+      count: slots,
+      done: slots > 0,
+      href: '/dashboard/academics/timetable',
+      hint: 'Lay out the week. The register and the teacher portal follow it.',
+    },
+    {
+      key: 'students',
+      label: 'Enrolled students',
+      count: students,
+      done: students > 0,
+      href: '/dashboard/admissions/enroll',
+      hint: 'Enrol or import the roll.',
+    },
+  ];
+
+  const completed = steps.filter((step) => step.done).length;
+
+  return {
+    // A finished step keeps its count and loses its link: the tile is a
+    // headcount as much as a checklist, and "6 classes" with nowhere to click
+    // is the right resting state for a school that set them up last year.
+    steps: steps.map((step) => (step.done ? { ...step, href: null } : step)),
+    completed,
+    total: steps.length,
+    percent: Math.round((100 * completed) / steps.length),
+  };
+}
+
+/** One `count(*)` statement, reduced to the number. */
+async function countRows(
+  statement: PromiseLike<Array<{ value: number }>>,
+): Promise<number> {
+  const rows = await statement;
+  return rows[0]?.value ?? 0;
 }

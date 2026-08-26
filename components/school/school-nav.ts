@@ -298,5 +298,18 @@ export function schoolNav({ role, permissions, moduleFlags }: SchoolNavProps): {
     });
   }
 
+  /*
+   * Feedback to the people who build this, and it is gated on nothing.
+   *
+   * Every other entry in this list is behind the read permission its own layout
+   * enforces, which is right: those are the school's records and a school
+   * decides who sees which. This is not a record — it is a person telling the
+   * vendor that a screen is broken — and the only thing a permission could do
+   * here is stop somebody reporting a bug. Last in the list because it is not
+   * part of anybody's day, and always present because the day it is needed is
+   * not a day to go looking for it.
+   */
+  items.push({ label: 'Feedback', href: '/dashboard/feedback', icon: 'feedback' });
+
   return { items, sections };
 }

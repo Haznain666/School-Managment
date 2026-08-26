@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react';
 
 import { SuperAdminShell } from '@/components/super-admin/SuperAdminShell';
+import { countUnreadNotifications } from '@/lib/notifications';
 import { readSuperAdminSession } from '@/lib/super-admin-guard';
 
 /**
@@ -24,5 +25,23 @@ export default async function SuperAdminLayout({ children }: { children: ReactNo
     return <>{children}</>;
   }
 
-  return <SuperAdminShell email={session.email}>{children}</SuperAdminShell>;
+  /*
+   * The bell's badge, read here so it is correct in the first painted frame.
+   * Wrapped: `notifications` arrives in migration `0032`, and this layout runs
+   * on every page of the platform portal — an unguarded read against a schema
+   * that has not caught up takes the whole surface down (§5aw). A bell with no
+   * badge is the correct degradation.
+   */
+  let unreadNotifications = 0;
+  try {
+    unreadNotifications = await countUnreadNotifications({ audience: 'super_admin' });
+  } catch (error) {
+    console.error('[layout] platform notification count could not be read:', error);
+  }
+
+  return (
+    <SuperAdminShell email={session.email} unreadNotifications={unreadNotifications}>
+      {children}
+    </SuperAdminShell>
+  );
 }

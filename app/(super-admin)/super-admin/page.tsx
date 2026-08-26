@@ -1,6 +1,6 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
-import { AlertTriangle, Building2, GraduationCap, Mail } from 'lucide-react';
+import { AlertTriangle, Building2, GraduationCap, Mail, MessageSquareText } from 'lucide-react';
 
 import { BarChart } from '@/components/charts/BarChart';
 import { DonutChart } from '@/components/charts/DonutChart';
@@ -8,6 +8,7 @@ import { LineChart } from '@/components/charts/LineChart';
 import { EmailDeliveryHealth } from '@/components/super-admin/EmailDeliveryHealth';
 import { Badge } from '@/components/ui/Badge';
 import { Card, CardTitle } from '@/components/ui/Card';
+import { QuickLinks } from '@/components/ui/QuickLinks';
 import { StatTile, StatTileGrid } from '@/components/ui/StatTile';
 import {
   Table,
@@ -18,6 +19,7 @@ import {
   TableRow,
 } from '@/components/ui/Table';
 import { settle } from '@/lib/dashboard-queries';
+import { getFeedbackSectionCounts } from '@/lib/feedback-queries';
 import {
   getActiveSchoolCount,
   getEmailHealth,
@@ -82,6 +84,7 @@ export default async function SuperAdminDashboardPage() {
     byCity,
     recent,
     email,
+    feedback,
   ] = await Promise.all([
     settle('active schools', PLATFORM, () => getActiveSchoolCount()),
     settle('platform students', PLATFORM, () => getPlatformStudentCount()),
@@ -92,6 +95,11 @@ export default async function SuperAdminDashboardPage() {
     settle('schools by city', PLATFORM, () => getSchoolsByCity()),
     settle('recent schools', PLATFORM, () => listRecentSchools()),
     settle('email health', PLATFORM, () => getEmailHealth()),
+    // Wrapped like everything else here, and for a sharper reason than usual:
+    // these tables arrive in migration `0032`, so on a deployment where it has
+    // not been applied this read throws and the tile says so instead of taking
+    // the estate's whole dashboard down with it (§5aw).
+    settle('feedback counts', PLATFORM, () => getFeedbackSectionCounts()),
   ]);
 
   const added = activeSchools === null ? 0 : activeSchools.now - activeSchools.thirtyDaysAgo;
@@ -101,6 +109,35 @@ export default async function SuperAdminDashboardPage() {
 
   return (
     <div className="space-y-6">
+      {/*
+        Shortcuts as chips, at the top. The same move the school-admin dashboard
+        got: an operator opening this screen is usually here to add a school or
+        to read what somebody has reported, and neither had a route from here
+        that was not the sidebar.
+      */}
+      <QuickLinks
+        links={[
+          {
+            label: 'Add school',
+            href: '/super-admin/schools/new',
+            icon: 'enroll',
+            description: 'Create a tenant and its first campus.',
+            emphasis: true,
+          },
+          { label: 'All schools', href: '/super-admin/schools', icon: 'schools' },
+          { label: 'Modules', href: '/super-admin/modules', icon: 'modules' },
+          {
+            label:
+              feedback === null || feedback.unread === 0
+                ? 'Feedback'
+                : `Feedback (${feedback.unread} new)`,
+            href: '/super-admin/feedback',
+            icon: 'feedback',
+            description: 'What schools have reported and asked for.',
+          },
+        ]}
+      />
+
       <StatTileGrid>
         <StatTile
           label="Active schools"
@@ -130,6 +167,7 @@ export default async function SuperAdminDashboardPage() {
           value={problems === null ? undefined : problems.length.toLocaleString()}
           unavailable={problems === null ? 'The tenant checks could not run.' : undefined}
           deltaMeaning={problems !== null && problems.length > 0 ? 'bad' : 'good'}
+          deltaKind="state"
           delta={
             problems === null
               ? undefined
@@ -160,10 +198,42 @@ export default async function SuperAdminDashboardPage() {
           value={email === null ? undefined : stuck === 0 ? 'Healthy' : stuck.toLocaleString()}
           unavailable={email === null ? 'The outbox could not be read.' : undefined}
           deltaMeaning={stuck > 0 ? 'bad' : 'good'}
+          deltaKind="state"
           delta={
             email === null ? undefined : stuck === 0 ? 'Nothing stuck' : 'Queued after a failure'
           }
           detail="Invitations, sign-in emails and fee notices"
+        />
+
+        {/*
+          New feedback, which is the one thing on this screen that arrives from
+          outside the platform rather than being measured about it.
+
+          It counts `unread` only, not "active". Active includes tickets an
+          operator has opened and not yet decided about — those are already
+          known, and a tile that stayed lit until every one of them was resolved
+          would be lit permanently. Unread is the number that means "somebody
+          has said something nobody has seen".
+        */}
+        <StatTile
+          label="New feedback"
+          icon={MessageSquareText}
+          value={feedback === null ? undefined : feedback.unread.toLocaleString()}
+          unavailable={feedback === null ? 'The feedback queue could not be read.' : undefined}
+          deltaMeaning={feedback !== null && feedback.unread > 0 ? 'bad' : 'neutral'}
+          deltaKind="state"
+          delta={
+            feedback === null
+              ? undefined
+              : feedback.unread === 0
+                ? 'Nothing unread'
+                : 'Waiting to be read'
+          }
+          detail={
+            feedback === null
+              ? undefined
+              : `${feedback.active} active, ${feedback.in_progress} in progress`
+          }
         />
       </StatTileGrid>
 

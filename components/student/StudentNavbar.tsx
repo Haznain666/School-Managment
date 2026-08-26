@@ -7,6 +7,8 @@ export interface StudentNavbarProps {
   userName: string;
   role: UserRole;
   schoolSlug: string | null;
+  searchResultsHref?: string;
+  unreadNotifications?: number;
 }
 
 /** Student portal top bar — the shared navbar with a fixed portal label. */

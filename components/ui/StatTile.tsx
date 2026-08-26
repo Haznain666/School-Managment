@@ -42,6 +42,23 @@ export interface StatTileProps {
   delta?: string;
   /** What the delta's direction means for this particular figure. */
   deltaMeaning?: DeltaMeaning;
+  /**
+   * Whether `delta` reads as a movement or as a condition.
+   *
+   * ── The defect this exists to fix ──────────────────────────────────────
+   * The direction is said in words for screen readers — "+12% — an
+   * improvement" — which is right for a number and nonsense for a phrase.
+   * Four tiles on the platform dashboard pass a phrase: "All healthy",
+   * "Nothing stuck", "Nothing unread", "Needs a person". A screen-reader user
+   * heard "All healthy — an improvement" and "Nothing unread — change", the
+   * second of which means nothing at all and the first of which asserts a
+   * movement that was never measured.
+   *
+   * `state` suppresses the suffix, because the text already carries the
+   * meaning. The colour still applies: it is a second signal on a fact that is
+   * in words either way, which is the rule this component was built on.
+   */
+  deltaKind?: 'change' | 'state';
   /** Period the delta is measured against: "vs last month". */
   deltaPeriod?: string;
   /**
@@ -68,6 +85,7 @@ export function StatTile({
   icon,
   delta,
   deltaMeaning = 'neutral',
+  deltaKind = 'change',
   deltaPeriod,
   unavailable,
   visual,
@@ -131,13 +149,15 @@ export function StatTile({
                     fails for a screen-reader user and for the ~8% of men with
                     a red-green deficiency.
                   */}
-                  <span className="sr-only">
-                    {deltaMeaning === 'good'
-                      ? ' — an improvement'
-                      : deltaMeaning === 'bad'
-                        ? ' — a deterioration'
-                        : ' — change'}
-                  </span>
+                  {deltaKind === 'state' ? null : (
+                    <span className="sr-only">
+                      {deltaMeaning === 'good'
+                        ? ' — an improvement'
+                        : deltaMeaning === 'bad'
+                          ? ' — a deterioration'
+                          : ' — change'}
+                    </span>
+                  )}
                 </span>
               ) : null}
               {deltaPeriod !== undefined ? (

@@ -13,8 +13,10 @@ import { BarChart } from '@/components/charts/BarChart';
 import { DonutChart } from '@/components/charts/DonutChart';
 import { LineChart } from '@/components/charts/LineChart';
 import { Sparkline } from '@/components/charts/Sparkline';
+import { SetupProgressCard } from '@/components/school/SetupProgressCard';
 import { Card, CardTitle } from '@/components/ui/Card';
 import { PageHeader } from '@/components/ui/PageHeader';
+import { QuickLinks, type QuickLink } from '@/components/ui/QuickLinks';
 import { StatTile, StatTileGrid } from '@/components/ui/StatTile';
 import {
   getAdmissionsFunnel,
@@ -29,6 +31,7 @@ import {
   getFeeStatusSplit,
   getOutstandingSummary,
   getRecentExamOutcomes,
+  getSetupProgress,
   getTodaySnapshot,
   settle,
   type AggregateScope,
@@ -54,26 +57,6 @@ export const metadata: Metadata = {
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
-
-function ActionTile({
-  href,
-  title,
-  description,
-}: {
-  href: string;
-  title: string;
-  description: string;
-}) {
-  return (
-    <Link
-      href={href}
-      className="block rounded-card border border-line bg-surface-raised p-4 shadow-card transition hover:border-brand-primary"
-    >
-      <p className="font-medium text-ink">{title}</p>
-      <p className="mt-1 text-sm text-ink-muted">{description}</p>
-    </Link>
-  );
-}
 
 /** Modules that have real screens. Anything absent lands back on /dashboard. */
 const MODULE_HOMES: Partial<Record<string, string>> = {
@@ -186,6 +169,7 @@ export default async function SchoolDashboardPage() {
     attendanceByClass,
     attendance30,
     enrolment,
+    setup,
     classStrength,
     funnel,
     outcomes,
@@ -234,6 +218,9 @@ export default async function SchoolDashboardPage() {
     settle('enrolment comparison', locationId, () =>
       getEnrolmentComparison(locationId, aggregateScope),
     ),
+    // Six indexed counts. Wrapped like everything else here: a school that
+    // cannot be counted still has a dashboard.
+    settle('setup progress', locationId, () => getSetupProgress(locationId, aggregateScope)),
     showEnrolment
       ? settle('class strength', locationId, () => getClassStrength(locationId, aggregateScope))
       : null,
@@ -282,6 +269,101 @@ export default async function SchoolDashboardPage() {
 
   const totalStrength = classStrength?.reduce((sum, row) => sum + row.value, 0) ?? 0;
 
+  /*
+   * The chip row. Ordered by how often it is wanted rather than by module: an
+   * administrator opening this screen is far more often inviting somebody or
+   * looking at a challan than they are visiting a module's landing page, and
+   * the modules are already in the sidebar.
+   */
+  const quickLinks: QuickLink[] = [
+    ...(canInvite
+      ? [
+          {
+            label: 'Invite staff',
+            href: '/dashboard/users/invite',
+            icon: 'users' as const,
+            description: 'Send an email invitation to a new team member.',
+            emphasis: true,
+          },
+        ]
+      : []),
+    ...(showEnrolment
+      ? [
+          {
+            label: 'Enrol a student',
+            href: '/dashboard/admissions/enroll',
+            icon: 'enroll' as const,
+            description: 'Add one child to the roll.',
+          },
+        ]
+      : []),
+    ...(showFees
+      ? [
+          {
+            label: 'Challans',
+            href: '/dashboard/fees/challans',
+            icon: 'challans' as const,
+            description: 'Generate, print and record payments.',
+          },
+        ]
+      : []),
+    ...(showAttendance
+      ? [
+          {
+            label: 'Attendance',
+            href: '/dashboard/academics/attendance',
+            icon: 'attendance' as const,
+            description: 'Take or review a register.',
+          },
+        ]
+      : []),
+    ...(permissions.includes('settings.write')
+      ? [
+          {
+            label: 'School settings',
+            href: '/dashboard/settings',
+            icon: 'settings' as const,
+            description: 'Your school profile and branding.',
+          },
+        ]
+      : []),
+    ...(permissions.includes('permissions.manage')
+      ? [
+          {
+            label: 'Roles & permissions',
+            href: '/dashboard/settings/permissions',
+            icon: 'settings' as const,
+            description: 'Decide what each role may see and do.',
+          },
+        ]
+      : []),
+    ...(permissions.includes('principals.manage')
+      ? [
+          {
+            label: 'Principals & divisions',
+            href: '/dashboard/settings',
+            icon: 'users' as const,
+            description: 'Assign heads to campuses and grades.',
+          },
+        ]
+      : []),
+    // The enabled modules keep their place, last: they are landing pages rather
+    // than actions, and the sidebar already carries them.
+    ...enabledModules
+      .filter((entry) => MODULE_HOMES[entry.key] !== undefined)
+      .map((entry) => ({
+        label: entry.label,
+        href: MODULE_HOMES[entry.key] as string,
+        description: MODULE_DESCRIPTIONS[entry.key],
+      })),
+    {
+      label: 'Feedback',
+      href: '/dashboard/feedback',
+      icon: 'feedback' as const,
+      description: 'Tell us about a bug, or ask for something.',
+    },
+  ];
+
   return (
     <div className="space-y-6">
       <PageHeader
@@ -303,7 +385,32 @@ export default async function SchoolDashboardPage() {
         </Card>
       )}
 
+      {/*
+        The shortcuts, at the top rather than under nine charts.
+
+        They were a grid of bordered tiles at the foot of this page — two
+        scrolls past the fold, below the part of the screen nobody clicks. A
+        chip row reads as a toolbar rather than as the page's content, which is
+        what stopped the old tiles from being able to sit up here at all.
+
+        Every entry is gated on the permission the destination itself enforces,
+        never on the role name. A principal holds none of the last three and so
+        sees none of them, without this file having to know what a principal is.
+      */}
+      <QuickLinks links={quickLinks} ariaLabel="Quick links" />
+
       <ExceptionsStrip exceptions={exceptions} />
+
+      {/*
+        Setup progress, above the money. A school missing three of these six has
+        a product that does not work yet, and no collections chart is the more
+        urgent thing to look at until that is fixed. Once every step is in place
+        the card collapses to one line and the numbers become a summary of the
+        school rather than a checklist.
+      */}
+      {setup === null ? null : (
+        <SetupProgressCard progress={setup} scoped={scope.gradeIds !== null} />
+      )}
 
       <StatTileGrid>
         {showFees ? (
@@ -353,6 +460,7 @@ export default async function SchoolDashboardPage() {
             deltaMeaning={
               outstanding !== null && outstanding.overdueCount > 0 ? 'bad' : 'neutral'
             }
+            deltaKind="state"
             detail={
               outstanding === null
                 ? undefined
@@ -648,7 +756,20 @@ export default async function SchoolDashboardPage() {
         </div>
       ) : null}
 
-      {classStrength !== null && classStrength.length > 0 ? (
+      {/*
+        Class strength and Recent exam outcomes, in the same two-column grid as
+        every other pair on this page.
+
+        They were two full-width cards, and that is what made them look wrong.
+        Both charts are a fixed 640-unit viewBox scaled to their container, so
+        at ~1200px wide the same SVG renders around twice the height of the
+        eight charts above it — the bars twice as thick, the labels twice the
+        size, and the whole card reading as a different component. Nothing about
+        the charts needed changing; they needed to be the same width as their
+        siblings.
+      */}
+      <div className="grid gap-5 lg:grid-cols-2">
+        {classStrength !== null && classStrength.length > 0 ? (
         <Card
           header={
             <CardTitle
@@ -665,9 +786,9 @@ export default async function SchoolDashboardPage() {
             format={(value) => String(Math.round(value))}
           />
         </Card>
-      ) : null}
+        ) : null}
 
-      {showExams && outcomes !== null && outcomes.length > 0 ? (
+        {showExams && outcomes !== null && outcomes.length > 0 ? (
         <Card
           header={
             <CardTitle
@@ -699,66 +820,8 @@ export default async function SchoolDashboardPage() {
             orientation="horizontal"
           />
         </Card>
-      ) : null}
-
-      <section className="space-y-3">
-        <h2 className="text-sm font-semibold uppercase tracking-wide text-ink-muted">
-          Quick actions
-        </h2>
-
-        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-          {canInvite ? (
-            <ActionTile
-              href="/dashboard/users/invite"
-              title="Invite staff"
-              description="Send an email invitation to a new team member."
-            />
-          ) : null}
-
-          {/*
-            Gated on the permission the route itself enforces, never on the role
-            name. A principal holds none of these three and so sees none of
-            them, without this file having to know that.
-          */}
-          {permissions.includes('settings.write') ? (
-            <ActionTile
-              href="/dashboard/settings"
-              title="School settings"
-              description="Review your school profile and branding."
-            />
-          ) : null}
-
-          {permissions.includes('permissions.manage') ? (
-            <ActionTile
-              href="/dashboard/settings/permissions"
-              title="Roles and permissions"
-              description="Decide what each role in your school may see and do."
-            />
-          ) : null}
-
-          {permissions.includes('principals.manage') ? (
-            <ActionTile
-              href="/dashboard/settings"
-              title="Principals and divisions"
-              description="Assign heads to campuses and grades."
-            />
-          ) : null}
-
-          {enabledModules.map((entry) => (
-            <ActionTile
-              key={entry.key}
-              // Admissions and Fees have screens of their own; the rest still
-              // land back here until their sprint builds them.
-              href={MODULE_HOMES[entry.key] ?? '/dashboard'}
-              title={entry.label}
-              description={
-                MODULE_DESCRIPTIONS[entry.key] ??
-                `Phase ${entry.phase} module — screens arrive in a later sprint.`
-              }
-            />
-          ))}
-        </div>
-      </section>
+        ) : null}
+      </div>
     </div>
   );
 }
