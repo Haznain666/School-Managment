@@ -45,6 +45,19 @@ Sprint 13.7 — §5ar; 2026-08-19: §5aq, §5ap, §5ao, §5an, §5am, §5al, §5
 > 200)**, `expected: 47e072c1f058` / `live: 47e072c1f058`, and the smoke test
 > passed. The three new platform endpoints answer **401**, not 404, which is
 > what proves the new routes are actually on the host and guarded.
+>
+> ⚠ **Do not run the verification immediately after a purge on a cold origin.**
+> The second deploy that day (`762f1017f5fe`, the docs) was purged at 13:43:44
+> and probed at 13:44:39, and the probe returned `status: 000000` /
+> `live: <no answer>` — a curl timeout while the freshly restarted origin warmed
+> up, **not** an old build. Re-run a minute later: `status: 200`, expected and
+> live both `762f1017f5fe`, everything green, and a hand probe in between
+> answered in 0.5s.
+>
+> This is precisely the ambiguity §5bc's fix was written for, and it behaved:
+> the step reported what it saw and **did not assert a cause**. Read the status
+> code before concluding anything about the deploy — `000` is the network, not
+> the build.
 
 > ✅ **Migration `0032` is APPLIED to the live database — 2026-08-26.** The
 > bookkeeping table held 32 rows before and **33** after. Verified against the
