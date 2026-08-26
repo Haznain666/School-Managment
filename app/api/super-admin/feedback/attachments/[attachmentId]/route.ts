@@ -1,7 +1,7 @@
 import type { NextRequest } from 'next/server';
 
-import { attachmentResponse } from '@/app/api/school/feedback/attachment-response';
 import { apiFailure, handleApiError } from '@/lib/api-response';
+import { attachmentResponse } from '@/lib/attachment-response';
 import { getFeedbackAttachment } from '@/lib/feedback-queries';
 import { downloadObject } from '@/lib/storage';
 import { requireSuperAdmin } from '@/lib/super-admin-guard';

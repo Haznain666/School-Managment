@@ -1,8 +1,4 @@
-import {
-  FEEDBACK_STATUSES,
-  type FeedbackNature,
-  type FeedbackStatus,
-} from '@/db/schema/feedback';
+import type { FeedbackNature, FeedbackStatus } from '@/db/schema/feedback';
 
 /**
  * The rules a feedback ticket has to satisfy, in one place both sides read.
@@ -169,20 +165,6 @@ export function isFeedbackSection(value: unknown): value is FeedbackSection {
   );
 }
 
-export function sectionForStatus(status: FeedbackStatus): FeedbackSection {
-  switch (status) {
-    case 'unread':
-    case 'read':
-      return 'active';
-    case 'in_progress':
-      return 'in_progress';
-    case 'future':
-      return 'future';
-    case 'resolved':
-      return 'resolved';
-  }
-}
-
 /**
  * The badge colour for a status.
  *
@@ -221,7 +203,3 @@ export const FEEDBACK_SORT_COLUMNS = [
   'status',
 ] as const;
 export type FeedbackSortColumn = (typeof FEEDBACK_SORT_COLUMNS)[number];
-
-/** Re-exported so a caller needs one import rather than two. */
-export { FEEDBACK_STATUSES };
-export type { FeedbackNature, FeedbackStatus };
