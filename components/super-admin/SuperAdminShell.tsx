@@ -27,7 +27,16 @@ import { Icon } from '@/components/ui/Icon';
  * of the screen and still could not be scrolled to properly. It is now a
  * drawer below `md`, exactly as the school portals are.
  */
-export function SuperAdminShell({ email, children }: { email: string; children: ReactNode }) {
+export function SuperAdminShell({
+  email,
+  unreadNotifications,
+  children,
+}: {
+  email: string;
+  /** Read in the layout, so the bell's badge is right in the first frame. */
+  unreadNotifications?: number;
+  children: ReactNode;
+}) {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const pathname = usePathname();
   const drawerRef = useRef<HTMLDivElement>(null);
@@ -61,8 +70,19 @@ export function SuperAdminShell({ email, children }: { email: string; children: 
       <SuperAdminSidebar />
 
       <div className="flex min-w-0 flex-1 flex-col">
-        <SuperAdminTopBar email={email} onOpenNav={() => setDrawerOpen(true)} />
-        <main className="flex-1 overflow-y-auto p-4 sm:p-6">{children}</main>
+        <SuperAdminTopBar
+          email={email}
+          onOpenNav={() => setDrawerOpen(true)}
+          unreadNotifications={unreadNotifications}
+        />
+        {/*
+          `relative` for the same reason as `PortalFrame`'s main, and it was
+          measured on *this* surface: `sr-only` is `position: absolute`, and
+          without a positioned ancestor those spans escape the `overflow-y`
+          below and give the document a second scrollbar over a blank strip.
+          See the long note in `components/school/PortalFrame.tsx`.
+        */}
+        <main className="relative flex-1 overflow-y-auto p-4 sm:p-6">{children}</main>
       </div>
 
       {drawerOpen ? (

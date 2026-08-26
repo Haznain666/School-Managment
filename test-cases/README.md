@@ -149,6 +149,7 @@ release-note claims:
 
 | Release | Cases | File |
 | --- | --- | --- |
+| Sprint 16 — Feedback, global search & the dashboard fixes | 119 | [read](TEST-CASES-SPRINT-16.md) |
 | School onboarding fixes | 27 | [read](TEST-CASES-SCHOOL-ONBOARDING-FIXES.md) |
 | Address & phone fields | 25 | [read](TEST-CASES-ADDRESS-AND-PHONE-FIELDS.md) |
 | SMTP & wildcard subdomains | 14 | [read](TEST-CASES-SMTP-AND-WILDCARD-SUBDOMAINS.md) |

@@ -5,6 +5,7 @@ import { Banknote, ClipboardCheck, Users } from 'lucide-react';
 import { ChildDashboardCard } from '@/components/parent/ChildDashboardCard';
 import { DashboardNotices } from '@/components/school/DashboardNotices';
 import { Card } from '@/components/ui/Card';
+import { QuickLinks } from '@/components/ui/QuickLinks';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { StatTile, StatTileGrid } from '@/components/ui/StatTile';
 import { getActiveAcademicYear, listChildrenForGuardian } from '@/lib/admissions-queries';
@@ -104,6 +105,21 @@ export default async function ParentDashboardPage() {
 
   return (
     <div className="space-y-6">
+      {/*
+        Shortcuts as chips, above the greeting. A parent lands here to check one
+        of four things, and each of them is now one tap rather than a trip
+        through the drawer — which on a phone is the only navigation there is.
+      */}
+      <QuickLinks
+        links={[
+          { label: 'Fees', href: '/parent/fees', icon: 'fees', emphasis: true },
+          { label: 'Attendance', href: '/parent/attendance', icon: 'attendance' },
+          { label: 'Results', href: '/parent/results', icon: 'reportCards' },
+          { label: 'My children', href: '/parent/children', icon: 'children' },
+          { label: 'Notices', href: '/parent/announcements', icon: 'announcements' },
+        ]}
+      />
+
       <Card>
         <h2 className="text-lg font-semibold text-ink">
           Welcome{firstName === '' ? '' : `, ${firstName}`}.

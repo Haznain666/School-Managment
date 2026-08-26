@@ -40,6 +40,7 @@ import {
   getCollectionComparison,
   getCollectionTrend,
   getEnrolmentComparison,
+  getSetupProgress,
   getExamPerformance,
   getFeeStatusSplit,
   getOutstandingSummary,
@@ -150,6 +151,10 @@ const CHECKS: Array<[string, () => Promise<unknown>]> = [
   ['getOutstandingSummary', () => getOutstandingSummary(NOBODY)],
   ['getAttendanceAverage', () => getAttendanceAverage(NOBODY)],
   ['getEnrolmentComparison', () => getEnrolmentComparison(NOBODY)],
+  // Sprint 16. Six counts over six unrelated tables, so it is registered here
+  // for the same reason as every other aggregate: the scoped path is different
+  // SQL that the unscoped path never issues.
+  ['getSetupProgress', () => getSetupProgress(NOBODY)],
 
   // Sprint 15 — BR4. Every aggregate again, through the scoped sub-selects.
   ['resolveDashboardScope (unscoped)', () => resolveDashboardScope(NOBODY, UNSCOPED)],
@@ -167,6 +172,7 @@ const CHECKS: Array<[string, () => Promise<unknown>]> = [
   ['getOutstandingSummary scoped', () => getOutstandingSummary(NOBODY, SCOPED)],
   ['getAttendanceAverage scoped', () => getAttendanceAverage(NOBODY, SCOPED)],
   ['getEnrolmentComparison scoped', () => getEnrolmentComparison(NOBODY, SCOPED)],
+  ['getSetupProgress scoped', () => getSetupProgress(NOBODY, SCOPED)],
 
   // Sprint 15 — the exceptions strip. Every gate on, so all five run.
   [

@@ -4,19 +4,37 @@
     {
       "name": "sms-platform",
       "runtimeExecutable": "npm",
-      "runtimeArgs": ["run", "dev"],
+      "runtimeArgs": [
+        "run",
+        "dev"
+      ],
       "port": 3000
     },
     {
       "name": "sms-platform-prod",
       "runtimeExecutable": "npm",
-      "runtimeArgs": ["run", "start"],
+      "runtimeArgs": [
+        "run",
+        "start"
+      ],
       "port": 3000
     },
     {
       "name": "sms-platform-standalone",
       "runtimeExecutable": "node",
-      "runtimeArgs": ["--env-file=.env.local", ".next/standalone/server.js"],
+      "runtimeArgs": [
+        "--env-file=.env.local",
+        ".next/standalone/server.js"
+      ],
+      "port": 3000
+    },
+    {
+      "name": "sms-platform-qa",
+      "runtimeExecutable": "node",
+      "runtimeArgs": [
+        "--env-file=.env.standalone.local",
+        ".next/standalone/server.js"
+      ],
       "port": 3000
     }
   ]

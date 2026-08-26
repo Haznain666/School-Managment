@@ -124,3 +124,14 @@ export * from './exam-schedule-grades';
 export * from './exam-schedule-subjects';
 export * from './grade-promotion-criteria';
 export * from './student-term-results';
+
+// Sprint 16 — feedback from a school to the vendor, and the in-app bell that
+// carries it in both directions.
+//
+// `notifications` is exported after `feedback` only for readability; neither
+// references the other. The bell is deliberately general — a notification names
+// a recipient, a title and a link, and knows nothing about feedback — so the
+// next thing that needs to tell somebody something writes one row rather than
+// adding a second mechanism.
+export * from './feedback';
+export * from './notifications';

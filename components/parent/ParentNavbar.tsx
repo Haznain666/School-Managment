@@ -12,6 +12,8 @@ export interface ParentNavbarProps {
   schoolSlug: string | null;
   /** Every child this login is recorded against. Empty for a new account. */
   students: readonly { studentProfileId: string; studentId: string; name: string }[];
+  searchResultsHref?: string;
+  unreadNotifications?: number;
 }
 
 /**

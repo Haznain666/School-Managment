@@ -7,6 +7,7 @@ import { studentNav } from '@/components/student/student-nav';
 import { paletteToCSSVars } from '@/lib/branding';
 import { requireSchoolRole } from '@/lib/school-guard';
 import { countUnreadNotices } from '@/lib/announcement-queries';
+import { countUnreadNotifications } from '@/lib/notifications';
 import { getSchoolUserByUid } from '@/lib/school-queries';
 import { getSchoolBranding } from '@/lib/school-tenant';
 
@@ -33,6 +34,13 @@ export default async function StudentLayout({ children }: { children: ReactNode 
   const unreadNotices =
     profile === null ? 0 : await countUnreadNotices(locationId, profile.id);
 
+  /*
+   * The bell's badge. Wrapped, because `notifications` arrives in migration
+   * `0032` and a layout runs on every page of this portal — §5aw is what an
+   * unguarded layout read costs when the schema has not caught up.
+   */
+  const unreadNotifications = await countUnread(profile?.id ?? null);
+
   const brandStyle = paletteToCSSVars(
     branding?.palette ?? null,
   ) as unknown as CSSProperties;
@@ -52,6 +60,8 @@ export default async function StudentLayout({ children }: { children: ReactNode 
             userName={profile?.name ?? ''}
             role={claims.role}
             schoolSlug={claims.schoolSlug}
+            searchResultsHref="/student/search"
+            unreadNotifications={unreadNotifications}
           />
         }
       >
@@ -63,4 +73,16 @@ export default async function StudentLayout({ children }: { children: ReactNode 
       <ServiceWorkerRegistrar />
     </div>
   );
+}
+
+/** The bell's count, or zero when it cannot be read. Never an error page. */
+async function countUnread(schoolUserId: string | null): Promise<number> {
+  if (schoolUserId === null) return 0;
+
+  try {
+    return await countUnreadNotifications({ audience: 'school_user', schoolUserId });
+  } catch (error) {
+    console.error('[layout] notification count could not be read:', error);
+    return 0;
+  }
 }
