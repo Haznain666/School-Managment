@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/Button';
 import { Card, CardTitle } from '@/components/ui/Card';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
+import { formatPkr } from '@/lib/money';
 
 export interface TransferSectionOption {
   id: string;
@@ -139,7 +140,7 @@ export function TransferPanel({
       const result = payload.data.result;
       setDone(
         `${studentName} moved from ${result.fromBranchName} to ${result.toBranchName}. ` +
-          `${result.fromBranchName} credits PKR ${result.credit}; ${result.toBranchName} bills PKR ${result.charge} on its next run.` +
+          `${result.fromBranchName} credits ${formatPkr(result.credit)}; ${result.toBranchName} bills ${formatPkr(result.charge)} on its next run.` +
           (result.cancelledChallans > 0
             ? ` ${result.cancelledChallans} open challan${result.cancelledChallans === 1 ? ' was' : 's were'} cancelled.`
             : ''),
@@ -262,7 +263,7 @@ export function TransferPanel({
                     Outstanding this month
                   </dt>
                   <dd className="mt-1 font-mono text-sm text-ink">
-                    PKR {quote.monthlyTotal}
+                    {formatPkr(quote.monthlyTotal)}
                   </dd>
                 </div>
                 <div>
@@ -270,7 +271,7 @@ export function TransferPanel({
                     {current?.branchName ?? 'Leaving campus'} credits
                   </dt>
                   <dd className="mt-1 font-mono text-sm text-ink">
-                    PKR {quote.credit}
+                    {formatPkr(quote.credit)}
                   </dd>
                 </div>
                 <div>
@@ -278,7 +279,7 @@ export function TransferPanel({
                     New campus bills
                   </dt>
                   <dd className="mt-1 font-mono text-sm text-ink">
-                    PKR {quote.charge}
+                    {formatPkr(quote.charge)}
                   </dd>
                 </div>
               </dl>

@@ -8,6 +8,7 @@ import { Card, CardTitle } from '@/components/ui/Card';
 import { DataTable, type DataTableColumn } from '@/components/ui/DataTable';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
+import { formatPkr } from '@/lib/money';
 import { formatPhoneForDisplay } from '@/lib/phone-formats';
 
 interface Member {
@@ -140,7 +141,7 @@ export function FamilyVouchers({ canWrite, defaultMonth, defaultYear }: FamilyVo
 
         setNotice(
           `${payload.data.result.challanNumber} issued for ${group.guardianName} — ` +
-            `${payload.data.result.members} children, PKR ${payload.data.result.total}.`,
+            `${payload.data.result.members} children, ${formatPkr(payload.data.result.total)}.`,
         );
         await Promise.all([loadGroups(), loadIssued()]);
       } catch {
@@ -190,7 +191,7 @@ export function FamilyVouchers({ canWrite, defaultMonth, defaultYear }: FamilyVo
 
         const across = payload.data.result.distributed.length;
         setNotice(
-          `PKR ${Number(amount).toFixed(2)} recorded against ${voucher.challanNumber}, ` +
+          `${formatPkr(amount)} recorded against ${voucher.challanNumber}, ` +
             `spread across ${across} child${across === 1 ? '' : 'ren'}’s challans, oldest first.`,
         );
         setPayingId(null);
@@ -233,7 +234,7 @@ export function FamilyVouchers({ canWrite, defaultMonth, defaultYear }: FamilyVo
         <ul className="text-sm text-ink-muted">
           {group.members.map((member) => (
             <li key={member.challanId}>
-              {member.studentName} · {member.challanNumber} · PKR {member.totalAmount}
+              {member.studentName} · {member.challanNumber} · {formatPkr(member.totalAmount)}
             </li>
           ))}
         </ul>
@@ -245,7 +246,7 @@ export function FamilyVouchers({ canWrite, defaultMonth, defaultYear }: FamilyVo
       kind: 'money',
       sortValue: (group) => Number(group.total),
       cell: (group) => (
-        <span className="font-mono text-sm text-ink">PKR {group.total}</span>
+        <span className="font-mono text-sm text-ink">{formatPkr(group.total)}</span>
       ),
     },
   ];

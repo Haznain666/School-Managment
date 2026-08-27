@@ -17,6 +17,7 @@ import { generateChallanNumber } from './challan-number';
 import { formatMonthYear } from './dates';
 import { db } from './drizzle';
 import { sendFeeVouchers } from './fee-notices';
+import { formatPkr } from './money';
 import { normalizeCnic } from './national-id';
 
 /**
@@ -497,7 +498,7 @@ export async function recordFamilyPayment(params: {
   let remaining = Math.round(amount * 100);
   if (remaining > outstandingPaisa) {
     throw new FamilyChallanError(
-      `That is more than the ${(outstandingPaisa / 100).toFixed(2)} still owed on this voucher.`,
+      `That is more than the ${formatPkr(outstandingPaisa / 100)} still owed on this voucher.`,
     );
   }
 

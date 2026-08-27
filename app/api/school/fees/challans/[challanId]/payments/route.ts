@@ -17,7 +17,7 @@ import { settleEnrolmentIfFeePaid } from '@/lib/enrolment-fee-gate';
 import { challanStatusFor, remainingBalance } from '@/lib/fee-calculator';
 import { getChallanDetail } from '@/lib/fee-queries';
 import { sendPaymentConfirmation } from '@/lib/fee-notices';
-import { formatAmount, paiseToNumeric, toPaise } from '@/lib/money';
+import { formatPkr, paiseToNumeric, toPaise } from '@/lib/money';
 import { isUuid, readOptionalString } from '@/lib/validation';
 
 /**
@@ -222,7 +222,7 @@ export const POST = withSchoolAuth<RouteContext>(
       if (amountPaise > remainingPaise) {
         return apiFailure(
           'amount_too_large',
-          `Only PKR ${formatAmount(remainingPaise / 100)} is still owed on this challan.`,
+          `Only ${formatPkr(remainingPaise / 100)} is still owed on this voucher.`,
           400,
         );
       }

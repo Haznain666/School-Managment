@@ -9,7 +9,7 @@ import type { Database } from './drizzle';
 import { enqueueEmail } from './email-outbox';
 import { smtpConfigured } from './email-sender';
 import { primaryGuardiansFor } from './fee-queries';
-import { formatAmount } from './money';
+import { formatPkr } from './money';
 
 /**
  * Fee notices to guardians (Sprint 5).
@@ -155,7 +155,7 @@ export async function sendFeeReminder(
 
     const message =
       `Dear ${params.guardian.name}, fee challan ${params.challanNumber} for ` +
-      `${params.studentName} of PKR ${formatAmount(params.amountDue)} was due on ` +
+      `${params.studentName} of ${formatPkr(params.amountDue)} was due on ` +
       `${params.dueDate}. Please pay at your nearest bank. - ${schoolName}`;
 
     await notifyGuardian(
@@ -264,7 +264,7 @@ export async function sendFeeVouchers(
             item.concessionDetail === null || item.concessionDetail === undefined
               ? ''
               : ` (${item.concessionDetail})`;
-          return `  ${item.description}${detail}: PKR ${formatAmount(item.netAmount)}`;
+          return `  ${item.description}${detail}: ${formatPkr(item.netAmount)}`;
         })
         .join('\n');
 
@@ -273,7 +273,7 @@ export async function sendFeeVouchers(
         `Fee voucher ${notice.challanNumber} has been issued for ${notice.studentName} ` +
         `for ${notice.periodLabel}.\n\n` +
         `${lines}\n\n` +
-        `Total payable: PKR ${formatAmount(notice.totalAmount)}\n` +
+        `Total payable: ${formatPkr(notice.totalAmount)}\n` +
         `Due on: ${formatDateOnly(notice.dueDate)}\n\n` +
         `A printed copy is available from the school office. ` +
         `Please pay at your nearest bank on or before the due date.\n\n` +
@@ -322,7 +322,7 @@ export async function sendPaymentConfirmation(
       params.schoolName ?? (await schoolNameFor(db, locationId)) ?? 'your school';
 
     const message =
-      `Dear ${params.guardian.name}, payment of PKR ${formatAmount(params.amountPaid)} ` +
+      `Dear ${params.guardian.name}, payment of ${formatPkr(params.amountPaid)} ` +
       `received for ${params.studentName} against challan ${params.challanNumber}. ` +
       `Thank you. - ${schoolName}`;
 
