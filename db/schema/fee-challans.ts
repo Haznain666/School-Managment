@@ -84,7 +84,22 @@ export const feeChallans = pgTable(
     lateFeeAmount: numeric('late_fee_amount', { precision: 12, scale: 2 })
       .notNull()
       .default('0'),
-    /** subtotal - concession + late fee. What the parent owes. */
+    /**
+     * Credit carried forward that this challan spent (Sprint 17).
+     *
+     * On the header rather than in `fee_challan_items` because every line there
+     * carries a `fee_type_id NOT NULL`, and an adjustment has no fee head: it
+     * is not a charge the school levied, it is money the school already owed.
+     * Frozen at generation exactly as `subtotal` and `concession_amount` are.
+     *
+     * The consuming `student_credits` row is written in the same `batch()` as
+     * the challan. A credit spent by a challan that was not written is a credit
+     * lost, and nothing would ever report it missing.
+     */
+    creditApplied: numeric('credit_applied', { precision: 12, scale: 2 })
+      .notNull()
+      .default('0'),
+    /** subtotal - concession - credit applied + late fee. What the parent owes. */
     totalAmount: numeric('total_amount', { precision: 12, scale: 2 }).notNull(),
     /** Kept in step with `fee_payments` by the payment endpoint. */
     paidAmount: numeric('paid_amount', { precision: 12, scale: 2 })

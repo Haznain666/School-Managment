@@ -1,7 +1,8 @@
 'use client';
 
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 
 import {
   NationalIdField,
@@ -20,8 +21,13 @@ import {
   ID_DOCUMENT_TYPE_LABELS,
   isIdDocumentType,
 } from '@/db/schema/student-profiles';
+import { formatPkr, toPaise } from '@/lib/money';
 import { maskNationalId } from '@/lib/national-id';
-import { schoolErrorMessage, schoolFetch } from '@/lib/school-client';
+import {
+  schoolErrorMessage,
+  schoolFetch,
+  withSchoolParam,
+} from '@/lib/school-client';
 import {
   NATIONALITIES,
   RELIGIONS,
@@ -57,6 +63,28 @@ export interface StudentProfileValues {
 export interface StudentProfileCardProps {
   student: StudentProfileValues;
   canEdit: boolean;
+  /**
+   * What went wrong with the photo the enrolment wizard tried to upload.
+   *
+   * Carried here on `?photo=failed&reason=…` because the wizard is gone by the
+   * time this page renders. Before Sprint 17 the wizard swallowed the failure
+   * entirely — no `response.ok` check, a `console.warn`, and a profile with a
+   * blank avatar and no explanation. *Student 5* on the live tenant still has
+   * `photo_url = null` from exactly that.
+   */
+  photoUploadProblem?: string | null;
+  /**
+   * Credit carried forward, in PKR, and the challan that created it.
+   *
+   * Rendered here because a credit nobody can see is a credit nobody trusts —
+   * a parent asking where their discount went has to be answerable from the
+   * child's own record and not only from the fee module.
+   */
+  credit?: {
+    balance: string;
+    sourceChallanId: string | null;
+    sourceChallanNumber: string | null;
+  } | null;
 }
 
 const GENDER_OPTIONS = [
@@ -82,10 +110,19 @@ function initialsOf(name: string): string {
     .join('');
 }
 
-export function StudentProfileCard({ student, canEdit }: StudentProfileCardProps) {
+export function StudentProfileCard({
+  student,
+  canEdit,
+  photoUploadProblem = null,
+  credit = null,
+}: StudentProfileCardProps) {
   const router = useRouter();
+  const photoInput = useRef<HTMLInputElement | null>(null);
 
   const [isEditing, setIsEditing] = useState(false);
+  const [photoBusy, setPhotoBusy] = useState(false);
+  const [photoError, setPhotoError] = useState<string | null>(null);
+  const [photoNotice, setPhotoNotice] = useState<string | null>(null);
   const [values, setValues] = useState({
     dateOfBirth: student.dateOfBirth ?? '',
     gender: student.gender ?? '',
@@ -142,6 +179,61 @@ export function StudentProfileCard({ student, canEdit }: StudentProfileCardProps
     }
   };
 
+  /**
+   * Replaces the photo, immediately, from the profile.
+   *
+   * ── Why this had to exist ────────────────────────────────────────────
+   * The card rendered `photoUrl` and had an Edit mode for every text field and
+   * nothing at all that touched the image. So a photo that failed to upload
+   * during enrolment, or one taken on the wrong day, could not be changed from
+   * anywhere in this product.
+   *
+   * The endpoint is the one the wizard already calls, and it appends
+   * `?v=<timestamp>` to the stored URL, so `router.refresh()` is enough — the
+   * browser is not holding a cached image behind an unchanged src. Storage
+   * itself needs nothing: `uploadBuffer` sends `x-upsert: true`, so writing the
+   * same deterministic path replaces the object rather than being refused.
+   *
+   * Errors surface in the card and not in the console. That distinction is the
+   * whole of defect 11b.
+   */
+  const uploadPhoto = async (file: File): Promise<void> => {
+    setPhotoBusy(true);
+    setPhotoError(null);
+    setPhotoNotice(null);
+
+    try {
+      const form = new FormData();
+      form.append('photo', file);
+
+      const response = await fetch(
+        withSchoolParam(`/api/school/students/${student.studentProfileId}/photo`),
+        { method: 'POST', body: form },
+      );
+
+      if (!response.ok) {
+        const payload = (await response.json().catch(() => null)) as {
+          error?: { message?: string };
+        } | null;
+
+        setPhotoError(
+          payload?.error?.message ??
+            `The photo could not be uploaded (HTTP ${response.status}).`,
+        );
+        return;
+      }
+
+      setPhotoNotice('Photo updated.');
+      router.refresh();
+    } catch (caught) {
+      setPhotoError(schoolErrorMessage(caught, 'The photo could not be uploaded.'));
+    } finally {
+      setPhotoBusy(false);
+      // Cleared so selecting the *same* file again still fires `change`.
+      if (photoInput.current !== null) photoInput.current.value = '';
+    }
+  };
+
   return (
     <Card
       header={
@@ -182,6 +274,35 @@ export function StudentProfileCard({ student, canEdit }: StudentProfileCardProps
             />
           )}
 
+          {canEdit ? (
+            <>
+              <input
+                ref={photoInput}
+                type="file"
+                accept="image/png,image/jpeg,image/webp"
+                className="hidden"
+                onChange={(event) => {
+                  const file = event.target.files?.[0];
+                  if (file !== undefined) void uploadPhoto(file);
+                }}
+              />
+              <button
+                type="button"
+                disabled={photoBusy}
+                className="mt-2 block w-24 text-center text-xs font-medium text-brand-primary hover:underline disabled:text-ink-muted"
+                onClick={() => {
+                  photoInput.current?.click();
+                }}
+              >
+                {photoBusy
+                  ? 'Uploading…'
+                  : student.photoUrl === null || student.photoUrl === ''
+                    ? 'Add photo'
+                    : 'Change photo'}
+              </button>
+            </>
+          ) : null}
+
           <p className="mt-3 font-mono text-xs text-ink-muted">{student.studentId}</p>
           <Badge
             className="mt-2"
@@ -193,6 +314,56 @@ export function StudentProfileCard({ student, canEdit }: StudentProfileCardProps
 
         <div className="min-w-0 flex-1">
           <h3 className="text-lg font-semibold text-ink">{student.name}</h3>
+
+          {/*
+            The enrolment wizard's upload failure, named. Shown until the photo
+            is replaced — it is not a toast, because the person who needs to see
+            it may open this page hours after the admission.
+          */}
+          {photoUploadProblem === null || photoError !== null ? null : (
+            <p
+              role="alert"
+              className="mt-2 rounded-lg bg-status-danger-subtle px-3 py-2 text-sm text-status-danger-ink"
+            >
+              The photo chosen during enrolment was not saved. {photoUploadProblem}{' '}
+              {canEdit ? 'Use “Add photo” to upload it again.' : null}
+            </p>
+          )}
+
+          {photoError === null ? null : (
+            <p
+              role="alert"
+              className="mt-2 rounded-lg bg-status-danger-subtle px-3 py-2 text-sm text-status-danger-ink"
+            >
+              {photoError}
+            </p>
+          )}
+
+          {photoNotice === null ? null : (
+            <p className="mt-2 rounded-lg bg-status-success-subtle px-3 py-2 text-sm text-status-success-onSubtle">
+              {photoNotice}
+            </p>
+          )}
+
+          {credit === null || toPaise(credit.balance) <= 0 ? null : (
+            <p className="mt-2 text-sm text-ink">
+              <span className="font-medium">
+                Credit carried forward: {formatPkr(credit.balance)}
+              </span>{' '}
+              <span className="text-ink-muted">
+                — it comes off the next voucher as an adjustment
+                {credit.sourceChallanId === null ? '.' : ' '}
+              </span>
+              {credit.sourceChallanId === null ? null : (
+                <Link
+                  href={`/dashboard/fees/challans/${credit.sourceChallanId}`}
+                  className="font-medium text-brand-primary hover:underline"
+                >
+                  (from {credit.sourceChallanNumber}).
+                </Link>
+              )}
+            </p>
+          )}
 
           {isEditing ? (
             <div className="mt-4 grid gap-4 sm:grid-cols-2">

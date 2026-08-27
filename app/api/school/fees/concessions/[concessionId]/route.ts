@@ -4,6 +4,7 @@ import { studentConcessions } from '@/db/schema';
 import { withSchoolAuth } from '@/lib/api-auth';
 import { apiFailure, apiSuccess, handleApiError, readJsonBody } from '@/lib/api-response';
 import { db } from '@/lib/drizzle';
+import { repriceOpenChallans } from '@/lib/fee-challans';
 import { isUuid, readOptionalString, readString } from '@/lib/validation';
 
 /**
@@ -33,6 +34,7 @@ async function loadConcession(locationId: string, concessionId: string) {
   const rows = await db
     .select({
       id: studentConcessions.id,
+      studentProfileId: studentConcessions.studentProfileId,
       validFrom: studentConcessions.validFrom,
       discountType: studentConcessions.discountType,
     })
@@ -145,7 +147,23 @@ export const PATCH = withSchoolAuth<RouteContext>(
         return apiFailure('not_found', 'Concession not found.', 404);
       }
 
-      return apiSuccess({ updated: true });
+      /*
+       * An amended discount reaches the bills already sitting unpaid, exactly
+       * as a newly granted one does — see the same call in `POST
+       * /api/school/fees/concessions`.
+       *
+       * This route matters as much as that one and is easier to overlook:
+       * correcting "10%" to "20%" the morning after is the commonest way a
+       * concession is fixed, and before Sprint 17 the correction changed
+       * nothing about the challan the parent was holding.
+       */
+      const reprice = await repriceOpenChallans(db, {
+        locationId: auth.locationId,
+        studentProfileId: existing.studentProfileId,
+        actorUid: auth.uid,
+      });
+
+      return apiSuccess({ updated: true, reprice });
     } catch (error) {
       return handleApiError(error);
     }
@@ -161,6 +179,10 @@ export const DELETE = withSchoolAuth<RouteContext>(
         return apiFailure('not_found', 'Concession not found.', 404);
       }
 
+      // Read before the delete: the row is the only place the student is
+      // named, and the repricing below needs them.
+      const existing = await loadConcession(auth.locationId, concessionId);
+
       const deleted = await db
         .delete(studentConcessions)
         .where(
@@ -175,7 +197,25 @@ export const DELETE = withSchoolAuth<RouteContext>(
         return apiFailure('not_found', 'Concession not found.', 404);
       }
 
-      return apiSuccess({ deleted: true });
+      /*
+       * And the same repricing, in the other direction.
+       *
+       * DELETE is for the genuine mistake — the wrong child, the wrong amount —
+       * so the discount it applied has to come back off the bills that are
+       * still open, or the school has quietly forgiven money it never meant to.
+       * Paid challans are untouched, as always: what was collected was
+       * collected.
+       */
+      const reprice =
+        existing === null
+          ? null
+          : await repriceOpenChallans(db, {
+              locationId: auth.locationId,
+              studentProfileId: existing.studentProfileId,
+              actorUid: auth.uid,
+            });
+
+      return apiSuccess({ deleted: true, reprice });
     } catch (error) {
       return handleApiError(error);
     }

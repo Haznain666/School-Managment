@@ -27,8 +27,12 @@ export const DISCOUNT_TYPE_LABELS: Record<DiscountType, string> = {
  *
  * Sibling discounts, staff children and hardship waivers are all the same
  * shape: a percentage or a flat rupee amount, optionally narrowed to one fee
- * head, valid over a window. `applies_to_fee_type_id` being null means "every
- * monthly head", which is what a school means by "20% off her fees".
+ * head, valid over a window. `applies_to_fee_type_id` being null means **every
+ * head, of every category** — which is what a school means by "20% off her
+ * fees" with no qualifier. Until Sprint 17 the calculator read null as "every
+ * *monthly* head", so an unqualified sibling discount silently never reached
+ * the admission, annual or examination fee; this comment was the surviving
+ * copy of that bug and is corrected here for that reason.
  *
  * The row is never deleted when it lapses — `valid_until` closes it, so the
  * challans it already discounted stay explainable.
@@ -49,7 +53,7 @@ export const studentConcessions = pgTable(
     discountType: text('discount_type').notNull().$type<DiscountType>(),
     /** A percentage (0–100) or a flat PKR amount, per `discount_type`. */
     discountValue: numeric('discount_value', { precision: 10, scale: 2 }).notNull(),
-    /** Null = every monthly fee head. */
+    /** Null = every fee head, whatever its category. */
     appliesToFeeTypeId: uuid('applies_to_fee_type_id').references(() => feeTypes.id, {
       onDelete: 'set null',
     }),

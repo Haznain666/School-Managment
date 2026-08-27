@@ -17,7 +17,11 @@ import {
   readMobileField,
 } from '@/lib/profile-fields';
 import { isProvisionSetback, provisionSchoolSubdomain } from '@/lib/hostinger';
-import { createFirstSchoolAdmin, seedResultSubcategories } from '@/lib/school-bootstrap';
+import {
+  createFirstSchoolAdmin,
+  seedDefaultFeeTypes,
+  seedResultSubcategories,
+} from '@/lib/school-bootstrap';
 import { deriveSchoolCode, schoolCodeRejectionReason } from '@/lib/school-code';
 import { slugRejectionReason } from '@/lib/slug';
 import { requireSuperAdmin } from '@/lib/super-admin-guard';
@@ -247,6 +251,24 @@ export async function POST(request: NextRequest) {
       await seedResultSubcategories(school.locationId);
     } catch (error) {
       console.error('[super-admin] result sub-categories could not be seeded:', error);
+    }
+
+    /*
+     * And the five fee heads, on exactly the same terms. Sprint 17: until now
+     * the heads arrived only if somebody found the **Seed** button on the fee
+     * types screen, so a school's first visit to Fees was an empty table and an
+     * invitation to invent its own taxonomy — and a school that invents one
+     * names its admission fee something `lib/admission-fee.ts` cannot resolve,
+     * which silently disables the admission-fee panel on every student.
+     *
+     * Heads only; no prices. There are no grades and no academic year yet, and
+     * a seeded `0` would tell Sprint 17's per-head KPI that the school has
+     * deliberately decided every fee is free.
+     */
+    try {
+      await seedDefaultFeeTypes(school.locationId);
+    } catch (error) {
+      console.error('[super-admin] default fee types could not be seeded:', error);
     }
 
     /**

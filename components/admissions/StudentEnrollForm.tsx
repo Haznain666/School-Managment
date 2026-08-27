@@ -185,6 +185,37 @@ export function StudentEnrollForm({
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
+  /*
+   * A thumbnail of what is actually held, because the input cannot be trusted
+   * to show it.
+   *
+   * The wizard renders its steps conditionally, so the `<input type="file">`
+   * is unmounted and remounted **empty** every time somebody leaves step 1 and
+   * comes back. The `photo` state survived that all along; what disappeared
+   * was the file name beside the button, which is the only thing anybody was
+   * looking at — so the photo was re-selected, and the report came in as "the
+   * photo does not stay".
+   *
+   * Rendering the held `File` rather than relying on the control is the fix,
+   * and the object URL is revoked on change and on unmount because each one
+   * pins the file's bytes in memory until it is.
+   */
+  const [photoPreview, setPhotoPreview] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (photo === null) {
+      setPhotoPreview(null);
+      return;
+    }
+
+    const url = URL.createObjectURL(photo);
+    setPhotoPreview(url);
+
+    return () => {
+      URL.revokeObjectURL(url);
+    };
+  }, [photo]);
+
   const branchName = useMemo(
     () => branches.find((branch) => branch.id === placement.branchId)?.name ?? '—',
     [branches, placement.branchId],
@@ -284,25 +315,61 @@ export function StudentEnrollForm({
         }),
       });
 
-      // The photo needs the student's id for its storage path, so it goes up
-      // second. A failed upload must not undo an enrolment that has landed —
-      // the photo can be added again from the profile page.
+      /*
+       * The photo needs the student's id for its storage path, so it goes up
+       * second. A failed upload must not undo an enrolment that has landed —
+       * the photo can be added again from the profile page, and that judgement
+       * is still correct.
+       *
+       * ── What was wrong, and what it cost ──────────────────────────────
+       * This used to be `await fetch(...)` with **no `response.ok` check**,
+       * inside a `catch` that logged to the console. A 413 (too large), a 415
+       * (wrong type) and a 500 were all indistinguishable from success, and the
+       * only person who could have noticed was looking at a profile page with
+       * a blank avatar and no reason for it. *Student 5* on the live tenant has
+       * `photo_url = null` to this day and nobody was ever told.
+       *
+       * `?photo=failed` carries the failure across the redirect so the profile
+       * page can name it and offer the re-upload. It is a query flag rather
+       * than state because the navigation is a real one — this component is
+       * gone by the time the profile renders.
+       */
+      let photoProblem: string | null = null;
+
       if (photo !== null) {
         try {
           const form = new FormData();
           form.append('photo', photo);
-          await fetch(
+          const response = await fetch(
             withSchoolParam(
               `/api/school/students/${created.student.studentProfileId}/photo`,
             ),
             { method: 'POST', body: form },
           );
+
+          if (!response.ok) {
+            const payload = (await response.json().catch(() => null)) as {
+              error?: { message?: string };
+            } | null;
+
+            photoProblem =
+              payload?.error?.message ??
+              `The photo could not be uploaded (HTTP ${response.status}).`;
+          }
         } catch (caught) {
-          console.warn('[enrol] photo upload failed:', caught);
+          photoProblem = schoolErrorMessage(
+            caught,
+            'The photo could not be uploaded.',
+          );
         }
       }
 
-      router.push(`/dashboard/admissions/students/${created.student.studentProfileId}`);
+      const destination = `/dashboard/admissions/students/${created.student.studentProfileId}`;
+      router.push(
+        photoProblem === null
+          ? destination
+          : `${destination}?photo=failed&reason=${encodeURIComponent(photoProblem)}`,
+      );
       router.refresh();
     } catch (caught) {
       setError(schoolErrorMessage(caught, 'Could not enrol the student. Please try again.'));
@@ -449,13 +516,64 @@ export function StudentEnrollForm({
                 disabled={isSubmitting}
                 className="block w-full text-sm text-ink-muted file:mr-3 file:rounded-lg file:border-0 file:bg-surface-sunken file:px-3 file:py-2 file:text-sm file:font-medium"
                 onChange={(event) => {
-                  setPhoto(event.target.files?.[0] ?? null);
+                  /*
+                   * Only ever *sets*. Never nulls.
+                   *
+                   * This was `setPhoto(event.target.files?.[0] ?? null)`, and
+                   * that is very likely the reported disappearance: cancelling
+                   * a native file dialog fires `change` with an empty
+                   * `FileList` on some platforms, and `?? null` read that as
+                   * "the user removed the photo". Opening the picker, changing
+                   * your mind and pressing Cancel silently discarded a
+                   * selection made a minute earlier.
+                   *
+                   * Removing a photo is now one explicit button, below.
+                   */
+                  const file = event.target.files?.[0];
+                  if (file !== undefined) setPhoto(file);
                 }}
               />
-              <p className="mt-1.5 text-sm text-ink-muted">
-                Optional. PNG, JPG or WebP, up to 2 MB. Uploaded once the student
-                record has been created.
-              </p>
+
+              {photo === null ? (
+                <p className="mt-1.5 text-sm text-ink-muted">
+                  Optional. PNG, JPG or WebP, up to 2 MB. Uploaded once the
+                  student record has been created.
+                </p>
+              ) : (
+                <div className="mt-3 flex items-center gap-3">
+                  {photoPreview === null ? null : (
+                    // An object URL for a File the browser already holds.
+                    // `next/image` cannot help: it would have to fetch and
+                    // optimise a `blob:` URL that exists only in this tab.
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={photoPreview}
+                      alt={`Selected photo: ${photo.name}`}
+                      className="h-16 w-16 rounded-lg object-cover"
+                    />
+                  )}
+
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-medium text-ink">
+                      {photo.name}
+                    </p>
+                    <p className="text-xs text-ink-muted">
+                      {(photo.size / 1024).toFixed(0)} KB · uploaded once the
+                      student record has been created
+                    </p>
+                    <button
+                      type="button"
+                      disabled={isSubmitting}
+                      className="mt-1 text-xs font-medium text-status-danger-ink hover:underline"
+                      onClick={() => {
+                        setPhoto(null);
+                      }}
+                    >
+                      Remove photo
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         </Card>

@@ -16,12 +16,14 @@ import {
   TableHeaderCell,
   TableRow,
 } from '@/components/ui/Table';
+import { resolveAdmissionFee } from '@/lib/admission-fee';
 import {
   getStudentDetail,
   listEnrollmentHistory,
   listGuardians,
 } from '@/lib/admissions-queries';
 import { MAX_GUARDIANS } from '@/lib/enrollment';
+import { getStudentCreditHistory } from '@/lib/fee-queries';
 import { listSiblings } from '@/lib/siblings';
 import { requireSchoolPermission } from '@/lib/school-guard';
 import { isUuid } from '@/lib/validation';
@@ -42,8 +44,17 @@ export const runtime = 'nodejs';
  */
 export default async function StudentProfilePage({
   params,
+  searchParams,
 }: {
   params: Promise<{ studentId: string }>;
+  /**
+   * `?photo=failed&reason=…` from the enrolment wizard.
+   *
+   * Reading `searchParams` normally opts a page out of prerendering — see
+   * CLAUDE.md — but this page has been `force-dynamic` since it was written,
+   * because it is one student's record. There is nothing to lose here.
+   */
+  searchParams: Promise<{ photo?: string; reason?: string }>;
 }) {
   const { claims, locationId, permissions } =
     await requireSchoolPermission('admissions.read');
@@ -57,14 +68,33 @@ export default async function StudentProfilePage({
   // A branch-scoped admin may only look inside their own branch.
   if (claims.branchId !== null && student.branchId !== claims.branchId) notFound();
 
-  const [guardians, enrollments, siblings] = await Promise.all([
+  const [guardians, enrollments, siblings, admissionFee, credits] = await Promise.all([
     listGuardians(locationId, studentId),
     listEnrollmentHistory(locationId, studentId),
     // Derived, never stored: everyone who shares a guardian identity with this
     // child. See `lib/siblings.ts` for what "the same guardian" means and what
     // that rule costs.
     listSiblings(locationId, studentId),
+    // The admission fee as the *fee structure* has it, not as a flag on the
+    // enrolment. Sprint 17: the panel below used to know only whether somebody
+    // had ticked this admission as paid, which meant it offered that tick on a
+    // grade whose admission fee had never been priced.
+    resolveAdmissionFee(locationId, studentId),
+    // Credit carried forward. `SUM(amount)` over an append-only table — see
+    // `db/schema/student-credits.ts`, which is emphatically not the ledger.
+    getStudentCreditHistory(locationId, studentId),
   ]);
+
+  const { photo: photoFlag, reason: photoReason } = await searchParams;
+  const photoUploadProblem =
+    photoFlag === 'failed'
+      ? (photoReason ?? 'The upload did not complete.')
+      : null;
+
+  // The row that granted the credit, so the card can link to the voucher that
+  // explains it rather than to a balance with no history behind it.
+  const creditSource =
+    credits.entries.find((entry) => entry.sourceChallanId !== null) ?? null;
 
   /*
    * Whether this admission is still waiting on its fee.
@@ -115,7 +145,16 @@ export default async function StudentProfilePage({
         </div>
       </div>
 
-      <StudentProfileCard student={student} canEdit={canEdit} />
+      <StudentProfileCard
+        student={student}
+        canEdit={canEdit}
+        photoUploadProblem={photoUploadProblem}
+        credit={{
+          balance: credits.balance,
+          sourceChallanId: creditSource?.sourceChallanId ?? null,
+          sourceChallanNumber: creditSource?.sourceChallanNumber ?? null,
+        }}
+      />
 
       <Card header={<CardTitle title="Current enrolment" />}>
         {current === null ? (
@@ -184,7 +223,7 @@ export default async function StudentProfilePage({
       {activeEnrolment === undefined ? null : (
         <FeeClearancePanel
           studentProfileId={student.studentProfileId}
-          feeStatus={activeEnrolment.feeStatus}
+          state={admissionFee}
           feeClearedAt={activeEnrolment.feeClearedAt?.toISOString() ?? null}
           canClear={permissions.includes('fees.write')}
           hasContactableGuardian={guardians.some(

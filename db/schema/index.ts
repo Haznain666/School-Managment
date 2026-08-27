@@ -135,3 +135,12 @@ export * from './student-term-results';
 // adding a second mechanism.
 export * from './feedback';
 export * from './notifications';
+
+// Sprint 17 — the credit a discount leaves behind when the fee it should have
+// reduced has already been billed or paid.
+//
+// Exported after `fee-challans` because it references it in both directions:
+// the challan whose repricing created the credit, and the challan that later
+// spent it. It is a fee-module artefact and not the double-entry ledger — see
+// the docstring, which says so at length so nobody tries to balance it.
+export * from './student-credits';

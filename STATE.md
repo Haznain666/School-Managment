@@ -8223,3 +8223,201 @@ running app to provision subdomains), the GitHub Actions secret of the same name
 local copy was dead while the Actions copy still worked, which is why the cache
 purge succeeded on the same day provisioning 401'd. Updating one is not updating
 the others.
+
+---
+
+## 5be. Sprint 17 — onboarding, the admission fee, and the discount that never applied — 2026-08-27
+
+Spec: `SPRINT-17-SPEC.md`. Twelve items reported by the product owner after
+driving the school-admin and principal portals against Lahore Grammar School.
+Migration **`0033` is written and NOT applied** — `db/migrations/0033_sprint17_student_credits.sql`.
+Nothing in this sprint works against the live database until DevOps runs it.
+
+Built on branch `worktree-agent-a8bcb6ee3460769b9`. Not merged.
+
+### The three defects that were confirmed against the live database first
+
+Worth keeping, because each one explains a symptom that looked like something
+else entirely.
+
+| Fact | What it explained |
+| --- | --- |
+| LGS is `principal_model = 'multiple'` with **0 `principal_assignments`** | the principal seeing 50% where the administrator saw 100% |
+| LGS's sibling discount is `applies_to_fee_type_id = NULL` | why it never reached the admission fee |
+| LGS has fee structures on 14/14 grades for four heads and **0/14 for Examination** | a setup panel that said Fees ✓ |
+
+`npm run check-dashboard` now prints those fee figures on every run, and they
+came back exactly as measured.
+
+### The one-line bug that cost the most
+
+`lib/fee-calculator.ts`, `concessionPaiseFor`. A concession naming no fee head
+matched `line.feeCategory === 'monthly'`. So *every* unqualified discount — "20%
+sibling discount", the commonest thing a school writes — silently could not
+reach an admission, annual or examination fee. It is now `true`: no head named
+means every head. A monthly-only discount is expressed by naming the monthly
+head, which has always worked and is the narrower, explicit case.
+
+**Do not re-litigate this.** The narrow reading is not recoverable as a default:
+a discount that does not apply is indistinguishable on screen from a discount
+the school never granted, which is why it survived from Sprint 5.
+
+### Setup progress is a school-wide fact and is never narrowed
+
+`getSetupProgress` no longer takes an `AggregateScope` at all. Passing the
+principal's scope is what produced the 50%: an unassigned head resolves to
+`gradeIds: []`, and three of the six steps short-circuited on it.
+
+`resolvePrincipalScope` was **not** relaxed — "no assignment" must never resolve
+to "no filter", and the earlier note about that is right. What was added instead
+is the sentence said out loud: an unassigned head now gets a warning callout at
+the top of their dashboard linking to `/dashboard/settings`, rather than the
+grey helper text that read as decoration.
+
+Every *other* dashboard aggregate keeps its scope. This is one function.
+
+### The setup panel is now per-KPI, and the headline is a mean
+
+Each step carries `done`/`total`/`percent`/`complete`, and the headline is the
+**unweighted mean of the step percentages** — not `completed / total`, which is
+what it was and which reported a school with eleven KPIs at 90% as 0%.
+
+Classes counts *grades with a section*, the timetable counts *sections with an
+entry*, and there is **one KPI per fee head** — grades priced over total grades.
+Teachers, Subjects and Enrolled students stay 1-of-1 on `> 0`, because any
+denominator for those would be a threshold this code invented.
+
+**A stored `0` is complete; a blank cell is not.** `fee_structures.amount` is
+NOT NULL with a `>= 0` check, so the KPI counts rows and must never filter on
+`amount > 0`. The matrix already round-tripped a zero correctly in both
+directions (`String(Number('0.00'))` is `'0'`); its on-screen copy said the
+opposite and was corrected.
+
+The staff-plus-unlinked-accounts query is untouched. QA earned it (§5bd) and it
+is still the only correct way to count teachers at a school like LGS.
+
+### The admission fee panel is now driven by the fee structure
+
+`FeeClearancePanel` had been headed *Admission fee* since Sprint 10 with **no
+connection to the Admission Fee head**. It asked one question — has somebody
+ticked this as paid — and offered that tick on a grade whose admission fee had
+never been priced.
+
+`lib/admission-fee.ts` resolves a four-state discriminated union, and the
+ordering rule is structural rather than prose: **the confirm-payment control
+exists only in `billed` and `settled`.** A reviewer reads one `switch`. The
+head is found by name (`Admission Fee`, case-insensitive) falling back to the
+lowest-ordered active `one_time` head, so a school that renamed it keeps
+working.
+
+`generateAdmissionChallan` is `generateChallan` with three differences, all of
+them facts about what an admission is: null billing month and year (the unique
+index treats nulls as distinct, so it cannot collide with a monthly challan),
+only the resolved head is billed, and `already_exists` when the resolver says
+`billed` or `settled`. The challan **number** still comes from the current month
+and year, because that counter's key is the issuing period.
+
+### Credit carried forward: `student_credits`
+
+Migration `0033` adds one table and one column with a default. Expand-only.
+
+The rule, verbatim: *as long as the fee has not been paid, any discount applied
+will be effective. If the discount has been applied afterwards, then it will
+appear as adjustment in the next voucher.*
+
+* First half: `repriceOpenChallans` rewrites `unpaid`/`partial` challans in
+  place, from the **frozen `amount` already on each line** — never from
+  `fee_structures`. Only the discount moves. March's tuition rise must not
+  rewrite February's bill.
+* Second half: a paid challan is history, so the surplus becomes a
+  `discount_overflow` credit and `previewChallan` spends it on the next voucher
+  as *Adjustment — credit carried forward*.
+
+Three things to leave alone:
+
+1. **It is not the double-entry ledger and must not be made to balance.** It is
+   a fee-module artefact in exactly the sense an outstanding balance is one. A
+   credit reaches the books when the reduced challan is paid and that payment
+   posts. `check-accounting` knows nothing about it and should not.
+2. **The adjustment is on the header, not in `fee_challan_items`.** Every line
+   there carries a `fee_type_id`; an adjustment has no fee head. `total_amount`
+   stays the authority: `subtotal − concession − credit_applied + late_fee`.
+3. **The consuming row is written in the same `batch()` as the challan.** A
+   credit spent by a challan that was not written is money lost with nothing
+   anywhere to report it.
+
+A challan folded into a family voucher is skipped and *reported*, not edited —
+the voucher is what the parent is holding and it is priced as a whole.
+
+### Invitations are password-setup emails now
+
+`POST /api/school/invitations` creates the `school_users` row and calls
+`queueAccessEmail`. One mail, one link, the same one the platform's own
+provisioning path has sent since Stage 4.
+
+**`school_invitations` is not dropped and nothing new is written to it.** Rows
+already in it are live invitations somebody may still click, so the GET, the
+public `/invite/[token]` page, `InviteOTPForm`, the accept routes and the resend
+endpoint are all untouched until those rows expire. The OTP path in
+`lib/school-auth.ts` stays too — Forgot Password still uses a code, and an
+established account should have to prove the mailbox.
+
+`POST /api/school/users/[userId]/send-access` is the school-side twin of the
+Super Admin's `send-signin`, behind `users.write`, wired to **Send access
+email** on `UserDetailPanel`. It replaced that panel's *Resend invite* button,
+which would otherwise have started answering 409 "someone with that phone number
+already exists" — naming the person whose page it is on.
+
+### The photo: three defects, one of which was never a storage problem
+
+* **11a** — the wizard renders steps conditionally, so the file input is
+  remounted empty on every return to step 1. The `photo` state survived; the
+  file name did not, so the photo was re-selected. Fixed by rendering the held
+  `File` as a thumbnail with an explicit *Remove photo*. The `onChange` handler
+  no longer nulls state: cancelling a native dialog fires `change` with an empty
+  `FileList` on some platforms, and `?? null` read that as a removal.
+* **11b** — the upload had **no `response.ok` check** inside a `catch` that
+  logged to the console. A 413, a 415 and a 500 were all indistinguishable from
+  success; *Student 5* on the live tenant has `photo_url = null` from exactly
+  that. The failure now travels on `?photo=failed&reason=…` and the profile
+  names it.
+* **11c** — *Add photo* / *Change photo* on the profile card, behind
+  `admissions.write`, posting to the endpoint that already appends
+  `?v=<timestamp>`.
+
+**Storage was never the cause.** `uploadBuffer` sends `x-upsert: true`, so a
+re-upload to the same deterministic path replaces the object. Do not go looking
+there.
+
+### Smaller, and settled
+
+* `seedDefaultFeeTypes` moved into `lib/school-bootstrap.ts` and is called at
+  provisioning beside `seedChartOfAccounts` and `seedResultSubcategories`, on
+  the same terms: own `try`/`catch`, logged, never fails the request.
+  **Heads only, no `fee_structures` rows** — a seeded `0` would tell the new
+  per-head KPI that every fee is deliberately free on day one.
+* `'guardian'` added to `FIRST_GUARDIAN_RELATIONSHIPS`. A legal guardian *is*
+  the person the school holds responsible. `SINGLETON_RELATIONSHIPS` still holds
+  only father and mother: a child has one of each and may have two guardians.
+
+### Deviations from the spec, and why
+
+* **Bulk generation also spends credit.** The spec named `previewChallan` and
+  `generateChallan`. The monthly bulk run *is* "the next voucher" for almost
+  every school, so a credit only a hand-raised challan could spend would sit on
+  the record for a year.
+* **`DELETE /api/school/fees/concessions/[id]` reprices too.** The spec named
+  POST and PATCH. Deleting a concession entered in error has to take the
+  discount back off the open bills, or the school has quietly forgiven money.
+* **The confirm-payment button also renders in `settled` when `feeClearedAt` is
+  null.** That is a waived or cancelled admission voucher: the fee is settled,
+  nothing moved the enrolment out of `outstanding`, and the guardians are still
+  without a portal login with no other screen to say why.
+
+### Still open
+
+* Migration `0033` is **not applied**. Every credit path is inert until it is —
+  `student_credits` and `fee_challans.credit_applied` do not exist yet.
+* No test-cases document was written for this sprint.
+* Nothing here has been driven in a browser against the live tenant; the twelve
+  acceptance criteria in `SPRINT-17-SPEC.md` are the QA script.

@@ -30,6 +30,10 @@
 
 import { readFileSync } from 'node:fs';
 
+import { eq } from 'drizzle-orm';
+
+import { schools } from '../db/schema';
+import { db } from '../lib/drizzle';
 import {
   getAdmissionsFunnel,
   getAgingBuckets,
@@ -51,6 +55,7 @@ import {
   readExamMarks,
   type AggregateScope,
   type FoldableResult,
+  type SetupProgress,
 } from '../lib/dashboard-queries';
 import {
   getDashboardExceptions,
@@ -151,9 +156,9 @@ const CHECKS: Array<[string, () => Promise<unknown>]> = [
   ['getOutstandingSummary', () => getOutstandingSummary(NOBODY)],
   ['getAttendanceAverage', () => getAttendanceAverage(NOBODY)],
   ['getEnrolmentComparison', () => getEnrolmentComparison(NOBODY)],
-  // Sprint 16. Six counts over six unrelated tables, so it is registered here
-  // for the same reason as every other aggregate: the scoped path is different
-  // SQL that the unscoped path never issues.
+  // Sprint 16, rewritten in Sprint 17. Counts over unrelated tables plus one
+  // KPI per fee head. It takes no scope any more — setup progress is a
+  // school-wide fact — so there is one registration here and not two.
   ['getSetupProgress', () => getSetupProgress(NOBODY)],
 
   // Sprint 15 — BR4. Every aggregate again, through the scoped sub-selects.
@@ -172,7 +177,6 @@ const CHECKS: Array<[string, () => Promise<unknown>]> = [
   ['getOutstandingSummary scoped', () => getOutstandingSummary(NOBODY, SCOPED)],
   ['getAttendanceAverage scoped', () => getAttendanceAverage(NOBODY, SCOPED)],
   ['getEnrolmentComparison scoped', () => getEnrolmentComparison(NOBODY, SCOPED)],
-  ['getSetupProgress scoped', () => getSetupProgress(NOBODY, SCOPED)],
 
   // Sprint 15 — the exceptions strip. Every gate on, so all five run.
   [
@@ -368,6 +372,118 @@ async function checkScopeShortCircuits(): Promise<number> {
   return failed;
 }
 
+/* -----------------------------------------------------------------------------
+ * The setup panel's arithmetic, against a school whose numbers are known.
+ *
+ * ── Why executing it was not enough ──────────────────────────────────────
+ * `getSetupProgress` was registered above and ran green twice — once scoped,
+ * once not — for the whole of Sprint 16, while the panel it feeds was wrong in
+ * two ways at once: the headline was the count of finished steps rather than
+ * the mean of their percentages, and passing a principal's scope reported LGS
+ * as 50% built to its principal and 100% to its administrator. Both survived
+ * because "the SQL parsed" is all this file used to ask.
+ *
+ * So the invariants are asserted, and asserted against **Lahore Grammar
+ * School**, whose figures were measured on 2026-08-27 and written into
+ * `SPRINT-17-SPEC.md`: one branch, fourteen grades, and fee structures on
+ * 14/14 grades for Tuition, Admission, Annual and Library and **0/14** for
+ * Examination. A tenant that belongs to nobody returns zeroes for everything
+ * and so cannot distinguish a right answer from an empty one.
+ *
+ * The school is looked up by slug and the check is skipped, loudly, when it is
+ * not there. This script has to keep running on a database that has never held
+ * that school.
+ * -------------------------------------------------------------------------- */
+
+async function checkSetupArithmetic(): Promise<number> {
+  let failed = 0;
+
+  const assert = (name: string, condition: boolean, detail = ''): void => {
+    if (condition) {
+      console.log(`  ok   ${name}`);
+      return;
+    }
+    failed += 1;
+    console.log(`  FAIL ${name}${detail === '' ? '' : `  — ${detail}`}`);
+  };
+
+  const invariants = (label: string, progress: SetupProgress): void => {
+    assert(
+      `${label}: every step's percent is a number in 0..100`,
+      progress.steps.every(
+        (step) =>
+          Number.isFinite(step.percent) && step.percent >= 0 && step.percent <= 100,
+      ),
+      progress.steps.map((step) => `${step.label}=${step.percent}`).join(' '),
+    );
+
+    // The division-by-zero case, stated as its own assertion because it is the
+    // one a new KPI gets wrong: a school with no grades, no sections or no fee
+    // heads has a `total` of zero somewhere and must still read 0%, not NaN%.
+    assert(
+      `${label}: a step with nothing to measure never divides by zero`,
+      progress.steps.every((step) => step.total > 0 && !Number.isNaN(step.percent)),
+    );
+
+    assert(
+      `${label}: percent equals done/total on every step`,
+      progress.steps.every(
+        (step) => step.percent === Math.round((100 * Math.min(step.done, step.total)) / step.total),
+      ),
+    );
+
+    assert(
+      `${label}: complete is exactly percent === 100`,
+      progress.steps.every((step) => step.complete === (step.percent === 100)),
+    );
+
+    const mean = Math.round(
+      progress.steps.reduce((sum, step) => sum + step.percent, 0) /
+        Math.max(progress.steps.length, 1),
+    );
+    assert(
+      `${label}: the headline is the mean of the steps, not the count of them`,
+      progress.percent === mean,
+      `headline ${progress.percent}, mean ${mean}`,
+    );
+
+    assert(
+      `${label}: completed is the number of steps at 100%`,
+      progress.completed === progress.steps.filter((step) => step.percent === 100).length,
+    );
+  };
+
+  invariants('a tenant that belongs to nobody', await getSetupProgress(NOBODY));
+
+  const lgs = await db
+    .select({ locationId: schools.locationId })
+    .from(schools)
+    .where(eq(schools.slug, 'lgs'))
+    .limit(1);
+
+  const locationId = lgs[0]?.locationId;
+  if (locationId === undefined) {
+    console.log('  skip Lahore Grammar School is not on this database.');
+    return failed;
+  }
+
+  const progress = await getSetupProgress(locationId);
+  invariants('Lahore Grammar School', progress);
+
+  const feeSteps = progress.steps.filter((step) => step.group === 'fees');
+  assert(
+    'LGS gets one KPI per fee head, not one for the fee structure',
+    feeSteps.length >= 2,
+    `${feeSteps.length} fee step(s)`,
+  );
+
+  for (const step of feeSteps) {
+    console.log(`       ${step.label.padEnd(20)} ${step.done}/${step.total}  ${step.percent}%`);
+  }
+
+  return failed;
+}
+
 async function main(): Promise<void> {
   console.log('\nThe exam fold — no database:');
   const foldFailures = checkFold();
@@ -399,17 +515,22 @@ async function main(): Promise<void> {
     }
   }
 
-  const pureFailures = foldFailures + scopeFailures;
+  // After the aggregates, because it needs `DATABASE_URL` loaded and because
+  // an arithmetic failure is only interesting once the SQL is known to run.
+  console.log('\nThe setup panel arithmetic:');
+  const setupFailures = await checkSetupArithmetic();
+
+  const pureFailures = foldFailures + scopeFailures + setupFailures;
 
   if (failed > 0) {
     console.log(`\nFAIL — ${failed} of ${CHECKS.length} aggregates could not execute.`);
   } else if (pureFailures > 0) {
     console.log(
-      `\nFAIL — every aggregate executed, but ${pureFailures} assertion(s) about the exam fold or the dashboard scope did not hold.`,
+      `\nFAIL — every aggregate executed, but ${pureFailures} assertion(s) about the exam fold, the dashboard scope or the setup arithmetic did not hold.`,
     );
   } else {
     console.log(
-      `\nPASS — ${CHECKS.length} aggregates executed against the real schema, and the exam fold and dashboard scope both hold.`,
+      `\nPASS — ${CHECKS.length} aggregates executed against the real schema, and the exam fold, the dashboard scope and the setup arithmetic all hold.`,
     );
   }
 

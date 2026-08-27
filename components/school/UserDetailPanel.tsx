@@ -105,45 +105,56 @@ export function UserDetailPanel({ user, branches, canEdit }: UserDetailPanelProp
     }
   }, [name, role, branchId, isActive, branchRequired, user.id, router]);
 
-  const resendInvite = useCallback(async () => {
+  /**
+   * Sends this member their way in again.
+   *
+   * ── What this used to do, and why it could not stay ──────────────────
+   * It POSTed to `/api/school/invitations` with the member's own details, on
+   * the reasoning that "re-inviting reuses the invitation flow rather than
+   * creating a second account for the same phone number". Since Sprint 17 that
+   * route *creates the member*, and the phone is unique per school — so the
+   * button on an existing profile would have answered 409 "someone with that
+   * phone number already exists", naming the very person whose page it is on.
+   *
+   * The replacement is the school-side twin of the Super Admin's send-signin:
+   * it mails a setup link to somebody who has never signed in, and the portal
+   * address to somebody who has. Which of the two is decided on the server off
+   * `auth_user_id`; this screen only reports which one went.
+   */
+  const sendAccessEmail = useCallback(async () => {
     setIsResending(true);
     setError(null);
     setNotice(null);
 
     try {
-      // Re-inviting an unjoined member reuses the invitation flow rather than
-      // creating a second account for the same phone number.
-      const response = await fetch('/api/school/invitations', {
+      const response = await fetch(`/api/school/users/${user.id}/send-access`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          name: user.name,
-          phone: user.phone,
-          email: user.email ?? undefined,
-          role: user.role,
-          branchId: user.branchId ?? undefined,
-        }),
       });
 
       const payload = (await response.json()) as {
         ok: boolean;
+        data?: { email: string; firstTime: boolean };
         error?: { message: string };
       };
 
       if (!response.ok || payload.ok !== true) {
-        setError(payload.error?.message ?? 'Could not resend the invitation.');
+        setError(payload.error?.message ?? 'Could not send the access email.');
         return;
       }
 
       // Queued, not sent — the email leaves the outbox seconds from now. See
       // `lib/email-outbox.ts`.
-      setNotice('Invitation queued again. It usually arrives within a minute.');
+      setNotice(
+        payload.data?.firstTime === false
+          ? `Sign-in instructions queued to ${payload.data.email}. They already have a password, so no setup link was included.`
+          : `A password-setup link has been queued to ${payload.data?.email ?? 'their address'}. It usually arrives within a minute.`,
+      );
     } catch {
-      setError('Could not resend the invitation.');
+      setError('Could not send the access email.');
     } finally {
       setIsResending(false);
     }
-  }, [user]);
+  }, [user.id]);
 
   const remove = useCallback(async () => {
     setIsDeleting(true);
@@ -221,18 +232,32 @@ export function UserDetailPanel({ user, branches, canEdit }: UserDetailPanelProp
           </div>
         </dl>
 
-        {user.joinedAt === null && canEdit ? (
+        {/*
+          Offered to everyone, not only to somebody who has never joined.
+
+          It was gated on `joinedAt === null`, which made the one thing an
+          administrator reaches for — "she has lost the link, send it again" —
+          unavailable the moment the person had signed in once. The two emails
+          are different and the server picks between them, so an established
+          member simply gets the portal address rather than a password link.
+        */}
+        {canEdit ? (
           <div className="mt-4">
             <Button
               variant="secondary"
               size="sm"
               isLoading={isResending}
               onClick={() => {
-                void resendInvite();
+                void sendAccessEmail();
               }}
             >
-              Resend invite
+              Send access email
             </Button>
+            <p className="mt-2 text-xs text-ink-muted">
+              {user.authUserId === null
+                ? 'Sends a single-use link for choosing a password.'
+                : 'They already have a password, so this sends the portal address only.'}
+            </p>
           </div>
         ) : null}
       </Card>

@@ -2,7 +2,13 @@ import 'server-only';
 
 import { and, eq } from 'drizzle-orm';
 
-import { DEFAULT_SUBCATEGORIES, resultSubcategories, schoolUsers } from '@/db/schema';
+import {
+  DEFAULT_FEE_TYPES,
+  DEFAULT_SUBCATEGORIES,
+  feeTypes,
+  resultSubcategories,
+  schoolUsers,
+} from '@/db/schema';
 
 import { db as defaultDb, type Database, type Tx } from './drizzle';
 import { InvalidPhoneError, normalizePhone } from './phone';
@@ -246,6 +252,49 @@ export async function seedResultSubcategories(
     )
     .onConflictDoNothing()
     .returning({ id: resultSubcategories.id });
+
+  return { created: created.length };
+}
+
+/**
+ * Gives a new school the five fee heads every Pakistani school bills under.
+ *
+ * Lifted out of `POST /api/school/fees/types/seed` in Sprint 17 so that the
+ * provisioning path can call it too. Until then the heads existed only behind a
+ * **Seed** button on the fee-types screen, which meant a school's first visit to
+ * Fees was an empty table and an invitation to invent a taxonomy — and a school
+ * that invents one names its admission fee something the rest of this product
+ * cannot resolve (see `lib/admission-fee.ts`, which looks for `Admission Fee`).
+ *
+ * Idempotent through the unique key on (location_id, name), so the Seed button
+ * stays a harmless re-run and any category or description the school has since
+ * edited survives it. The return value says how many were actually new.
+ *
+ * ── Heads only. No `fee_structures` rows ─────────────────────────────────
+ * A school at provisioning has no grades and no academic year, so there is
+ * nothing to price. Writing an amount of `0` against every head the moment one
+ * appeared would also be a lie the setup panel believes: Sprint 17's per-head
+ * KPI reads a *present* row as "the school has decided this price, and zero is
+ * a decision". Seeding zeros would report every school as fully priced on its
+ * first day and make the one KPI that measures pricing meaningless.
+ */
+export async function seedDefaultFeeTypes(
+  locationId: string,
+  runner: Database | Tx = defaultDb,
+): Promise<{ created: number }> {
+  const created = await runner
+    .insert(feeTypes)
+    .values(
+      DEFAULT_FEE_TYPES.map((entry) => ({
+        locationId,
+        name: entry.name,
+        description: entry.description,
+        feeCategory: entry.feeCategory,
+        sortOrder: entry.sortOrder,
+      })),
+    )
+    .onConflictDoNothing({ target: [feeTypes.locationId, feeTypes.name] })
+    .returning({ id: feeTypes.id });
 
   return { created: created.length };
 }

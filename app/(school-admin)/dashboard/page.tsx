@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 import {
+  AlertTriangle,
   Banknote,
   ClipboardCheck,
   GraduationCap,
@@ -218,9 +219,20 @@ export default async function SchoolDashboardPage() {
     settle('enrolment comparison', locationId, () =>
       getEnrolmentComparison(locationId, aggregateScope),
     ),
-    // Six indexed counts. Wrapped like everything else here: a school that
-    // cannot be counted still has a dashboard.
-    settle('setup progress', locationId, () => getSetupProgress(locationId, aggregateScope)),
+    /*
+     * Indexed counts, and deliberately **not** scoped.
+     *
+     * `aggregateScope` used to be passed here and it produced the defect this
+     * sprint was called for: an unassigned head at a `multiple` school reads
+     * `gradeIds: []`, three of the six steps short-circuited to zero, and the
+     * principal was shown 50% against the administrator's 100%. Whether the
+     * school has created its classes or priced its fees is a fact about the
+     * school. See `getSetupProgress`, which no longer takes a scope at all.
+     *
+     * Wrapped like everything else here: a school that cannot be counted still
+     * has a dashboard.
+     */
+    settle('setup progress', locationId, () => getSetupProgress(locationId)),
     showEnrolment
       ? settle('class strength', locationId, () => getClassStrength(locationId, aggregateScope))
       : null,
@@ -378,8 +390,45 @@ export default async function SchoolDashboardPage() {
       {/*
         BR4's sentence. Without it a narrowed head reads a short list as a
         broken page, which is the failure `describeScope` exists to prevent.
+
+        ── Why the unassigned case is a warning and not grey text (Sprint 17) ─
+        A head with *some* division is being told which one, and grey helper
+        text is the right weight for that. A head with **none** is being told
+        something else entirely: every screen in this portal will be empty for
+        them until an administrator acts, and that is not a note, it is the
+        state of their whole account. LGS's principal met exactly this — the
+        school runs `principal_model = 'multiple'` with zero assignments — and
+        read the empty screens as a broken product rather than as a setting.
+
+        So the unassigned case gets an alert callout and a link to the screen
+        where assignments are made. `resolvePrincipalScope` is not relaxed to
+        compensate: "no assignment" must never resolve to "no filter".
       */}
-      {scopeNote === null ? null : (
+      {scopeNote === null ? null : principalScope.scoped &&
+        principalScope.unassigned ? (
+        <Card className="border-status-warning/50">
+          <div
+            role="alert"
+            className="flex gap-3 rounded-lg bg-status-warning-subtle px-3 py-3 text-sm text-status-warning-onSubtle"
+          >
+            <AlertTriangle aria-hidden className="mt-0.5 h-4 w-4 shrink-0" />
+            <div>
+              <p className="font-medium">{scopeNote}</p>
+              <p className="mt-1">
+                Until then every list, chart and register on this portal will be
+                empty — not because the school has nothing in it, but because
+                none of it has been assigned to you yet.
+              </p>
+              <Link
+                href="/dashboard/settings"
+                className="mt-2 inline-flex font-medium underline"
+              >
+                Principal assignments →
+              </Link>
+            </div>
+          </div>
+        </Card>
+      ) : (
         <Card>
           <p className="text-sm text-ink-muted">{scopeNote}</p>
         </Card>
@@ -408,9 +457,7 @@ export default async function SchoolDashboardPage() {
         the card collapses to one line and the numbers become a summary of the
         school rather than a checklist.
       */}
-      {setup === null ? null : (
-        <SetupProgressCard progress={setup} scoped={scope.gradeIds !== null} />
-      )}
+      {setup === null ? null : <SetupProgressCard progress={setup} />}
 
       <StatTileGrid>
         {showFees ? (
