@@ -12,6 +12,8 @@ import {
   getApplicationDetail,
   listSections,
 } from '@/lib/admissions-queries';
+import { formatDateOnly } from '@/lib/dates';
+import { formatPhoneForDisplay } from '@/lib/phone-formats';
 import { requireSchoolPermission } from '@/lib/school-guard';
 import { listStudentsForGuardianIdentity } from '@/lib/siblings';
 import { isUuid } from '@/lib/validation';
@@ -95,7 +97,7 @@ export default async function ApplicationDetailPage({
         header={
           <CardTitle
             title={application.studentName}
-            description={`Submitted ${application.submittedAt.toISOString().slice(0, 10)}`}
+            description={`Submitted ${formatDateOnly(application.submittedAt)}`}
             action={
               <Badge
                 variant={
@@ -115,7 +117,7 @@ export default async function ApplicationDetailPage({
         }
       >
         <dl className="grid gap-x-6 gap-y-3 sm:grid-cols-2">
-          <Detail label="Date of birth" value={application.studentDob} />
+          <Detail label="Date of birth" value={formatDateOnly(application.studentDob)} />
           <Detail label="Gender" value={application.studentGender} />
           <Detail label="Previous school" value={application.previousSchool} />
           <Detail label="Applying for" value={application.gradeName} />
@@ -128,7 +130,7 @@ export default async function ApplicationDetailPage({
           <dl className="mt-3 grid gap-x-6 gap-y-3 sm:grid-cols-2">
             <Detail label="Name" value={application.guardianName} />
             <Detail label="Relationship" value={application.guardianRelationship} />
-            <Detail label="Phone" value={application.guardianPhone} />
+            <Detail label="Phone" value={formatPhoneForDisplay(application.guardianPhone)} />
             <Detail label="Email" value={application.guardianEmail} />
             <Detail label="CNIC" value={application.guardianCnic} />
           </dl>

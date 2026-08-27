@@ -34,6 +34,7 @@ import {
   type Gender,
 } from '@/db/schema/student-profiles';
 import { GUARDIAN_RELATIONSHIP_LABELS } from '@/db/schema/student-guardians';
+import { DATE_INPUT_HINT, formatDateOnly } from '@/lib/dates';
 import { formatCnic, maskNationalId } from '@/lib/national-id';
 import { schoolErrorMessage, schoolFetch, withSchoolParam } from '@/lib/school-client';
 import {
@@ -426,6 +427,7 @@ export function StudentEnrollForm({
             <Input
               label="Date of birth"
               type="date"
+              hint={DATE_INPUT_HINT}
               value={student.dateOfBirth}
               disabled={isSubmitting}
               onChange={(event) => {
@@ -606,7 +608,12 @@ export function StudentEnrollForm({
           <dl className="grid gap-x-6 gap-y-3 sm:grid-cols-2">
             <ReviewItem label="Student" value={student.name} />
             <ReviewItem label="Student ID" value={studentIdPreview ?? 'Assigned on enrolment'} />
-            <ReviewItem label="Date of birth" value={student.dateOfBirth} />
+            <ReviewItem
+              label="Date of birth"
+              value={
+                student.dateOfBirth === '' ? '' : formatDateOnly(student.dateOfBirth)
+              }
+            />
             <ReviewItem label="Gender" value={student.gender} />
             {/*
               Still masked here. The review step is read at the desk with the

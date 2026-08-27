@@ -22,6 +22,7 @@ import {
   type ChallanStatus,
 } from '@/db/schema/fee-challans';
 import { listChildrenForGuardian, getActiveAcademicYear } from '@/lib/admissions-queries';
+import { formatDateOnly } from '@/lib/dates';
 import {
   getChallanDetail,
   getStudentFeeSummary,
@@ -162,7 +163,7 @@ export default async function ParentFeesPage({
             header={
               <CardTitle
                 title={openChallan.challanNumber}
-                description={`${periodLabel(openChallan)} · due ${openChallan.dueDate}`}
+                description={`${periodLabel(openChallan)} · due ${formatDateOnly(openChallan.dueDate)}`}
                 action={
                   <Link
                     href={`/parent/fees?child=${selected.studentProfileId}`}
@@ -302,7 +303,7 @@ export default async function ParentFeesPage({
                         {CHALLAN_STATUS_LABELS[row.status]}
                       </Badge>
                     </TableCell>
-                    <TableCell muted>{row.dueDate}</TableCell>
+                    <TableCell muted>{formatDateOnly(row.dueDate)}</TableCell>
                   </TableRow>
                 ))}
               </TableBody>

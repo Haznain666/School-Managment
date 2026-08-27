@@ -17,6 +17,7 @@ import {
   type GuardianRelationship,
 } from '@/db/schema/student-guardians';
 import { createCaptchaChallenge } from '@/lib/admissions-captcha';
+import { DATE_INPUT_HINT } from '@/lib/dates';
 import { isValidPhone } from '@/lib/phone';
 import { schoolErrorMessage, schoolFetch, withSchoolParam } from '@/lib/school-client';
 
@@ -218,6 +219,7 @@ export function ApplyForm({ branches, grades }: ApplyFormProps) {
             label="Date of birth"
             type="date"
             required
+            hint={DATE_INPUT_HINT}
             value={studentDob}
             disabled={isSubmitting}
             onChange={(event) => {

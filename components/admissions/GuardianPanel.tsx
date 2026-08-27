@@ -17,6 +17,7 @@ import {
   type GuardianRelationship,
 } from '@/db/schema/student-guardians';
 import { cnicProblem } from '@/lib/national-id';
+import { formatPhoneForDisplay } from '@/lib/phone-formats';
 import { schoolErrorMessage, schoolFetch } from '@/lib/school-client';
 
 /**
@@ -147,7 +148,11 @@ export function GuardianPanel({
       // Only what is still blank. The admin is looking at the person; the
       // database is looking at what was true last time somebody was.
       setName((current) => (current.trim() === '' ? found.name : current));
-      setPhone((current) => (current.trim() === '' ? found.phone : current));
+      // Through the display formatter: the column is E.164 and `PhoneField`
+      // speaks `(0321) 123-4567`. See `formatPhoneForDisplay`.
+      setPhone((current) =>
+        current.trim() === '' ? formatPhoneForDisplay(found.phone) : current,
+      );
       setEmail((current) => (current.trim() === '' ? (found.email ?? '') : current));
       setOccupation((current) =>
         current.trim() === '' ? (found.occupation ?? '') : current,
@@ -342,7 +347,9 @@ export function GuardianPanel({
                     · {relationshipLabel(guardian)}
                   </span>
                 </p>
-                <p className="font-mono text-xs text-ink-muted">{guardian.phone}</p>
+                <p className="font-mono text-xs text-ink-muted">
+                  {formatPhoneForDisplay(guardian.phone)}
+                </p>
                 {guardian.email === null ? null : (
                   <p className="text-xs text-ink-muted">{guardian.email}</p>
                 )}

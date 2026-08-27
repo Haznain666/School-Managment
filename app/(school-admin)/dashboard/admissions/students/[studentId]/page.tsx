@@ -22,6 +22,7 @@ import {
   listEnrollmentHistory,
   listGuardians,
 } from '@/lib/admissions-queries';
+import { formatDateOnly } from '@/lib/dates';
 import { MAX_GUARDIANS } from '@/lib/enrollment';
 import { getStudentCreditHistory } from '@/lib/fee-queries';
 import { listSiblings } from '@/lib/siblings';
@@ -213,7 +214,7 @@ export default async function StudentProfilePage({
                       {enrollment.rollNumber ?? '—'}
                     </TableCell>
                     <TableCell muted>
-                      {enrollment.enrollmentDate}
+                      {formatDateOnly(enrollment.enrollmentDate)}
                     </TableCell>
                     <TableCell muted>
                       {enrollment.status}

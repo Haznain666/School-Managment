@@ -79,6 +79,20 @@ export function formatCalendarDate(value: string): string | null {
   return assemble(Number(parts[1]), Number(parts[2]), Number(parts[3]));
 }
 
+/**
+ * True when the string is a column value — a `date` or an ISO timestamp.
+ *
+ * The question `DataTable` asks before reformatting a `kind: 'date'` cell. It
+ * has to be this narrow: `Date.parse` accepts `'August 2025'` and answers the
+ * first of August, so a column that renders a *month* would be silently turned
+ * into a day, and `'Never'` — what a settlement column shows for an account
+ * nobody has settled — would become an em dash. A cell that has already made a
+ * sentence out of its value is left exactly as it is.
+ */
+export function isIsoDateValue(value: string): boolean {
+  return /^\d{4}-\d{2}-\d{2}([T ].*)?$/.test(value.trim());
+}
+
 /** `'2026-08-02'` or a `Date` -> `02-Aug-2026`. `—` for anything absent. */
 export function formatDateOnly(value: string | Date | null | undefined): string {
   if (value === null || value === undefined) return NO_DATE;

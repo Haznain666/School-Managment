@@ -1,5 +1,6 @@
 import { PrintDocument, PrintLetterhead, PrintSheet } from '@/components/print/PrintSheet';
 import { MONTH_NAMES } from '@/db/schema/academic-years';
+import { formatDateOnly } from '@/lib/dates';
 import { amountInWords, formatAmount, toPaise } from '@/lib/money';
 
 /**
@@ -159,8 +160,8 @@ function ChallanCopy({
         <Field label="Roll no." value={data.rollNumber ?? '—'} />
         <Field label="Period" value={billingPeriod(data)} />
         <Field label="Session" value={data.academicYearName} />
-        <Field label="Issue date" value={data.issueDate} />
-        <Field label="Due date" value={data.dueDate} />
+        <Field label="Issue date" value={formatDateOnly(data.issueDate)} />
+        <Field label="Due date" value={formatDateOnly(data.dueDate)} />
       </div>
 
       <table className="w-full border-collapse text-[10px]">
@@ -246,8 +247,9 @@ function ChallanCopy({
 
       <div className="mt-2 flex items-end justify-between gap-4 text-[9px]">
         <p>
-          Please pay on or before <span className="font-bold">{data.dueDate}</span>. A
-          late payment may attract a surcharge.
+          Please pay on or before{' '}
+          <span className="font-bold">{formatDateOnly(data.dueDate)}</span>. A late
+          payment may attract a surcharge.
         </p>
         <p className="w-32 border-t border-black pt-0.5 text-center">
           Authorised signature

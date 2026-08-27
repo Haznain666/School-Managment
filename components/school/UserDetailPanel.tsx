@@ -9,6 +9,8 @@ import { Card, CardTitle } from '@/components/ui/Card';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
 import { Toggle } from '@/components/ui/Toggle';
+import { formatDateOnly } from '@/lib/dates';
+import { formatPhoneForDisplay } from '@/lib/phone-formats';
 import { BRANCH_REQUIRED_ROLES, ROLE_LABELS, USER_ROLES, isUserRole } from '@/types/school-auth';
 
 export interface UserDetail {
@@ -196,7 +198,9 @@ export function UserDetailPanel({ user, branches, canEdit }: UserDetailPanelProp
         <dl className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           <div>
             <dt className="text-xs uppercase tracking-wide text-ink-muted">Phone</dt>
-            <dd className="mt-1 font-mono text-sm text-ink">{user.phone}</dd>
+            <dd className="mt-1 font-mono text-sm text-ink">
+              {formatPhoneForDisplay(user.phone)}
+            </dd>
           </div>
           <div>
             <dt className="text-xs uppercase tracking-wide text-ink-muted">Email</dt>
@@ -225,9 +229,7 @@ export function UserDetailPanel({ user, branches, canEdit }: UserDetailPanelProp
           <div>
             <dt className="text-xs uppercase tracking-wide text-ink-muted">Joined</dt>
             <dd className="mt-1 text-sm text-ink">
-              {user.joinedAt === null
-                ? '—'
-                : new Date(user.joinedAt).toLocaleDateString()}
+              {formatDateOnly(user.joinedAt)}
             </dd>
           </div>
         </dl>

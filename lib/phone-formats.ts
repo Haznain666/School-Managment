@@ -358,6 +358,20 @@ export function formatPhoneForDisplay(stored: string | null | undefined): string
   const trimmed = (stored ?? '').trim();
   if (trimmed === '') return '';
 
+  /*
+   * A value carrying a letter is not a number, and must be handed back
+   * untouched.
+   *
+   * `school_users.phone` is `NOT NULL` and a seven-year-old has no phone, so a
+   * student's directory row holds the sentinel `student:GVS-2025-0011` — see
+   * `studentDirectoryPhone`. Its digits (`20250011`) are a plausible landline
+   * count, so a mask applied blindly would render it `(202) 50011`: a number
+   * that does not exist, derived from something that was never a number. The
+   * same trap as the `042` landline that `hasCompleteMobileDigits` guards
+   * against, one layer out.
+   */
+  if (/[A-Za-z]/.test(trimmed)) return trimmed;
+
   const formatted = normalisePhoneOfAnyKind(trimmed);
   return formatted === '' ? trimmed : formatted;
 }

@@ -15,6 +15,7 @@ import {
 import { MONTH_NAMES } from '@/db/schema/academic-years';
 import { CHALLAN_STATUS_LABELS, type ChallanStatus } from '@/db/schema/fee-challans';
 import { getStudentBySchoolUserId } from '@/lib/admissions-queries';
+import { formatDateOnly } from '@/lib/dates';
 import {
   getStudentFeeSummary,
   listStudentChallans,
@@ -140,7 +141,7 @@ export default async function StudentFeesPage() {
                         {CHALLAN_STATUS_LABELS[row.status]}
                       </Badge>
                     </TableCell>
-                    <TableCell muted>{row.dueDate}</TableCell>
+                    <TableCell muted>{formatDateOnly(row.dueDate)}</TableCell>
                   </TableRow>
                 ))}
               </TableBody>

@@ -22,6 +22,7 @@ import {
   type ChallanStatus,
 } from '@/db/schema/fee-challans';
 import { PAYMENT_METHOD_LABELS } from '@/db/schema/fee-payments';
+import { formatDateOnly } from '@/lib/dates';
 import { daysOverdue } from '@/lib/fee-calculator';
 import {
   getChallanDetail,
@@ -236,8 +237,8 @@ export default async function ChallanDetailPage({
             <dl className="space-y-3">
               <Detail label="Billing period" value={period} />
               <Detail label="Academic year" value={challan.academicYearName} />
-              <Detail label="Issue date" value={challan.issueDate} />
-              <Detail label="Due date" value={challan.dueDate} />
+              <Detail label="Issue date" value={formatDateOnly(challan.issueDate)} />
+              <Detail label="Due date" value={formatDateOnly(challan.dueDate)} />
               <Detail label="Billed" value={formatPkr(challan.totalAmount)} />
               <Detail label="Paid" value={formatPkr(challan.paidAmount)} />
               <Detail label="Balance" value={formatPkr(balancePaise / 100)} />
@@ -299,7 +300,7 @@ export default async function ChallanDetailPage({
                 <TableBody>
                   {challan.payments.map((payment) => (
                     <TableRow key={payment.id}>
-                      <TableCell muted>{payment.paymentDate}</TableCell>
+                      <TableCell muted>{formatDateOnly(payment.paymentDate)}</TableCell>
                       <TableCell rowHeader align="numeric">
                         {formatAmount(payment.amount)}
                       </TableCell>
