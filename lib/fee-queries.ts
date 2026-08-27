@@ -1438,3 +1438,37 @@ export async function guardianOwnsStudent(
 
   return (rows[0]?.value ?? 0) > 0;
 }
+
+/**
+ * How much money this school has taken against one student, as a count of
+ * receipts.
+ *
+ * ── Why it is a count and not a boolean ──────────────────────────────────
+ * Its one caller is `DELETE /api/school/students/[studentId]`, and the number
+ * goes into the refusal: "has 3 payments recorded against their vouchers" is a
+ * sentence a clerk can check, where "cannot be deleted" invites a second and a
+ * third attempt at the same button.
+ *
+ * Joined through `fee_challans` rather than read from a student column, because
+ * `fee_payments` has no student of its own — a payment is made against a bill,
+ * which is the only relationship that survives a family voucher clubbing four
+ * children's bills together.
+ */
+export async function countPaymentsForStudent(
+  locationId: string,
+  studentProfileId: string,
+): Promise<number> {
+  const rows = await db
+    .select({ value: count() })
+    .from(feePayments)
+    .innerJoin(feeChallans, eq(feeChallans.id, feePayments.challanId))
+    .where(
+      and(
+        eq(feePayments.locationId, locationId),
+        eq(feeChallans.locationId, locationId),
+        eq(feeChallans.studentProfileId, studentProfileId),
+      ),
+    );
+
+  return rows[0]?.value ?? 0;
+}

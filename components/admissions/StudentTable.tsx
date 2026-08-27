@@ -16,7 +16,14 @@ import {
   ENROLLMENT_STATUS_LABELS,
   type EnrollmentStatus,
 } from '@/db/schema/student-enrollments';
+import { formatPhoneForDisplay } from '@/lib/phone-formats';
 import { schoolErrorMessage, schoolFetch } from '@/lib/school-client';
+import {
+  STUDENT_FEE_STATUSES,
+  STUDENT_FEE_STATUS_LABELS,
+  studentFeeStatusVariant,
+  type StudentFeeStatus,
+} from '@/lib/student-fee-status';
 
 /**
  * The enrolled-student directory.
@@ -34,10 +41,12 @@ export interface StudentRow {
   gradeName: string;
   sectionName: string;
   branchName: string | null;
+  /** The primary guardian's number, in storage form. Displayed through the mask. */
   guardianPhone: string | null;
   enrollmentDate: string;
   status: EnrollmentStatus;
   rollNumber: string | null;
+  feeStatus: StudentFeeStatus;
 }
 
 export interface BranchOption {
@@ -104,6 +113,7 @@ export function StudentTable({
   const [sectionId, setSectionId] = useState('');
   const [academicYearId, setAcademicYearId] = useState(activeYearId);
   const [status, setStatus] = useState('');
+  const [feeStatus, setFeeStatus] = useState('');
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(DATA_TABLE_DEFAULT_PAGE_SIZE);
   const [sort, setSort] = useState<DataTableSort>({
@@ -181,6 +191,7 @@ export function StudentTable({
       if (sectionId !== '') query.set('sectionId', sectionId);
       if (academicYearId !== '') query.set('academicYearId', academicYearId);
       if (status !== '') query.set('status', status);
+      if (feeStatus !== '') query.set('feeStatus', feeStatus);
 
       try {
         setData(
@@ -206,6 +217,7 @@ export function StudentTable({
       sectionId,
       academicYearId,
       status,
+      feeStatus,
       page,
       pageSize,
       sort,
@@ -260,7 +272,31 @@ export function StudentTable({
       header: 'Guardian phone',
       muted: true,
       className: 'font-mono text-xs',
-      cell: (row) => row.guardianPhone ?? '—',
+      // Stored as `+923211234567`, read as `(0321) 123-4567`. The column is the
+      // *guardian's* number now: it used to read the student's own directory
+      // row, which carries the `student:<admission number>` sentinel.
+      cell: (row) =>
+        row.guardianPhone === null ? '—' : formatPhoneForDisplay(row.guardianPhone),
+    },
+    {
+      /*
+       * One word for what this child owes, so the question does not send
+       * whoever is at the counter into the fee module. `lib/student-fee-status.ts`
+       * holds the ranking that decides which of the four states shows when more
+       * than one is true, and the server's filter is written from the same one.
+       *
+       * Not sortable: the states are ranked by specificity rather than by
+       * severity, so a column sorted on them would order rows by a rule that
+       * looks like an ordering of urgency and is not. The filter is the control
+       * that answers "show me who owes", and it says exactly what it did.
+       */
+      id: 'feeStatus',
+      header: 'Fees',
+      cell: (row) => (
+        <Badge variant={studentFeeStatusVariant(row.feeStatus)}>
+          {STUDENT_FEE_STATUS_LABELS[row.feeStatus]}
+        </Badge>
+      ),
     },
     {
       id: 'enrollmentDate',
@@ -328,7 +364,7 @@ export function StudentTable({
             setPage(1);
             setSearch(value);
           },
-          placeholder: 'Name, student ID or phone',
+          placeholder: 'Name, student ID or guardian phone',
         }}
         filters={[
           {
@@ -343,6 +379,20 @@ export function StudentTable({
             onChange: (value) => {
               setPage(1);
               setStatus(value);
+            },
+          },
+          {
+            id: 'feeStatus',
+            label: 'Fees',
+            allLabel: 'Any fee status',
+            options: STUDENT_FEE_STATUSES.map((value) => ({
+              value,
+              label: STUDENT_FEE_STATUS_LABELS[value],
+            })),
+            value: feeStatus,
+            onChange: (value) => {
+              setPage(1);
+              setFeeStatus(value);
             },
           },
         ]}
@@ -424,6 +474,7 @@ export function StudentTable({
         filtersActive={
           search.trim() !== '' ||
           status !== '' ||
+          feeStatus !== '' ||
           gradeId !== '' ||
           sectionId !== '' ||
           (branchId !== '' && lockedBranchId === null)
@@ -432,6 +483,7 @@ export function StudentTable({
           setPage(1);
           setSearch('');
           setStatus('');
+          setFeeStatus('');
           setGradeId('');
           setSectionId('');
           // A branch-bound administrator's branch is not a filter they chose,

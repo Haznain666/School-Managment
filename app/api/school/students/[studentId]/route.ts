@@ -1,6 +1,7 @@
 import { and, eq } from 'drizzle-orm';
 
 import {
+  schoolUsers,
   studentProfiles,
   isBloodGroup,
   isGender,
@@ -13,7 +14,8 @@ import {
   listEnrollmentHistory,
   listGuardians,
 } from '@/lib/admissions-queries';
-import { db } from '@/lib/drizzle';
+import { batch, db } from '@/lib/drizzle';
+import { countPaymentsForStudent } from '@/lib/fee-queries';
 import { isValidCnic } from '@/lib/national-id';
 import { isUuid, readOptionalString, readString } from '@/lib/validation';
 
@@ -24,8 +26,9 @@ import { isUuid, readOptionalString, readString } from '@/lib/validation';
  * admission number — the number is the school's identifier for a person, the
  * UUID is the platform's identifier for a row.
  *
- * GET   the full profile, with guardians and enrolment history
- * PATCH the personal details
+ * GET    the full profile, with guardians and enrolment history
+ * PATCH  the personal details
+ * DELETE the whole record, when the school has never taken money for it
  *
  * The admission number and the link to the directory row are not updatable:
  * one is referenced by everything the school prints, the other is the record's
@@ -64,7 +67,7 @@ export const GET = withSchoolAuth<RouteContext>(
       return handleApiError(error);
     }
   },
-  { permission: 'admissions.read' },
+  { permission: 'students.read' },
 );
 
 interface UpdateStudentBody {
@@ -206,5 +209,86 @@ export const PATCH = withSchoolAuth<RouteContext>(
       return handleApiError(error);
     }
   },
-  { permission: 'admissions.write' },
+  { permission: 'students.update' },
+);
+
+/**
+ * Removes a student record entirely.
+ *
+ * ── What it takes with it, and what it refuses to ────────────────────────
+ * The delete lands on `student_profiles` and on the directory row that owns it,
+ * and the foreign keys do the rest: guardians, enrolment history, concessions,
+ * credits and vouchers all cascade from the profile. Two statements rather than
+ * one because the cascade only runs *downhill* — `student_profiles` references
+ * `school_users`, not the other way about, so deleting the profile on its own
+ * leaves a directory entry behind holding the child's name, the
+ * `student:<admission number>` sentinel phone, and the unique index that would
+ * then refuse to re-admit them under the same number.
+ *
+ * ── Money received is not deletable ──────────────────────────────────────
+ * A student with any `fee_payments` row against any of their vouchers is
+ * refused, with the count in the message. A receipt is a fact about what the
+ * school took across a desk; it is answered for in the ledger, in a bank
+ * reconciliation and to the parent who holds the counterfoil, and no button in
+ * an admissions screen should be able to make it stop having happened.
+ *
+ * That refusal is also the answer to the case this endpoint gets reached for
+ * most often. Deleting is not an undo for a wrong enrolment — **withdrawing
+ * is**, and it keeps the history that a transfer certificate is written from.
+ * The message says so rather than only saying no.
+ */
+export const DELETE = withSchoolAuth<RouteContext>(
+  async (_request, auth, context) => {
+    try {
+      const { studentId } = await context.params;
+      if (!isUuid(studentId)) return apiFailure('not_found', 'Student not found.', 404);
+
+      const existing = await getStudentDetail(auth.locationId, studentId);
+      if (existing === null) return apiFailure('not_found', 'Student not found.', 404);
+
+      // A branch-scoped actor is told the same thing about a student outside
+      // their branch as about one who does not exist, exactly as GET and PATCH
+      // above do: 404 is what stops the endpoint being a roll enumerator.
+      if (auth.branchId !== null && existing.branchId !== auth.branchId) {
+        return apiFailure('not_found', 'Student not found.', 404);
+      }
+
+      const received = await countPaymentsForStudent(auth.locationId, studentId);
+      if (received > 0) {
+        return apiFailure(
+          'payments_received',
+          `${existing.name} has ${String(received)} payment${
+            received === 1 ? '' : 's'
+          } recorded against their vouchers, and money the school has received ` +
+            'cannot be erased. Withdraw the student instead — the record stays, ' +
+            'and so does the fee history.',
+          409,
+        );
+      }
+
+      await batch(db, (tx) => [
+        tx
+          .delete(studentProfiles)
+          .where(
+            and(
+              eq(studentProfiles.id, studentId),
+              eq(studentProfiles.locationId, auth.locationId),
+            ),
+          ),
+        tx
+          .delete(schoolUsers)
+          .where(
+            and(
+              eq(schoolUsers.id, existing.schoolUserId),
+              eq(schoolUsers.locationId, auth.locationId),
+            ),
+          ),
+      ]);
+
+      return apiSuccess({ deleted: true, studentId: existing.studentId });
+    } catch (error) {
+      return handleApiError(error);
+    }
+  },
+  { permission: 'students.delete' },
 );

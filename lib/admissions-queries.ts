@@ -9,6 +9,7 @@ import {
   gte,
   ilike,
   inArray,
+  isNull,
   or,
   sql,
   type SQL,
@@ -18,6 +19,7 @@ import {
   academicYears,
   admissionApplications,
   branches,
+  feeChallans,
   grades,
   schoolUsers,
   sections,
@@ -28,6 +30,7 @@ import {
   isApplicationStatus,
   isEnrollmentStatus,
   OPEN_APPLICATION_STATUSES,
+  OPEN_CHALLAN_STATUSES,
   type AcademicYear,
   type ApplicationStatus,
   type CurriculumLevel,
@@ -37,6 +40,11 @@ import {
 } from '@/db/schema';
 
 import { db } from './drizzle';
+import {
+  isStudentFeeStatus,
+  studentFeeStatusFrom,
+  type StudentFeeStatus,
+} from './student-fee-status';
 
 /**
  * Tenant-scoped reads for the Admissions module.
@@ -328,10 +336,27 @@ export interface StudentListRow {
   branchId: string | null;
   branchName: string | null;
   academicYearName: string;
+  /**
+   * The primary guardian's number, in storage form (`+923211234567`).
+   *
+   * ── It used to be the student's own directory row, and that was a bug ──
+   * This column read `school_users.phone` of the *student*, which
+   * `studentDirectoryPhone` fills with the sentinel `student:GVS-2025-0011`
+   * because the directory column is `NOT NULL` and a seven-year-old has no
+   * phone. So the whole Guardian phone column of the directory printed student
+   * ids, and the free-text search matched a sentinel or nothing.
+   *
+   * It is now the guardian flagged `is_primary_contact`, falling back to the
+   * earliest recorded guardian for the rows written before that flag was
+   * always set. Formatted for reading by `formatPhoneForDisplay` at the point
+   * it is rendered — storage stays canonical.
+   */
   guardianPhone: string | null;
   enrollmentDate: string;
   status: EnrollmentStatus;
   rollNumber: string | null;
+  /** The fee chip: one word for what this child owes. See `lib/student-fee-status.ts`. */
+  feeStatus: StudentFeeStatus;
 }
 
 /**
@@ -358,6 +383,11 @@ export interface ListStudentsFilters {
   sectionId?: string | undefined;
   academicYearId?: string | undefined;
   status?: string | undefined;
+  /**
+   * The fee chip, as a filter. Unknown values are dropped rather than
+   * rejected, exactly as `status` above is — it arrives in a query string.
+   */
+  feeStatus?: string | undefined;
   search?: string | undefined;
   page?: number | undefined;
   limit?: number | undefined;
@@ -403,6 +433,64 @@ export async function listStudents(
   const limit = Math.min(Math.max(filters.limit ?? 20, 1), 100);
   const page = Math.max(filters.page ?? 1, 1);
 
+  /*
+   * The primary guardian's number, one row per student.
+   *
+   * A joined subquery rather than a correlated sub-select or a second pass:
+   * the directory is paginated and sorted in the database, and anything
+   * per-row would run once per student on a screen somebody is waiting on.
+   *
+   * `array_agg(... order by ...)` is the ordered-aggregate form of "first by
+   * this ranking" — the guardian flagged primary, then the earliest recorded.
+   * There is no operator for an ordered aggregate, which is the only reason
+   * this is a raw template; no JavaScript value is interpolated into it.
+   */
+  const primaryGuardian = db
+    .select({
+      studentProfileId: studentGuardians.studentProfileId,
+      phone: sql<string>`(array_agg(${studentGuardians.phone} order by ${studentGuardians.isPrimaryContact} desc, ${studentGuardians.createdAt} asc))[1]`.as(
+        'phone',
+      ),
+    })
+    .from(studentGuardians)
+    .where(eq(studentGuardians.locationId, locationId))
+    .groupBy(studentGuardians.studentProfileId)
+    .as('primary_guardian');
+
+  /*
+   * Every open voucher this school holds, counted once per student.
+   *
+   * `current_date` rather than a JavaScript `Date`: the comparison happens in
+   * the database, so nothing has to cross the driver, and "past its due date"
+   * is decided in one clock rather than in the reader's browser and the
+   * server's process at once.
+   *
+   * A student who owes nothing has no row here at all, which is what the
+   * `Cleared` filter matches on.
+   */
+  const openVouchers = db
+    .select({
+      studentProfileId: feeChallans.studentProfileId,
+      openCount: count().as('open_count'),
+      overdueCount:
+        sql<number>`count(*) filter (where ${feeChallans.dueDate} < current_date)`
+          .mapWith(Number)
+          .as('overdue_count'),
+      admissionCount:
+        sql<number>`count(*) filter (where ${feeChallans.challanKind} = 'admission')`
+          .mapWith(Number)
+          .as('admission_count'),
+    })
+    .from(feeChallans)
+    .where(
+      and(
+        eq(feeChallans.locationId, locationId),
+        inArray(feeChallans.status, [...OPEN_CHALLAN_STATUSES]),
+      ),
+    )
+    .groupBy(feeChallans.studentProfileId)
+    .as('open_vouchers');
+
   const conditions: SQL[] = [eq(studentEnrollments.locationId, locationId)];
 
   if (filters.academicYearId !== undefined && filters.academicYearId !== '') {
@@ -431,14 +519,62 @@ export async function listStudents(
     conditions.push(inArray(sections.gradeId, filters.scope.gradeIds));
   }
 
+  /*
+   * The fee chip, as a filter, expressed in the same ranking the chip uses.
+   *
+   * Each branch matches exactly the students whose chip reads that word —
+   * `Overdue` excludes the ones whose chip says `Admission unpaid`, because a
+   * filter that returned rows the reader can see contradict it is worse than
+   * no filter. `lib/student-fee-status.ts` holds the ranking; this is the SQL
+   * of it, and the two are meant to be read side by side.
+   */
+  if (isStudentFeeStatus(filters.feeStatus)) {
+    switch (filters.feeStatus) {
+      case 'admission_unpaid':
+        conditions.push(gte(openVouchers.admissionCount, 1));
+        break;
+      case 'overdue':
+        conditions.push(gte(openVouchers.overdueCount, 1));
+        conditions.push(eq(openVouchers.admissionCount, 0));
+        break;
+      case 'due':
+        conditions.push(gte(openVouchers.openCount, 1));
+        conditions.push(eq(openVouchers.overdueCount, 0));
+        conditions.push(eq(openVouchers.admissionCount, 0));
+        break;
+      case 'cleared':
+        // No grouped row at all: nothing of this student's is open.
+        conditions.push(isNull(openVouchers.studentProfileId));
+        break;
+    }
+  }
+
   const search = (filters.search ?? '').trim();
   if (search !== '') {
     const pattern = `%${search}%`;
-    const matches = or(
+    const patterns = [
       ilike(schoolUsers.name, pattern),
       ilike(studentProfiles.studentId, pattern),
-      ilike(schoolUsers.phone, pattern),
-    );
+      // The guardian's number, and never `school_users.phone` — the student's
+      // own directory row carries the `student:<admission number>` sentinel
+      // there, so that comparison could only ever match a sentinel.
+      ilike(primaryGuardian.phone, pattern),
+    ];
+
+    /*
+     * A number typed the way a clerk says it, matched against the way it is
+     * stored. `0321 123 4567` and `+923211234567` are the same number and
+     * share no substring, so the digits are re-expressed in the stored trunk
+     * form before the comparison. Four digits is the floor: below that this is
+     * a name fragment rather than a number, and `%92%` would match everyone.
+     */
+    const digits = search.replace(/\D/g, '');
+    if (digits.length >= 4) {
+      const stored = digits.startsWith('0') ? `92${digits.slice(1)}` : digits;
+      patterns.push(ilike(primaryGuardian.phone, `%${stored}%`));
+    }
+
+    const matches = or(...patterns);
     if (matches !== undefined) conditions.push(matches);
   }
 
@@ -456,10 +592,13 @@ export async function listStudents(
       branchId: grades.branchId,
       branchName: branches.name,
       academicYearName: academicYears.name,
-      guardianPhone: schoolUsers.phone,
+      guardianPhone: primaryGuardian.phone,
       enrollmentDate: studentEnrollments.enrollmentDate,
       status: studentEnrollments.status,
       rollNumber: studentEnrollments.rollNumber,
+      openVoucherCount: openVouchers.openCount,
+      overdueVoucherCount: openVouchers.overdueCount,
+      admissionVoucherCount: openVouchers.admissionCount,
     })
     .from(studentEnrollments)
     .innerJoin(
@@ -470,7 +609,9 @@ export async function listStudents(
     .innerJoin(sections, eq(sections.id, studentEnrollments.sectionId))
     .innerJoin(grades, eq(grades.id, sections.gradeId))
     .innerJoin(academicYears, eq(academicYears.id, studentEnrollments.academicYearId))
-    .leftJoin(branches, eq(branches.id, grades.branchId));
+    .leftJoin(branches, eq(branches.id, grades.branchId))
+    .leftJoin(primaryGuardian, eq(primaryGuardian.studentProfileId, studentProfiles.id))
+    .leftJoin(openVouchers, eq(openVouchers.studentProfileId, studentProfiles.id));
 
   const order = filters.direction === 'desc' ? desc : asc;
   const sortColumn =
@@ -507,6 +648,14 @@ export async function listStudents(
       .innerJoin(schoolUsers, eq(schoolUsers.id, studentProfiles.schoolUserId))
       .innerJoin(sections, eq(sections.id, studentEnrollments.sectionId))
       .innerJoin(grades, eq(grades.id, sections.gradeId))
+      // The same two joins as the page query, because both the search and the
+      // fee filter read them: a total that counted rows the page cannot show
+      // would page the reader off the end of the list.
+      .leftJoin(
+        primaryGuardian,
+        eq(primaryGuardian.studentProfileId, studentProfiles.id),
+      )
+      .leftJoin(openVouchers, eq(openVouchers.studentProfileId, studentProfiles.id))
       .where(where),
   ]);
 
@@ -524,6 +673,11 @@ export async function listStudents(
     enrollmentDate: row.enrollmentDate,
     status: row.status,
     rollNumber: row.rollNumber,
+    feeStatus: studentFeeStatusFrom({
+      open: row.openVoucherCount ?? 0,
+      overdue: row.overdueVoucherCount ?? 0,
+      admission: row.admissionVoucherCount ?? 0,
+    }),
   }));
 
   return { students, total: totals[0]?.value ?? 0, page, limit };

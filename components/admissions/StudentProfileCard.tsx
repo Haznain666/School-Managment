@@ -13,6 +13,7 @@ import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { Card, CardTitle } from '@/components/ui/Card';
 import { Input } from '@/components/ui/Input';
+import { Modal } from '@/components/ui/Modal';
 import { Select } from '@/components/ui/Select';
 import { Textarea } from '@/components/ui/Textarea';
 import {
@@ -21,6 +22,7 @@ import {
   ID_DOCUMENT_TYPE_LABELS,
   isIdDocumentType,
 } from '@/db/schema/student-profiles';
+import { DATE_INPUT_HINT, formatDateOnly } from '@/lib/dates';
 import { formatPkr, toPaise } from '@/lib/money';
 import { maskNationalId } from '@/lib/national-id';
 import {
@@ -63,6 +65,12 @@ export interface StudentProfileValues {
 export interface StudentProfileCardProps {
   student: StudentProfileValues;
   canEdit: boolean;
+  /**
+   * `students.delete`. Off for every role but School Administrator by default,
+   * and the endpoint checks it again — this only decides whether the control
+   * is drawn.
+   */
+  canDelete?: boolean;
   /**
    * What went wrong with the photo the enrolment wizard tried to upload.
    *
@@ -113,6 +121,7 @@ function initialsOf(name: string): string {
 export function StudentProfileCard({
   student,
   canEdit,
+  canDelete = false,
   photoUploadProblem = null,
   credit = null,
 }: StudentProfileCardProps) {
@@ -120,6 +129,10 @@ export function StudentProfileCard({
   const photoInput = useRef<HTMLInputElement | null>(null);
 
   const [isEditing, setIsEditing] = useState(false);
+  const [isConfirmingDelete, setIsConfirmingDelete] = useState(false);
+  const [typedAdmissionNumber, setTypedAdmissionNumber] = useState('');
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
   const [photoBusy, setPhotoBusy] = useState(false);
   const [photoError, setPhotoError] = useState<string | null>(null);
   const [photoNotice, setPhotoNotice] = useState<string | null>(null);
@@ -176,6 +189,42 @@ export function StudentProfileCard({
       setError(schoolErrorMessage(caught, 'Could not save the changes.'));
     } finally {
       setIsSaving(false);
+    }
+  };
+
+  /**
+   * Deletes the record, once the admission number has been typed back.
+   *
+   * ── Why typing the number and not an "Are you sure?" ─────────────────
+   * The confirm box on a destructive action is clicked through, and every
+   * school has two children called Muhammad Ali. Typing `GVS-2025-0011` is the
+   * one gesture that cannot be performed on the wrong tab: the number is on the
+   * screen in front of the person, and copying it from the record they mean to
+   * destroy is exactly the check being asked for.
+   *
+   * The server refuses outright once any payment has been received, and that
+   * refusal arrives here as a 409 with the count in it — shown in the modal
+   * rather than as a toast, because the sentence it carries ("withdraw the
+   * student instead") is the thing to read before closing.
+   */
+  const deleteStudent = async (): Promise<void> => {
+    setIsDeleting(true);
+    setDeleteError(null);
+
+    try {
+      await schoolFetch(`/api/school/students/${student.studentProfileId}`, {
+        method: 'DELETE',
+      });
+
+      // The record this page is about no longer exists, so there is nothing to
+      // refresh into — the directory is where the person now belongs.
+      router.push('/dashboard/admissions/students');
+      router.refresh();
+    } catch (caught) {
+      setDeleteError(
+        schoolErrorMessage(caught, 'The student record could not be deleted.'),
+      );
+      setIsDeleting(false);
     }
   };
 
@@ -240,21 +289,112 @@ export function StudentProfileCard({
         <CardTitle
           title="Student information"
           action={
-            canEdit && !isEditing ? (
-              <Button
-                size="sm"
-                variant="secondary"
-                onClick={() => {
-                  setIsEditing(true);
-                }}
-              >
-                Edit
-              </Button>
-            ) : undefined
+            isEditing ? undefined : (
+              <div className="flex items-center gap-2">
+                {canEdit ? (
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    onClick={() => {
+                      setIsEditing(true);
+                    }}
+                  >
+                    Edit
+                  </Button>
+                ) : null}
+
+                {/*
+                  Last in the row and `ghost` rather than filled: it is the one
+                  control on this page that destroys a record, and it should not
+                  compete for the eye with the one people actually came for.
+                */}
+                {canDelete ? (
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => {
+                      setTypedAdmissionNumber('');
+                      setDeleteError(null);
+                      setIsConfirmingDelete(true);
+                    }}
+                  >
+                    Delete student
+                  </Button>
+                ) : null}
+              </div>
+            )
           }
         />
       }
     >
+      <Modal
+        open={isConfirmingDelete}
+        title="Delete this student record"
+        description="Everything the school holds about this child goes with it. There is no undo."
+        onClose={() => {
+          if (!isDeleting) setIsConfirmingDelete(false);
+        }}
+        footer={
+          <>
+            <Button
+              variant="secondary"
+              disabled={isDeleting}
+              onClick={() => {
+                setIsConfirmingDelete(false);
+              }}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="danger"
+              isLoading={isDeleting}
+              disabled={typedAdmissionNumber.trim() !== student.studentId}
+              onClick={() => {
+                void deleteStudent();
+              }}
+            >
+              Delete {student.studentId}
+            </Button>
+          </>
+        }
+      >
+        <div className="space-y-4">
+          <p className="text-sm text-ink">
+            Deleting <span className="font-medium">{student.name}</span> removes
+            their guardians, their enrolment history, their concessions and their
+            whole fee record. If this is a wrong enrolment rather than a record
+            that should never have existed, <span className="font-medium">withdraw
+            the student instead</span> — the history stays, and a transfer
+            certificate can still be written from it.
+          </p>
+
+          <p className="text-sm text-ink-muted">
+            A student with any payment recorded against their vouchers cannot be
+            deleted at all. Money the school has received is not erasable.
+          </p>
+
+          <Input
+            label="Type the admission number to confirm"
+            placeholder={student.studentId}
+            hint="It is printed beside the photo, above."
+            value={typedAdmissionNumber}
+            disabled={isDeleting}
+            onChange={(event) => {
+              setTypedAdmissionNumber(event.target.value);
+            }}
+          />
+
+          {deleteError === null ? null : (
+            <p
+              role="alert"
+              className="rounded-lg bg-status-danger-subtle px-3 py-2 text-sm text-status-danger-ink"
+            >
+              {deleteError}
+            </p>
+          )}
+        </div>
+      </Modal>
+
       <div className="flex flex-col gap-6 sm:flex-row">
         <div className="shrink-0">
           {student.photoUrl === null || student.photoUrl === '' ? (
@@ -370,6 +510,7 @@ export function StudentProfileCard({
               <Input
                 label="Date of birth"
                 type="date"
+                hint={DATE_INPUT_HINT}
                 value={values.dateOfBirth}
                 disabled={isSaving}
                 onChange={(event) => {
@@ -486,7 +627,14 @@ export function StudentProfileCard({
             </div>
           ) : (
             <dl className="mt-4 grid gap-x-6 gap-y-3 sm:grid-cols-2">
-              <Detail label="Date of birth" value={student.dateOfBirth} />
+              <Detail
+                label="Date of birth"
+                value={
+                  student.dateOfBirth === null
+                    ? null
+                    : formatDateOnly(student.dateOfBirth)
+                }
+              />
               <Detail label="Gender" value={student.gender} />
               <SecretDetail
                 label={

@@ -30,6 +30,13 @@ import { StudentIdError } from '@/lib/student-id';
  * The GHL sync deliberately runs *after* that transaction and cannot roll it
  * back. A school whose CRM connection has lapsed must still be able to admit
  * students; anything the sync misses is replayable from the profile page.
+ *
+ * ── The permissions moved in Sprint 18 ───────────────────────────────────
+ * `students.read` and `students.create` rather than `admissions.read` and
+ * `admissions.write`. The defaults in `lib/permissions.ts` hand the new keys to
+ * exactly the roles that held the old ones, so no school's access changes on
+ * the day this deploys — what changes is that a school *can* now separate
+ * "may look at the roll" from "may decide an application".
  */
 
 export const runtime = 'nodejs';
@@ -73,6 +80,7 @@ export const GET = withSchoolAuth(
         sectionId: url.searchParams.get('sectionId') ?? undefined,
         academicYearId: url.searchParams.get('academicYearId') ?? undefined,
         status: url.searchParams.get('status') ?? undefined,
+        feeStatus: url.searchParams.get('feeStatus') ?? undefined,
         search: url.searchParams.get('search') ?? undefined,
         page: list.page,
         limit: list.limit,
@@ -85,7 +93,7 @@ export const GET = withSchoolAuth(
       return handleApiError(error);
     }
   },
-  { permission: 'admissions.read' },
+  { permission: 'students.read' },
 );
 
 export const POST = withSchoolAuth(
@@ -149,5 +157,5 @@ export const POST = withSchoolAuth(
       return handleApiError(error);
     }
   },
-  { permission: 'admissions.write' },
+  { permission: 'students.create' },
 );

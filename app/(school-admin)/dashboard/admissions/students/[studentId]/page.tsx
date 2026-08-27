@@ -57,7 +57,7 @@ export default async function StudentProfilePage({
   searchParams: Promise<{ photo?: string; reason?: string }>;
 }) {
   const { claims, locationId, permissions } =
-    await requireSchoolPermission('admissions.read');
+    await requireSchoolPermission('students.read');
 
   const { studentId } = await params;
   if (!isUuid(studentId)) notFound();
@@ -109,7 +109,17 @@ export default async function StudentProfilePage({
   );
   const awaitingFee = activeEnrolment?.feeStatus === 'outstanding';
 
-  const canEdit = claims.role === 'school_admin' || claims.role === 'branch_admin';
+  /*
+   * Sprint 18: the card's controls follow the permission, not the role.
+   *
+   * `canEdit` was `role === 'school_admin' || role === 'branch_admin'`, which
+   * had drifted from the route it guards — `PATCH` accepted `admissions.write`,
+   * so a principal could already change a record through the API while the
+   * screen hid the Edit button from them. A control that is hidden but not
+   * enforced is the wrong half of the pair to keep.
+   */
+  const canEdit = permissions.includes('students.update');
+  const canDelete = permissions.includes('students.delete');
   const current = enrollments.find((enrollment) => enrollment.isActiveYear) ?? null;
   const history = enrollments.filter((enrollment) => !enrollment.isActiveYear);
 
@@ -148,6 +158,7 @@ export default async function StudentProfilePage({
       <StudentProfileCard
         student={student}
         canEdit={canEdit}
+        canDelete={canDelete}
         photoUploadProblem={photoUploadProblem}
         credit={{
           balance: credits.balance,
