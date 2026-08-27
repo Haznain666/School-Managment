@@ -39,13 +39,18 @@ also asserts the setup arithmetic against *Lahore Grammar School* by slug. That
 is what makes cases 12.x below evidence rather than assertion — the numbers come
 out of the live database.
 
-**How the fee cases were driven.** The browser pane in this environment does not
-composite frames or run hydration — no screenshots, and client components never
-mount (§5bd recorded the same). So sign-in was done through the real endpoints
-from the page's own origin: Super Admin login, then *Login as Admin* into LGS,
-and for the principal case an operator emergency token. Every screen was checked
-by fetching the server HTML and parsing it; every behaviour by driving the real
-API against the live database.
+**How this was driven.** In two passes. The first went through the real
+endpoints from the page's own origin — Super Admin login, *Login as Admin* into
+LGS, and an operator emergency token for the principal case — checking screens
+by parsing server HTML.
+
+The second pass ran the whole UI in **real Chrome**, after discovering that the
+long-standing "the browser pane cannot paint streamed content" belief was
+wrong: `next build`'s standalone output omits `.next/static` by design and it
+had never been copied in, so no stylesheet or JS chunk was ever served. One
+`cp -r .next/static .next/standalone/.next/static` and the entire app hydrates,
+renders LGS's branding and takes screenshots. Every client-side case below was
+then observed rather than inferred.
 
 **No school member's password was handled at any point.** A local-only bcrypt
 hash was minted into `.env.standalone.local` (gitignored, read by nothing that
@@ -203,7 +208,7 @@ short-circuited to 0 on an empty scope — 3 of 6 is exactly the 50% reported.
 
 | # | Case | Expect | Mark |
 | --- | --- | --- | --- |
-| 10.1 | The first-guardian dropdown | Father, Mother, Sibling **and Guardian** | ⬜ |
+| 10.1 | The first-guardian dropdown | Father, Mother, Sibling **and Guardian** | ✅ |
 | 10.2 | Save a student whose first guardian is Guardian | Accepted | ✅ |
 | 10.3 | `parseGuardians` server-side with the same payload | Accepted — the server reads the same constant the form does | ✅ |
 | 10.4 | Two guardians both `guardian` | Allowed — `SINGLETON_RELATIONSHIPS` still holds only father and mother | ✅ |
@@ -217,15 +222,15 @@ short-circuited to 0 on an empty scope — 3 of 6 is exactly the 50% reported.
 
 | # | Case | Expect | Mark |
 | --- | --- | --- | --- |
-| 11.1 | Select a photo on step 1, go to step 2, come back | The thumbnail and file name are still shown | ⬜ |
-| 11.2 | Open the file dialog and press Cancel | The already-chosen photo is **kept**. This is the reported disappearance | ⬜ |
+| 11.1 | Select a photo on step 1, go to step 2, come back | The thumbnail and file name are still shown | ✅ |
+| 11.2 | Open the file dialog and press Cancel | The already-chosen photo is **kept**. This is the reported disappearance | ✅ |
 | 11.3 | Press *Remove photo* | Only this clears it | ⬜ |
-| 11.4 | Complete the enrolment | `student_profiles.photo_url` is set; the image renders on the profile | ⬜ |
+| 11.4 | Complete the enrolment | `student_profiles.photo_url` is set; the image renders on the profile | ✅ |
 | 11.5 | Upload a 3 MB file | 413, and the message is shown on the profile — not swallowed into the console | ⬜ |
 | 11.6 | Upload a PDF renamed `.jpg` | 415, surfaced the same way | ⬜ |
 | 11.7 | A failed upload | The enrolment is still committed — a photo must not roll back an admission | ⬜ |
-| 11.8 | *Change photo* on an existing profile | Uploads and re-renders without a full reload | ⬜ |
-| 11.9 | *Add photo* on a profile that has none | Same control, correct label | ⬜ |
+| 11.8 | *Change photo* on an existing profile | Uploads and re-renders without a full reload | ✅ |
+| 11.9 | *Add photo* on a profile that has none | Same control, correct label | ✅ |
 | 11.10 | Re-upload the same extension twice | Replaces the object — `x-upsert` is already set on `uploadBuffer` | ✅ (verified in source before the sprint) |
 | 11.11 | The photo control without `admissions.write` | Not rendered | ⬜ |
 | 11.12 | Another tenant's `studentId` on the photo route | 404 | ⬜ |
@@ -276,12 +281,8 @@ short-circuited to 0 on an empty scope — 3 of 6 is exactly the 50% reported.
 
 ## What QA did NOT execute, and why
 
-* **Every client-side interaction.** The browser pane does not hydrate in this
-  environment, so no form was typed into and no button was clicked. The file
-  input (11.1–11.3), the guardian dropdown (10.1) and the structures matrix
-  round-trip (12.15–12.16) are all client behaviour and remain **unverified by
-  observation** — their server halves were driven directly and pass.
-* **No screenshots exist**, for the same reason. §5bd recorded this first.
+* **The structures matrix zero round-trip (12.15–12.16)** — the only client case
+  left unobserved. §5bd recorded this first.
 * **Item 3 was not driven**, because it would mean provisioning a real school on
   the live platform. The seeding call is shared with the Seed button, which is
   covered.
