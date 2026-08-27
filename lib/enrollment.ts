@@ -25,6 +25,7 @@ import {
   type Gender,
   type GuardianRelationship,
   type IdDocumentType,
+  firstGuardianChoices,
 } from '@/db/schema';
 
 import { isValidCnic, normalizeCnic } from './national-id';
@@ -312,7 +313,7 @@ export function parseGuardians(value: unknown): GuardianInput[] {
     ) {
       throw new EnrollmentError(
         'invalid_body',
-        'The first guardian must be the student’s father, mother or sibling.',
+        `The first guardian must be the student’s ${firstGuardianChoices()}.`,
       );
     }
 

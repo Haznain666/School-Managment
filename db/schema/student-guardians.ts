@@ -78,6 +78,25 @@ export const FIRST_GUARDIAN_RELATIONSHIPS = [
 ] as const satisfies readonly GuardianRelationship[];
 
 /**
+ * The permitted first relationships, written out for a message to a person.
+ *
+ * Derived from `FIRST_GUARDIAN_RELATIONSHIPS` rather than typed out beside it.
+ * Sprint 17 added `guardian` to that list and left four hand-written copies of
+ * "father, mother or sibling" behind in the API, the form and the enrolment
+ * parser — so the product accepted a legal guardian and then told the clerk who
+ * chose one that it would not. A message that contradicts the rule it is
+ * explaining is worse than no message.
+ */
+export function firstGuardianChoices(): string {
+  const labels = FIRST_GUARDIAN_RELATIONSHIPS.map(
+    (relationship) => GUARDIAN_RELATIONSHIP_LABELS[relationship].toLowerCase(),
+  );
+
+  const last = labels[labels.length - 1];
+  return `${labels.slice(0, -1).join(', ')} or ${last}`;
+}
+
+/**
  * The relationships only one guardian per student may hold.
  *
  * A child has one father and one mother. Two rows claiming either is not a

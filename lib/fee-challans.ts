@@ -23,6 +23,7 @@ import { batch, type Database, type Tx } from './drizzle';
 import {
   applyCreditToTotals,
   calculateChallanItems,
+  calculateChallanLines,
   defaultDueDate,
   summariseChallanItems,
   type ChallanItem,
@@ -34,6 +35,7 @@ import {
   listActiveConcessions,
   listActiveConcessionsForStudents,
   listBillableStructures,
+  toDateOnly,
 } from './fee-queries';
 import { paiseToNumeric, toPaise } from './money';
 
@@ -67,6 +69,8 @@ export class ChallanGenerationError extends Error {
 }
 
 export interface ChallanPreview extends ChallanTotals {
+  /** Discount the lines could not absorb; banked as a credit on generation. */
+  overflowPaise: number;
   studentProfileId: string;
   studentName: string;
   studentId: string;
@@ -190,6 +194,40 @@ function consumeCreditStatements(
   ];
 }
 
+/**
+ * The statement that banks discount the lines could not absorb, or nothing.
+ *
+ * Same transaction discipline as `consumeCreditStatements`, and for the sharper
+ * reason: this row *is* the money. A discount of 60,000 against a 50,000 fee
+ * floors the voucher at zero and the remaining 10,000 exists nowhere else — if
+ * this insert does not commit with the challan that clamped it, the school has
+ * granted relief the product has quietly forgotten.
+ */
+function grantOverflowStatements(
+  tx: Tx,
+  params: {
+    locationId: string;
+    studentProfileId: string;
+    challanId: string;
+    overflowPaise: number;
+    actorUid: string | null;
+  },
+): PromiseLike<unknown>[] {
+  if (params.overflowPaise <= 0) return [];
+
+  return [
+    tx.insert(studentCredits).values({
+      locationId: params.locationId,
+      studentProfileId: params.studentProfileId,
+      amount: paiseToNumeric(params.overflowPaise),
+      reason: 'discount_overflow',
+      sourceChallanId: params.challanId,
+      notes: 'Discount exceeded the fee it was granted against.',
+      createdByUid: params.actorUid,
+    }),
+  ];
+}
+
 export interface PreviewParams {
   locationId: string;
   studentProfileId: string;
@@ -254,7 +292,11 @@ export async function previewChallan(
     );
   }
 
-  const items = calculateChallanItems(structures, concessions, params.billingMonth);
+  const { items, overflowPaise } = calculateChallanLines(
+    structures,
+    concessions,
+    params.billingMonth,
+  );
 
   if (items.length === 0) {
     throw new ChallanGenerationError(
@@ -276,6 +318,7 @@ export async function previewChallan(
 
   return {
     ...applyCreditToTotals(summariseChallanItems(items), creditPaise),
+    overflowPaise,
     studentProfileId: placement.studentProfileId,
     studentName: placement.studentName,
     studentId: placement.studentId,
@@ -388,6 +431,13 @@ export async function generateChallan(
       creditApplied: preview.creditApplied,
       actorUid: params.actorUid,
     }),
+    ...grantOverflowStatements(tx, {
+      locationId: params.locationId,
+      studentProfileId: params.studentProfileId,
+      challanId,
+      overflowPaise: preview.overflowPaise,
+      actorUid: params.actorUid,
+    }),
   ]);
 
   return {
@@ -485,16 +535,37 @@ export async function generateAdmissionChallan(
   const placement = state.placement;
   const dueDate = params.dueDate ?? (await admissionDueDate(params.locationId));
 
-  // Re-priced against the challan's own due date rather than trusting the
-  // figure the panel showed. A preview is a courtesy, not an input, and a tab
-  // left open across a concession change must not bill yesterday's discount.
+  /*
+   * Re-priced server-side rather than trusting the figure the panel showed — a
+   * preview is a courtesy, not an input, and a tab left open across a
+   * concession change must not bill yesterday's discount.
+   *
+   * ── Anchored on today, not on the due date ─────────────────────────────
+   * A monthly challan is priced against its due date because it *is* the bill
+   * for that period, and regenerating an old month must apply the concessions
+   * that were in force then. An admission voucher has no period: it is raised
+   * now, so the discount in force now is the one that applies. That is also
+   * the product owner's rule stated directly — a discount is effective as long
+   * as the fee has not been paid.
+   *
+   * This was a real defect. `admissionDueDate` used to stamp the school's due
+   * day onto the *current* month, so a voucher raised on the 27th fell due on
+   * the 10th — seventeen days in the past. Pricing against that date then
+   * silently dropped every concession that began after it, which is exactly
+   * the "my sibling discount did not apply" fault this sprint set out to fix,
+   * resurfacing through a new route. The due date is now never in the past,
+   * and the anchor no longer depends on it.
+   *
+   * `findAdmissionPrice` in `lib/admission-fee.ts` uses the same anchor, so the
+   * figure the panel promises and the figure the voucher bills cannot diverge.
+   */
   const concessions = await listActiveConcessions(
     params.locationId,
     params.studentProfileId,
-    dueDate,
+    toDateOnly(new Date()),
   );
 
-  const items = calculateChallanItems(
+  const { items, overflowPaise } = calculateChallanLines(
     [
       {
         feeTypeId: state.head.id,
@@ -566,6 +637,13 @@ export async function generateAdmissionChallan(
         creditApplied: totals.creditApplied,
         actorUid: params.actorUid,
       }),
+      ...grantOverflowStatements(tx, {
+        locationId: params.locationId,
+        studentProfileId: params.studentProfileId,
+        challanId,
+        overflowPaise,
+        actorUid: params.actorUid,
+      }),
     ]);
 
   /*
@@ -606,6 +684,35 @@ export async function generateAdmissionChallan(
 }
 
 /**
+ * The `discount_overflow` credit already banked against one challan, in paise.
+ *
+ * Read rather than remembered, because the only durable record that a
+ * repricing has already handed this surplus over is the credit row itself.
+ * Keeping a flag on the challan would be a second source of truth, and the one
+ * that goes wrong silently.
+ */
+async function grantedOverflowPaise(
+  db: Database,
+  locationId: string,
+  challanId: string,
+): Promise<number> {
+  const rows = await db
+    .select({ amount: studentCredits.amount })
+    .from(studentCredits)
+    .where(
+      and(
+        eq(studentCredits.locationId, locationId),
+        eq(studentCredits.sourceChallanId, challanId),
+        eq(studentCredits.reason, 'discount_overflow'),
+      ),
+    );
+
+  let paise = 0;
+  for (const row of rows) paise += toPaise(row.amount);
+  return paise;
+}
+
+/**
  * Whether a thrown error is the admission index refusing a second voucher.
  *
  * postgres-js surfaces the server's fields on the error object, so the
@@ -623,14 +730,30 @@ function isAdmissionRaceViolation(error: unknown): boolean {
   return code === '23505' && constraintName === 'fee_challans_admission_once_idx';
 }
 
-/** The current month's due date, on the school's own due day. */
+/**
+ * When an admission voucher falls due: the school's own due day, never in the
+ * past.
+ *
+ * ── The defect this replaces ─────────────────────────────────────────────
+ * It used to be `defaultDueDate(currentMonth, currentYear, dueDay)`, which is
+ * right for a monthly challan — that bill *is* for that month — and wrong for
+ * an admission, which belongs to no month. A school on the 10th raising a
+ * voucher on the 27th got a bill due seventeen days earlier: born overdue,
+ * immediately on the defaulter list, and eligible for a late fee before the
+ * parent had seen it.
+ */
 async function admissionDueDate(locationId: string): Promise<string> {
   const now = new Date();
-  return defaultDueDate(
-    now.getMonth() + 1,
-    now.getFullYear(),
-    await getDueDay(locationId),
-  );
+  const dueDay = await getDueDay(locationId);
+
+  const thisMonth = defaultDueDate(now.getMonth() + 1, now.getFullYear(), dueDay);
+  const today = now.toISOString().slice(0, 10);
+
+  // Already past this month's due day, so the voucher falls due next month.
+  if (thisMonth >= today) return thisMonth;
+
+  const next = new Date(Date.UTC(now.getFullYear(), now.getMonth() + 1, 1));
+  return defaultDueDate(next.getUTCMonth() + 1, next.getUTCFullYear(), dueDay);
 }
 
 /** The student's name, for the message a caller shows after generating. */
@@ -1110,6 +1233,10 @@ async function repriceOneChallan(
 
   let subtotalPaise = 0;
   let concessionPaise = 0;
+  // Discount the individual lines could not absorb. Banked as a credit below,
+  // exactly as it is on a freshly generated challan — the clamp must not be
+  // the last thing that knows about it.
+  let lineOverflowPaise = 0;
   const updates: Array<{ id: string; concessionAmount: string; netAmount: string }> = [];
 
   for (const line of lines) {
@@ -1128,7 +1255,7 @@ async function repriceOneChallan(
 
     // The gross `amount` is the frozen one off the row. Only the discount is
     // recomputed — that is the whole contract of this function.
-    const priced = calculateChallanItems(
+    const pricedLines = calculateChallanLines(
       [
         {
           feeTypeId: line.feeTypeId,
@@ -1138,9 +1265,11 @@ async function repriceOneChallan(
         },
       ],
       concessions,
-    )[0];
+    );
 
-    const linePaise = toPaise(priced?.concessionAmount ?? '0');
+    lineOverflowPaise += pricedLines.overflowPaise;
+
+    const linePaise = toPaise(pricedLines.items[0]?.concessionAmount ?? '0');
     concessionPaise += linePaise;
 
     if (linePaise !== toPaise(line.concessionAmount)) {
@@ -1161,7 +1290,41 @@ async function repriceOneChallan(
   // at a counter: that money is in the school's drawer, and a slip saying the
   // parent is owed it is a slip nobody can act on.
   const totalPaise = Math.max(uncappedPaise, paidPaise);
-  const overflowPaise = totalPaise - uncappedPaise;
+
+  /*
+   * Two different overflows, and both are the parent's money.
+   *
+   * `totalPaise - uncappedPaise` is what the *challan* floor threw away — the
+   * discount pushed the bill below what has already been paid. `lineOverflowPaise`
+   * is what the *line* clamps threw away, and it is the one QA found missing: a
+   * fixed 60,000 against a 50,000 admission fee floored every line at zero, so
+   * the challan total was already 0 and the header floor had nothing left to
+   * notice. The 10,000 difference simply vanished.
+   */
+  const grossOverflowPaise = totalPaise - uncappedPaise + lineOverflowPaise;
+
+  /*
+   * Only the *new* surplus is banked.
+   *
+   * `repriceOpenChallans` runs on every concession write — create, amend and
+   * delete — so this function is re-entered against the same challan many
+   * times over a student's year, and each run recomputes the same clamp from
+   * the same rows. Granting `grossOverflowPaise` every time would hand the
+   * parent another 10,000 for every unrelated concession the school touched
+   * afterwards, and nothing on any screen would look wrong until the credit
+   * balance had drifted into money the school never meant to give away.
+   *
+   * So the credit already banked against this challan is subtracted, and what
+   * is left — usually nothing — is what gets written. That makes repricing
+   * idempotent with respect to credit, which is the only property that makes
+   * it safe to call as often as it is called.
+   */
+  const alreadyGrantedPaise = await grantedOverflowPaise(
+    db,
+    input.locationId,
+    challan.id,
+  );
+  const overflowPaise = Math.max(0, grossOverflowPaise - alreadyGrantedPaise);
 
   const previousTotalPaise = toPaise(challan.totalAmount);
   const previousConcessionPaise = toPaise(challan.concessionAmount);
