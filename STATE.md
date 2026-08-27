@@ -8316,11 +8316,43 @@ treats nulls as distinct. Two clicks would have produced two vouchers *and*
 spent the student's credit twice. `fee_challans.challan_kind` exists so
 `fee_challans_admission_once_idx` has something to be partial on.
 
-### How QA signed in, and what it could not do
+### 🐛 "The browser pane cannot paint streamed content" was WRONG, and it cost three sprints
 
-The browser pane does not composite frames or hydrate in this environment, so
-**no screenshots exist and no client component ever mounted** — §5bd recorded
-the same. Sign-in was done by driving the real endpoints from the page's own
+§5bd, §5bc and the first half of this session all recorded the same belief: that
+this environment's browser pane serves the request, receives complete HTML, and
+then fails to run the trailing scripts that resolve a Suspense boundary — so
+every route with a `loading.tsx` shows its skeleton forever and screenshots are
+impossible. It was written up as environmental and worked around by fetching
+server HTML and parsing it.
+
+**It was not the pane. `next build` had never been finished.**
+
+Next's standalone output *deliberately omits* `.next/static` and `public` — the
+documented final step is to copy them in, and nobody ever had:
+
+    cp -r .next/static .next/standalone/.next/static
+
+Without that, the server returns 404 for every JS chunk and every stylesheet.
+The page arrives as unstyled HTML with no client runtime at all, so of course
+nothing hydrated, no Suspense boundary ever resolved, and no interactive element
+was ever found. The symptom was read as a renderer limitation when it was a
+missing `cp`.
+
+After the copy, in real Chrome against the same build: the login form renders
+styled, the school portal loads with LGS's own green branding and logo, the
+enrolment wizard hydrates, `loading.tsx` skeletons resolve into content, file
+inputs accept uploads, and screenshots work.
+
+**So the standing advice is reversed.** Do not work around the pane. Copy the
+static assets after every standalone build and drive the real UI. Add it to any
+QA runbook that starts a standalone server. There is no `public/` directory in
+this repository, so only the first copy is needed.
+
+### How QA signed in
+
+Super Admin login, then *Login as Admin* into LGS, and an operator **emergency
+token** for the principal case — which is how item 2 was verified with a genuine
+principal session rather than by reading the code. Sign-in was done by driving the real endpoints from the page's own
 origin: Super Admin login, *Login as Admin* into LGS, and an operator
 **emergency token** for the principal case, which is how item 2 was verified
 with a genuine principal session rather than by reading the code.
@@ -8328,9 +8360,13 @@ with a genuine principal session rather than by reading the code.
 A local-only bcrypt hash in `.env.standalone.local` was the credential. No
 school member's password was handled.
 
-**Not verified by observation:** the photo file input and *Remove photo*, the
-guardian dropdown, and the fee-matrix zero round-trip. All three are client
-behaviour; their server halves were driven directly and pass.
+**Everything was then verified by observation in real Chrome**, once the static
+assets were copied: the guardian dropdown offers Father / Mother / **Guardian** /
+Sibling and excludes *Other*; a chosen photo survives step 1 → 2 → 1 with its
+thumbnail, name and *Remove photo* intact; a cancelled file dialog no longer
+clears it; the upload lands (`photo_url` set); and *Change photo* on the profile
+re-uploads and re-stamps the version. The fee-matrix zero round-trip is the one
+case still unobserved.
 
 **A limitation, recorded not fixed:** cancelling a challan does not return the
 credit it consumed.
