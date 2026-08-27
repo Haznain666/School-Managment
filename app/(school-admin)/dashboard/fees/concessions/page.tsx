@@ -1,6 +1,6 @@
 import type { Metadata } from 'next';
 
-import { ConcessionManager } from '@/components/fees/ConcessionManager';
+import { ConcessionsTabs } from '@/components/fees/ConcessionsTabs';
 import { FeeSetupNav } from '@/components/fees/FeeSetupNav';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { listFeeTypes } from '@/lib/fee-queries';
@@ -21,12 +21,12 @@ export default async function ConcessionsPage() {
     <div className="space-y-6">
       <PageHeader
         title="Concessions"
-        description="Sibling, staff and hardship discounts, granted per student. A concession is applied when a challan is generated, so it affects future bills rather than ones already issued."
+        description="Sibling, staff and hardship discounts. Define a scheme once and grant it by name, or record a one-off concession against a single student. Granting one re-prices everything that student still owes."
       />
 
       <FeeSetupNav />
 
-      <ConcessionManager
+      <ConcessionsTabs
         feeTypes={feeTypes.map((feeType) => ({ id: feeType.id, name: feeType.name }))}
         canEdit={permissions.includes('fees.write')}
       />
