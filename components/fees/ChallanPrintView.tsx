@@ -46,6 +46,16 @@ export interface ChallanPrintData {
   dueDate: string;
   subtotal: string;
   concessionAmount: string;
+  /**
+   * Credit carried forward that this voucher spends (Sprint 17).
+   *
+   * Optional so that every existing caller compiles unchanged and prints
+   * exactly what it printed before; absent and `'0'` both mean "no adjustment",
+   * and the row is omitted rather than printed as a zero. A parent holding a
+   * slip with a mysterious `−0.00` on it has been given a question, not an
+   * answer.
+   */
+  creditApplied?: string | null;
   lateFeeAmount: string;
   totalAmount: string;
   paidAmount: string;
@@ -175,6 +185,25 @@ function ChallanCopy({
               <td className="py-0.5 text-right">{formatAmount(item.netAmount)}</td>
             </tr>
           ))}
+
+          {/*
+            The adjustment, above the late fee, in the order the total is
+            built: subtotal − concession − credit + late fee. It is a header
+            figure and not an item because an adjustment has no fee head — it
+            is money the school already owed this child, not a charge.
+          */}
+          {toPaise(data.creditApplied ?? '0') === 0 ? null : (
+            <tr className="border-b border-dotted border-black">
+              <td className="py-0.5">Adjustment — credit carried forward</td>
+              <td className="py-0.5 text-right">—</td>
+              <td className="py-0.5 text-right">
+                {`−${formatAmount(data.creditApplied ?? '0')}`}
+              </td>
+              <td className="py-0.5 text-right">
+                {`−${formatAmount(data.creditApplied ?? '0')}`}
+              </td>
+            </tr>
+          )}
 
           {Number(data.lateFeeAmount) === 0 ? null : (
             <tr className="border-b border-dotted border-black">

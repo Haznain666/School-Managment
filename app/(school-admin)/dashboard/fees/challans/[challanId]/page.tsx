@@ -23,7 +23,11 @@ import {
 } from '@/db/schema/fee-challans';
 import { PAYMENT_METHOD_LABELS } from '@/db/schema/fee-payments';
 import { daysOverdue } from '@/lib/fee-calculator';
-import { getChallanDetail, getLateFeeRule } from '@/lib/fee-queries';
+import {
+  getChallanDetail,
+  getLateFeeRule,
+  getStudentCreditHistory,
+} from '@/lib/fee-queries';
 import { amountInWords, formatAmount, formatPkr, toPaise } from '@/lib/money';
 import { requireSchoolPermission } from '@/lib/school-guard';
 import { listSiblings } from '@/lib/siblings';
@@ -76,7 +80,13 @@ export default async function ChallanDetailPage({
    * another slip for my other child" — which until now could only be answered
    * by searching the challan list twice and knowing to.
    */
-  const siblings = await listSiblings(locationId, challan.studentProfileId);
+  const [siblings, credits] = await Promise.all([
+    listSiblings(locationId, challan.studentProfileId),
+    // What this child is still owed, after whatever this voucher already took
+    // off. A credit nobody can see is a credit nobody trusts, and the counter
+    // is where a parent asks about it.
+    getStudentCreditHistory(locationId, challan.studentProfileId),
+  ]);
 
   const balancePaise = toPaise(challan.totalAmount) - toPaise(challan.paidAmount);
   const overdueDays =
@@ -167,6 +177,30 @@ export default async function ChallanDetailPage({
                     </TableRow>
                   ))}
 
+                  {/*
+                    Credit carried forward, as a line of its own.
+
+                    It is not a `fee_challan_items` row and cannot be: every
+                    line there carries a `fee_type_id`, and an adjustment has no
+                    fee head — it is not a charge the school levied, it is money
+                    the school already owed. It sits on the header and is
+                    rendered from there, above the late fee, because that is the
+                    order the total is built in:
+                    subtotal − concession − credit + late fee.
+                  */}
+                  {toPaise(challan.creditApplied) === 0 ? null : (
+                    <TableRow>
+                      <TableCell>Adjustment — credit carried forward</TableCell>
+                      <TableCell align="numeric" muted>—</TableCell>
+                      <TableCell align="numeric" muted>
+                        {`−${formatAmount(challan.creditApplied)}`}
+                      </TableCell>
+                      <TableCell rowHeader align="numeric">
+                        {`−${formatAmount(challan.creditApplied)}`}
+                      </TableCell>
+                    </TableRow>
+                  )}
+
                   {Number(challan.lateFeeAmount) === 0 ? null : (
                     <TableRow>
                       <TableCell>Late fee</TableCell>
@@ -207,6 +241,12 @@ export default async function ChallanDetailPage({
               <Detail label="Billed" value={formatPkr(challan.totalAmount)} />
               <Detail label="Paid" value={formatPkr(challan.paidAmount)} />
               <Detail label="Balance" value={formatPkr(balancePaise / 100)} />
+              {toPaise(credits.balance) === 0 ? null : (
+                <Detail
+                  label="Credit carried forward"
+                  value={`${formatPkr(credits.balance)} — comes off the next voucher`}
+                />
+              )}
               <Detail
                 label="Guardian"
                 value={
@@ -300,6 +340,7 @@ export default async function ChallanDetailPage({
           dueDate: challan.dueDate,
           subtotal: challan.subtotal,
           concessionAmount: challan.concessionAmount,
+          creditApplied: challan.creditApplied,
           lateFeeAmount: challan.lateFeeAmount,
           totalAmount: challan.totalAmount,
           paidAmount: challan.paidAmount,

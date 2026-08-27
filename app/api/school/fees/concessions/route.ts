@@ -4,6 +4,7 @@ import { feeTypes, isDiscountType, studentConcessions, studentProfiles } from '@
 import { withSchoolAuth } from '@/lib/api-auth';
 import { apiFailure, apiSuccess, handleApiError, readJsonBody } from '@/lib/api-response';
 import { db } from '@/lib/drizzle';
+import { repriceOpenChallans } from '@/lib/fee-challans';
 import { listConcessions } from '@/lib/fee-queries';
 import { paiseToNumeric, toPaise } from '@/lib/money';
 import { isUuid, readOptionalString, readString } from '@/lib/validation';
@@ -177,7 +178,32 @@ export const POST = withSchoolAuth(
         })
         .returning({ id: studentConcessions.id });
 
-      return apiSuccess({ concessionId: created[0]?.id ?? null }, 201);
+      /*
+       * A discount granted now reaches the bills already sitting unpaid.
+       *
+       * The product owner's rule: *as long as the fee has not been paid, any
+       * discount applied will be effective.* Before Sprint 17 this route
+       * stopped at the INSERT above, so a sibling discount granted in October
+       * did nothing to October's outstanding challan — the parent went on
+       * paying the full amount and nothing on any screen said the discount had
+       * missed. What it cannot reach, because history is not editable, comes
+       * back as a credit on the next voucher.
+       *
+       * Awaited rather than fired and forgotten: the response tells the clerk
+       * which vouchers moved, and "it did not reach the family voucher" is
+       * precisely the thing they need to read while they are still on the
+       * screen. It never throws — the concession is already committed.
+       */
+      const reprice = await repriceOpenChallans(db, {
+        locationId: auth.locationId,
+        studentProfileId,
+        actorUid: auth.uid,
+      });
+
+      return apiSuccess(
+        { concessionId: created[0]?.id ?? null, reprice },
+        201,
+      );
     } catch (error) {
       return handleApiError(error);
     }

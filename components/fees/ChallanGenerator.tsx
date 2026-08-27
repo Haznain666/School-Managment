@@ -222,6 +222,8 @@ function SinglePanel({
   const [totals, setTotals] = useState<{
     subtotal: string;
     concessionAmount: string;
+    /** Credit carried forward this challan would spend. `0.00` for most. */
+    creditApplied: string;
     totalAmount: string;
   } | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -254,6 +256,7 @@ function SinglePanel({
           items: PreviewItem[];
           subtotal: string;
           concessionAmount: string;
+          creditApplied: string;
           totalAmount: string;
         };
       }>(`/api/school/fees/challans/preview?${query.toString()}`);
@@ -262,6 +265,7 @@ function SinglePanel({
       setTotals({
         subtotal: payload.preview.subtotal,
         concessionAmount: payload.preview.concessionAmount,
+        creditApplied: payload.preview.creditApplied,
         totalAmount: payload.preview.totalAmount,
       });
     } catch (caught) {
@@ -368,6 +372,26 @@ function SinglePanel({
                         </TableCell>
                       </TableRow>
                     ))}
+
+                    {/*
+                      Credit carried forward, previewed on the same terms the
+                      voucher will print it: a line of its own, negative, and
+                      not a fee head. Showing it here is what stops a clerk
+                      raising a challan for less than expected and having no
+                      idea why.
+                    */}
+                    {Number(totals.creditApplied) === 0 ? null : (
+                      <TableRow>
+                        <TableCell>Adjustment — credit carried forward</TableCell>
+                        <TableCell align="numeric" muted>—</TableCell>
+                        <TableCell align="numeric" muted>
+                          {`−${formatAmount(totals.creditApplied)}`}
+                        </TableCell>
+                        <TableCell rowHeader align="numeric">
+                          {`−${formatAmount(totals.creditApplied)}`}
+                        </TableCell>
+                      </TableRow>
+                    )}
                   </TableBody>
                   <TableFoot>
                     <TableRow>

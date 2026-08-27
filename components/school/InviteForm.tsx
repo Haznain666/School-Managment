@@ -27,9 +27,23 @@ export interface InviteFormProps {
   branches: readonly InviteFormBranch[];
 }
 
+/**
+ * What the route answers with since Sprint 17.
+ *
+ * `delivery` is `queueAccessEmail`'s own result, not a list of transport
+ * failures: the member is created either way, and what this screen has to say
+ * is whether the password-setup mail was queued and, when it was not, the one
+ * sentence that says why. "Invited" over a message nobody queued is the failure
+ * this shape exists to make impossible to render.
+ */
 interface InviteResponse {
   ok: boolean;
-  data?: { delivery: { failures: string[] } };
+  data?: {
+    user: { id: string; name: string };
+    delivery:
+      | { queued: true; firstTime: boolean; email: string }
+      | { queued: false; reason: string };
+  };
   error?: { message: string };
 }
 
@@ -114,12 +128,23 @@ export function InviteForm({ branches }: InviteFormProps) {
           return;
         }
 
-        // "Queued" rather than "sent": email goes through `email_outbox`
-        // and is handed to SMTP a moment later, so at this point nothing has
-        // been accepted by a mail server and this screen cannot claim it has.
-        const failures = payload.data?.delivery.failures ?? [];
-        if (failures.length > 0) {
-          setWarning(`Invitation queued, with issues: ${failures.join(' ')}`);
+        /*
+         * "Queued" rather than "sent": the mail goes through `email_outbox`
+         * and is handed to SMTP a moment later, so at this point nothing has
+         * been accepted by a mail server and this screen cannot claim it has.
+         *
+         * A member whose mail was *not* queued still exists, and saying so is
+         * the whole point of carrying the reason back — the account is
+         * reachable again from **Send access email** on their profile, and an
+         * administrator who is not told will simply assume it arrived.
+         */
+        const delivery = payload.data?.delivery;
+        if (delivery !== undefined && !delivery.queued) {
+          setWarning(
+            `${name.trim()} was added, but no password-setup email was queued. ${delivery.reason}`,
+          );
+          setIsSubmitting(false);
+          return;
         }
 
         router.push('/dashboard/users');

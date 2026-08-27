@@ -9,14 +9,19 @@ import {
 import {
   attendanceRecords,
   admissionApplications,
+  branches,
   examResults,
   examSubjects,
   exams,
   feeChallans,
   feePayments,
+  feeStructures,
+  feeTypes,
   gradeLabel,
   grades,
+  principalAssignments,
   schoolUsers,
+  schools,
   sections,
   staff,
   studentEnrollments,
@@ -1322,15 +1327,42 @@ export async function getEnrolmentComparison(
  * Setup progress.
  * -------------------------------------------------------------------------- */
 
-/** One of the six things a school needs before the product does anything. */
+/**
+ * One measured area of a school's setup.
+ *
+ * ── Why `done`/`total` and not a boolean (Sprint 17) ─────────────────────
+ * The panel used to answer six yes/no questions, and three of them were
+ * effectively unanswerable that way. "Classes: 22" told a school it had
+ * finished creating classes while nine of its fourteen grades had no section;
+ * "Timetable: 40" said the same about a week that covered a third of the
+ * school. A tick against a partly done job is worse than no tick, because it
+ * stops anybody looking.
+ *
+ * So every KPI now carries the two numbers it is really made of, and
+ * `complete` is derived from them rather than asserted.
+ */
 export interface SetupStep {
-  key: 'principal' | 'teachers' | 'classes' | 'subjects' | 'timetable' | 'students';
+  /**
+   * Stable within a run, and *not* a closed union any more: the fee-head KPIs
+   * are one per `fee_types` row and are keyed `fee:<uuid>`. A component
+   * switching on this key would break the moment a school added a fee head,
+   * which is why nothing does — `group` is what the card lays out by.
+   */
+  key: string;
   label: string;
+  /** Which heading this KPI sits under on the card. */
+  group: 'school' | 'fees';
   /** How many of this thing exist. The headcount the requirement asks for. */
   count: number;
-  /** Done, in the only sense that can be measured: there is at least one. */
-  done: boolean;
-  /** What to do about it when there are none. Null once it is done. */
+  /** How many of `total` are in place. */
+  done: number;
+  /** What the whole of this KPI would be. Never zero — see `percentOfStep`. */
+  total: number;
+  /** `round(100 * done / total)`, always 0..100. */
+  percent: number;
+  /** True exactly when `percent === 100`. Kept so callers never recompute it. */
+  complete: boolean;
+  /** What to do about it while it is short. Null once it is complete. */
   href: string | null;
   /** One line saying why it matters, shown while it is outstanding. */
   hint: string;
@@ -1338,66 +1370,109 @@ export interface SetupStep {
 
 export interface SetupProgress {
   steps: SetupStep[];
+  /** How many steps are at 100%. Drives the "4 of 11" line. */
   completed: number;
   total: number;
-  /** `completed / total` as a whole percentage. */
+  /**
+   * The **unweighted mean of every step's own percentage**, rounded.
+   *
+   * Deliberately not `completed / total`: that is what it used to be, and it
+   * reported a school with eleven KPIs at 90% as 0% complete. A mean of the
+   * parts is the only headline that moves when the work moves.
+   */
   percent: number;
 }
 
 /**
- * How far a school is from being usable, as six counts and a bar.
+ * One KPI's arithmetic, in the one place that can divide by zero.
  *
- * ── "Done" is `count > 0`, and nothing cleverer ──────────────────────────
- * The product owner's rule, and it is the right one. A threshold — "at least
- * five teachers", "a timetable covering every section" — is a number this code
- * would have invented, and every school it did not fit would be told it was
- * incomplete while working perfectly. One of a thing is the only threshold that
- * is true of every school: with no subjects there is no timetable, with no
- * timetable there is no register, and with no students there is nothing at all.
+ * `total` of 0 is a real state — a school with no grades, no sections, no fee
+ * heads — and every one of them must read 0%, not NaN%. The caller passes the
+ * floor it wants (always 1) rather than this guessing, because "0 grades" and
+ * "0 of 1" are different sentences and only the caller knows which it means.
+ */
+function stepPercent(done: number, total: number): number {
+  if (total <= 0) return 0;
+  return Math.round((100 * Math.min(done, total)) / total);
+}
+
+/**
+ * How far a school is from being usable, as a set of KPIs and a bar.
+ *
+ * ── Setup progress is school-wide and is never narrowed (Sprint 17) ──────
+ * This function used to take an `AggregateScope` and the dashboard used to pass
+ * the principal's. That was wrong, and it was wrong in a way a principal could
+ * see and nobody could explain: Lahore Grammar School runs
+ * `principal_model = 'multiple'` and has **no `principal_assignments` rows at
+ * all**, so `resolvePrincipalScope` returned `unassigned` and the dashboard
+ * turned that into `gradeIds: []`. Three of the six steps — Classes, Timetable,
+ * Enrolled students — are the grade-scoped ones and short-circuited to zero.
+ * Three of six is 50%, to the digit, against the administrator's 100%.
+ *
+ * Whether the school has created its classes, priced its fees or enrolled
+ * anybody is a **fact about the school**, not about one head's division. A
+ * principal assigned the O-Levels must not be told the school is half built
+ * because the junior school belongs to somebody else. So this counts the whole
+ * tenant, always. Every *other* aggregate on that dashboard keeps its scope;
+ * this is the one function that drops it.
+ *
+ * The empty-scope warning a head genuinely needs is a different thing and is
+ * rendered separately — `describeScope` already writes the sentence, and the
+ * dashboard shows it as a warning callout rather than as grey helper text.
+ * `resolvePrincipalScope` is **not** relaxed: "no assignment" must never
+ * resolve to "no filter", and STATE.md is right about that.
+ *
+ * ── Every KPI is a fraction, not a tick (Sprint 17) ──────────────────────
+ * "Is there at least one" was the old rule and it flattered every school that
+ * had started a job and stopped. Classes now counts *grades that have a
+ * section* out of all grades; the timetable counts *sections with an entry* out
+ * of all sections; and the fee structure gets **one KPI per fee head**, priced
+ * grades over total grades. LGS reads Tuition 100%, Admission 100%, Annual
+ * 100%, Library 100% and Examination **0%** — which is that school's real
+ * state and was invisible on the old panel.
+ *
+ * Teachers, Subjects and Enrolled students stay 1-of-1 on `> 0`, because there
+ * is no denominator for them that this code would not have invented. A
+ * threshold of "at least five teachers" is a number every school it did not fit
+ * would be told off by.
+ *
+ * ── An amount of 0 is complete; a missing row is not ─────────────────────
+ * Verbatim from the requirement: *if a fee does not need to be charged, then
+ * the user to mark it as 0. Leaving it empty would mean that the KPI has not
+ * been completed.* `fee_structures.amount` is NOT NULL with a `>= 0` check, so
+ * this is simply the existence of the row — the fee-head query counts rows and
+ * must never filter on `amount > 0`.
  *
  * ── Why a principal is counted from `school_users`, not `schools` ────────
  * `schools.principal_name` is a text field on the school profile — it is the
  * name printed on a report card, and a school can fill it in without anybody
- * being able to sign in. This step asks whether a *person* exists, so it counts
- * accounts holding `principal` or `vice_principal`. A school that has typed a
- * name and invited nobody is correctly told this step is outstanding.
+ * being able to sign in. This KPI asks whether a *person* exists.
  *
- * ── Six counts, one round trip each, in parallel ─────────────────────────
- * They touch six unrelated tables, so a single query would be six sequential
- * scans behind one plan. Joining them would be worse still: a join multiplies
- * rows before counting, which is the classic way this kind of tile comes out
- * wrong — six sections and four subjects reporting twenty-four of each.
+ * At a `multiple` school it asks something sharper: how many **branches have a
+ * current assignment**. That is the number LGS needed and never saw — one
+ * branch, zero assignments, and a principal signing in to an empty school with
+ * nothing on the panel to say why.
  *
- * ── BR4 ──────────────────────────────────────────────────────────────────
- * Scoped where scoping means something. Classes, the timetable and the roll
- * narrow to a principal's own grades; subjects, teachers and the principal
- * count are school-wide facts with no grade on them, and inventing a
- * per-division reading of "does this school have any subjects" would produce a
- * number nobody could act on.
+ * ── One round trip each, in parallel ─────────────────────────────────────
+ * They touch unrelated tables, so a single query would be sequential scans
+ * behind one plan. Joining them would be worse still: a join multiplies rows
+ * before counting, which is the classic way this kind of tile comes out wrong —
+ * six sections and four subjects reporting twenty-four of each.
  */
-export async function getSetupProgress(
-  locationId: string,
-  scope: AggregateScope = EVERY_GRADE,
-): Promise<SetupProgress> {
+export async function getSetupProgress(locationId: string): Promise<SetupProgress> {
   const activeYear = await getActiveAcademicYear(locationId);
-  const gradeIds = scope.gradeIds;
-  const narrowed = gradeIds !== null;
-  const nothing = reachesNothing(scope);
 
-  const [principals, staffRecords, unlinkedTeachers, classes, subjectCount, slots, students] =
-    await Promise.all([
-    countRows(
-      db
-        .select({ value: sql<number>`count(*)`.mapWith(Number) })
-        .from(schoolUsers)
-        .where(
-          and(
-            eq(schoolUsers.locationId, locationId),
-            eq(schoolUsers.isActive, true),
-            inArray(schoolUsers.role, ['principal', 'vice_principal']),
-          ),
-        ),
-    ),
+  const [
+    principalKpi,
+    staffRecords,
+    unlinkedTeachers,
+    gradeTotals,
+    subjectCount,
+    timetableTotals,
+    students,
+    feeHeadKpis,
+  ] = await Promise.all([
+    resolvePrincipalKpi(locationId),
     /*
      * Teaching staff, counted from **both** places a school can enter one.
      *
@@ -1448,69 +1523,40 @@ export async function getSetupProgress(
           ),
         ),
     ),
-    nothing
-      ? Promise.resolve(0)
-      : countRows(
-          db
-            .select({ value: sql<number>`count(*)`.mapWith(Number) })
-            .from(sections)
-            .where(
-              and(
-                eq(sections.locationId, locationId),
-                eq(sections.isActive, true),
-                narrowed ? inArray(sections.gradeId, gradeIds) : undefined,
-              ),
-            ),
-        ),
+    /*
+     * Classes: grades that have at least one active section, over all grades.
+     *
+     * Counting sections alone — which is what this did until Sprint 17 — says
+     * "22 classes" to a school where nine of fourteen grades have none, and
+     * ticks the step. The denominator is what makes the number actionable:
+     * 5/14 sends somebody to the grades screen, "22" sends nobody anywhere.
+     */
+    gradeSectionCoverage(locationId),
     countRows(
       db
         .select({ value: sql<number>`count(*)`.mapWith(Number) })
         .from(subjects)
         .where(and(eq(subjects.locationId, locationId), eq(subjects.isActive, true))),
     ),
-    nothing
-      ? Promise.resolve(0)
-      : countRows(
-          db
-            .select({ value: sql<number>`count(*)`.mapWith(Number) })
-            .from(timetableEntries)
-            .innerJoin(
-              sections,
-              and(
-                eq(sections.id, timetableEntries.sectionId),
-                eq(sections.locationId, locationId),
-              ),
-            )
-            .where(
-              and(
-                eq(timetableEntries.locationId, locationId),
-                eq(timetableEntries.isActive, true),
-                narrowed ? inArray(sections.gradeId, gradeIds) : undefined,
-              ),
-            ),
-        ),
-    nothing || activeYear === null
+    // Timetable: sections with at least one active entry, over all active
+    // sections. Same argument as Classes — a week that covers a third of the
+    // school is not a timetable, and "40 entries" cannot say which third.
+    timetableCoverage(locationId),
+    activeYear === null
       ? Promise.resolve(0)
       : countRows(
           db
             .select({ value: sql<number>`count(*)`.mapWith(Number) })
             .from(studentEnrollments)
-            .innerJoin(
-              sections,
-              and(
-                eq(sections.id, studentEnrollments.sectionId),
-                eq(sections.locationId, locationId),
-              ),
-            )
             .where(
               and(
                 eq(studentEnrollments.locationId, locationId),
                 eq(studentEnrollments.academicYearId, activeYear.id),
                 eq(studentEnrollments.status, 'active'),
-                narrowed ? inArray(sections.gradeId, gradeIds) : undefined,
               ),
             ),
         ),
+    feeStructureCoverage(locationId, activeYear?.id ?? null),
   ]);
 
   const teachers = staffRecords + unlinkedTeachers;
@@ -1518,65 +1564,342 @@ export async function getSetupProgress(
   const steps: SetupStep[] = [
     {
       key: 'principal',
-      label: 'Principal',
-      count: principals,
-      done: principals > 0,
-      href: '/dashboard/users/invite',
-      hint: 'Invite the head of the school so they can sign in.',
+      label: principalKpi.label,
+      group: 'school',
+      count: principalKpi.done,
+      done: principalKpi.done,
+      total: principalKpi.total,
+      percent: stepPercent(principalKpi.done, principalKpi.total),
+      complete: stepPercent(principalKpi.done, principalKpi.total) === 100,
+      href: principalKpi.href,
+      hint: principalKpi.hint,
     },
-    {
+    simpleStep({
       key: 'teachers',
       label: 'Teachers & staff',
       count: teachers,
-      done: teachers > 0,
       href: '/dashboard/hr/staff',
       hint: 'Add teaching staff. Nothing can be timetabled without them.',
-    },
+    }),
     {
       key: 'classes',
       label: 'Classes',
-      count: classes,
-      done: classes > 0,
+      group: 'school',
+      count: gradeTotals.done,
+      done: gradeTotals.done,
+      // A school with no grades at all reads 0 of 1 rather than 0 of 0: the
+      // work is outstanding, and a KPI that divides by zero would report it as
+      // complete.
+      total: Math.max(gradeTotals.total, 1),
+      percent: stepPercent(gradeTotals.done, Math.max(gradeTotals.total, 1)),
+      complete: gradeTotals.total > 0 && gradeTotals.done >= gradeTotals.total,
       href: '/dashboard/admissions/grades',
-      hint: 'Create your grades and their sections.',
+      hint: 'Create your grades and give each one at least one section.',
     },
-    {
+    simpleStep({
       key: 'subjects',
       label: 'Subjects',
       count: subjectCount,
-      done: subjectCount > 0,
       href: '/dashboard/academics/subjects',
       hint: 'Name what is taught. The timetable and exams both read this.',
-    },
+    }),
     {
       key: 'timetable',
       label: 'Timetable',
-      count: slots,
-      done: slots > 0,
+      group: 'school',
+      count: timetableTotals.done,
+      done: timetableTotals.done,
+      total: Math.max(timetableTotals.total, 1),
+      percent: stepPercent(timetableTotals.done, Math.max(timetableTotals.total, 1)),
+      complete:
+        timetableTotals.total > 0 && timetableTotals.done >= timetableTotals.total,
       href: '/dashboard/academics/timetable',
-      hint: 'Lay out the week. The register and the teacher portal follow it.',
+      hint: 'Lay out the week for every section. The register follows it.',
     },
-    {
+    simpleStep({
       key: 'students',
       label: 'Enrolled students',
       count: students,
-      done: students > 0,
       href: '/dashboard/admissions/enroll',
       hint: 'Enrol or import the roll.',
-    },
+    }),
+    ...feeHeadKpis,
   ];
 
-  const completed = steps.filter((step) => step.done).length;
+  const completed = steps.filter((step) => step.complete).length;
 
   return {
     // A finished step keeps its count and loses its link: the tile is a
     // headcount as much as a checklist, and "6 classes" with nowhere to click
     // is the right resting state for a school that set them up last year.
-    steps: steps.map((step) => (step.done ? { ...step, href: null } : step)),
+    steps: steps.map((step) => (step.complete ? { ...step, href: null } : step)),
     completed,
     total: steps.length,
-    percent: Math.round((100 * completed) / steps.length),
+    // The unweighted mean of every KPI's own percentage. See `SetupProgress`.
+    percent: Math.round(
+      steps.reduce((sum, step) => sum + step.percent, 0) / Math.max(steps.length, 1),
+    ),
   };
+}
+
+/** A KPI whose only honest denominator is one: it exists, or it does not. */
+function simpleStep(input: {
+  key: string;
+  label: string;
+  count: number;
+  href: string;
+  hint: string;
+}): SetupStep {
+  const done = input.count > 0 ? 1 : 0;
+
+  return {
+    key: input.key,
+    label: input.label,
+    group: 'school',
+    count: input.count,
+    done,
+    total: 1,
+    percent: done * 100,
+    complete: done === 1,
+    href: input.href,
+    hint: input.hint,
+  };
+}
+
+/**
+ * The Principals KPI, which is two different questions at two kinds of school.
+ *
+ * At a `single` school — every school by default — it is "has a head been
+ * invited": one active `principal` or `vice_principal` account, out of one.
+ *
+ * At a `multiple` school it is "does every campus have a head **now**": branches
+ * with a current `principal_assignments` row, over total branches. That is the
+ * number LGS needed and never saw. It runs `multiple`, has one branch and zero
+ * assignments, so its principal signed in to an empty school with nothing on
+ * any screen to say why. A school set to `multiple` with no branches falls back
+ * to the `single` question, because there is nothing to divide by and refusing
+ * to answer would be worse than answering the simpler question.
+ *
+ * "Current" means started and not ended, evaluated on today's date through the
+ * operators rather than a raw `sql` template — a date value handed straight to
+ * the driver is the failure CLAUDE.md documents at length.
+ */
+async function resolvePrincipalKpi(locationId: string): Promise<{
+  label: string;
+  done: number;
+  total: number;
+  href: string;
+  hint: string;
+}> {
+  const today = toDateOnly(new Date());
+
+  const [modelRows, branchRows] = await Promise.all([
+    db
+      .select({ principalModel: schools.principalModel })
+      .from(schools)
+      .where(eq(schools.locationId, locationId))
+      .limit(1),
+    db
+      .select({ id: branches.id })
+      .from(branches)
+      .where(and(eq(branches.locationId, locationId), eq(branches.isActive, true))),
+  ]);
+
+  const multiple = modelRows[0]?.principalModel === 'multiple';
+
+  if (!multiple || branchRows.length === 0) {
+    const accounts = await countRows(
+      db
+        .select({ value: sql<number>`count(*)`.mapWith(Number) })
+        .from(schoolUsers)
+        .where(
+          and(
+            eq(schoolUsers.locationId, locationId),
+            eq(schoolUsers.isActive, true),
+            inArray(schoolUsers.role, ['principal', 'vice_principal']),
+          ),
+        ),
+    );
+
+    return {
+      label: 'Principal',
+      done: accounts > 0 ? 1 : 0,
+      total: 1,
+      href: '/dashboard/users/invite',
+      hint: 'Invite the head of the school so they can sign in.',
+    };
+  }
+
+  const assigned = await db
+    .selectDistinct({ branchId: principalAssignments.branchId })
+    .from(principalAssignments)
+    .where(
+      and(
+        eq(principalAssignments.locationId, locationId),
+        lte(principalAssignments.startsOn, today),
+        or(
+          isNull(principalAssignments.endsOn),
+          gte(principalAssignments.endsOn, today),
+        ),
+      ),
+    );
+
+  // A row with a null `branchId` is a head who runs every campus — a legal and
+  // real arrangement (see `principal_assignments`). It covers all of them.
+  const coversEverything = assigned.some((row) => row.branchId === null);
+  const named = new Set(
+    assigned.map((row) => row.branchId).filter((id): id is string => id !== null),
+  );
+
+  const done = coversEverything
+    ? branchRows.length
+    : branchRows.filter((branch) => named.has(branch.id)).length;
+
+  return {
+    label: 'Principals',
+    done,
+    total: branchRows.length,
+    href: '/dashboard/settings',
+    hint: 'Assign a principal to every campus, or nobody sees anything there.',
+  };
+}
+
+/** Grades with at least one active section, over every active grade. */
+async function gradeSectionCoverage(
+  locationId: string,
+): Promise<{ done: number; total: number }> {
+  const rows = await db
+    .select({
+      total: sql<number>`count(distinct ${grades.id})`.mapWith(Number),
+      done: sql<number>`count(distinct ${sections.gradeId})`.mapWith(Number),
+    })
+    .from(grades)
+    .leftJoin(
+      sections,
+      and(eq(sections.gradeId, grades.id), eq(sections.isActive, true)),
+    )
+    .where(and(eq(grades.locationId, locationId), eq(grades.isActive, true)));
+
+  return { done: rows[0]?.done ?? 0, total: rows[0]?.total ?? 0 };
+}
+
+/** Active sections with at least one active timetable entry, over all of them. */
+async function timetableCoverage(
+  locationId: string,
+): Promise<{ done: number; total: number }> {
+  const rows = await db
+    .select({
+      total: sql<number>`count(distinct ${sections.id})`.mapWith(Number),
+      done: sql<number>`count(distinct ${timetableEntries.sectionId})`.mapWith(Number),
+    })
+    .from(sections)
+    .leftJoin(
+      timetableEntries,
+      and(
+        eq(timetableEntries.sectionId, sections.id),
+        eq(timetableEntries.isActive, true),
+      ),
+    )
+    .where(and(eq(sections.locationId, locationId), eq(sections.isActive, true)));
+
+  return { done: rows[0]?.done ?? 0, total: rows[0]?.total ?? 0 };
+}
+
+/**
+ * One KPI per fee head: grades priced under it, over every grade.
+ *
+ * The product owner's requirement stated exactly — *each fee in the fee type
+ * structure should be its own KPI.* For LGS today that reads Tuition 100%,
+ * Admission 100%, Annual 100%, Library 100% and **Examination 0%**, which is
+ * the real state of that school and was invisible on the panel as it stood.
+ *
+ * **Rows are counted, never amounts.** A stored `0` is the school saying "this
+ * grade pays nothing under this head", which is a completed decision;
+ * filtering on `amount > 0` would un-complete it and push the school towards
+ * inventing a price for a fee it does not charge.
+ *
+ * With no active academic year there is nothing to price against, so every head
+ * reads 0 of its grades — outstanding, which it is. With no fee heads at all a
+ * single 0/1 row stands in for the group, so the card never renders an empty
+ * *Fee structure* heading; after Sprint 17's provisioning seed that state
+ * exists only for schools created before this deploy.
+ */
+async function feeStructureCoverage(
+  locationId: string,
+  academicYearId: string | null,
+): Promise<SetupStep[]> {
+  const [heads, gradeCount] = await Promise.all([
+    db
+      .select({ id: feeTypes.id, name: feeTypes.name })
+      .from(feeTypes)
+      .where(and(eq(feeTypes.locationId, locationId), eq(feeTypes.isActive, true)))
+      .orderBy(asc(feeTypes.sortOrder), asc(feeTypes.name)),
+    countRows(
+      db
+        .select({ value: sql<number>`count(*)`.mapWith(Number) })
+        .from(grades)
+        .where(and(eq(grades.locationId, locationId), eq(grades.isActive, true))),
+    ),
+  ]);
+
+  if (heads.length === 0) {
+    return [
+      {
+        key: 'fee:none',
+        label: 'Fee heads',
+        group: 'fees',
+        count: 0,
+        done: 0,
+        total: 1,
+        percent: 0,
+        complete: false,
+        href: '/dashboard/fees/types',
+        hint: 'Create the fee heads this school bills under.',
+      },
+    ];
+  }
+
+  const priced =
+    academicYearId === null
+      ? []
+      : await db
+          .select({
+            feeTypeId: feeStructures.feeTypeId,
+            value: sql<number>`count(distinct ${feeStructures.gradeId})`.mapWith(Number),
+          })
+          .from(feeStructures)
+          .innerJoin(
+            grades,
+            and(eq(grades.id, feeStructures.gradeId), eq(grades.isActive, true)),
+          )
+          .where(
+            and(
+              eq(feeStructures.locationId, locationId),
+              eq(feeStructures.academicYearId, academicYearId),
+            ),
+          )
+          .groupBy(feeStructures.feeTypeId);
+
+  const pricedByHead = new Map(priced.map((row) => [row.feeTypeId, row.value]));
+  const total = Math.max(gradeCount, 1);
+
+  return heads.map((head) => {
+    const done = pricedByHead.get(head.id) ?? 0;
+    const percent = stepPercent(done, total);
+
+    return {
+      key: `fee:${head.id}`,
+      label: head.name,
+      group: 'fees' as const,
+      count: done,
+      done,
+      total,
+      percent,
+      complete: gradeCount > 0 && done >= gradeCount,
+      href: '/dashboard/fees/structures',
+      hint: `Price ${head.name} for every grade. Enter 0 where it is not charged.`,
+    };
+  });
 }
 
 /** One `count(*)` statement, reduced to the number. */

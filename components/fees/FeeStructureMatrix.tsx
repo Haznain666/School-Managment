@@ -25,9 +25,21 @@ import { schoolErrorMessage, schoolFetch } from '@/lib/school-client';
  * 4,500 tuition and 800 transport" — and because setting twelve grades one form
  * at a time is how a bursar comes to hate their software.
  *
- * A blank cell and a zero are different statements: blank means the grade is
- * not charged that head at all, zero means it is charged nothing. Save All
- * sends the whole grid in one request, so the year's prices change together.
+ * ── A blank cell and a zero are different statements ─────────────────────
+ * Zero means "this grade is charged nothing under this head" — a decision the
+ * school has made. Blank means the decision has **not** been made, and since
+ * Sprint 17 the setup panel says so: its per-head KPI counts rows, so a blank
+ * cell holds that head below 100% until somebody types something.
+ *
+ * The round trip has to preserve that difference in both directions, and it is
+ * easy to break by accident. `String(Number('0.00'))` is `'0'`, so a saved zero
+ * re-renders as `0` and not as an empty box; and the save maps `''` to null and
+ * everything else through `Number`, so a cell holding `0` sends the number and
+ * not the empty string. A zero that round-tripped to blank would silently
+ * un-complete a KPI the school had finished.
+ *
+ * Save All sends the whole grid in one request, so the year's prices change
+ * together.
  */
 
 interface FeeTypeColumn {
@@ -310,7 +322,7 @@ export function FeeStructureMatrix({
           header={
             <CardTitle
               title="Fee structure"
-              description="Amounts in PKR, per grade per head. Leave a cell blank if the grade is not charged that head."
+              description="Amounts in PKR, per grade per head. Enter 0 where a grade is not charged — a blank cell means the decision has not been made yet, and the setup panel reports it as outstanding."
               action={
                 canEdit ? (
                   <Button

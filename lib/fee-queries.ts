@@ -16,6 +16,7 @@ import {
   sql,
   type SQL,
 } from 'drizzle-orm';
+import { alias } from 'drizzle-orm/pg-core';
 
 import {
   academicYears,
@@ -31,19 +32,21 @@ import {
   schools,
   sections,
   studentConcessions,
+  studentCredits,
   studentEnrollments,
   studentGuardians,
   studentProfiles,
   gradeLabel,
   isChallanStatus,
   type ChallanStatus,
+  type CreditReason,
   type DiscountType,
   type FeeCategory,
   type LateFeeType,
   type PaymentMethod,
 } from '@/db/schema';
 
-import { db } from './drizzle';
+import { db, type Database, type Tx } from './drizzle';
 import { daysOverdue, remainingBalance } from './fee-calculator';
 import { toPaise } from './money';
 
@@ -447,6 +450,8 @@ export interface ChallanListRow {
   issueDate: string;
   subtotal: string;
   concessionAmount: string;
+  /** Credit carried forward this challan spent. `0.00` on almost all of them. */
+  creditApplied: string;
   lateFeeAmount: string;
   totalAmount: string;
   paidAmount: string;
@@ -613,6 +618,7 @@ function challanSelect() {
       issueDate: feeChallans.issueDate,
       subtotal: feeChallans.subtotal,
       concessionAmount: feeChallans.concessionAmount,
+      creditApplied: feeChallans.creditApplied,
       lateFeeAmount: feeChallans.lateFeeAmount,
       totalAmount: feeChallans.totalAmount,
       paidAmount: feeChallans.paidAmount,
@@ -684,6 +690,8 @@ interface RawChallanRow {
   issueDate: string;
   subtotal: string;
   concessionAmount: string;
+  /** Credit carried forward this challan spent. `0.00` on almost all of them. */
+  creditApplied: string;
   lateFeeAmount: string;
   totalAmount: string;
   paidAmount: string;
@@ -708,6 +716,7 @@ function mapChallanRow(row: RawChallanRow): ChallanListRow {
     issueDate: row.issueDate,
     subtotal: row.subtotal,
     concessionAmount: row.concessionAmount,
+    creditApplied: row.creditApplied,
     lateFeeAmount: row.lateFeeAmount,
     totalAmount: row.totalAmount,
     paidAmount: row.paidAmount,
@@ -777,6 +786,7 @@ export async function getChallanDetail(
       issueDate: feeChallans.issueDate,
       subtotal: feeChallans.subtotal,
       concessionAmount: feeChallans.concessionAmount,
+      creditApplied: feeChallans.creditApplied,
       lateFeeAmount: feeChallans.lateFeeAmount,
       totalAmount: feeChallans.totalAmount,
       paidAmount: feeChallans.paidAmount,
@@ -1195,6 +1205,115 @@ export async function getCollectionSummary(
     );
 
   return rows;
+}
+
+// -----------------------------------------------------------------------------
+// Credit carried forward (Sprint 17)
+// -----------------------------------------------------------------------------
+
+/**
+ * What one student's credit balance is, in integer paise.
+ *
+ * `SUM(amount)` over an append-only table, exactly as a ledger balance is read.
+ * There is no balance column and there must not be one — see the docstring on
+ * `db/schema/student-credits.ts`.
+ *
+ * Floored at zero for callers. A negative sum would mean more credit has been
+ * spent than was ever granted, which no code path can produce; if one ever
+ * does, the answer a challan needs is "there is nothing to spend", not a
+ * surcharge invented out of an accounting bug.
+ *
+ * @param runner  Pass the transaction handle when the balance is being read
+ *   inside the same transaction that is about to spend it. A builder made from
+ *   `db` runs outside the transaction even when awaited inside one.
+ */
+export async function getCreditBalancePaise(
+  locationId: string,
+  studentProfileId: string,
+  runner: Database | Tx = db,
+): Promise<number> {
+  const rows = await runner
+    .select({ amount: studentCredits.amount })
+    .from(studentCredits)
+    .where(
+      and(
+        eq(studentCredits.locationId, locationId),
+        eq(studentCredits.studentProfileId, studentProfileId),
+      ),
+    );
+
+  let balancePaise = 0;
+  for (const row of rows) balancePaise += toPaise(row.amount);
+
+  return Math.max(balancePaise, 0);
+}
+
+export interface StudentCreditRow {
+  id: string;
+  amount: string;
+  reason: CreditReason;
+  notes: string | null;
+  createdAt: Date;
+  /** The challan whose repricing granted it, when there was one. */
+  sourceChallanId: string | null;
+  sourceChallanNumber: string | null;
+  /** The challan that spent it, on a consuming row. */
+  appliedChallanId: string | null;
+  appliedChallanNumber: string | null;
+}
+
+export interface StudentCreditHistory {
+  /** PKR, floored at zero — the same figure `getCreditBalancePaise` returns. */
+  balance: string;
+  entries: StudentCreditRow[];
+}
+
+/**
+ * Every credit movement for one student, newest first, with the challan
+ * numbers on both sides resolved.
+ *
+ * The profile card and the challan detail page both render this. A credit
+ * nobody can see is a credit nobody trusts, and a parent asking "where did my
+ * discount go" has to be answerable with a challan number rather than a
+ * balance.
+ */
+export async function getStudentCreditHistory(
+  locationId: string,
+  studentProfileId: string,
+): Promise<StudentCreditHistory> {
+  const sourceChallans = alias(feeChallans, 'source_challan');
+  const appliedChallans = alias(feeChallans, 'applied_challan');
+
+  const rows = await db
+    .select({
+      id: studentCredits.id,
+      amount: studentCredits.amount,
+      reason: studentCredits.reason,
+      notes: studentCredits.notes,
+      createdAt: studentCredits.createdAt,
+      sourceChallanId: studentCredits.sourceChallanId,
+      sourceChallanNumber: sourceChallans.challanNumber,
+      appliedChallanId: studentCredits.appliedChallanId,
+      appliedChallanNumber: appliedChallans.challanNumber,
+    })
+    .from(studentCredits)
+    .leftJoin(sourceChallans, eq(sourceChallans.id, studentCredits.sourceChallanId))
+    .leftJoin(appliedChallans, eq(appliedChallans.id, studentCredits.appliedChallanId))
+    .where(
+      and(
+        eq(studentCredits.locationId, locationId),
+        eq(studentCredits.studentProfileId, studentProfileId),
+      ),
+    )
+    .orderBy(desc(studentCredits.createdAt));
+
+  let balancePaise = 0;
+  for (const row of rows) balancePaise += toPaise(row.amount);
+
+  return {
+    balance: (Math.max(balancePaise, 0) / 100).toFixed(2),
+    entries: rows,
+  };
 }
 
 // -----------------------------------------------------------------------------

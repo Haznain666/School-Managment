@@ -32,7 +32,7 @@ export interface ConcessionInput {
   concessionName: string;
   discountType: string;
   discountValue: MoneyInput;
-  /** Null = applies to every monthly head. */
+  /** Null = applies to every head, of every category. */
   appliesToFeeTypeId: string | null;
 }
 
@@ -49,7 +49,18 @@ export interface ChallanTotals {
   items: ChallanItem[];
   subtotal: string;
   concessionAmount: string;
-  /** subtotal - concession. The late fee is added separately, when overdue. */
+  /**
+   * Credit carried forward that this challan spends (Sprint 17).
+   *
+   * Zero until `applyCreditToTotals` has run, which is the last step of both
+   * `previewChallan` and `generateChallan`. It is not a line item: an
+   * adjustment has no fee head, so it lives on the header.
+   */
+  creditApplied: string;
+  /**
+   * subtotal - concession - credit. The late fee is added separately, when
+   * overdue.
+   */
   totalAmount: string;
 }
 
@@ -60,9 +71,17 @@ export interface ChallanTotals {
  * discount — but the result is clamped to the line's own amount, because a
  * concession may never turn a fee into a refund.
  *
- * A concession with a null `appliesToFeeTypeId` covers every *monthly* head,
- * which is what a school means by "20% off her fees"; one naming a head applies
- * only to that head, whatever its category.
+ * A concession with a null `appliesToFeeTypeId` covers **every** head, of every
+ * category; one naming a head applies only to that head. That is what a school
+ * means when it writes "20% sibling discount" with no qualifier.
+ *
+ * Until Sprint 17 the null case was narrowed to `monthly` heads only, and it
+ * cost real money in the wrong direction: LGS's sibling discount is exactly
+ * that row — no head named, 20%, open-ended — so it could never reach the
+ * admission fee, the annual fee or anything else one-time. Nothing reported
+ * it, because a discount that does not apply looks identical to a discount the
+ * school never granted. A school that wants a monthly-only discount names the
+ * monthly head, which has always worked and is the narrower, explicit case.
  */
 function concessionPaiseFor(
   line: { feeTypeId: string; feeCategory: string; amountPaise: number },
@@ -73,7 +92,7 @@ function concessionPaiseFor(
   for (const concession of concessions) {
     const matches =
       concession.appliesToFeeTypeId === null
-        ? line.feeCategory === 'monthly'
+        ? true
         : concession.appliesToFeeTypeId === line.feeTypeId;
 
     if (!matches) continue;
@@ -146,7 +165,46 @@ export function summariseChallanItems(items: readonly ChallanItem[]): ChallanTot
     items: [...items],
     subtotal: paiseToNumeric(subtotalPaise),
     concessionAmount: paiseToNumeric(concessionPaise),
+    creditApplied: paiseToNumeric(0),
     totalAmount: paiseToNumeric(subtotalPaise - concessionPaise),
+  };
+}
+
+/**
+ * Spends a student's carried-forward credit against a set of totals.
+ *
+ * The last step of pricing a challan, and deliberately separate from
+ * `summariseChallanItems`: the credit is not a fee head and not a discount on
+ * one, it is money the school already owes this child (see
+ * `db/schema/student-credits.ts`). It reduces what the parent is asked for and
+ * nothing else about the bill.
+ *
+ * Two floors, both of which matter:
+ *
+ *  * only as much credit as there is to demand is spent, so a 5,000 credit
+ *    against a 1,200 voucher spends 1,200 and leaves 3,800 for the next one;
+ *  * the total can never go below zero, which is what
+ *    `fee_challans_*` and every reader of `total_amount` assume. A voucher for
+ *    a negative amount is not a refund — it is a slip a bank teller cannot
+ *    process and a parent cannot understand.
+ *
+ * @param availableCreditPaise  The student's `SUM(amount)` balance, in paise.
+ *   Anything at or below zero spends nothing.
+ */
+export function applyCreditToTotals(
+  totals: ChallanTotals,
+  availableCreditPaise: number,
+): ChallanTotals {
+  const owedPaise = toPaise(totals.totalAmount);
+  const spendablePaise = Math.max(Math.trunc(availableCreditPaise), 0);
+  const appliedPaise = Math.min(spendablePaise, Math.max(owedPaise, 0));
+
+  if (appliedPaise <= 0) return totals;
+
+  return {
+    ...totals,
+    creditApplied: paiseToNumeric(appliedPaise),
+    totalAmount: paiseToNumeric(owedPaise - appliedPaise),
   };
 }
 

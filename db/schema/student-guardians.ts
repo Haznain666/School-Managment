@@ -59,6 +59,12 @@ export function relationshipLabel(guardian: {
  * Recording an uncle as the first guardian and describing him nowhere is how a
  * record ends up with a phone number and no idea whose it is.
  *
+ * `guardian` belongs in this set and was missing from it until Sprint 17. A
+ * legal guardian *is* the person the school holds responsible — for an orphaned
+ * child or a child living with relatives there is nobody else — and refusing
+ * the row forced the admissions desk to record that person as "Other", which is
+ * the one answer this list exists to exclude, or as a father they are not.
+ *
  * The narrower set is enforced on the form and again in `parseGuardians`, and
  * deliberately not by a database constraint: rows written before this rule
  * existed are legitimate history, and a check constraint would refuse the next
@@ -67,6 +73,7 @@ export function relationshipLabel(guardian: {
 export const FIRST_GUARDIAN_RELATIONSHIPS = [
   'father',
   'mother',
+  'guardian',
   'sibling',
 ] as const satisfies readonly GuardianRelationship[];
 

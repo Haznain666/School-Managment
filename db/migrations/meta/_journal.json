@@ -232,6 +232,13 @@
       "when": 1787744273358,
       "tag": "0032_sprint16_feedback_notifications",
       "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "7",
+      "when": 1787832000000,
+      "tag": "0033_sprint17_student_credits",
+      "breakpoints": true
     }
   ]
 }

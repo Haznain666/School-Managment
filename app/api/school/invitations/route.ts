@@ -1,18 +1,10 @@
-import { randomBytes } from 'node:crypto';
-
 import { and, desc, eq, gt, isNull } from 'drizzle-orm';
 
-import {
-  branches,
-  inviteExpiryFromNow,
-  schoolInvitations,
-  schools,
-} from '@/db/schema';
+import { branches, schoolInvitations, schoolUsers, schools } from '@/db/schema';
+import { queueAccessEmail } from '@/lib/access-email';
 import { apiFailure, apiSuccess, handleApiError, readJsonBody } from '@/lib/api-response';
 import { withSchoolAuth } from '@/lib/api-auth';
 import { db } from '@/lib/drizzle';
-import { buildInviteUrl } from '@/lib/invite-links';
-import { InviteDeliveryError, sendInvite } from '@/lib/invite-sender';
 import { isValidEmail, normalizeEmail } from '@/lib/password-strength';
 import {
   hasCompletePhoneOfAnyKind,
@@ -25,10 +17,26 @@ import { BRANCH_REQUIRED_ROLES, isUserRole } from '@/types/school-auth';
  * /api/school/invitations
  *
  * GET  pending invitations (not yet accepted, not yet expired)
- * POST create and deliver an invitation
+ * POST create the member and mail them a password-setup link
  *
- * The invite is only recorded after the email is queued, so the pending list
- * never shows an invitation that was never going anywhere.
+ * ── The POST no longer writes an invitation (Sprint 17) ──────────────────
+ * It creates a `school_users` row and calls `queueAccessEmail`, which is the
+ * same single `/set-password/<token>` mail every other account on this platform
+ * receives. What it replaced was a two-email dance: an invite link, then a
+ * six-digit code emailed to the address the invite link had already proved.
+ *
+ * ── Why `school_invitations` is still here, and still read ───────────────
+ * Rows already in it are **live invitations somebody may still click**. The
+ * GET below, `app/(public)/invite/[token]/page.tsx`, `InviteOTPForm`, the
+ * accept routes and the resend endpoint are all untouched for exactly that
+ * reason, and they stay until the last of those rows expires. Nothing new is
+ * ever written to that table. The equivalent state for a member created from
+ * now on is `school_users.auth_user_id IS NULL`, which `UserTable` already
+ * renders as "Invite pending".
+ *
+ * The OTP path in `lib/school-auth.ts` is **not** removed either. Forgot
+ * Password still uses a code, and that is correct: an established account must
+ * prove the mailbox.
  */
 
 export const runtime = 'nodejs';
@@ -159,31 +167,31 @@ export const POST = withSchoolAuth(
         return apiFailure('not_found', 'School not found.', 404);
       }
 
-      const token = randomBytes(32).toString('hex');
-      const inviteUrl = buildInviteUrl(token, school.slug);
-
-      let delivery;
-      try {
-        delivery = await sendInvite({
-          locationId: auth.locationId,
-          invitation: { name, phone, email, role: body.role },
-          school: { name: school.name },
-          inviteUrl,
-        });
-      } catch (error) {
-        if (error instanceof InviteDeliveryError) {
-          return apiFailure(
-            'delivery_failed',
-            `The invitation could not be delivered. ${error.failures.join(' ')}`.trim(),
-            502,
-          );
-        }
-        throw error;
-      }
-
+      /*
+       * The member is created now, and the mail is the same one every other
+       * account on this platform receives.
+       *
+       * Sprint 17. This route used to write a `school_invitations` row and mail
+       * an invite link, which landed on `InviteOTPForm`: the invitee typed
+       * their name, was mailed a **six-digit code**, and transcribed it. Two
+       * emails, and the second one proved the same mailbox the first had
+       * already proved. Meanwhile `createFirstSchoolAdmin` — the platform's own
+       * path — mailed one `/set-password/<token>` link and was done.
+       *
+       * A school administrator inviting their bursar and a platform operator
+       * provisioning that school were producing two different onboarding
+       * experiences from the same product, and only one of them was the one
+       * anybody had written help for.
+       *
+       * So the row goes into `school_users` on the same terms as
+       * `POST /api/school/users`, and `queueAccessEmail` takes it from there.
+       * `authUserId` is null on a row that has just been created, so it takes
+       * the first-time branch by itself and mails the setup link.
+       */
       const inserted = await db
-        .insert(schoolInvitations)
+        .insert(schoolUsers)
         .values({
+          // Tenant comes from the verified session, never from the body.
           locationId: auth.locationId,
           name,
           phone,
@@ -191,26 +199,51 @@ export const POST = withSchoolAuth(
           role: body.role,
           branchId,
           invitedByUid: auth.uid,
-          token,
-          // Records that the message was queued, not that SMTP accepted it —
-          // see the note in the resend route. The UI reads this as
-          // "Email queued".
-          emailSent: delivery.emailQueued,
-          expiresAt: inviteExpiryFromNow(),
         })
+        // Phone is unique per school.
+        .onConflictDoNothing()
         .returning({
-          id: schoolInvitations.id,
-          name: schoolInvitations.name,
-          phone: schoolInvitations.phone,
-          role: schoolInvitations.role,
-          expiresAt: schoolInvitations.expiresAt,
-          emailSent: schoolInvitations.emailSent,
+          id: schoolUsers.id,
+          name: schoolUsers.name,
+          phone: schoolUsers.phone,
+          email: schoolUsers.email,
+          role: schoolUsers.role,
+          authUserId: schoolUsers.authUserId,
         });
 
-      return apiSuccess(
-        { invitation: inserted[0], delivery: { failures: delivery.failures } },
-        201,
-      );
+      const member = inserted[0];
+      if (member === undefined) {
+        return apiFailure(
+          'already_exists',
+          'Someone with that phone number already exists at this school.',
+          409,
+        );
+      }
+
+      /*
+       * Reported, never thrown.
+       *
+       * The member exists and is correct by the time this runs, and a mail
+       * transport that is down must not undo that — the account is reachable
+       * again from **Send access email** on their profile. What must not happen
+       * is the old failure mode in the other direction: the form saying
+       * "invited" while nothing was queued. So the result goes back in the
+       * response and `UserInviteForm` says plainly whether the message was
+       * queued and, if not, why.
+       */
+      const delivery = await queueAccessEmail({
+        locationId: auth.locationId,
+        school: { name: school.name, slug: school.slug },
+        member: {
+          id: member.id,
+          name: member.name,
+          email: member.email,
+          authUserId: member.authUserId,
+        },
+        createdBy: auth.uid,
+      });
+
+      return apiSuccess({ user: member, delivery }, 201);
     } catch (error) {
       return handleApiError(error);
     }

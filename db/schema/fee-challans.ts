@@ -38,6 +38,16 @@ export const CHALLAN_STATUS_LABELS: Record<ChallanStatus, string> = {
 export const OPEN_CHALLAN_STATUSES: readonly ChallanStatus[] = ['unpaid', 'partial'];
 
 /**
+ * The kinds of challan the database itself has a rule about.
+ *
+ * There is exactly one, and adding a second should be resisted unless it comes
+ * with a constraint that needs it — see the column's comment below. A kind that
+ * only labels a bill belongs nowhere near a unique index.
+ */
+export const CHALLAN_KINDS = ['admission'] as const;
+export type ChallanKind = (typeof CHALLAN_KINDS)[number];
+
+/**
  * fee_challans — one bill, for one student, for one billing period.
  *
  * A challan is the printed slip a parent takes to the bank, so it is a record
@@ -84,13 +94,51 @@ export const feeChallans = pgTable(
     lateFeeAmount: numeric('late_fee_amount', { precision: 12, scale: 2 })
       .notNull()
       .default('0'),
-    /** subtotal - concession + late fee. What the parent owes. */
+    /**
+     * Credit carried forward that this challan spent (Sprint 17).
+     *
+     * On the header rather than in `fee_challan_items` because every line there
+     * carries a `fee_type_id NOT NULL`, and an adjustment has no fee head: it
+     * is not a charge the school levied, it is money the school already owed.
+     * Frozen at generation exactly as `subtotal` and `concession_amount` are.
+     *
+     * The consuming `student_credits` row is written in the same `batch()` as
+     * the challan. A credit spent by a challan that was not written is a credit
+     * lost, and nothing would ever report it missing.
+     */
+    creditApplied: numeric('credit_applied', { precision: 12, scale: 2 })
+      .notNull()
+      .default('0'),
+    /** subtotal - concession - credit applied + late fee. What the parent owes. */
     totalAmount: numeric('total_amount', { precision: 12, scale: 2 }).notNull(),
     /** Kept in step with `fee_payments` by the payment endpoint. */
     paidAmount: numeric('paid_amount', { precision: 12, scale: 2 })
       .notNull()
       .default('0'),
     status: text('status').notNull().default('unpaid').$type<ChallanStatus>(),
+    /**
+     * What kind of bill this is, when it is a kind the database has to police.
+     *
+     * Null for every ordinary challan — monthly, annual, and the one-off bills
+     * a school raises by hand — and that is the overwhelming majority. It is
+     * deliberately not a general taxonomy: the column exists because of one
+     * rule that could not otherwise be enforced.
+     *
+     * ── The race it closes ───────────────────────────────────────────────
+     * "One admission, one admission fee" was a read followed by an insert:
+     * `generateAdmissionChallan` asked `resolveAdmissionFee` whether a voucher
+     * already existed and raised one if not. Two clicks — a double-click, two
+     * tabs, a retried request — both pass that read and both insert, and the
+     * unique index that catches this for a monthly challan cannot: an
+     * admission voucher carries a **null** `billing_month`, and Postgres treats
+     * nulls as distinct. The result is two vouchers for one admission, and,
+     * worse, the student's carried-forward credit spent twice.
+     *
+     * That is CLAUDE.md's background-work rule in a different costume, and it
+     * has the same answer: let Postgres decide it on one row under one lock.
+     * `fee_challans_admission_once_idx` below is that decision.
+     */
+    challanKind: text('challan_kind').$type<ChallanKind>(),
     /**
      * Set when this challan has been folded into a family voucher (Sprint 10).
      *
@@ -128,6 +176,25 @@ export const feeChallans = pgTable(
       table.billingMonth,
       table.billingYear,
       table.academicYearId,
+    ),
+    /*
+     * One live admission voucher per student per year, decided by Postgres.
+     *
+     * Partial on `challan_kind = 'admission'`, so it constrains nothing else —
+     * a school may still raise as many one-off challans as it likes, which is
+     * what the null `billing_month` in the index above exists to allow.
+     *
+     * Partial on `status <> 'cancelled'` as well, because cancelling a voucher
+     * has to make room for the corrected one. A `waived` voucher deliberately
+     * does *not* make room: waiving is a decision a human made that settles the
+     * admission, and re-billing it would undo that decision silently.
+     */
+    uniqueIndex('fee_challans_admission_once_idx')
+      .on(table.studentProfileId, table.academicYearId)
+      .where(sql`${table.challanKind} = 'admission' AND ${table.status} <> 'cancelled'`),
+    check(
+      'fee_challans_challan_kind_check',
+      sql`${table.challanKind} IS NULL OR ${table.challanKind} IN ('admission')`,
     ),
     check('fee_challans_billing_month_check', sql`${table.billingMonth} BETWEEN 1 AND 12`),
     check(
