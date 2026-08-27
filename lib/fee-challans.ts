@@ -524,43 +524,74 @@ export async function generateAdmissionChallan(
 
   const challanId = crypto.randomUUID();
 
-  await batch(db, (tx) => [
-    tx.insert(feeChallans).values({
-      id: challanId,
-      locationId: params.locationId,
-      studentProfileId: params.studentProfileId,
-      academicYearId: placement.academicYearId,
-      challanNumber,
-      billingMonth: null,
-      billingYear: null,
-      dueDate,
-      subtotal: totals.subtotal,
-      concessionAmount: totals.concessionAmount,
-      creditApplied: totals.creditApplied,
-      totalAmount: totals.totalAmount,
-      status: 'unpaid',
-      notes: params.notes ?? null,
-      generatedByUid: params.actorUid,
-    }),
-    ...totals.items.map((item) =>
-      tx.insert(feeChallanItems).values({
+  const writeVoucher = (): Promise<unknown> =>
+    batch(db, (tx) => [
+      tx.insert(feeChallans).values({
+        id: challanId,
         locationId: params.locationId,
-        challanId,
-        feeTypeId: item.feeTypeId,
-        description: item.description,
-        amount: item.amount,
-        concessionAmount: item.concessionAmount,
-        netAmount: item.netAmount,
+        studentProfileId: params.studentProfileId,
+        academicYearId: placement.academicYearId,
+        challanNumber,
+        billingMonth: null,
+        billingYear: null,
+        // What `fee_challans_admission_once_idx` is partial on. Without it this
+        // row is an ordinary one-off challan, the index does not see it, and the
+        // `already_exists` read above is the only guard again — which is no guard
+        // at all against a second request already in flight.
+        challanKind: 'admission',
+        dueDate,
+        subtotal: totals.subtotal,
+        concessionAmount: totals.concessionAmount,
+        creditApplied: totals.creditApplied,
+        totalAmount: totals.totalAmount,
+        status: 'unpaid',
+        notes: params.notes ?? null,
+        generatedByUid: params.actorUid,
       }),
-    ),
-    ...consumeCreditStatements(tx, {
-      locationId: params.locationId,
-      studentProfileId: params.studentProfileId,
-      challanId,
-      creditApplied: totals.creditApplied,
-      actorUid: params.actorUid,
-    }),
-  ]);
+      ...totals.items.map((item) =>
+        tx.insert(feeChallanItems).values({
+          locationId: params.locationId,
+          challanId,
+          feeTypeId: item.feeTypeId,
+          description: item.description,
+          amount: item.amount,
+          concessionAmount: item.concessionAmount,
+          netAmount: item.netAmount,
+        }),
+      ),
+      ...consumeCreditStatements(tx, {
+        locationId: params.locationId,
+        studentProfileId: params.studentProfileId,
+        challanId,
+        creditApplied: totals.creditApplied,
+        actorUid: params.actorUid,
+      }),
+    ]);
+
+  /*
+   * The `already_exists` read above said there was no voucher; the index is
+   * what makes that answer true. A second request that got past the same read
+   * lands here, and losing that race must read as "somebody else already did
+   * it" rather than as a server fault — the school's outcome is identical
+   * either way, and the row the winner wrote is what the panel shows on
+   * refresh.
+   *
+   * Narrowed by constraint name, not by SQLSTATE alone: `23505` on this insert
+   * has two possible causes, and a collision on the challan *number* is a
+   * different fault with a different remedy.
+   */
+  try {
+    await writeVoucher();
+  } catch (error) {
+    if (isAdmissionRaceViolation(error)) {
+      throw new ChallanGenerationError(
+        'already_exists',
+        'This admission has just been billed by somebody else. Refresh to see the voucher.',
+        409,
+      );
+    }
+    throw error;
+  }
 
   return {
     id: challanId,
@@ -572,6 +603,24 @@ export async function generateAdmissionChallan(
     dueDate,
     items: totals.items,
   };
+}
+
+/**
+ * Whether a thrown error is the admission index refusing a second voucher.
+ *
+ * postgres-js surfaces the server's fields on the error object, so the
+ * constraint is readable without parsing the message — which is what makes it
+ * safe to swallow this one violation and nothing else.
+ */
+function isAdmissionRaceViolation(error: unknown): boolean {
+  if (typeof error !== 'object' || error === null) return false;
+
+  const { code, constraint_name: constraintName } = error as {
+    code?: unknown;
+    constraint_name?: unknown;
+  };
+
+  return code === '23505' && constraintName === 'fee_challans_admission_once_idx';
 }
 
 /** The current month's due date, on the school's own due day. */

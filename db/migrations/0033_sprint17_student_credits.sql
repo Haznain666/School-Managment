@@ -102,4 +102,42 @@ CREATE INDEX IF NOT EXISTS "student_credits_student_profile_id_idx" ON "student_
 --   total_amount = subtotal − concession_amount − credit_applied + late_fee_amount
 -- The DEFAULT is what makes this expand-only: every challan raised before this
 -- deploy took no credit off, and '0' is the true value for all of them.
-ALTER TABLE "fee_challans" ADD COLUMN IF NOT EXISTS "credit_applied" numeric(12, 2) DEFAULT '0' NOT NULL;
+ALTER TABLE "fee_challans" ADD COLUMN IF NOT EXISTS "credit_applied" numeric(12, 2) DEFAULT '0' NOT NULL;--> statement-breakpoint
+
+-- ── One live admission voucher per student, per year ──────────────────────
+--
+-- `challan_kind` is null for every challan that exists today and for every
+-- ordinary one raised hereafter. It is not a taxonomy; it exists so that the
+-- partial unique index below has something to be partial on.
+--
+-- The rule it enforces could not be enforced any other way. "One admission,
+-- one admission fee" was a read followed by an insert — resolve the student's
+-- admission state, and raise a voucher if none was found — and two clicks pass
+-- that read together. The index that catches the same mistake for a monthly
+-- challan is on (student, billing_month, billing_year, academic_year), and an
+-- admission voucher carries a **null** billing month precisely because an
+-- admission is not a period. Postgres treats nulls as distinct, so that index
+-- sees two different rows and lets both in.
+--
+-- The cost of losing that race is not a duplicate slip. It is a duplicate slip
+-- *and* the student's carried-forward credit spent twice, in two transactions
+-- that each believed they were the only one.
+--
+-- `status <> 'cancelled'` is in the predicate so that cancelling a voucher
+-- makes room for a corrected one. `waived` deliberately does not: a waiver is a
+-- decision a human made that settles the admission.
+--
+-- Expand-only: every existing row has `challan_kind` null and is therefore
+-- outside the index entirely.
+ALTER TABLE "fee_challans" ADD COLUMN IF NOT EXISTS "challan_kind" text;--> statement-breakpoint
+
+DO $$ BEGIN
+  ALTER TABLE "fee_challans" ADD CONSTRAINT "fee_challans_challan_kind_check"
+    CHECK ("challan_kind" IS NULL OR "challan_kind" IN ('admission'));
+EXCEPTION
+  WHEN duplicate_object THEN null;
+END $$;--> statement-breakpoint
+
+CREATE UNIQUE INDEX IF NOT EXISTS "fee_challans_admission_once_idx"
+  ON "fee_challans" USING btree ("student_profile_id", "academic_year_id")
+  WHERE "challan_kind" = 'admission' AND "status" <> 'cancelled';
