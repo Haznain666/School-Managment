@@ -22,7 +22,6 @@ import { generateChallanNumber, reserveChallanNumbers } from './challan-number';
 import { batch, type Database, type Tx } from './drizzle';
 import {
   applyCreditToTotals,
-  calculateChallanItems,
   calculateChallanLines,
   defaultDueDate,
   summariseChallanItems,
@@ -418,6 +417,9 @@ export async function generateChallan(
         amount: item.amount,
         concessionAmount: item.concessionAmount,
         netAmount: item.netAmount,
+        // Frozen with the line, like `description`. A scheme renamed in March
+        // must not rewrite what February's slip said it was.
+        concessionDetail: item.concessionDetail,
       }),
     ),
     // Inside the same transaction as the challan, never after it. A credit
@@ -474,7 +476,7 @@ export interface GenerateAdmissionChallanParams {
  *     whole reason it is safe to leave them null rather than stamping today's
  *     month on a charge that has nothing to do with today's month.
  *
- *  2. **Only the resolved admission head is billed.** `calculateChallanItems`
+ *  2. **Only the resolved admission head is billed.** `calculateChallanLines`
  *     is given that one structure row and no `billingMonth`, so its monthly
  *     filter does not run and nothing else on the price list comes with it. A
  *     school raising an admission voucher must not accidentally bill a year's
@@ -628,6 +630,7 @@ export async function generateAdmissionChallan(
           amount: item.amount,
           concessionAmount: item.concessionAmount,
           netAmount: item.netAmount,
+          concessionDetail: item.concessionDetail,
         }),
       ),
       ...consumeCreditStatements(tx, {
@@ -967,7 +970,16 @@ export async function bulkGenerateChallans(
       return;
     }
 
-    const items = calculateChallanItems(
+    /*
+     * `calculateChallanLines`, not `calculateChallanItems`.
+     *
+     * The overflow — discount the per-line clamp could not absorb — was being
+     * dropped here while both single-generation paths banked it, so a fixed
+     * concession larger than a monthly fee simply ceased to exist on the one
+     * run that raises almost every voucher a school issues. The calculator's
+     * own docblock says it: anything that *writes* a challan uses this one.
+     */
+    const { items, overflowPaise } = calculateChallanLines(
       structures,
       concessionsByStudent.get(candidate.studentProfileId) ?? [],
       params.billingMonth,
@@ -1019,6 +1031,7 @@ export async function bulkGenerateChallans(
             amount: item.amount,
             concessionAmount: item.concessionAmount,
             netAmount: item.netAmount,
+            concessionDetail: item.concessionDetail,
           }),
         ),
         ...consumeCreditStatements(tx, {
@@ -1026,6 +1039,13 @@ export async function bulkGenerateChallans(
           studentProfileId: candidate.studentProfileId,
           challanId,
           creditApplied: totals.creditApplied,
+          actorUid: params.actorUid,
+        }),
+        ...grantOverflowStatements(tx, {
+          locationId: params.locationId,
+          studentProfileId: candidate.studentProfileId,
+          challanId,
+          overflowPaise,
           actorUid: params.actorUid,
         }),
       ]);
@@ -1210,6 +1230,7 @@ async function repriceOneChallan(
         description: feeChallanItems.description,
         amount: feeChallanItems.amount,
         concessionAmount: feeChallanItems.concessionAmount,
+        concessionDetail: feeChallanItems.concessionDetail,
       })
       .from(feeChallanItems)
       .where(
@@ -1237,7 +1258,12 @@ async function repriceOneChallan(
   // exactly as it is on a freshly generated challan — the clamp must not be
   // the last thing that knows about it.
   let lineOverflowPaise = 0;
-  const updates: Array<{ id: string; concessionAmount: string; netAmount: string }> = [];
+  const updates: Array<{
+    id: string;
+    concessionAmount: string;
+    netAmount: string;
+    concessionDetail: string | null;
+  }> = [];
 
   for (const line of lines) {
     const amountPaise = toPaise(line.amount);
@@ -1272,11 +1298,17 @@ async function repriceOneChallan(
     const linePaise = toPaise(pricedLines.items[0]?.concessionAmount ?? '0');
     concessionPaise += linePaise;
 
-    if (linePaise !== toPaise(line.concessionAmount)) {
+    const detail = pricedLines.items[0]?.concessionDetail ?? null;
+
+    // The explanation moves with the figure, or the two drift: a line saying
+    // `−4,000 · Sibling Discount 20%` after the discount was withdrawn is worse
+    // than one saying nothing, because it is confidently wrong.
+    if (linePaise !== toPaise(line.concessionAmount) || detail !== line.concessionDetail) {
       updates.push({
         id: line.id,
         concessionAmount: paiseToNumeric(linePaise),
         netAmount: paiseToNumeric(amountPaise - linePaise),
+        concessionDetail: detail,
       });
     }
   }
@@ -1345,6 +1377,7 @@ async function repriceOneChallan(
         .set({
           concessionAmount: update.concessionAmount,
           netAmount: update.netAmount,
+          concessionDetail: update.concessionDetail,
         })
         .where(eq(feeChallanItems.id, update.id)),
     ),

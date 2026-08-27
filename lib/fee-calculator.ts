@@ -1,5 +1,6 @@
 import {
   clampPaise,
+  formatPkr,
   paiseToNumeric,
   percentOfPaise,
   toPaise,
@@ -32,8 +33,66 @@ export interface ConcessionInput {
   concessionName: string;
   discountType: string;
   discountValue: MoneyInput;
-  /** Null = applies to every head, of every category. */
+  /**
+   * The single head a pre-Sprint-18 grant was narrowed to. Null = every head.
+   *
+   * Still read, never backfilled. `concessionHeads` below folds it into the
+   * set, so a row written in Sprint 5 prices exactly as it always did.
+   */
   appliesToFeeTypeId: string | null;
+  /**
+   * The heads this concession is narrowed to (Sprint 18).
+   *
+   * **`null` and `[]` both mean every head, of every category**, and that is
+   * not a shortcut — it is the rule. See `concessionHeads`.
+   */
+  appliesToFeeTypeIds?: readonly string[] | null | undefined;
+}
+
+/**
+ * The heads a concession applies to, or `null` for "all of them".
+ *
+ * ── Read this before narrowing anything here ─────────────────────────────
+ * An empty set is the **wide** case. A school that writes "20% sibling
+ * discount" with no qualifier means every fee the child is charged, and until
+ * Sprint 17 this function's ancestor read the unqualified case as "monthly
+ * heads only" — so the commonest discount in Pakistani schooling silently
+ * never reached the admission, annual or examination fee. Nothing reported it,
+ * because *a discount that does not apply is indistinguishable on screen from
+ * a discount the school never granted*. STATE.md §5be calls it the one-line bug
+ * that cost the most.
+ *
+ * Sprint 18 widened one head to a set, which is the same decision in a new
+ * shape and the same trap: `[]` must not start meaning "nothing". Both the
+ * scheme's head list and the grant's are optional narrowings, and both are
+ * empty for the majority of real rows.
+ */
+function concessionHeads(concession: ConcessionInput): Set<string> | null {
+  const heads = new Set<string>();
+
+  for (const id of concession.appliesToFeeTypeIds ?? []) heads.add(id);
+  if (concession.appliesToFeeTypeId !== null) heads.add(concession.appliesToFeeTypeId);
+
+  return heads.size === 0 ? null : heads;
+}
+
+/**
+ * How one concession reads on a voucher line — `Sibling Discount 20%`.
+ *
+ * A percentage is printed as the rate rather than as the rupees it produced,
+ * because the rupees are already in the Concession column beside it and the
+ * rate is the fact that column cannot carry. A fixed discount prints its
+ * amount, which is the same reasoning: `Staff Discount PKR 2,000` says what the
+ * school granted, not what happened to fit on this line.
+ */
+function describeConcession(concession: ConcessionInput): string {
+  if (concession.discountType === 'percentage') {
+    const percent = Number(concession.discountValue ?? 0);
+    const rendered = Number.isInteger(percent) ? String(percent) : percent.toFixed(2);
+    return `${concession.concessionName} ${rendered}%`;
+  }
+
+  return `${concession.concessionName} ${formatPkr(concession.discountValue)}`;
 }
 
 /** One line of a challan, ready to insert. All amounts are PKR strings. */
@@ -43,6 +102,11 @@ export interface ChallanItem {
   amount: string;
   concessionAmount: string;
   netAmount: string;
+  /**
+   * The concessions that produced `concessionAmount`, named and rated (Sprint
+   * 18). Null when none applied, which is most lines.
+   */
+  concessionDetail: string | null;
 }
 
 export interface ChallanTotals {
@@ -86,16 +150,18 @@ export interface ChallanTotals {
 function concessionPaiseFor(
   line: { feeTypeId: string; feeCategory: string; amountPaise: number },
   concessions: readonly ConcessionInput[],
-): { applied: number; excess: number } {
+): { applied: number; excess: number; detail: string | null } {
   let total = 0;
+  const applying: string[] = [];
 
   for (const concession of concessions) {
-    const matches =
-      concession.appliesToFeeTypeId === null
-        ? true
-        : concession.appliesToFeeTypeId === line.feeTypeId;
+    const heads = concessionHeads(concession);
+    // `null` is "every head", and it is the common case. See `concessionHeads`.
+    const matches = heads === null ? true : heads.has(line.feeTypeId);
 
     if (!matches) continue;
+
+    applying.push(describeConcession(concession));
 
     total +=
       concession.discountType === 'percentage'
@@ -104,6 +170,10 @@ function concessionPaiseFor(
   }
 
   const applied = clampPaise(total, 0, line.amountPaise);
+  // Named even when the clamp took the figure to zero: "Sibling Discount 100%"
+  // against a line reading nil is the explanation of the nil, and the line a
+  // parent would otherwise ring about.
+  const detail = applying.length === 0 ? null : applying.join(', ');
 
   /*
    * What the clamp threw away, reported rather than discarded.
@@ -120,7 +190,7 @@ function concessionPaiseFor(
    * the remainder carries forward to the next voucher. It cannot carry forward
    * if this function is the last thing that knows about it.
    */
-  return { applied, excess: Math.max(0, total - applied) };
+  return { applied, excess: Math.max(0, total - applied), detail };
 }
 
 /**
@@ -171,7 +241,7 @@ export function calculateChallanLines(
     .sort((left, right) => (left.sortOrder ?? 0) - (right.sortOrder ?? 0))
     .map((structure) => {
       const amountPaise = toPaise(structure.amount);
-      const { applied, excess } = concessionPaiseFor(
+      const { applied, excess, detail } = concessionPaiseFor(
         {
           feeTypeId: structure.feeTypeId,
           feeCategory: structure.feeCategory,
@@ -188,6 +258,7 @@ export function calculateChallanLines(
         amount: paiseToNumeric(amountPaise),
         concessionAmount: paiseToNumeric(applied),
         netAmount: paiseToNumeric(amountPaise - applied),
+        concessionDetail: detail,
       };
     });
 

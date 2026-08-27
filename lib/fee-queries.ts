@@ -31,6 +31,7 @@ import {
   schoolUsers,
   schools,
   sections,
+  studentConcessionFeeTypes,
   studentConcessions,
   studentCredits,
   studentEnrollments,
@@ -276,6 +277,49 @@ export async function listConcessions(
 }
 
 /**
+ * One grant, in the shape the calculator prices from.
+ *
+ * `appliesToFeeTypeIds` is the Sprint 18 head *set*; `appliesToFeeTypeId` is
+ * the single-head column every pre-Sprint-18 row still carries. Both are
+ * returned and the calculator folds them together, because there is no
+ * backfill: a grant written in Sprint 5 must price exactly as it always did.
+ * An empty set with a null legacy column means **every head, of every
+ * category** — see `concessionHeads` in `lib/fee-calculator.ts`.
+ */
+export interface ActiveConcessionRow {
+  id: string;
+  concessionName: string;
+  discountType: DiscountType;
+  discountValue: string;
+  appliesToFeeTypeId: string | null;
+  appliesToFeeTypeIds: string[];
+}
+
+/** The head sets of many grants at once, keyed by grant id. */
+async function headSetsFor(
+  concessionIds: readonly string[],
+): Promise<Map<string, string[]>> {
+  const result = new Map<string, string[]>();
+  if (concessionIds.length === 0) return result;
+
+  const rows = await db
+    .select({
+      studentConcessionId: studentConcessionFeeTypes.studentConcessionId,
+      feeTypeId: studentConcessionFeeTypes.feeTypeId,
+    })
+    .from(studentConcessionFeeTypes)
+    .where(inArray(studentConcessionFeeTypes.studentConcessionId, [...concessionIds]));
+
+  for (const row of rows) {
+    const heads = result.get(row.studentConcessionId) ?? [];
+    heads.push(row.feeTypeId);
+    result.set(row.studentConcessionId, heads);
+  }
+
+  return result;
+}
+
+/**
  * The concessions in force for a student on a given date.
  *
  * A concession is active when the date falls inside its window; an open-ended
@@ -287,16 +331,8 @@ export async function listActiveConcessions(
   locationId: string,
   studentProfileId: string,
   onDate: string,
-): Promise<
-  Array<{
-    id: string;
-    concessionName: string;
-    discountType: DiscountType;
-    discountValue: string;
-    appliesToFeeTypeId: string | null;
-  }>
-> {
-  return db
+): Promise<ActiveConcessionRow[]> {
+  const rows = await db
     .select({
       id: studentConcessions.id,
       concessionName: studentConcessions.concessionName,
@@ -316,6 +352,10 @@ export async function listActiveConcessions(
         ),
       ),
     );
+
+  const heads = await headSetsFor(rows.map((row) => row.id));
+
+  return rows.map((row) => ({ ...row, appliesToFeeTypeIds: heads.get(row.id) ?? [] }));
 }
 
 /** Concessions in force for many students at once, keyed by student. */
@@ -323,28 +363,8 @@ export async function listActiveConcessionsForStudents(
   locationId: string,
   studentProfileIds: readonly string[],
   onDate: string,
-): Promise<
-  Map<
-    string,
-    Array<{
-      id: string;
-      concessionName: string;
-      discountType: DiscountType;
-      discountValue: string;
-      appliesToFeeTypeId: string | null;
-    }>
-  >
-> {
-  const result = new Map<
-    string,
-    Array<{
-      id: string;
-      concessionName: string;
-      discountType: DiscountType;
-      discountValue: string;
-      appliesToFeeTypeId: string | null;
-    }>
-  >();
+): Promise<Map<string, ActiveConcessionRow[]>> {
+  const result = new Map<string, ActiveConcessionRow[]>();
 
   if (studentProfileIds.length === 0) return result;
 
@@ -370,6 +390,8 @@ export async function listActiveConcessionsForStudents(
       ),
     );
 
+  const heads = await headSetsFor(rows.map((row) => row.id));
+
   for (const row of rows) {
     const existing = result.get(row.studentProfileId) ?? [];
     existing.push({
@@ -378,6 +400,7 @@ export async function listActiveConcessionsForStudents(
       discountType: row.discountType,
       discountValue: row.discountValue,
       appliesToFeeTypeId: row.appliesToFeeTypeId,
+      appliesToFeeTypeIds: heads.get(row.id) ?? [],
     });
     result.set(row.studentProfileId, existing);
   }

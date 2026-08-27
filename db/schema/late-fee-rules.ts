@@ -2,6 +2,7 @@ import { sql } from 'drizzle-orm';
 import {
   boolean,
   check,
+  date,
   integer,
   numeric,
   pgTable,
@@ -57,6 +58,30 @@ export const lateFeeRules = pgTable(
       .default('0'),
     /** Ceiling for a daily rule. Null = uncapped. */
     maxLateFee: numeric('max_late_fee', { precision: 10, scale: 2 }),
+    /**
+     * Whether the school emails its parents this month's open vouchers on a
+     * timer (Sprint 18, item 17).
+     *
+     * **Off, and it must stay off until a school turns it on.** A sprint that
+     * deployed and started writing to every parent at a school that never
+     * asked for it would be the single worst thing this module could do, and
+     * it would be irreversible — an email cannot be recalled.
+     */
+    autoSendVouchers: boolean('auto_send_vouchers').notNull().default(false),
+    /** Day of the month the send runs. Capped at 28 so every month has one. */
+    autoSendDay: integer('auto_send_day').notNull().default(28),
+    /**
+     * The claim column. The date the sweep last ran for this school.
+     *
+     * CLAUDE.md's rule, and the reason this is a column rather than a variable
+     * in the sweeper: production runs **seven** server processes, each with its
+     * own timer, and a read-then-check lets all seven decide to send. The
+     * sweeper claims the school with a conditional
+     * `UPDATE … WHERE auto_send_last_run_on IS NULL OR < today … RETURNING`, so
+     * Postgres decides it on one row under one lock and exactly one process
+     * gets it. Null means never run.
+     */
+    autoSendLastRunOn: date('auto_send_last_run_on'),
     createdAt: timestamp('created_at', { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -70,6 +95,10 @@ export const lateFeeRules = pgTable(
       sql`${table.lateFeeType} IN ('fixed', 'daily')`,
     ),
     check('late_fee_rules_due_day_check', sql`${table.dueDay} BETWEEN 1 AND 28`),
+    check(
+      'late_fee_rules_auto_send_day_check',
+      sql`${table.autoSendDay} BETWEEN 1 AND 28`,
+    ),
   ],
 );
 
