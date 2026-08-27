@@ -14,7 +14,9 @@ import {
 } from '@/db/schema';
 
 import { generateChallanNumber } from './challan-number';
+import { formatMonthYear } from './dates';
 import { db } from './drizzle';
+import { sendFeeVouchers } from './fee-notices';
 import { normalizeCnic } from './national-id';
 
 /**
@@ -253,14 +255,20 @@ export async function createFamilyChallan(params: {
   }
 
   const guardianRows = await db
-    .select({ id: studentGuardians.id })
+    .select({
+      id: studentGuardians.id,
+      name: studentGuardians.name,
+      phone: studentGuardians.phone,
+      email: studentGuardians.email,
+    })
     .from(studentGuardians)
     .where(
       and(eq(studentGuardians.locationId, locationId), eq(studentGuardians.id, guardianId)),
     )
     .limit(1);
 
-  if (guardianRows[0] === undefined) {
+  const guardian = guardianRows[0];
+  if (guardian === undefined) {
     throw new FamilyChallanError('That guardian is not recorded at this school.', 404);
   }
 
@@ -375,6 +383,43 @@ export async function createFamilyChallan(params: {
       .update(feeChallans)
       .set({ familyChallanId: id, updatedAt: new Date() })
       .where(inArray(feeChallans.id, [...challanIds]));
+  });
+
+  /*
+   * Item 6a, for the family case.
+   *
+   * One email, to the guardian the voucher was issued to, naming each child's
+   * own voucher as a line. Sending it per child's primary contact would put the
+   * same slip in the same inbox three times, which is the opposite of what a
+   * family voucher is for.
+   */
+  const memberNames = await db
+    .select({
+      challanNumber: feeChallans.challanNumber,
+      studentName: schoolUsers.name,
+      totalAmount: feeChallans.totalAmount,
+    })
+    .from(feeChallans)
+    .innerJoin(studentProfiles, eq(studentProfiles.id, feeChallans.studentProfileId))
+    .innerJoin(schoolUsers, eq(schoolUsers.id, studentProfiles.schoolUserId))
+    .where(inArray(feeChallans.id, [...challanIds]));
+
+  void sendFeeVouchers(db, locationId, [
+    {
+      studentProfileId: '',
+      studentName: guardian.name,
+      guardian,
+      challanNumber,
+      periodLabel: formatMonthYear(first.billingMonth, first.billingYear),
+      dueDate,
+      totalAmount: total,
+      items: memberNames.map((member) => ({
+        description: `${member.studentName} (${member.challanNumber})`,
+        netAmount: member.totalAmount,
+      })),
+    },
+  ]).catch((error: unknown) => {
+    console.warn(`[family-challans] voucher email could not be queued at ${locationId}:`, error);
   });
 
   return { id, challanNumber, total, members: members.length };

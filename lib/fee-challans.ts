@@ -19,6 +19,7 @@ import {
 
 import { resolveAdmissionFee } from './admission-fee';
 import { generateChallanNumber, reserveChallanNumbers } from './challan-number';
+import { formatMonthYear } from './dates';
 import { batch, type Database, type Tx } from './drizzle';
 import {
   applyCreditToTotals,
@@ -36,6 +37,7 @@ import {
   listBillableStructures,
   toDateOnly,
 } from './fee-queries';
+import { sendFeeVouchers, type FeeVoucherNotice } from './fee-notices';
 import { paiseToNumeric, toPaise } from './money';
 
 /**
@@ -225,6 +227,25 @@ function grantOverflowStatements(
       createdByUid: params.actorUid,
     }),
   ];
+}
+
+/**
+ * Queues the voucher emails for a batch, without letting them touch the caller.
+ *
+ * `void`-ed and caught here rather than at each of the four call sites, so that
+ * "a generation can never fail because of an email" is one rule in one place
+ * instead of four copies of a `.catch` somebody will eventually forget. The
+ * writes have already committed by the time this is reached; see
+ * `sendFeeVouchers`.
+ */
+function queueVoucherEmails(
+  db: Database,
+  locationId: string,
+  notices: readonly FeeVoucherNotice[],
+): void {
+  void sendFeeVouchers(db, locationId, notices).catch((error: unknown) => {
+    console.warn(`[fee-challans] voucher emails could not be queued at ${locationId}:`, error);
+  });
 }
 
 export interface PreviewParams {
@@ -440,6 +461,20 @@ export async function generateChallan(
       overflowPaise: preview.overflowPaise,
       actorUid: params.actorUid,
     }),
+  ]);
+
+  // Item 6a. The voucher reaches the parent by itself rather than waiting for
+  // a child to carry the slip home.
+  queueVoucherEmails(db, params.locationId, [
+    {
+      studentProfileId: params.studentProfileId,
+      studentName: preview.studentName,
+      challanNumber,
+      periodLabel: formatMonthYear(params.billingMonth, params.billingYear),
+      dueDate: preview.dueDate,
+      totalAmount: preview.totalAmount,
+      items: preview.items,
+    },
   ]);
 
   return {
@@ -673,6 +708,18 @@ export async function generateAdmissionChallan(
     }
     throw error;
   }
+
+  queueVoucherEmails(db, params.locationId, [
+    {
+      studentProfileId: params.studentProfileId,
+      studentName,
+      challanNumber,
+      periodLabel: `Admission - ${placement.academicYearName}`,
+      dueDate,
+      totalAmount: totals.totalAmount,
+      items: totals.items,
+    },
+  ]);
 
   return {
     id: challanId,
@@ -957,6 +1004,9 @@ export async function bulkGenerateChallans(
 
   const challans: BulkGenerateResult['challans'] = [];
   const problems: BulkGenerateResult['problems'] = [];
+  // Collected rather than sent per student: the fan-out is one pass over the
+  // outbox at the end, which is what the outbox is for.
+  const notices: FeeVoucherNotice[] = [];
   let failed = 0;
 
   const writeOne = async (candidate: BulkCandidate, index: number): Promise<void> => {
@@ -1054,6 +1104,15 @@ export async function bulkGenerateChallans(
         studentName: candidate.studentName,
         totalAmount: totals.totalAmount,
       });
+      notices.push({
+        studentProfileId: candidate.studentProfileId,
+        studentName: candidate.studentName,
+        challanNumber,
+        periodLabel: formatMonthYear(params.billingMonth, params.billingYear),
+        dueDate,
+        totalAmount: totals.totalAmount,
+        items: totals.items,
+      });
     } catch (error) {
       // One student's failure must not stop the run; the rest are already
       // written, and this student can be generated singly afterwards.
@@ -1075,6 +1134,8 @@ export async function bulkGenerateChallans(
       chunk.map(async (candidate, offset) => writeOne(candidate, start + offset)),
     );
   }
+
+  queueVoucherEmails(db, params.locationId, notices);
 
   return { generated: challans.length, skipped, failed, challans, problems };
 }

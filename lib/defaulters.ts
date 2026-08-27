@@ -15,6 +15,7 @@ import {
 } from '@/db/schema';
 
 import { db } from './drizzle';
+import { remindersForStudents, type ReminderChip } from './fee-reminders';
 import { maskPhone } from './phone';
 
 /**
@@ -64,6 +65,18 @@ export interface DefaulterRow {
   bucket: AgingBucket;
   outstanding: string;
   buckets: Record<AgingBucket, string>;
+  /**
+   * The open vouchers behind `outstanding`, with what each still owes.
+   *
+   * Carried so the row's own quick actions have something to act on: **Send
+   * reminder** posts these ids, and **Mark as paid** records one payment per
+   * voucher for its own balance. Without them the screen would have to fetch a
+   * student's vouchers on every click, and the figure it had just shown could
+   * disagree with the one it then paid.
+   */
+  openVouchers: Array<{ challanId: string; challanNumber: string; balance: string }>;
+  /** Every reminder sent to this family, oldest first. Chips on the row. */
+  reminders: ReminderChip[];
 }
 
 export interface DefaulterFilters {
@@ -126,6 +139,7 @@ export async function listDefaulters(
   const rows = await db
     .select({
       challanId: feeChallans.id,
+      challanNumber: feeChallans.challanNumber,
       studentProfileId: studentProfiles.id,
       studentName: schoolUsers.name,
       studentNumber: studentProfiles.studentId,
@@ -171,7 +185,12 @@ export async function listDefaulters(
   interface Accumulator {
     row: Omit<
       DefaulterRow,
-      'buckets' | 'outstanding' | 'bucket' | 'daysOverdue' | 'oldestDueDate'
+      | 'buckets'
+      | 'outstanding'
+      | 'bucket'
+      | 'daysOverdue'
+      | 'oldestDueDate'
+      | 'reminders'
     >;
     buckets: Record<AgingBucket, number>;
     outstandingPaisa: number;
@@ -216,6 +235,7 @@ export async function listDefaulters(
           (row.guardianPhone !== null && row.guardianPhone !== '') ||
           (row.guardianEmail !== null && row.guardianEmail !== ''),
         openChallans: 0,
+        openVouchers: [],
       },
       buckets: emptyBuckets(),
       outstandingPaisa: 0,
@@ -224,6 +244,11 @@ export async function listDefaulters(
     };
 
     accumulator.row.openChallans += 1;
+    accumulator.row.openVouchers.push({
+      challanId: row.challanId,
+      challanNumber: row.challanNumber,
+      balance: money(owedPaisa),
+    });
     accumulator.buckets[bucket] += owedPaisa;
     accumulator.outstandingPaisa += owedPaisa;
 
@@ -235,10 +260,11 @@ export async function listDefaulters(
 
   const minimumPaisa = Math.round((filters.minimumAmount ?? 0) * 100);
 
-  let defaulters = [...byStudent.values()]
+  let defaulters: DefaulterRow[] = [...byStudent.values()]
     .filter((entry) => entry.outstandingPaisa > minimumPaisa)
     .map((entry) => ({
       ...entry.row,
+      reminders: [],
       oldestDueDate: entry.oldestDue,
       daysOverdue: entry.maxOverdue,
       // The student's bucket is their *worst* one. A household 100 days behind
@@ -263,6 +289,21 @@ export async function listDefaulters(
   // Worst first: the report is a call list, and the top of it is who to
   // telephone before lunch.
   defaulters.sort((a, b) => b.daysOverdue - a.daysOverdue || Number(b.outstanding) - Number(a.outstanding));
+
+  /*
+   * The reminder history, read once for the whole page (item 6d).
+   *
+   * After the filters, not before: a report narrowed to the over-90 bucket
+   * should not pay for the chase history of every student in the school.
+   */
+  const reminders = await remindersForStudents(
+    locationId,
+    defaulters.map((entry) => entry.studentProfileId),
+  );
+
+  for (const entry of defaulters) {
+    entry.reminders = reminders.get(entry.studentProfileId) ?? [];
+  }
 
   const summaryBuckets = emptyBuckets();
   let totalPaisa = 0;
