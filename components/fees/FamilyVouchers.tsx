@@ -8,6 +8,7 @@ import { Card, CardTitle } from '@/components/ui/Card';
 import { DataTable, type DataTableColumn } from '@/components/ui/DataTable';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
+import { formatPhoneForDisplay } from '@/lib/phone-formats';
 
 interface Member {
   challanId: string;
@@ -217,7 +218,9 @@ export function FamilyVouchers({ canWrite, defaultMonth, defaultYear }: FamilyVo
       cell: (group) => (
         <>
           <p className="font-medium text-ink">{group.guardianName}</p>
-          <p className="font-mono text-xs text-ink-muted">{group.phone}</p>
+          <p className="font-mono text-xs text-ink-muted">
+            {formatPhoneForDisplay(group.phone)}
+          </p>
         </>
       ),
     },
@@ -285,7 +288,9 @@ export function FamilyVouchers({ canWrite, defaultMonth, defaultYear }: FamilyVo
       cell: (row) => (
         <>
           {row.guardianName}
-          <span className="block font-mono text-xs text-ink-muted">{row.phone}</span>
+          <span className="block font-mono text-xs text-ink-muted">
+            {formatPhoneForDisplay(row.phone)}
+          </span>
         </>
       ),
     },

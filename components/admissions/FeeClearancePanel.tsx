@@ -8,6 +8,7 @@ import { useState } from 'react';
 import { Button } from '@/components/ui/Button';
 import { Card, CardTitle } from '@/components/ui/Card';
 import type { AdmissionFeeState } from '@/lib/admission-fee';
+import { formatDateOnly } from '@/lib/dates';
 import { remainingBalance } from '@/lib/fee-calculator';
 import { formatPkr } from '@/lib/money';
 import { schoolErrorMessage, schoolFetch } from '@/lib/school-client';
@@ -370,9 +371,9 @@ export function FeeClearancePanel({
           <p className="text-sm text-ink-muted">
             {feeClearedAt === null
               ? 'Settled — nothing further is owed on this admission.'
-              : `Paid, so this enrolment is confirmed — recorded ${new Date(
+              : `Paid, so this enrolment is confirmed — recorded ${formatDateOnly(
                   feeClearedAt,
-                ).toLocaleDateString('en-GB')}. Guardians with an email address have been sent their parent portal welcome.`}
+                )}. Guardians with an email address have been sent their parent portal welcome.`}
           </p>
 
           {state.challan === null ? null : (

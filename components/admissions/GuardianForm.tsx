@@ -17,6 +17,7 @@ import {
   type GuardianRelationship,
 } from '@/db/schema/student-guardians';
 import { cnicProblem, isValidCnic } from '@/lib/national-id';
+import { formatPhoneForDisplay } from '@/lib/phone-formats';
 import { isValidPhone } from '@/lib/phone';
 import { schoolFetch } from '@/lib/school-client';
 
@@ -38,9 +39,35 @@ import { schoolFetch } from '@/lib/school-client';
  * because anything is written to link them, but because they now share a
  * guardian identity. See `lib/siblings.ts`.
  *
- * The prefill never overwrites something the clerk has already typed. A father
- * whose number has changed is corrected on this screen, and the correction must
- * survive the lookup that arrives a moment later.
+ * The prefill never overwrites something the clerk has already typed.
+ *
+ * ── Sprint 18: the card is locked until the CNIC has been answered ───────
+ * Every field except `CnicField` starts `disabled` on a fresh card. It unlocks
+ * when one of two things has happened:
+ *
+ *   · the lookup has returned — match or no match, either is an answer; or
+ *   · the clerk has pressed **"No CNIC to hand — enter by hand"**, which is
+ *     only offered while the field is blank.
+ *
+ * The escape hatch is not optional politeness. CLAUDE.md's rule is that blank
+ * is always allowed, because an admissions desk with a queue in front of it
+ * will invent a number to get past a required field, and an invented CNIC is
+ * worse than an absent one now that the column decides who is related to whom.
+ * The lock exists to make asking for the card the path of least resistance, not
+ * to make it the only path.
+ *
+ * ── And when it matches, the person is not editable here ─────────────────
+ * A matched guardian already exists at this school. Their **name, email and
+ * phone** render `disabled`, pointing at the guardian panel on the sibling's
+ * profile. Correcting a father's number *during another child's enrolment* is
+ * precisely how one person becomes two records with two different numbers —
+ * which is what splits a family, silently, on a screen that was doing the right
+ * thing. Relationship, occupation and primary contact stay editable: they are
+ * facts about *this* child rather than about the person.
+ *
+ * Editing the CNIC away from a match unlocks them again. Unlocking is sticky in
+ * the other direction: a card that has once been answered is never re-locked,
+ * because taking fields away from somebody mid-sentence is not a safety feature.
  *
  * ── The three relationship rules, and where each is enforced ─────────────
  *   1. **The first guardian cannot be "Other".** A child's first recorded
@@ -181,6 +208,22 @@ export function guardiansProblem(guardians: readonly GuardianDraft[]): string | 
   return null;
 }
 
+/**
+ * One card's entry removed from a per-card record.
+ *
+ * Written out rather than destructured with a discarded binding: the lint rule
+ * on unused variables is an error here, and a rest-spread that throws away a
+ * key needs one.
+ */
+function withoutCard<Value>(
+  record: Record<number, Value>,
+  index: number,
+): Record<number, Value> {
+  return Object.fromEntries(
+    Object.entries(record).filter(([key]) => Number(key) !== index),
+  ) as Record<number, Value>;
+}
+
 export interface GuardianFormProps {
   guardians: readonly GuardianDraft[];
   onChange: (guardians: GuardianDraft[]) => void;
@@ -203,6 +246,16 @@ export function GuardianForm({
   const [known, setKnown] = useState<Record<number, KnownChild[]>>({});
   const [matched, setMatched] = useState<Record<number, string | null>>({});
   const [looking, setLooking] = useState<number | null>(null);
+
+  /**
+   * Cards whose CNIC question has been answered, and are therefore editable.
+   *
+   * Set by a lookup returning and by the escape hatch, and never cleared. The
+   * *match* is what a CNIC edit invalidates (`matched` above); the answer is
+   * not — a card that unlocked and then had its number corrected must not have
+   * its fields taken back while somebody is typing into them.
+   */
+  const [unlocked, setUnlocked] = useState<Record<number, boolean>>({});
 
   /*
    * The current cards, readable from inside an in-flight lookup.
@@ -242,6 +295,7 @@ export function GuardianForm({
           phone: string;
           email: string | null;
           occupation: string | null;
+          relationship: GuardianRelationship;
         } | null;
         students: KnownChild[];
       }>(`/api/school/guardians/lookup?cnic=${encodeURIComponent(cnic)}`);
@@ -251,6 +305,9 @@ export function GuardianForm({
         ...current,
         [index]: result.guardian?.name ?? null,
       }));
+      // An answer either way. "Nobody by that number" is as much of an answer
+      // as a match, and the card fills in by hand from here.
+      setUnlocked((current) => ({ ...current, [index]: true }));
 
       const found = result.guardian;
       if (found === null) return;
@@ -258,21 +315,50 @@ export function GuardianForm({
       const current = latest.current[index];
       if (current === undefined) return;
 
+      /*
+       * The relationship is adopted rather than protected, unlike every other
+       * field here.
+       *
+       * There is nothing typed to protect: the dropdown is always carrying a
+       * value, defaulted to Father on the first card, so "only fill what is
+       * empty" has no meaning for it. What the school already holds is a better
+       * default than the form's — a mother enrolling her second child was being
+       * offered Father, and the clerk who left it created a second father and
+       * split the family the lookup had just recognised.
+       *
+       * Only when it is still free for this student. `availableRelationships`
+       * is the same rule the dropdown is built from, so this can never select
+       * an option that is not in it.
+       */
+      const offered = availableRelationships(latest.current, index);
+      const relationship = offered.includes(found.relationship)
+        ? found.relationship
+        : current.relationship;
+
       update(index, {
         name: current.name.trim() === '' ? found.name : current.name,
-        phone: current.phone.trim() === '' ? found.phone : current.phone,
+        // Stored canonically as `+923211234567`; the field speaks
+        // `(0321) 123-4567`, and handing it the stored form is what made it
+        // show an error on a number the server itself wrote.
+        phone:
+          current.phone.trim() === ''
+            ? formatPhoneForDisplay(found.phone)
+            : current.phone,
         email: current.email.trim() === '' ? (found.email ?? '') : current.email,
         occupation:
           current.occupation.trim() === ''
             ? (found.occupation ?? '')
             : current.occupation,
+        relationship,
       });
     } catch {
       // A lookup that fails leaves the clerk typing the guardian by hand, which
       // is exactly what they did before this existed. It is never worth an
-      // error box on a form that is otherwise working.
+      // error box on a form that is otherwise working — and it must unlock the
+      // card, or a network blip becomes an enrolment nobody can complete.
       setKnown((current) => ({ ...current, [index]: [] }));
       setMatched((current) => ({ ...current, [index]: null }));
+      setUnlocked((current) => ({ ...current, [index]: true }));
     } finally {
       setLooking(null);
     }
@@ -290,6 +376,25 @@ export function GuardianForm({
     for (const [index, guardian] of latest.current.entries()) {
       if (isValidCnic(guardian.cnic) && !(index in matched)) {
         void lookUp(index, guardian.cnic);
+        continue;
+      }
+
+      /*
+       * A card that arrives carrying somebody's details is not a fresh card.
+       *
+       * The lock is for the guardian step of a new enrolment, where the CNIC is
+       * the first question. A converted application has already been filled in
+       * from what the parent typed on the public form weeks ago — often with no
+       * CNIC at all — and locking that would leave the clerk staring at a name
+       * and a number they cannot correct, with an escape hatch that only offers
+       * itself when the field is blank.
+       */
+      if (
+        guardian.name.trim() !== '' ||
+        guardian.phone.trim() !== '' ||
+        guardian.email.trim() !== ''
+      ) {
+        setUnlocked((current) => ({ ...current, [index]: true }));
       }
     }
     // Once, on mount. Later completions are `onComplete`'s job, and re-running
@@ -328,6 +433,17 @@ export function GuardianForm({
       {guardians.map((guardian, index) => {
         const children = known[index] ?? [];
         const matchedName = matched[index] ?? null;
+
+        // Item 2: nothing but the CNIC until the question has been answered.
+        const answered = unlocked[index] === true;
+        // Item 1: a person the school already holds is not edited from here.
+        const identityLocked = matchedName !== null;
+
+        const fieldsDisabled = disabled || !answered;
+        const identityDisabled = fieldsDisabled || identityLocked;
+        const identityHint = identityLocked
+          ? `Recorded against ${matchedName}’s existing guardian record. Change it from that child’s profile so it changes everywhere.`
+          : undefined;
 
         return (
           <Card
@@ -371,9 +487,19 @@ export function GuardianForm({
                   hint={
                     looking === index
                       ? 'Checking whether this school already knows this guardian…'
-                      : 'Enter this first — if this guardian already has a child here, the rest of the form fills itself in.'
+                      : answered
+                        ? 'If this guardian already has a child here, the rest of the form fills itself in.'
+                        : 'Enter this first — the rest of the card opens once we have checked it.'
                   }
                   onChange={(next) => {
+                    /*
+                     * A CNIC edit invalidates the match, and only the match.
+                     * The identity fields open again the moment the number
+                     * stops naming the person they were filled from — which is
+                     * the whole of "clearing or changing the CNIC unlocks them".
+                     */
+                    setMatched((current) => withoutCard(current, index));
+                    setKnown((current) => withoutCard(current, index));
                     update(index, { cnic: next });
                   }}
                   onComplete={(next) => {
@@ -381,6 +507,26 @@ export function GuardianForm({
                   }}
                 />
               </div>
+
+              {/*
+                The escape hatch, offered only while the field is blank.
+                CLAUDE.md: blank is always allowed, and a clerk who cannot get
+                past a required field invents a number — which is worse than an
+                absent one now that this column decides who is related to whom.
+              */}
+              {answered || disabled || guardian.cnic.trim() !== '' ? null : (
+                <div className="sm:col-span-2">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => {
+                      setUnlocked((current) => ({ ...current, [index]: true }));
+                    }}
+                  >
+                    No CNIC to hand — enter by hand
+                  </Button>
+                </div>
+              )}
 
               {children.length > 0 ? (
                 <div className="rounded-lg bg-status-info-subtle px-3 py-2.5 text-sm text-status-info-onSubtle sm:col-span-2">
@@ -419,7 +565,8 @@ export function GuardianForm({
                 label="Full name"
                 required
                 value={guardian.name}
-                disabled={disabled}
+                disabled={identityDisabled}
+                hint={identityHint}
                 onChange={(event) => {
                   update(index, { name: event.target.value });
                 }}
@@ -437,7 +584,9 @@ export function GuardianForm({
                     : undefined
                 }
                 value={guardian.relationship}
-                disabled={disabled}
+                // Editable even on a match: how this person is related is a
+                // fact about *this* child, not about the person.
+                disabled={fieldsDisabled}
                 onChange={(event) => {
                   update(index, {
                     relationship: event.target.value as GuardianRelationship,
@@ -453,7 +602,7 @@ export function GuardianForm({
                     placeholder="e.g. Paternal uncle, sponsor, elder cousin"
                     hint="“Other” on its own tells a teacher ringing this number nothing."
                     value={guardian.relationshipOther}
-                    disabled={disabled}
+                    disabled={fieldsDisabled}
                     onChange={(event) => {
                       update(index, { relationshipOther: event.target.value });
                     }}
@@ -469,9 +618,9 @@ export function GuardianForm({
                 // server puts it through `normalizePhone` and will refuse a
                 // landline. The dropdown still offers one, and says why not.
                 identity
-                hint="This is how the school will reach you."
+                hint={identityHint ?? 'This is how the school will reach you.'}
                 value={guardian.phone}
-                disabled={disabled}
+                disabled={identityDisabled}
                 onChange={(next) => {
                   update(index, { phone: next });
                 }}
@@ -480,9 +629,12 @@ export function GuardianForm({
               <Input
                 label="Email"
                 type="email"
-                hint="Needed to open a parent portal account for this guardian."
+                hint={
+                  identityHint ??
+                  'Needed to open a parent portal account for this guardian.'
+                }
                 value={guardian.email}
-                disabled={disabled}
+                disabled={identityDisabled}
                 onChange={(event) => {
                   update(index, { email: event.target.value });
                 }}
@@ -491,7 +643,7 @@ export function GuardianForm({
               <Input
                 label="Occupation"
                 value={guardian.occupation}
-                disabled={disabled}
+                disabled={fieldsDisabled}
                 onChange={(event) => {
                   update(index, { occupation: event.target.value });
                 }}
@@ -503,7 +655,7 @@ export function GuardianForm({
                   name="primary-guardian"
                   className="h-4 w-4"
                   checked={guardian.isPrimaryContact}
-                  disabled={disabled}
+                  disabled={fieldsDisabled}
                   onChange={() => {
                     setPrimary(index);
                   }}

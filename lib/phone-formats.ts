@@ -328,3 +328,50 @@ export function phoneErrorOfKind(kind: PhoneKind): string {
     ? 'Enter eleven digits, e.g. (0321) 123-4567.'
     : 'Incomplete landline number — a 3-digit area code, then 4 to 10 digits.';
 }
+
+/* -----------------------------------------------------------------------------
+ * Out of storage and back onto a screen
+ * -------------------------------------------------------------------------- */
+
+/**
+ * `+923211234567` -> `(0321) 123-4567`. The inverse of what the mask accepts.
+ *
+ * ── The defect this closes ───────────────────────────────────────────────
+ * `student_guardians.phone` is an *identity* and is stored canonically by
+ * `lib/phone.ts` as E.164. That is right and must not change — it is what the
+ * sibling lookup and the family voucher agree on. The mistake was on the way
+ * **out**: the stored string was handed straight to `PhoneField`, whose value
+ * is a display-format one, and `isValidMobile('+923211234567')` is false
+ * because the shape is not `(xxxx) xxx-xxxx`. So the field showed an error on a
+ * number the server itself had written, on every guardian panel in the product.
+ *
+ * This is the one function that turns a stored number back into the shape the
+ * field speaks. Call it wherever a column value reaches a `PhoneField` or a
+ * screen; never before a write, where `normalizePhone` still rules.
+ *
+ * Idempotent, and safe on anything: a value already in display form comes back
+ * unchanged, a landline goes through its own mask, and a string this module
+ * cannot read at all is returned as it stands rather than blanked — showing a
+ * number nobody can parse beats showing nothing where a number is.
+ */
+export function formatPhoneForDisplay(stored: string | null | undefined): string {
+  const trimmed = (stored ?? '').trim();
+  if (trimmed === '') return '';
+
+  /*
+   * A value carrying a letter is not a number, and must be handed back
+   * untouched.
+   *
+   * `school_users.phone` is `NOT NULL` and a seven-year-old has no phone, so a
+   * student's directory row holds the sentinel `student:GVS-2025-0011` — see
+   * `studentDirectoryPhone`. Its digits (`20250011`) are a plausible landline
+   * count, so a mask applied blindly would render it `(202) 50011`: a number
+   * that does not exist, derived from something that was never a number. The
+   * same trap as the `042` landline that `hasCompleteMobileDigits` guards
+   * against, one layer out.
+   */
+  if (/[A-Za-z]/.test(trimmed)) return trimmed;
+
+  const formatted = normalisePhoneOfAnyKind(trimmed);
+  return formatted === '' ? trimmed : formatted;
+}

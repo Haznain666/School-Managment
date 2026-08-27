@@ -19,6 +19,8 @@ import {
   listDefaulters,
 } from '@/lib/defaulters';
 import { gradeLabels } from '@/lib/class-labels';
+import { formatDateOnly } from '@/lib/dates';
+import { formatPhoneForDisplay } from '@/lib/phone-formats';
 import { requireSchoolPermission } from '@/lib/school-guard';
 
 export const metadata: Metadata = {
@@ -220,7 +222,9 @@ export default async function DefaultersPage({
                         <>
                           <span className="block">{row.guardianName ?? '—'}</span>
                           <span className="block font-mono text-xs text-ink-muted">
-                            {row.guardianPhone ?? row.guardianEmail}
+                            {row.guardianPhone === null
+                              ? row.guardianEmail
+                              : formatPhoneForDisplay(row.guardianPhone)}
                           </span>
                         </>
                       ) : (
@@ -228,7 +232,7 @@ export default async function DefaultersPage({
                       )}
                     </TableCell>
                     <TableCell muted className="font-mono text-xs">
-                      {row.oldestDueDate}
+                      {formatDateOnly(row.oldestDueDate)}
                     </TableCell>
                     <TableCell>
                       <Badge

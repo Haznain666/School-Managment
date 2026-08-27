@@ -16,6 +16,7 @@ import {
 } from '@/lib/admissions-queries';
 import { listNoticesFor } from '@/lib/announcement-queries';
 import { settle } from '@/lib/dashboard-queries';
+import { formatDateOnly } from '@/lib/dates';
 import { getStudentFeeSummary } from '@/lib/fee-queries';
 import { formatPkr, toPaise } from '@/lib/money';
 import {
@@ -263,7 +264,7 @@ export default async function StudentDashboardPage() {
           detail={
             fees?.oldestUnpaid == null
               ? 'Fees cannot be paid through this portal'
-              : `Oldest ${fees.oldestUnpaid.challanNumber}, due ${fees.oldestUnpaid.dueDate}`
+              : `Oldest ${fees.oldestUnpaid.challanNumber}, due ${formatDateOnly(fees.oldestUnpaid.dueDate)}`
           }
         />
       </StatTileGrid>

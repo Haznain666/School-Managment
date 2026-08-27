@@ -18,7 +18,8 @@ export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 
 export default async function StudentsPage() {
-  const { claims, locationId } = await requireSchoolPermission('admissions.read');
+  const { claims, locationId, permissions } =
+    await requireSchoolPermission('students.read');
 
   const me = await getSchoolUserByUid(locationId, claims.uid);
 
@@ -28,7 +29,9 @@ export default async function StudentsPage() {
     resolvePrincipalScope(locationId, claims.role, me?.id ?? null),
   ]);
 
-  const canEnroll = claims.role === 'school_admin' || claims.role === 'branch_admin';
+  // The permission the enrolment route itself now checks, rather than a
+  // hand-kept list of roles beside it. Sprint 18.
+  const canEnroll = permissions.includes('students.create');
 
   // BR4. The list itself is narrowed by the API; this is the sentence that
   // stops a narrowed head reading a short list as a broken page.

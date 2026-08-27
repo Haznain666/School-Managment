@@ -11,6 +11,7 @@ import {
   studentGuardians,
   studentProfiles,
   gradeLabel,
+  type GuardianRelationship,
 } from '@/db/schema';
 
 import { db } from './drizzle';
@@ -276,6 +277,17 @@ export interface GuardianLookupResult {
     phone: string;
     email: string | null;
     occupation: string | null;
+    /**
+     * How this person is related to the child they were most recently recorded
+     * against.
+     *
+     * The enrolment card adopts it when the relationship is still free for the
+     * student being admitted. A mother enrolling her second child was being
+     * offered Father — the form's default for the first guardian — and the
+     * clerk who did not change it created a second father and split the family
+     * that the CNIC lookup had just successfully recognised.
+     */
+    relationship: GuardianRelationship;
     /** True when a parent portal login already exists on this number. */
     hasPortalAccount: boolean;
   } | null;
@@ -363,6 +375,7 @@ export async function lookupGuardianByCnic(
       phone: newest.phone,
       email: newest.email,
       occupation: newest.occupation,
+      relationship: newest.relationship,
       hasPortalAccount: rows.some((row) => row.schoolUserId !== null),
     },
     students,

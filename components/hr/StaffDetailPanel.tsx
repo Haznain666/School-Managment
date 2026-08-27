@@ -28,6 +28,7 @@ import {
 } from '@/db/schema/staff';
 import { GENDERS } from '@/db/schema/student-profiles';
 import type { ComponentCalculation, ComponentKind } from '@/db/schema/salary-components';
+import { DATE_INPUT_HINT } from '@/lib/dates';
 import { formatPkr, toPaise } from '@/lib/money';
 import { schoolErrorMessage, schoolFetch } from '@/lib/school-client';
 
@@ -415,6 +416,7 @@ export function StaffDetailPanel({ staffId, canEdit }: StaffDetailPanelProps) {
           <Input
             label="Date of birth"
             type="date"
+            hint={DATE_INPUT_HINT}
             value={form.dateOfBirth ?? ''}
             disabled={!canEdit}
             onChange={(event) => {

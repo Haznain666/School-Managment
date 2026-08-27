@@ -11,6 +11,7 @@ import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
 import { MONTH_NAMES } from '@/db/schema/academic-years';
 import { formatAmount, formatPkr } from '@/lib/money';
+import { formatPhoneForDisplay } from '@/lib/phone-formats';
 import { schoolErrorMessage, schoolFetch } from '@/lib/school-client';
 
 /**
@@ -531,7 +532,7 @@ function DefaultersSection({
           {row.guardianName ?? '—'}
           {row.guardianPhone === null ? null : (
             <span className="block font-mono text-xs text-ink-muted">
-              {row.guardianPhone}
+              {formatPhoneForDisplay(row.guardianPhone)}
             </span>
           )}
         </>
