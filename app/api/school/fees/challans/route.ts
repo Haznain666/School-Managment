@@ -2,6 +2,7 @@ import { withSchoolAuth } from '@/lib/api-auth';
 import { apiFailure, apiSuccess, handleApiError, readJsonBody } from '@/lib/api-response';
 import { db } from '@/lib/drizzle';
 import { ChallanGenerationError, generateChallan } from '@/lib/fee-challans';
+import { isChallanKindFilter, type ChallanKindFilter } from '@/db/schema';
 import { CHALLAN_SORT_COLUMNS, listChallans } from '@/lib/fee-queries';
 import { readListQuery } from '@/lib/list-query';
 import { ChallanNumberError } from '@/lib/challan-number';
@@ -48,6 +49,12 @@ export const GET = withSchoolAuth(
         academicYearId: url.searchParams.get('academicYearId') ?? undefined,
         billingMonth: readIntParam(url.searchParams.get('billingMonth')),
         billingYear: readIntParam(url.searchParams.get('billingYear')),
+        // Unknown kinds are dropped rather than rejected, as `status` is: it
+        // arrives in a query string and a stale bookmark should show
+        // everything rather than 400.
+        kind: isChallanKindFilter(url.searchParams.get('kind'))
+          ? (url.searchParams.get('kind') as ChallanKindFilter)
+          : undefined,
         gradeId: url.searchParams.get('gradeId') ?? undefined,
         sectionId: url.searchParams.get('sectionId') ?? undefined,
         status: url.searchParams.get('status') ?? undefined,

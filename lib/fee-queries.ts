@@ -9,6 +9,7 @@ import {
   gte,
   ilike,
   inArray,
+  isNotNull,
   isNull,
   lt,
   lte,
@@ -39,6 +40,7 @@ import {
   studentProfiles,
   gradeLabel,
   isChallanStatus,
+  type ChallanKindFilter,
   type ChallanStatus,
   type CreditReason,
   type DiscountType,
@@ -506,6 +508,7 @@ export interface ListChallansFilters {
   academicYearId?: string | undefined;
   billingMonth?: number | undefined;
   billingYear?: number | undefined;
+  kind?: ChallanKindFilter | undefined;
   gradeId?: string | undefined;
   sectionId?: string | undefined;
   status?: string | undefined;
@@ -545,6 +548,24 @@ export async function listChallans(
   if (filters.academicYearId !== undefined && filters.academicYearId !== '') {
     conditions.push(eq(feeChallans.academicYearId, filters.academicYearId));
   }
+  /*
+   * The kind filter, and the reason the register needed one.
+   *
+   * An admission voucher carries a **null** `billing_month` by design — an
+   * admission is not a period — so the month filter could never match it and it
+   * appeared in no list at all. The register defaulted to the current month, so
+   * in practice every admission voucher a school raised was invisible from the
+   * moment it was written.
+   */
+  if (filters.kind === 'monthly') {
+    conditions.push(isNotNull(feeChallans.billingMonth));
+  } else if (filters.kind === 'one_off') {
+    conditions.push(isNull(feeChallans.billingMonth));
+    conditions.push(isNull(feeChallans.challanKind));
+  } else if (filters.kind === 'admission') {
+    conditions.push(eq(feeChallans.challanKind, 'admission'));
+  }
+
   if (filters.billingMonth !== undefined) {
     conditions.push(eq(feeChallans.billingMonth, filters.billingMonth));
   }

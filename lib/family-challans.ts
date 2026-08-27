@@ -17,7 +17,7 @@ import { generateChallanNumber } from './challan-number';
 import { formatMonthYear } from './dates';
 import { db } from './drizzle';
 import { sendFeeVouchers } from './fee-notices';
-import { formatPkr } from './money';
+import { formatPkr, paiseToNumeric, toPaise } from './money';
 import { normalizeCnic } from './national-id';
 
 /**
@@ -66,14 +66,6 @@ export interface FamilyMember {
   status: string;
 }
 
-export interface FamilyGroup {
-  guardianId: string;
-  guardianName: string;
-  phone: string;
-  members: FamilyMember[];
-  total: string;
-}
-
 /**
  * Open challans for one billing period, grouped by guardian phone.
  *
@@ -82,11 +74,64 @@ export interface FamilyGroup {
  * reason. Challans already folded into a voucher are excluded, which is what
  * makes a second run for the same month safe.
  */
-export async function listFamilyGroups(
+/** A family as the grouping produces it, before any screen narrows it. */
+interface OpenFamily {
+  guardianId: string;
+  guardianName: string;
+  phone: string;
+  email: string | null;
+  /** Every guardian row folded into this family, for a lookup by any of them. */
+  guardianIds: string[];
+  members: FamilyMember[];
+  children: Array<{ studentProfileId: string; studentName: string; studentNumber: string }>;
+  openMonths: Array<{
+    billingMonth: number;
+    billingYear: number;
+    count: number;
+    total: string;
+  }>;
+  openTotal: string;
+}
+
+/**
+ * Every open, ungrouped challan in the school, folded into families.
+ *
+ * ── One rule, one implementation ─────────────────────────────────────────
+ * This is the union-find, and it is shared by the month listing, the wizard's
+ * search and the wizard's third step. It was inlined in the month listing
+ * until Sprint 18 added the other two callers; copying it would have been three
+ * definitions of "the same family", and the first divergence between them would
+ * be a family the search offers and the generator then refuses to club.
+ *
+ * Each guardian row contributes up to two keys — `phone:+923001234567` and
+ * `cnic:42101-1234567-1` — and every key a row carries is merged into one set.
+ * Two rows sharing *either* key land in the same family, and so do two rows
+ * that share nothing directly but are both linked to a third. That transitivity
+ * is why this is a union-find and not a `Map` keyed on `cnic ?? phone`: the
+ * father whose elder child predates CNIC collection is reachable from his newer
+ * record only through the number they have in common.
+ *
+ * It stays fallible in the way it always was: two unrelated guardians sharing a
+ * handset become one family. That is rare, and visible — the children's names
+ * are printed on the voucher. Every CNIC collected makes it rarer.
+ */
+async function groupOpenChallans(
   locationId: string,
-  billingMonth: number,
-  billingYear: number,
-): Promise<FamilyGroup[]> {
+  period?: { billingMonth: number; billingYear: number },
+): Promise<OpenFamily[]> {
+  const conditions = [
+    eq(feeChallans.locationId, locationId),
+    inArray(feeChallans.status, [...OPEN_CHALLAN_STATUSES]),
+    // Already on a voucher, so it is somebody else's now. This is what makes a
+    // second run for the same month safe.
+    isNull(feeChallans.familyChallanId),
+  ];
+
+  if (period !== undefined) {
+    conditions.push(eq(feeChallans.billingMonth, period.billingMonth));
+    conditions.push(eq(feeChallans.billingYear, period.billingYear));
+  }
+
   const rows = await db
     .select({
       challanId: feeChallans.id,
@@ -94,6 +139,8 @@ export async function listFamilyGroups(
       studentName: schoolUsers.name,
       studentNumber: studentProfiles.studentId,
       challanNumber: feeChallans.challanNumber,
+      billingMonth: feeChallans.billingMonth,
+      billingYear: feeChallans.billingYear,
       dueDate: feeChallans.dueDate,
       totalAmount: feeChallans.totalAmount,
       paidAmount: feeChallans.paidAmount,
@@ -101,6 +148,7 @@ export async function listFamilyGroups(
       guardianId: studentGuardians.id,
       guardianName: studentGuardians.name,
       phone: studentGuardians.phone,
+      email: studentGuardians.email,
       cnic: studentGuardians.cnic,
     })
     .from(feeChallans)
@@ -115,29 +163,9 @@ export async function listFamilyGroups(
         eq(studentGuardians.isPrimaryContact, true),
       ),
     )
-    .where(
-      and(
-        eq(feeChallans.locationId, locationId),
-        eq(feeChallans.billingMonth, billingMonth),
-        eq(feeChallans.billingYear, billingYear),
-        inArray(feeChallans.status, [...OPEN_CHALLAN_STATUSES]),
-        isNull(feeChallans.familyChallanId),
-      ),
-    )
+    .where(and(...conditions))
     .orderBy(asc(studentGuardians.phone), asc(schoolUsers.name));
 
-  /*
-   * Union-find over the guardian rows.
-   *
-   * Each row contributes up to two keys — `phone:+923001234567` and
-   * `cnic:42101-1234567-1` — and every key a row carries is merged into one
-   * set. Two rows that share *either* key therefore land in the same family,
-   * and so do two rows that share nothing directly but are both linked to a
-   * third. That transitivity is the whole reason this is a union-find and not
-   * a `Map` keyed on "cnic ?? phone": the father whose elder child predates
-   * CNIC collection is reachable from his newer record only through the phone
-   * number they have in common.
-   */
   const parent = new Map<string, string>();
 
   const find = (key: string): string => {
@@ -179,24 +207,31 @@ export async function listFamilyGroups(
     for (const key of keys.slice(1)) union(keys[0] ?? key, key);
   }
 
-  const byFamily = new Map<string, FamilyGroup>();
+  const byFamily = new Map<string, OpenFamily>();
 
   for (const row of rows) {
     const key = find(keysFor(row)[0] ?? `phone:${row.phone}`);
 
-    const group = byFamily.get(key) ?? {
-      // The first row in the ordering names the voucher. `listFamilyGroups`
-      // orders by phone then student name, so the same family is described the
-      // same way on every run rather than by whichever child sorted first this
-      // month.
+    const family = byFamily.get(key) ?? {
+      // The first row in the ordering names the family. Rows are ordered by
+      // phone then student name, so the same family is described the same way
+      // on every run rather than by whichever child sorted first this month.
       guardianId: row.guardianId,
       guardianName: row.guardianName,
       phone: row.phone,
+      email: row.email,
+      guardianIds: [],
       members: [],
-      total: '0',
+      children: [],
+      openMonths: [],
+      openTotal: '0',
     };
 
-    group.members.push({
+    if (!family.guardianIds.includes(row.guardianId)) {
+      family.guardianIds.push(row.guardianId);
+    }
+
+    family.members.push({
       challanId: row.challanId,
       studentProfileId: row.studentProfileId,
       studentName: row.studentName,
@@ -208,21 +243,151 @@ export async function listFamilyGroups(
       status: row.status,
     });
 
-    byFamily.set(key, group);
+    if (!family.children.some((child) => child.studentProfileId === row.studentProfileId)) {
+      family.children.push({
+        studentProfileId: row.studentProfileId,
+        studentName: row.studentName,
+        studentNumber: row.studentNumber,
+      });
+    }
+
+    byFamily.set(key, family);
   }
 
-  return [...byFamily.values()]
-    .filter((group) => group.members.length > 1)
-    .map((group) => ({
-      ...group,
-      total: sumMoney(group.members.map((member) => member.totalAmount)),
-    }));
+  /*
+   * The billing period of each challan, looked up once.
+   *
+   * `FamilyMember` deliberately does not carry a month — it is the shape the
+   * voucher's own member list has always had — so the period comes from the
+   * rows. Indexed by challan id rather than re-scanned per family, which would
+   * be one pass over every open challan in the school for every family in it.
+   */
+  const periods = new Map<string, { billingMonth: number; billingYear: number }>();
+  for (const row of rows) {
+    if (row.billingMonth === null || row.billingYear === null) continue;
+    periods.set(row.challanId, {
+      billingMonth: row.billingMonth,
+      billingYear: row.billingYear,
+    });
+  }
+
+  return [...byFamily.values()].map((family) => {
+    const months = new Map<
+      string,
+      { billingMonth: number; billingYear: number; count: number; paise: number }
+    >();
+
+    for (const member of family.members) {
+      // A one-off challan carries no month and can never be clubbed — the
+      // generator refuses it — so it is left out of the picker rather than
+      // offered as a period nobody can act on.
+      const period = periods.get(member.challanId);
+      if (period === undefined) continue;
+
+      const key = `${String(period.billingYear)}-${String(period.billingMonth)}`;
+      const bucket = months.get(key) ?? { ...period, count: 0, paise: 0 };
+      bucket.count += 1;
+      bucket.paise += toPaise(member.totalAmount) - toPaise(member.paidAmount);
+      months.set(key, bucket);
+    }
+
+    return {
+      ...family,
+      openMonths: [...months.values()]
+        .sort(
+          (left, right) =>
+            right.billingYear - left.billingYear || right.billingMonth - left.billingMonth,
+        )
+        .map((month) => ({
+          billingMonth: month.billingMonth,
+          billingYear: month.billingYear,
+          count: month.count,
+          total: paiseToNumeric(month.paise),
+        })),
+      openTotal: sumMoney(family.members.map((member) => member.totalAmount)),
+    };
+  });
 }
 
 /** Adds money strings in integer paisa, so a hundred challans do not drift. */
 function sumMoney(values: readonly string[]): string {
   const paisa = values.reduce((sum, value) => sum + Math.round(Number(value) * 100), 0);
   return (paisa / 100).toFixed(2);
+}
+
+/**
+ * Splits one family payment across the children's own balances, **evenly**.
+ *
+ * ── Why not oldest-first, which is what this did ─────────────────────────
+ * Retiring the eldest child's voucher completely before touching the next is
+ * what a clerk does with a pile of separate slips, and it is the wrong answer
+ * once the family is paying against *one* voucher: a parent handing over half
+ * the family total expects half of each child's bill to be settled, not one
+ * child cleared and two untouched. The visible consequence was a defaulters
+ * list that showed two of three siblings owing everything on the day the
+ * family paid — a school ringing them about it is a school that looks like it
+ * has lost the money.
+ *
+ * ── The rule, in order ───────────────────────────────────────────────────
+ * 1. An equal share to every child who still owes something.
+ * 2. Capped at what that child actually owes — nobody is overpaid.
+ * 3. Whatever a capped child could not absorb is redistributed over the rest,
+ *    and the whole thing repeats. Two rounds settle almost every real case;
+ *    the loop is there for the third.
+ * 4. The remainder — always fewer paise than there are children, because the
+ *    share is a floor — goes to the **largest outstanding balance**, so the sum
+ *    is exact to the paisa and the odd paisa lands where it is least visible.
+ *
+ * Integer paise throughout, per `lib/money.ts`. Splitting rupees as doubles is
+ * how a three-way split of 100.00 becomes 99.99.
+ *
+ * @param balances  What each child still owes, in paise, in member order.
+ * @param amountPaise  The payment. Must not exceed the sum of `balances`; the
+ *   caller checks that, because it has the message to show when it does.
+ * @returns What to apply to each child, in the same order. Sums to
+ *   `amountPaise` exactly.
+ */
+export function spreadEvenly(
+  balances: readonly number[],
+  amountPaise: number,
+): number[] {
+  const applied = balances.map(() => 0);
+  let remaining = Math.max(0, Math.trunc(amountPaise));
+
+  while (remaining > 0) {
+    // Everybody who still owes something and has not been capped.
+    const eligible = balances
+      .map((balance, index) => ({ index, left: balance - (applied[index] ?? 0) }))
+      .filter((entry) => entry.left > 0);
+
+    if (eligible.length === 0) break;
+
+    const share = Math.floor(remaining / eligible.length);
+
+    if (share === 0) {
+      /*
+       * Fewer paise left than there are children. They go to the largest
+       * outstanding balance rather than to the first child in the list: a
+       * paisa on the biggest bill is invisible, and a paisa handed to whoever
+       * happens to sort first is a rule nobody can predict.
+       */
+      const largest = eligible.reduce((best, entry) =>
+        entry.left > best.left ? entry : best,
+      );
+      const take = Math.min(remaining, largest.left);
+      applied[largest.index] = (applied[largest.index] ?? 0) + take;
+      remaining -= take;
+      break;
+    }
+
+    for (const entry of eligible) {
+      const take = Math.min(share, entry.left);
+      applied[entry.index] = (applied[entry.index] ?? 0) + take;
+      remaining -= take;
+    }
+  }
+
+  return applied;
 }
 
 export class FamilyChallanError extends Error {
@@ -429,10 +594,10 @@ export async function createFamilyChallan(params: {
 /**
  * Records a payment against a family voucher and distributes it.
  *
- * **Oldest challan first.** A part payment clears the longest-standing debt,
- * which is what a school does by hand and what a parent expects: paying
- * something should retire the oldest slip, not spread a little across all
- * three and leave every child still owing.
+ * **Spread evenly.** Every child who still owes something takes an equal share,
+ * capped at their own balance, with anything a capped child could not absorb
+ * redistributed over the rest until the money is placed. `spreadEvenly` is the
+ * rule and says at length why it is not oldest-first any more.
  *
  * The child challans are what fee reports and the defaulter list read, so this
  * has to reach them — a family payment that only moved the voucher's own
@@ -495,8 +660,8 @@ export async function recordFamilyPayment(params: {
     0,
   );
 
-  let remaining = Math.round(amount * 100);
-  if (remaining > outstandingPaisa) {
+  const paymentPaisa = toPaise(amount);
+  if (paymentPaisa > outstandingPaisa) {
     throw new FamilyChallanError(
       `That is more than the ${formatPkr(outstandingPaisa / 100)} still owed on this voucher.`,
     );
@@ -504,23 +669,21 @@ export async function recordFamilyPayment(params: {
 
   const distributed: Array<{ challanId: string; amount: string }> = [];
 
+  const balances = members.map((member) =>
+    Math.max(0, toPaise(member.totalAmount) - toPaise(member.paidAmount)),
+  );
+  const shares = spreadEvenly(balances, paymentPaisa);
+
   await db.transaction(async (tx) => {
-    for (const member of members) {
-      if (remaining <= 0) break;
+    for (const [index, member] of members.entries()) {
+      const applyPaisa = shares[index] ?? 0;
+      // A child who owes nothing takes nothing, and gets no `fee_payments` row
+      // at all — a receipt for zero is a receipt nobody can explain.
+      if (applyPaisa <= 0) continue;
 
-      const owedPaisa =
-        Math.round(Number(member.totalAmount) * 100) -
-        Math.round(Number(member.paidAmount) * 100);
-      if (owedPaisa <= 0) continue;
-
-      const applyPaisa = Math.min(owedPaisa, remaining);
-      remaining -= applyPaisa;
-
-      const applied = (applyPaisa / 100).toFixed(2);
-      const nowPaid = (
-        (Math.round(Number(member.paidAmount) * 100) + applyPaisa) /
-        100
-      ).toFixed(2);
+      const owedPaisa = balances[index] ?? 0;
+      const applied = paiseToNumeric(applyPaisa);
+      const nowPaid = paiseToNumeric(toPaise(member.paidAmount) + applyPaisa);
 
       await tx.insert(feePayments).values({
         locationId,
@@ -535,6 +698,8 @@ export async function recordFamilyPayment(params: {
         .update(feeChallans)
         .set({
           paidAmount: nowPaid,
+          // Recomputed per child, because an even spread settles some children
+          // and part-pays others in the same payment.
           status: applyPaisa >= owedPaisa ? 'paid' : 'partial',
           updatedAt: new Date(),
         })
@@ -543,13 +708,13 @@ export async function recordFamilyPayment(params: {
       distributed.push({ challanId: member.id, amount: applied });
     }
 
-    const voucherPaisa = Math.round(Number(voucher.paidAmount) * 100) + Math.round(amount * 100);
-    const voucherTotalPaisa = Math.round(Number(voucher.totalAmount) * 100);
+    const voucherPaisa = toPaise(voucher.paidAmount) + paymentPaisa;
+    const voucherTotalPaisa = toPaise(voucher.totalAmount);
 
     await tx
       .update(familyChallans)
       .set({
-        paidAmount: (voucherPaisa / 100).toFixed(2),
+        paidAmount: paiseToNumeric(voucherPaisa),
         status: voucherPaisa >= voucherTotalPaisa ? 'paid' : 'partial',
         updatedAt: new Date(),
       })
@@ -557,6 +722,134 @@ export async function recordFamilyPayment(params: {
   });
 
   return { distributed };
+}
+
+/* -----------------------------------------------------------------------------
+ * The wizard's three questions (Sprint 18, item 18)
+ * -------------------------------------------------------------------------- */
+
+/** One family, with everything open across every month. */
+export interface FamilyCandidate {
+  guardianId: string;
+  guardianName: string;
+  phone: string;
+  email: string | null;
+  /** Distinct children of this family with something open. */
+  children: Array<{ studentProfileId: string; studentName: string; studentNumber: string }>;
+  /** Months this family has anything open in, newest first. */
+  openMonths: Array<{
+    billingMonth: number;
+    billingYear: number;
+    count: number;
+    total: string;
+  }>;
+  /** Everything open, across every month. */
+  openTotal: string;
+}
+
+/**
+ * Families the school could club, found by searching for a person.
+ *
+ * ── Why this is a search and not a browse ────────────────────────────────
+ * Step 1 of the wizard is "find the family", and the way a clerk knows a family
+ * is by a name a parent just said at a counter — the father's, or one of the
+ * children's. Offering a paginated list of every family in the school is a
+ * different screen answering a different question.
+ *
+ * It matches a **guardian or a child**, by name, admission number or phone,
+ * case-insensitively and on any part of the value, and returns only families
+ * with more than one child: a single child does not need a family voucher and
+ * offering one would put a second number on the same debt for no reason.
+ *
+ * ── The identity rule is the same one, not a similar one ─────────────────
+ * The grouping below is `groupOpenChallans`' union-find, unchanged and shared:
+ * two guardian rows are the same person when they share a CNIC **or** a phone
+ * number, and transitively so through a third. If this used a looser rule the
+ * search would offer a family the generator then refuses to club, and if it
+ * used a stricter one the family a school can see on the register would be
+ * unfindable here.
+ */
+export async function searchFamilies(
+  locationId: string,
+  query: string,
+): Promise<FamilyCandidate[]> {
+  const needle = query.trim().toLowerCase();
+  if (needle === '') return [];
+
+  const families = await groupOpenChallans(locationId);
+
+  const matches = families.filter((family) => {
+    if (family.children.length < 2) return false;
+
+    const haystack = [
+      family.guardianName,
+      family.phone,
+      // The digits as a clerk says them, so `0321` finds `+923211234567`.
+      family.phone.replace(/^\+92/, '0'),
+      ...family.children.map((child) => `${child.studentName} ${child.studentNumber}`),
+    ]
+      .join(' ')
+      .toLowerCase();
+
+    return haystack.includes(needle);
+  });
+
+  // Most children first, then the largest total: the family a voucher saves the
+  // most queueing for is the one to offer first.
+  matches.sort(
+    (left, right) =>
+      right.children.length - left.children.length ||
+      toPaise(right.openTotal) - toPaise(left.openTotal),
+  );
+
+  return matches;
+}
+
+/**
+ * The families this school could club **this month**, best first.
+ *
+ * The listing above the wizard, and the reason the screen exists: most children
+ * first, then largest total. It was buried under a month picker and a table
+ * that led with a column of children's names, which is a list of *pupils* where
+ * the reader wanted a list of *families*.
+ */
+export async function listFamilyCandidates(
+  locationId: string,
+  billingMonth: number,
+  billingYear: number,
+): Promise<FamilyCandidate[]> {
+  const families = await groupOpenChallans(locationId, { billingMonth, billingYear });
+
+  return families
+    .filter((family) => family.children.length > 1)
+    .sort(
+      (left, right) =>
+        right.children.length - left.children.length ||
+        toPaise(right.openTotal) - toPaise(left.openTotal),
+    );
+}
+
+/**
+ * One family's open vouchers for one month — step 3 of the wizard.
+ *
+ * Re-read rather than carried down from step 1, for the same reason
+ * `createFamilyChallan` re-reads its members: the browser may have been holding
+ * a stale list, and clubbing a voucher that has since been paid would demand
+ * money twice.
+ */
+export async function familyOpenVouchers(
+  locationId: string,
+  guardianId: string,
+  billingMonth: number,
+  billingYear: number,
+): Promise<FamilyMember[]> {
+  const families = await groupOpenChallans(locationId, { billingMonth, billingYear });
+
+  const family = families.find((candidate) =>
+    candidate.guardianIds.includes(guardianId),
+  );
+
+  return family?.members ?? [];
 }
 
 export interface FamilyChallanRow {
@@ -571,6 +864,15 @@ export interface FamilyChallanRow {
   paidAmount: string;
   status: string;
   memberCount: number;
+  /**
+   * The children's own vouchers, so the register can print them.
+   *
+   * There is no separate print document for a family voucher: what a parent
+   * carries to the bank is the slip per child, and the family voucher is the
+   * number the payment is recorded against. Printing therefore means printing
+   * the members, through the same route the register already uses.
+   */
+  memberChallanIds: string[];
 }
 
 export async function listFamilyChallans(
@@ -593,6 +895,13 @@ export async function listFamilyChallans(
         select count(*) from ${feeChallans}
         where ${feeChallans.familyChallanId} = ${familyChallans.id}
       )`.mapWith(Number),
+      // An ordered aggregate has no Drizzle operator, which is the only reason
+      // this is a raw template; no JavaScript value is interpolated into it.
+      memberChallanIds: sql<string[]>`(
+        select coalesce(array_agg(m.id order by m.challan_number), '{}')
+        from ${feeChallans} m
+        where m.family_challan_id = ${familyChallans.id}
+      )`,
     })
     .from(familyChallans)
     .innerJoin(studentGuardians, eq(studentGuardians.id, familyChallans.guardianId))

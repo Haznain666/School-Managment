@@ -1,7 +1,7 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 
-import { ChallanTable } from '@/components/fees/ChallanTable';
+import { VoucherRegisterTabs } from '@/components/fees/VoucherRegisterTabs';
 import { Button } from '@/components/ui/Button';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { listAcademicYears, listGrades } from '@/lib/admissions-queries';
@@ -39,7 +39,7 @@ export default async function ChallansPage() {
         }
       />
 
-      <ChallanTable
+      <VoucherRegisterTabs
         academicYears={academicYears}
         grades={grades.map((grade) => ({ id: grade.id, label: grade.label }))}
         canGenerate={canGenerate}

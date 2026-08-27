@@ -2,8 +2,9 @@ import { apiFailure, apiSuccess, handleApiError, readJsonBody } from '@/lib/api-
 import { withSchoolAuth } from '@/lib/api-auth';
 import {
   createFamilyChallan,
+  familyOpenVouchers,
+  listFamilyCandidates,
   listFamilyChallans,
-  listFamilyGroups,
   FamilyChallanError,
 } from '@/lib/family-challans';
 import { isUuid } from '@/lib/validation';
@@ -11,7 +12,8 @@ import { isUuid } from '@/lib/validation';
 /**
  * /api/school/family-challans
  *
- * GET  issued vouchers, or (with ?month=&year=) the families that could have one
+ * GET  issued vouchers; with ?month=&year= the families that could take one;
+ *      with ?guardianId= as well, that one family's open vouchers for the month
  * POST issue a voucher over a family's open challans
  *
  * The candidate list and the issuing both read the challans server-side. The
@@ -46,8 +48,26 @@ export const GET = withSchoolAuth(
         return apiFailure('invalid_body', 'Choose a billing year.', 400);
       }
 
+      /*
+       * Step 3 of the wizard: one family's open vouchers for the chosen month.
+       *
+       * Re-read here rather than carried down from the search, for the same
+       * reason `createFamilyChallan` re-reads its members — the browser may be
+       * holding a list drawn before a payment came in.
+       */
+      const guardianId = url.searchParams.get('guardianId');
+      if (guardianId !== null) {
+        if (!isUuid(guardianId)) {
+          return apiFailure('invalid_query', 'That family is not at this school.', 400);
+        }
+
+        return apiSuccess({
+          vouchers: await familyOpenVouchers(auth.locationId, guardianId, month, year),
+        });
+      }
+
       return apiSuccess({
-        groups: await listFamilyGroups(auth.locationId, month, year),
+        families: await listFamilyCandidates(auth.locationId, month, year),
       });
     } catch (error) {
       return handleApiError(error);

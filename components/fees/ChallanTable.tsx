@@ -16,6 +16,8 @@ import { Select } from '@/components/ui/Select';
 import { TableCell, TableRow } from '@/components/ui/Table';
 import { MONTH_NAMES } from '@/db/schema/academic-years';
 import {
+  CHALLAN_KIND_FILTERS,
+  CHALLAN_KIND_FILTER_LABELS,
   CHALLAN_STATUSES,
   CHALLAN_STATUS_LABELS,
   type ChallanStatus,
@@ -113,13 +115,25 @@ export function ChallanTable({
   grades,
   canGenerate,
 }: ChallanTableProps) {
-  const now = new Date();
-
   const [academicYearId, setAcademicYearId] = useState(
     academicYears.find((year) => year.isActive)?.id ?? academicYears[0]?.id ?? '',
   );
-  const [billingMonth, setBillingMonth] = useState(String(now.getMonth() + 1));
-  const [billingYear, setBillingYear] = useState(String(now.getFullYear()));
+  /*
+   * Both empty, and that is the fix for item 11.
+   *
+   * They defaulted to the current month and year. An admission voucher carries
+   * a **null** `billing_month` by design — an admission is not a period — so it
+   * could never match either filter and appeared in the register on no day of
+   * any month. A school raising one watched it vanish, and there was no
+   * combination of controls on the screen that would bring it back.
+   *
+   * All months / All years is also simply the right first view of a register:
+   * the question it answers is "what have we issued", not "what did we issue
+   * in August".
+   */
+  const [billingMonth, setBillingMonth] = useState('');
+  const [billingYear, setBillingYear] = useState('');
+  const [kind, setKind] = useState('');
   const [gradeId, setGradeId] = useState('');
   const [sectionId, setSectionId] = useState('');
   const [status, setStatus] = useState('');
@@ -172,6 +186,7 @@ export function ChallanTable({
     if (academicYearId !== '') query.set('academicYearId', academicYearId);
     if (billingMonth !== '') query.set('billingMonth', billingMonth);
     if (billingYear !== '') query.set('billingYear', billingYear);
+    if (kind !== '') query.set('kind', kind);
     if (gradeId !== '') query.set('gradeId', gradeId);
     if (sectionId !== '') query.set('sectionId', sectionId);
     if (status !== '') query.set('status', status);
@@ -189,6 +204,7 @@ export function ChallanTable({
     academicYearId,
     billingMonth,
     billingYear,
+    kind,
     gradeId,
     sectionId,
     status,
@@ -469,6 +485,28 @@ export function ChallanTable({
               });
             },
           },
+          {
+            /*
+             * Monthly, One-off, Admission. Expressed in SQL as a shape rather
+             * than a column — see `listChallans` — because only `admission` is
+             * a kind the database has a rule about, and inventing a taxonomy
+             * for the other two would put a column next to a unique index that
+             * does not need one.
+             */
+            id: 'kind',
+            label: 'Kind',
+            allLabel: 'Every kind',
+            options: CHALLAN_KIND_FILTERS.map((value) => ({
+              value,
+              label: CHALLAN_KIND_FILTER_LABELS[value],
+            })),
+            value: kind,
+            onChange: (value) => {
+              onFilterChange(() => {
+                setKind(value);
+              });
+            },
+          },
         ]}
         extraFilters={
           <>
@@ -555,18 +593,22 @@ export function ChallanTable({
         filtersActive={
           search.trim() !== '' ||
           status !== '' ||
+          kind !== '' ||
           gradeId !== '' ||
           sectionId !== '' ||
           billingMonth !== '' ||
+          billingYear !== '' ||
           academicYearId !== ''
         }
         onClearFilters={() => {
           onFilterChange(() => {
             setSearch('');
             setStatus('');
+            setKind('');
             setGradeId('');
             setSectionId('');
             setBillingMonth('');
+            setBillingYear('');
             setAcademicYearId('');
           });
         }}
