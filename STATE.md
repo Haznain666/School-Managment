@@ -4,7 +4,14 @@
 resume without re-deriving context. Updated at the end of every development
 step, before the session ends.
 
-**Last updated:** 2026-08-26 (**Sprint 16 — school feedback both ways, global
+**Last updated:** 2026-08-27 (**Sprint 17 — onboarding, the admission fee, and
+the discount that never applied — §5be. `0033` APPLIED and verified.
+**DEPLOYED AND LIVE as `51c185f367cd`**, PR #33 merged. Four defects found by QA
+driving the fee module against real data, plus one caught in review; all five
+fixed and re-verified. The live origin returned `status=000` for forty minutes
+after the merge and it was **not** the deploy — two untouched sibling sites on
+the same host failed identically.**;
+2026-08-26 (**Sprint 16 — school feedback both ways, global
 search on all five portals, the setup-progress panel, and three dashboard
 fixes — §5bd. `0032` APPLIED and verified. **DEPLOYED AND LIVE as `47e072c1f058`**,
 PR #32 merged, cache purged and the commit confirmed by the workflow. The second
@@ -81,7 +88,7 @@ Sprint 13.7 — §5ar; 2026-08-19: §5aq, §5ap, §5ao, §5an, §5am, §5al, §5
 > read as a missing constraint. Each expected failure now runs inside its own
 > `SAVEPOINT`. Write refusal tests that way or do not write them.
 >
-> **Next free migration number is `0033`.**
+> ~~Next free migration number is `0033`.~~ **`0033` is taken — Sprint 17. The next free number is `0034`.**
 
 > ✅ **Migration `0031` is APPLIED to the live database — 2026-08-23.** The
 > bookkeeping table held 31 rows before and **32** after. Verified against the
@@ -8230,10 +8237,112 @@ the others.
 
 Spec: `SPRINT-17-SPEC.md`. Twelve items reported by the product owner after
 driving the school-admin and principal portals against Lahore Grammar School.
-Migration **`0033` is written and NOT applied** — `db/migrations/0033_sprint17_student_credits.sql`.
-Nothing in this sprint works against the live database until DevOps runs it.
+Migration **`0033` is APPLIED and verified** —
+`db/migrations/0033_sprint17_student_credits.sql`. 33 bookkeeping rows before,
+**34** after; 19 structural assertions, and every new constraint made to *fire*
+inside its own `SAVEPOINT` and rolled back.
 
-Built on branch `worktree-agent-a8bcb6ee3460769b9`. Not merged.
+**DEPLOYED AND LIVE as `51c185f367cd`**, PR
+[#33](https://github.com/Haznain666/School-Managment/pull/33), merged. Test
+cases: `test-cases/TEST-CASES-SPRINT-17.md`. Release note:
+`release-notes/RELEASE-NOTES-SPRINT-17.md`.
+
+### ⚠ The live origin was unreachable for ~40 minutes and it was NOT the deploy
+
+After the merge, `/api/internal/build` returned `status=000` — a TCP connect
+that never completed — for twelve consecutive probes across both IPv4 and IPv6.
+The temptation is to read that as a broken deploy. It was not:
+`codexmill.com` and `staging.codexmill.com`, two sites this deploy never
+touched, failed **identically**, while `example.com` and `google.com` answered
+200 in under half a second. Hostinger's own API reported the build `completed`
+at 12:22Z with both new routes in the manifest.
+
+It came back on its own and answered `{"buildId":"51c185f367cd"}` in 2.4s. This
+is §5bc's lesson again and the rule holds: **read the status code before
+concluding anything about the deploy — `000` is the network, not the build** —
+and check a sibling site on the same host before blaming your own change.
+
+### The four defects QA found, none of which a gate could have caught
+
+Every one needed a real voucher raised against real data.
+
+1. **The admission voucher was born overdue, and that silently killed the
+   discount.** `admissionDueDate` applied the school's due day to the *current*
+   month, so a voucher raised on the 27th fell due on the **10th** — seventeen
+   days in the past. Concessions are priced against the due date, and LGS's
+   sibling discount starts 2026-08-26, so it was silently dropped: the voucher
+   billed **50,000 with `concessionAmount: 0.00`**. That is item 8's exact
+   complaint resurfacing through the new route, which is the thing to remember —
+   *fixing a rule in the calculator did not fix it at every call site.* The due
+   date can no longer be in the past, and an admission anchors its concessions
+   on **today**, the anchor `findAdmissionPrice` already used. The panel and the
+   voucher could disagree before; now they cannot.
+
+2. **Cancelling a voucher stranded the student.** `resolveAdmissionFee` counted
+   `cancelled` among the closed statuses, so the panel called the admission
+   settled and no corrected voucher could ever be raised — while
+   `fee_challans_admission_once_idx` is deliberately partial on
+   `status <> 'cancelled'` to permit exactly that. **The screen was refusing
+   what the schema permitted.** Two statements of one rule that had drifted.
+
+3. **The carry-forward never happened.** The per-line clamp in
+   `concessionPaiseFor` discarded the excess before anything could bank it, so a
+   fixed 60,000 against a 50,000 fee floored the voucher at zero and the
+   remaining 10,000 ceased to exist. Proven live: `creditGranted: "0.00"`. The
+   calculator now returns `{ applied, excess }` and `calculateChallanLines`
+   surfaces the total; all three write paths bank it in the same `batch()`.
+
+   ⚠ **The first version of that fix had its own bug, caught before it shipped.**
+   `repriceOpenChallans` runs on every concession write — create, amend *and*
+   delete — so granting the recomputed overflow each time would have handed the
+   parent another 10,000 for every unrelated concession the school later
+   touched, drifting silently. `grantedOverflowPaise` subtracts what is already
+   banked against that challan. Repricing has to be idempotent with respect to
+   credit or it is not safe to call as often as it is called.
+
+4. **The refusal message contradicted the rule it explained.** Adding
+   `guardian` to `FIRST_GUARDIAN_RELATIONSHIPS` left **four** hand-written
+   copies of "father, mother or sibling" in the API, the form and the parser.
+   The server accepted a legal guardian and then told the clerk who chose one
+   that it would not. `firstGuardianChoices()` derives the sentence from the
+   constant.
+
+### And one defect found in code review, before QA
+
+"One admission, one admission fee" was a read followed by an insert, and the
+unique index that catches this for a monthly challan **cannot see an admission
+voucher at all** — it carries a null `billing_month` by design, and Postgres
+treats nulls as distinct. Two clicks would have produced two vouchers *and*
+spent the student's credit twice. `fee_challans.challan_kind` exists so
+`fee_challans_admission_once_idx` has something to be partial on.
+
+### How QA signed in, and what it could not do
+
+The browser pane does not composite frames or hydrate in this environment, so
+**no screenshots exist and no client component ever mounted** — §5bd recorded
+the same. Sign-in was done by driving the real endpoints from the page's own
+origin: Super Admin login, *Login as Admin* into LGS, and an operator
+**emergency token** for the principal case, which is how item 2 was verified
+with a genuine principal session rather than by reading the code.
+
+A local-only bcrypt hash in `.env.standalone.local` was the credential. No
+school member's password was handled.
+
+**Not verified by observation:** the photo file input and *Remove photo*, the
+guardian dropdown, and the fee-matrix zero round-trip. All three are client
+behaviour; their server halves were driven directly and pass.
+
+**A limitation, recorded not fixed:** cancelling a challan does not return the
+credit it consumed.
+
+### The measured result of items 2 and 12, live
+
+Signed in as *LGS Defence Principal*, the setup panel reads **73%, 8 of 11** —
+identical to the school administrator's, where it read 50% before. Eleven KPIs:
+Principals **0/1**, Teachers & staff 1/1, Classes 14/14, Subjects 1/1, Timetable
+**1/15**, Enrolled students 1/1, and one per fee head — Tuition, Admission,
+Annual and Library all 14/14, **Examination Fee 0/14**. The mean of those eleven
+is 73.3%, which is the headline, and eight are complete.
 
 ### The three defects that were confirmed against the live database first
 

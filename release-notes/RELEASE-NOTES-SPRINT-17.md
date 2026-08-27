@@ -1,11 +1,11 @@
 # Sprint 17 — Getting in, getting billed, and the discount that never arrived
 
-**Migration `0033` — WRITTEN, NOT YET APPLIED.** One new table
-(`student_credits`) and one new column (`fee_challans.credit_applied`). No
+**Migration `0033` — APPLIED and verified, 2026-08-27.** One new table
+(`student_credits`) and three new columns (`fee_challans.credit_applied`,
+`fee_challans.challan_kind`, plus the index that polices admissions). No
 existing column is changed and no row is rewritten.
 
-**Nothing about credit carried forward works until that migration has been
-run.** Everything else in this note works without it.
+**This release is live.** Everything below is in use.
 
 ---
 
@@ -92,7 +92,7 @@ still says what it said. **Only the discount moves.**
 
 ## A voucher can never total less than zero
 
-*Needs migration `0033`.*
+*Live.*
 
 When a discount is larger than what is left to collect, the voucher is floored
 and the difference is kept as **credit carried forward** for that child. It
@@ -201,11 +201,52 @@ Three separate problems, reported together.
 
 ---
 
-## What is not usable yet
+## Four things QA caught before you did
 
-* **Migration `0033` has not been applied.** Until it is, credit carried
-  forward does not exist: a discount larger than the balance will not floor the
-  voucher, no adjustment appears on the next one, and the credit lines on the
-  profile and voucher screens have nothing to show. Everything else in this
-  note works today.
-* Nothing here has been signed off in a browser against a live school yet.
+Driving the fee module against Lahore Grammar School's real data found four
+defects that no automated check would have caught, because all four needed a
+real voucher raised against a real discount.
+
+1. **The admission voucher was born overdue — and that silently cancelled the
+   discount.** A voucher raised on the 27th was falling due on the 10th, of the
+   same month: seventeen days in the past. Because a voucher applies whichever
+   discounts are in force on its due date, any discount granted *after* that
+   past date was quietly ignored. The sibling discount this release exists to
+   fix was billing 50,000 instead of 40,000, and nothing said why. A voucher can
+   no longer fall due in the past, and an admission now applies the discounts in
+   force on the day it is raised.
+
+2. **Cancelling a voucher left the student with no way forward.** The screen
+   treated a cancelled admission fee as a settled one, offered nothing, and no
+   corrected voucher could ever be raised — even though the database was built
+   to allow exactly that. Cancelling now makes room for the replacement, which
+   is the only reason anyone cancels.
+
+3. **Carry-forward was not happening at all.** A discount larger than the fee
+   floored the voucher at zero and the remainder simply disappeared — the school
+   believed it had granted relief the parent never received. The surplus is now
+   banked and spent on the next voucher, as intended.
+
+4. **The product contradicted itself about guardians.** It accepted a legal
+   guardian as a first guardian and then told the clerk who chose one that it
+   would not. The message now comes from the rule itself.
+
+---
+
+## What has not been checked in a browser
+
+The screens were verified by reading what the server produced and by driving
+every endpoint against the live database. What could **not** be exercised is
+anything that only happens once a page is interactive in a real browser:
+
+* choosing a photo in the enrolment wizard, and the *Remove photo* control;
+* the guardian dropdown itself (the rule behind it was verified directly);
+* typing a `0` into the fee structure grid and saving it.
+
+None of these is known to be broken; none has been watched working. Worth ten
+minutes with a real browser before you rely on them.
+
+**One limitation, recorded rather than hidden:** cancelling a voucher does not
+give back credit it had already spent. That is arguably wrong, but returning it
+is a design decision about the audit trail rather than a bug fix, so it was left
+alone.
