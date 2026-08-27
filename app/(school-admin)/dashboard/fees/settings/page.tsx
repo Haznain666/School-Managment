@@ -3,6 +3,7 @@ import type { Metadata } from 'next';
 import { LateFeeSettingsForm } from '@/components/fees/LateFeeSettingsForm';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { DEFAULT_DUE_DAY, getLateFeeRule } from '@/lib/fee-queries';
+import { DEFAULT_AUTO_SEND_DAY } from '@/lib/voucher-auto-send';
 import { requireSchoolPermission } from '@/lib/school-guard';
 
 export const metadata: Metadata = {
@@ -27,6 +28,8 @@ export default async function FeeSettingsPage() {
         initial={
           rule ?? {
             dueDay: DEFAULT_DUE_DAY,
+            autoSendVouchers: false,
+            autoSendDay: DEFAULT_AUTO_SEND_DAY,
             isEnabled: false,
             graceDays: 0,
             lateFeeType: 'fixed',

@@ -417,6 +417,13 @@ export async function listActiveConcessionsForStudents(
 export interface LateFeeSettings {
   /** Day of the month monthly challans fall due. */
   dueDay: number;
+  /**
+   * Whether the school emails its parents this month's open vouchers on a
+   * timer. Off until a school turns it on — see `db/schema/late-fee-rules.ts`.
+   */
+  autoSendVouchers: boolean;
+  /** Day of the month that send runs on. */
+  autoSendDay: number;
   isEnabled: boolean;
   graceDays: number;
   lateFeeType: LateFeeType;
@@ -439,6 +446,8 @@ export async function getLateFeeRule(
       lateFeeType: lateFeeRules.lateFeeType,
       lateFeeAmount: lateFeeRules.lateFeeAmount,
       maxLateFee: lateFeeRules.maxLateFee,
+      autoSendVouchers: lateFeeRules.autoSendVouchers,
+      autoSendDay: lateFeeRules.autoSendDay,
     })
     .from(lateFeeRules)
     .where(eq(lateFeeRules.locationId, locationId))

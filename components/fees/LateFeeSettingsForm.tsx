@@ -22,6 +22,8 @@ import { schoolErrorMessage, schoolFetch } from '@/lib/school-client';
 export interface LateFeeSettingsFormProps {
   initial: {
     dueDay: number;
+    autoSendVouchers: boolean;
+    autoSendDay: number;
     isEnabled: boolean;
     graceDays: number;
     lateFeeType: LateFeeType;
@@ -33,6 +35,8 @@ export interface LateFeeSettingsFormProps {
 
 export function LateFeeSettingsForm({ initial, canEdit }: LateFeeSettingsFormProps) {
   const [dueDay, setDueDay] = useState(String(initial.dueDay));
+  const [autoSendVouchers, setAutoSendVouchers] = useState(initial.autoSendVouchers);
+  const [autoSendDay, setAutoSendDay] = useState(String(initial.autoSendDay));
   const [isEnabled, setIsEnabled] = useState(initial.isEnabled);
   const [graceDays, setGraceDays] = useState(String(initial.graceDays));
   const [lateFeeType, setLateFeeType] = useState<LateFeeType>(initial.lateFeeType);
@@ -55,6 +59,8 @@ export function LateFeeSettingsForm({ initial, canEdit }: LateFeeSettingsFormPro
         method: 'PATCH',
         body: JSON.stringify({
           dueDay: Number(dueDay) || 10,
+          autoSendVouchers,
+          autoSendDay: Number(autoSendDay) || 28,
           isEnabled,
           graceDays: Number(graceDays) || 0,
           lateFeeType,
@@ -108,6 +114,43 @@ export function LateFeeSettingsForm({ initial, canEdit }: LateFeeSettingsFormPro
               setDueDay(event.target.value);
             }}
           />
+        </div>
+
+        {/*
+          Off, and it stays off until somebody here turns it on.
+
+          A school must never start emailing its parents because a sprint
+          deployed, and an email cannot be recalled — so this is the one control
+          in the fee module whose default is the inert one on purpose. The
+          sweeper claims each school for the day with a conditional UPDATE, so
+          the seven server processes in production produce one send between
+          them; see `lib/voucher-auto-send.ts`.
+        */}
+        <div className="mt-6 space-y-4 border-t border-line pt-6">
+          <Toggle
+            checked={autoSendVouchers}
+            onChange={setAutoSendVouchers}
+            disabled={!canEdit}
+            label="Email this month's vouchers automatically"
+            description="Sends the vouchers you have already raised to each student's primary contact. It never generates one."
+          />
+
+          {autoSendVouchers ? (
+            <div className="sm:max-w-xs">
+              <Input
+                label="Send on day"
+                type="number"
+                min={1}
+                max={28}
+                value={autoSendDay}
+                disabled={!canEdit}
+                hint="Capped at the 28th so every month has that day."
+                onChange={(event) => {
+                  setAutoSendDay(event.target.value);
+                }}
+              />
+            </div>
+          ) : null}
         </div>
       </Card>
 
