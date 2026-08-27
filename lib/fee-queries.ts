@@ -753,6 +753,16 @@ export interface ChallanItemRow {
   amount: string;
   concessionAmount: string;
   netAmount: string;
+  /**
+   * The head's category, read live from `fee_types`.
+   *
+   * Null once the head has been deleted — the line survives it, carrying its
+   * frozen `description`, and the Details line simply drops the category rather
+   * than guessing one.
+   */
+  feeCategory: string | null;
+  /** `Sibling Discount 20%`, frozen on the line when the voucher was raised. */
+  concessionDetail: string | null;
 }
 
 export interface ChallanPaymentRow {
@@ -851,8 +861,14 @@ export async function getChallanDetail(
         amount: feeChallanItems.amount,
         concessionAmount: feeChallanItems.concessionAmount,
         netAmount: feeChallanItems.netAmount,
+        concessionDetail: feeChallanItems.concessionDetail,
+        // Live, because `fee_challan_items` has never carried it and a
+        // back-filled guess would be a fact about today printed on a slip from
+        // February. A deleted head leaves it null and the line says less.
+        feeCategory: feeTypes.feeCategory,
       })
       .from(feeChallanItems)
+      .leftJoin(feeTypes, eq(feeTypes.id, feeChallanItems.feeTypeId))
       .where(
         and(
           eq(feeChallanItems.locationId, locationId),

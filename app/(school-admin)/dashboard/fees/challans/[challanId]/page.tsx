@@ -163,7 +163,21 @@ export default async function ChallanDetailPage({
                 <TableBody>
                   {challan.items.map((item) => (
                     <TableRow key={item.id}>
-                      <TableCell>{item.description}</TableCell>
+                      <TableCell>
+                        {item.description}
+                        {/*
+                          Which discount took the money off, and at what rate.
+                          The Concession column beside it carries the rupees; a
+                          figure without its reason is what a parent telephones
+                          the school about, and the clerk who takes that call
+                          has been reading this page.
+                        */}
+                        {item.concessionDetail === null ? null : (
+                          <span className="block text-xs text-ink-muted">
+                            {item.concessionDetail}
+                          </span>
+                        )}
+                      </TableCell>
                       <TableCell align="numeric" muted>
                         {formatAmount(item.amount)}
                       </TableCell>

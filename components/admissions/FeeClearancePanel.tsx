@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/Button';
 import { Card, CardTitle } from '@/components/ui/Card';
 import type { AdmissionFeeState } from '@/lib/admission-fee';
 import { formatDateOnly } from '@/lib/dates';
+import { challanPrintHref } from '@/lib/challan-print';
 import { remainingBalance } from '@/lib/fee-calculator';
 import { formatPkr } from '@/lib/money';
 import { schoolErrorMessage, schoolFetch } from '@/lib/school-client';
@@ -141,6 +142,44 @@ export function FeeClearancePanel({
         </p>
       ) : null}
     </>
+  );
+
+  /**
+   * The voucher, on paper, before the button that settles it (item 8).
+   *
+   * Ordered deliberately. The panel offered *Confirm the fee was paid* and
+   * nothing else, so the only way to hand a parent the slip they were meant to
+   * take to the bank was to leave the screen, find the voucher in the register
+   * and print it from there — which is why the confirmation, the irreversible
+   * one, was the easiest thing on the card to press.
+   *
+   * The link is the existing print route, given one id — `challanPrintHref`,
+   * shared with the register so the two cannot disagree about where printing
+   * happens. `printHref` is null in the one state where there is no voucher to
+   * print: an admission settled by hand against a cancelled or waived one.
+   */
+  const printVoucherButton = (printHref: string | null) =>
+    printHref === null ? null : (
+      <Link href={printHref}>
+        <Button className="mt-4" variant="secondary">
+          Print voucher
+        </Button>
+      </Link>
+    );
+
+  /**
+   * Said once, under the buttons, in both states that have a voucher.
+   *
+   * The admission voucher is emailed to the primary contact the moment it is
+   * raised — `generateAdmissionChallan` queues it through the outbox. Without
+   * this line a clerk sends it again by hand, and the parent gets the same
+   * demand twice from a school that looks disorganised.
+   */
+  const emailedNote = (
+    <p className="mt-2 text-xs text-ink-muted">
+      This voucher was emailed to the primary contact when it was raised. Print
+      a copy only if the family asked for one.
+    </p>
   );
 
   const confirmButton = canClear ? (
@@ -351,7 +390,11 @@ export function FeeClearancePanel({
             </p>
           )}
 
-          {confirmButton}
+          <div className="flex flex-wrap items-start gap-3">
+            {printVoucherButton(challanPrintHref([state.challan.id]))}
+            {confirmButton}
+          </div>
+          {emailedNote}
           {messages}
         </Card>
       );
@@ -389,7 +432,13 @@ export function FeeClearancePanel({
             </p>
           )}
 
-          {feeClearedAt === null ? confirmButton : null}
+          <div className="flex flex-wrap items-start gap-3">
+            {printVoucherButton(
+              state.challan === null ? null : challanPrintHref([state.challan.id]),
+            )}
+            {feeClearedAt === null ? confirmButton : null}
+          </div>
+          {state.challan === null ? null : emailedNote}
           {messages}
         </Card>
       );

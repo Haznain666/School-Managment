@@ -1,16 +1,26 @@
 import { PrintDocument, PrintLetterhead, PrintSheet } from '@/components/print/PrintSheet';
 import { MONTH_NAMES } from '@/db/schema/academic-years';
+import { FEE_CATEGORY_LABELS, type FeeCategory } from '@/db/schema/fee-types';
 import { formatDateOnly } from '@/lib/dates';
 import { amountInWords, formatAmount, toPaise } from '@/lib/money';
 
 /**
- * The printable challan: three identical copies on one A4 sheet.
+ * The printable voucher: three identical copies **side by side** on one
+ * landscape A4 sheet.
  *
  * Pakistani school fees are paid over a bank counter, and the bank expects a
  * three-part slip — one copy stays with the school, one with the bank, one with
  * the parent — separated by cut lines. That is why this is one page with three
  * sections rather than three pages, and why each section repeats the whole bill
  * instead of referring back to the first.
+ *
+ * ── Why they are columns now, and not stacked ────────────────────────────
+ * They were three portrait bands cut horizontally, which is not the shape the
+ * counter takes: a teller tears a voucher into three *vertical* strips, keeps
+ * the middle one and hands the third back. Stacked copies also gave each one a
+ * third of an A4's height, so a bill with six heads and an adjustment ran into
+ * the cut line below it. Landscape thirds are wider than they are tall, which
+ * is the proportion of the slip a school already prints at a stationer.
  *
  * The mechanics of getting it onto paper — hiding the portal shell, page size,
  * break behaviour — belong to `<PrintSheet>`, not here. This file is only the
@@ -27,6 +37,10 @@ export interface ChallanPrintItem {
   amount: string;
   concessionAmount: string;
   netAmount: string;
+  /** The head's category — `monthly`, `one_time`. Optional for older callers. */
+  feeCategory?: string | null;
+  /** `Sibling Discount 20%`, persisted on the line at generation time. */
+  concessionDetail?: string | null;
 }
 
 export interface ChallanPrintData {
@@ -74,10 +88,32 @@ function billingPeriod(data: ChallanPrintData): string {
   return `${MONTH_NAMES[data.billingMonth - 1] ?? data.billingMonth} ${data.billingYear}`;
 }
 
+/**
+ * The `Details` line under one particular, or null when there is nothing to say.
+ *
+ * Three facts, joined: what kind of fee this is, the period it covers, and the
+ * concession that reduced it. Assembled here rather than persisted whole
+ * because only the third is a historical fact about this voucher — the other
+ * two are on the voucher's own header and are repeated where the eye already is.
+ */
+function detailsFor(item: ChallanPrintItem, data: ChallanPrintData): string | null {
+  const parts: string[] = [];
+
+  const category = (item.feeCategory ?? '').trim();
+  if (category !== '') parts.push(FEE_CATEGORY_LABELS[category as FeeCategory] ?? category);
+
+  parts.push(billingPeriod(data));
+
+  const concession = (item.concessionDetail ?? '').trim();
+  if (concession !== '') parts.push(concession);
+
+  return parts.length === 0 ? null : parts.join(' · ');
+}
+
 /** One voucher on its own sheet. */
 export function ChallanPrintView({ data }: { data: ChallanPrintData }) {
   return (
-    <PrintSheet paper="a4">
+    <PrintSheet paper="a4" orientation="landscape">
       <ChallanCopies data={data} />
     </PrintSheet>
   );
@@ -101,24 +137,31 @@ export function ChallanCopies({
 
   return (
     <PrintDocument breakAfter={breakAfter}>
-      {COPIES.map((copy, index) => (
-        <section
-          key={copy}
-          className="challan-copy border border-black p-3"
-          style={{ marginBottom: index === COPIES.length - 1 ? 0 : '4mm' }}
-        >
-          <ChallanCopy data={data} copyLabel={copy} balancePaise={balancePaise} />
+      {/*
+        Three equal columns. `grid` rather than flex so every copy is exactly a
+        third of the sheet whatever the longest one contains — a bill whose
+        School copy grew a line taller than the other two would tear crooked.
 
-          {index === COPIES.length - 1 ? null : (
-            <p
-              aria-hidden="true"
-              className="mt-3 border-t border-dashed border-black pt-1 text-center text-[9px] tracking-widest text-black"
-            >
-              ✂ — — — — — — — — — — — — — — — — — — — — — — — — — — — — — — — —
-            </p>
-          )}
-        </section>
-      ))}
+        `breakAfter` on the document above still gives one voucher per sheet in
+        a bulk run; nothing about the columns changes that.
+      */}
+      <div className="grid grid-cols-3">
+        {COPIES.map((copy, index) => (
+          <section
+            key={copy}
+            className={
+              index === COPIES.length - 1
+                ? 'challan-copy px-2'
+                : // The cut line is the edge between two columns rather than a
+                  // row of scissors: a teller cuts down the sheet, and a dashed
+                  // rule is what they cut along.
+                  'challan-copy border-r border-dashed border-black px-2'
+            }
+          >
+            <ChallanCopy data={data} copyLabel={copy} balancePaise={balancePaise} />
+          </section>
+        ))}
+      </div>
     </PrintDocument>
   );
 }
@@ -176,7 +219,23 @@ function ChallanCopy({
         <tbody>
           {data.items.map((item, index) => (
             <tr key={`${item.description}-${index}`} className="border-b border-dotted border-black">
-              <td className="py-0.5">{item.description}</td>
+              <td className="py-0.5">
+                {item.description}
+                {/*
+                  The line explains itself (items 10 and 14).
+
+                  A bare minus-4,000 in the Concession column is a figure a
+                  parent has to telephone the school about. The category and the
+                  period say what the charge is *for*; the concession detail
+                  says which discount took the money off and at what rate, in
+                  the words the school used the day the voucher was raised.
+                */}
+                {detailsFor(item, data) === null ? null : (
+                  <span className="block text-[8px] leading-snug text-black/70">
+                    {detailsFor(item, data)}
+                  </span>
+                )}
+              </td>
               <td className="py-0.5 text-right">{formatAmount(item.amount)}</td>
               <td className="py-0.5 text-right">
                 {Number(item.concessionAmount) === 0
