@@ -8365,8 +8365,11 @@ assets were copied: the guardian dropdown offers Father / Mother / **Guardian** 
 Sibling and excludes *Other*; a chosen photo survives step 1 → 2 → 1 with its
 thumbnail, name and *Remove photo* intact; a cancelled file dialog no longer
 clears it; the upload lands (`photo_url` set); and *Change photo* on the profile
-re-uploads and re-stamps the version. The fee-matrix zero round-trip is the one
-case still unobserved.
+re-uploads and re-stamps the version. The fee-matrix zero round-trip is now
+observed too: typing `0` writes a row with `amount = 0.00`, it reads back as
+`0` after a reload while a cell with no row reads blank, and the Examination Fee
+KPI moves 0/14 → 1/14 with the headline 73% → 74%. Blanking the cell deletes the
+row and both revert. LGS was left exactly as found.
 
 **A limitation, recorded not fixed:** cancelling a challan does not return the
 credit it consumed.
