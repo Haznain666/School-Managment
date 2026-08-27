@@ -255,8 +255,8 @@ short-circuited to 0 on an empty scope — 3 of 6 is exactly the 50% reported.
 | 12.12 | Timetable | Sections with at least one active entry / total active sections | ✅ |
 | 12.13 | A fee amount of `0` | Counts as **complete** — a deliberate "not charged" | ✅ |
 | 12.14 | A missing `fee_structures` row | Counts as **incomplete** | ✅ |
-| 12.15 | Type `0` into the structures matrix and save, then reload | Round-trips as `0`, not as an empty box | ⬜ |
-| 12.16 | Blank a cell and save | The row is deleted; the KPI drops | ⬜ |
+| 12.15 | Type `0` into the structures matrix and save, then reload | Round-trips as `0`, not as an empty box | ✅ |
+| 12.16 | Blank a cell and save | The row is deleted; the KPI drops | ✅ |
 | 12.17 | The card | A small bar and `n/m` per KPI; fee heads under a *Fee structure* subheading | ⬜ |
 | 12.18 | A completed KPI | Keeps its count, loses its link | ⬜ |
 | 12.19 | A school with no fee heads | One *Fee structure* row at 0/1 linking to `/dashboard/fees/types` | ⬜ |
@@ -279,10 +279,26 @@ short-circuited to 0 on an empty scope — 3 of 6 is exactly the 50% reported.
 
 ---
 
-## What QA did NOT execute, and why
+## The zero round-trip, observed
 
-* **The structures matrix zero round-trip (12.15–12.16)** — the only client case
-  left unobserved. §5bd recorded this first.
+Driven in real Chrome against the live database, on the one cell whose original
+state was *no row at all* — Examination Fee × Pre-Nursery — so the test could be
+undone exactly.
+
+| Step | Observed |
+| --- | --- |
+| Type `0`, Save all (1) | `fee_structures` gains a row with `amount = 0.00`. Not a deletion |
+| Reload the page | The cell reads **`0`**. The Nursery cell beside it, which has no row, reads **`""`** — the two states are visibly different |
+| The setup panel | Examination Fee **0/14 → 1/14**, headline **73% → 74%**. A deliberate 0 counts as complete, which is requirement 12's rule |
+| Blank the cell, save | The row is deleted; `count = 0` |
+| The setup panel again | Back to **0/14** and **73%** |
+
+That closes the last unobserved case. LGS was left exactly as found.
+
+## What QA did NOT execute
+
+* Provisioning a real school on the live platform (item 3). The seeding call is
+  shared with the Seed button, which is covered. §5bd recorded this first.
 * **Item 3 was not driven**, because it would mean provisioning a real school on
   the live platform. The seeding call is shared with the Seed button, which is
   covered.
