@@ -1,6 +1,6 @@
 import 'server-only';
 
-import { and, asc, eq, sql } from 'drizzle-orm';
+import { and, asc, eq, ne, sql } from 'drizzle-orm';
 
 import {
   academicYears,
@@ -114,8 +114,25 @@ export type AdmissionFeeState =
       challan: AdmissionChallanRef | null;
     };
 
-/** Statuses that mean the admission fee is no longer owed. */
-const CLOSED_CHALLAN_STATUSES: readonly string[] = ['paid', 'waived', 'cancelled'];
+/**
+ * Statuses that mean the admission fee is no longer owed.
+ *
+ * ── `cancelled` is deliberately NOT one of them ──────────────────────────
+ * It was, and that was a defect QA caught by cancelling a voucher and finding
+ * the student stranded: the panel reported the admission *settled*, offered
+ * nothing, and there was no way anywhere in the product to raise a corrected
+ * voucher. A cancelled bill is not a paid bill — it is a bill that was
+ * withdrawn, usually because it was wrong, and the whole reason to withdraw one
+ * is to issue another.
+ *
+ * The database already said so. `fee_challans_admission_once_idx` is partial on
+ * `status <> 'cancelled'` precisely so that cancelling makes room for a
+ * replacement, and `waived` is excluded from that predicate because a waiver
+ * *is* a decision that settles the fee. This list and that predicate are two
+ * statements of one rule, and they had drifted apart in the first version —
+ * the screen refusing what the schema permitted.
+ */
+const CLOSED_CHALLAN_STATUSES: readonly string[] = ['paid', 'waived'];
 
 /**
  * The student's active enrolment, with the grade and year that price it.
@@ -201,10 +218,20 @@ export async function resolveAdmissionFeeHead(
  * month, because an admission challan carries a null month by design and there
  * is nothing else on the header that says what it is for.
  *
- * Cancelled challans are included: a cancelled admission fee is `settled`, and
- * hiding it would offer to raise a second voucher for a charge somebody
- * deliberately withdrew. An *open* challan outranks a closed one, so a school
- * that cancelled a voucher and raised a replacement sees the replacement.
+ * ── Cancelled challans are excluded, and that is the fix ─────────────────
+ * They used to be included, on the reasoning that a cancelled fee is settled.
+ * QA cancelled a voucher and found the student stranded: the panel called the
+ * admission `billed`, pointed at a withdrawn bill, and offered no way to raise
+ * a corrected one.
+ *
+ * A withdrawn bill is not this student's admission voucher — it is the record
+ * of one that was taken back. Excluding it here is what returns the panel to
+ * `not_billed`, and it is the same rule
+ * `fee_challans_admission_once_idx` states in its `status <> 'cancelled'`
+ * predicate. One rule, and now only one place decides it.
+ *
+ * An *open* challan still outranks a closed one, so a school that cancelled a
+ * voucher and raised a replacement sees the replacement.
  */
 async function findAdmissionChallan(
   locationId: string,
@@ -227,6 +254,7 @@ async function findAdmissionChallan(
         eq(feeChallans.locationId, locationId),
         eq(feeChallans.studentProfileId, studentProfileId),
         eq(feeChallanItems.feeTypeId, feeTypeId),
+        ne(feeChallans.status, 'cancelled'),
       ),
     )
     // A raw template with no value in it — a CASE expression has no operator,

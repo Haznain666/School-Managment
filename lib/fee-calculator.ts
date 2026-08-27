@@ -86,7 +86,7 @@ export interface ChallanTotals {
 function concessionPaiseFor(
   line: { feeTypeId: string; feeCategory: string; amountPaise: number },
   concessions: readonly ConcessionInput[],
-): number {
+): { applied: number; excess: number } {
   let total = 0;
 
   for (const concession of concessions) {
@@ -103,7 +103,24 @@ function concessionPaiseFor(
         : toPaise(concession.discountValue);
   }
 
-  return clampPaise(total, 0, line.amountPaise);
+  const applied = clampPaise(total, 0, line.amountPaise);
+
+  /*
+   * What the clamp threw away, reported rather than discarded.
+   *
+   * ── The defect this closes ───────────────────────────────────────────
+   * The clamp itself is right: a fee head may never go negative, or a challan
+   * line becomes a refund. But the excess used to stop here, and QA found what
+   * that cost — a fixed discount of 60,000 against a 50,000 admission fee
+   * floored the voucher at zero and the remaining 10,000 simply ceased to
+   * exist. The school believed it had granted 60,000 of relief and the parent
+   * received 50,000 of it, with nothing anywhere recording the difference.
+   *
+   * The product owner's rule is explicit: if the discount is more than the fee,
+   * the remainder carries forward to the next voucher. It cannot carry forward
+   * if this function is the last thing that knows about it.
+   */
+  return { applied, excess: Math.max(0, total - applied) };
 }
 
 /**
@@ -118,21 +135,43 @@ function concessionPaiseFor(
  *   heads are billed. Leave undefined to bill every structure passed in, which
  *   is how admission and annual charges are raised.
  */
-export function calculateChallanItems(
+/** Lines, plus the discount that had nowhere to go on any of them. */
+export interface ChallanLines {
+  items: ChallanItem[];
+  /**
+   * Discount the per-line clamp could not apply, in paise.
+   *
+   * Becomes a `discount_overflow` credit on the student, which the next voucher
+   * spends as an Adjustment. Zero in every ordinary case.
+   */
+  overflowPaise: number;
+}
+
+/**
+ * Builds the line items **and** reports the discount that overflowed them.
+ *
+ * `calculateChallanItems` is this function with the overflow dropped, kept
+ * because most callers only want the lines. Anything that *writes* a challan
+ * must use this one instead: dropping the overflow at a write site is how the
+ * carry-forward silently stops happening.
+ */
+export function calculateChallanLines(
   feeStructures: readonly FeeStructureInput[],
   concessions: readonly ConcessionInput[],
   billingMonth?: number | undefined,
-): ChallanItem[] {
+): ChallanLines {
   const billable =
     billingMonth === undefined
       ? feeStructures
       : feeStructures.filter((structure) => structure.feeCategory === 'monthly');
 
-  return [...billable]
+  let overflowPaise = 0;
+
+  const items = [...billable]
     .sort((left, right) => (left.sortOrder ?? 0) - (right.sortOrder ?? 0))
     .map((structure) => {
       const amountPaise = toPaise(structure.amount);
-      const concessionPaise = concessionPaiseFor(
+      const { applied, excess } = concessionPaiseFor(
         {
           feeTypeId: structure.feeTypeId,
           feeCategory: structure.feeCategory,
@@ -141,14 +180,26 @@ export function calculateChallanItems(
         concessions,
       );
 
+      overflowPaise += excess;
+
       return {
         feeTypeId: structure.feeTypeId,
         description: structure.description,
         amount: paiseToNumeric(amountPaise),
-        concessionAmount: paiseToNumeric(concessionPaise),
-        netAmount: paiseToNumeric(amountPaise - concessionPaise),
+        concessionAmount: paiseToNumeric(applied),
+        netAmount: paiseToNumeric(amountPaise - applied),
       };
     });
+
+  return { items, overflowPaise };
+}
+
+export function calculateChallanItems(
+  feeStructures: readonly FeeStructureInput[],
+  concessions: readonly ConcessionInput[],
+  billingMonth?: number | undefined,
+): ChallanItem[] {
+  return calculateChallanLines(feeStructures, concessions, billingMonth).items;
 }
 
 /** Sums a set of lines into the totals a challan header carries. */

@@ -13,6 +13,7 @@ import {
   GUARDIAN_RELATIONSHIPS,
   GUARDIAN_RELATIONSHIP_LABELS,
   SINGLETON_RELATIONSHIPS,
+  firstGuardianChoices,
   type GuardianRelationship,
 } from '@/db/schema/student-guardians';
 import { cnicProblem, isValidCnic } from '@/lib/national-id';
@@ -146,7 +147,7 @@ export function guardiansProblem(guardians: readonly GuardianDraft[]): string | 
     first !== undefined &&
     !(FIRST_GUARDIAN_RELATIONSHIPS as readonly string[]).includes(first.relationship)
   ) {
-    return 'The first guardian must be the student’s father, mother or sibling. Add anyone else as a second guardian.';
+    return `The first guardian must be the student’s ${firstGuardianChoices()}. Add anyone else as a second guardian.`;
   }
 
   for (const relationship of SINGLETON_RELATIONSHIPS) {

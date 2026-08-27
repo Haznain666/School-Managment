@@ -6,6 +6,7 @@ import {
   FIRST_GUARDIAN_RELATIONSHIPS,
   GUARDIAN_RELATIONSHIP_LABELS,
   SINGLETON_RELATIONSHIPS,
+  firstGuardianChoices,
 } from '@/db/schema';
 import { withSchoolAuth } from '@/lib/api-auth';
 import { apiFailure, apiSuccess, handleApiError, readJsonBody } from '@/lib/api-response';
@@ -101,7 +102,7 @@ export const PATCH = withSchoolAuth<RouteContext>(
         ) {
           return apiFailure(
             'invalid_body',
-            'The only guardian on a student must be their father, mother or sibling.',
+            `The only guardian on a student must be their ${firstGuardianChoices()}.`,
             400,
           );
         }
