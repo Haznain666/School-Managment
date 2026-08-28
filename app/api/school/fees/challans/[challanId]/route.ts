@@ -37,10 +37,10 @@ export const GET = withSchoolAuth<RouteContext>(
   async (_request, auth, context) => {
     try {
       const { challanId } = await context.params;
-      if (!isUuid(challanId)) return apiFailure('not_found', 'Challan not found.', 404);
+      if (!isUuid(challanId)) return apiFailure('not_found', 'Voucher not found.', 404);
 
       const challan = await getChallanDetail(auth.locationId, challanId);
-      if (challan === null) return apiFailure('not_found', 'Challan not found.', 404);
+      if (challan === null) return apiFailure('not_found', 'Voucher not found.', 404);
 
       return apiSuccess({ challan });
     } catch (error) {
@@ -63,10 +63,10 @@ export const PATCH = withSchoolAuth<RouteContext>(
   async (request, auth, context) => {
     try {
       const { challanId } = await context.params;
-      if (!isUuid(challanId)) return apiFailure('not_found', 'Challan not found.', 404);
+      if (!isUuid(challanId)) return apiFailure('not_found', 'Voucher not found.', 404);
 
       const existing = await getChallanDetail(auth.locationId, challanId);
-      if (existing === null) return apiFailure('not_found', 'Challan not found.', 404);
+      if (existing === null) return apiFailure('not_found', 'Voucher not found.', 404);
 
       const body = await readJsonBody<UpdateChallanBody>(request);
       if (body === null) {
@@ -83,7 +83,7 @@ export const PATCH = withSchoolAuth<RouteContext>(
       ) {
         return apiFailure(
           'invalid_body',
-          'A challan cannot be closed and charged a late fee in the same request.',
+          'A voucher cannot be closed and charged a late fee in the same request.',
           400,
         );
       }
@@ -92,7 +92,7 @@ export const PATCH = withSchoolAuth<RouteContext>(
         if (existing.status === 'cancelled' || existing.status === 'waived') {
           return apiFailure(
             'already_closed',
-            `This challan is already ${existing.status}.`,
+            `This voucher is already ${existing.status}.`,
             409,
           );
         }
@@ -102,7 +102,7 @@ export const PATCH = withSchoolAuth<RouteContext>(
         if (body.action === 'cancel' && toPaise(existing.paidAmount) > 0) {
           return apiFailure(
             'has_payments',
-            'Payments have already been recorded against this challan, so it cannot be cancelled. Waive the balance instead.',
+            'Payments have already been recorded against this voucher, so it cannot be cancelled. Waive the balance instead.',
             409,
           );
         }
@@ -125,7 +125,7 @@ export const PATCH = withSchoolAuth<RouteContext>(
         if (existing.status === 'paid' || existing.status === 'cancelled' || existing.status === 'waived') {
           return apiFailure(
             'not_applicable',
-            'Late fees only apply to challans that are still owing.',
+            'Late fees only apply to vouchers that are still owing.',
             409,
           );
         }
@@ -147,7 +147,7 @@ export const PATCH = withSchoolAuth<RouteContext>(
         if (lateFee <= 0) {
           return apiFailure(
             'not_overdue',
-            'This challan is not overdue yet, so there is no late fee to add.',
+            'This voucher is not overdue yet, so there is no late fee to add.',
             409,
           );
         }
@@ -183,7 +183,7 @@ export const PATCH = withSchoolAuth<RouteContext>(
         .returning({ id: feeChallans.id });
 
       if (updated[0] === undefined) {
-        return apiFailure('not_found', 'Challan not found.', 404);
+        return apiFailure('not_found', 'Voucher not found.', 404);
       }
 
       /*

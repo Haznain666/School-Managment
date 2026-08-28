@@ -321,7 +321,7 @@ export async function previewChallan(
   if (items.length === 0) {
     throw new ChallanGenerationError(
       'no_monthly_fees',
-      `${placement.gradeName} has no monthly fee heads priced for this year, so a monthly challan would be empty.`,
+      `${placement.gradeName} has no monthly fee heads priced for this year, so a monthly voucher would be empty.`,
       409,
     );
   }
@@ -395,7 +395,7 @@ export async function generateChallan(
   if (existing[0] !== undefined) {
     throw new ChallanGenerationError(
       'already_exists',
-      `${preview.studentName} already has challan ${existing[0].challanNumber} for this month.`,
+      `${preview.studentName} already has voucher ${existing[0].challanNumber} for this month.`,
       409,
     );
   }
@@ -562,7 +562,7 @@ export async function generateAdmissionChallan(
         'already_exists',
         state.challan === null
           ? 'This admission has already been confirmed as paid, so there is nothing to bill.'
-          : `This admission has already been billed on challan ${state.challan.challanNumber}.`,
+          : `This admission has already been billed on voucher ${state.challan.challanNumber}.`,
         409,
       );
     case 'not_billed':
@@ -1015,7 +1015,7 @@ export async function bulkGenerateChallans(
       failed += 1;
       problems.push({
         studentName: candidate.studentName,
-        reason: 'No challan number could be reserved.',
+        reason: 'No voucher number could be reserved.',
       });
       return;
     }
@@ -1119,7 +1119,7 @@ export async function bulkGenerateChallans(
       failed += 1;
       problems.push({
         studentName: candidate.studentName,
-        reason: 'The challan could not be written. Try generating it individually.',
+        reason: 'The voucher could not be written. Try generating it individually.',
       });
       console.warn(
         `[fee-challans] bulk generation failed for ${candidate.studentProfileId} at ${params.locationId}:`,
@@ -1253,7 +1253,7 @@ export async function repriceOpenChallans(
         reason: 'It could not be repriced. The concession itself was saved.',
       });
       console.warn(
-        `[fee-challans] repricing failed for challan ${challan.id} at ${params.locationId}:`,
+        `[fee-challans] repricing failed for voucher ${challan.id} at ${params.locationId}:`,
         error,
       );
     }

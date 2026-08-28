@@ -176,7 +176,7 @@ export async function queueAccessEmail(
             '',
             `${school.name} has opened a parent portal account for you.`,
             childrenSentence(children),
-            'You can see attendance, fee challans, results and school',
+            'You can see attendance, fee vouchers, results and school',
             'announcements there.',
             '',
             `1. Open ${setupUrl}`,

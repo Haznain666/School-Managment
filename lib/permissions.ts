@@ -151,8 +151,8 @@ export const PERMISSION_LABELS: Record<Permission, string> = {
   'students.import': 'Bulk-import students from a spreadsheet',
   'students.promote': 'Roll the school over to the next academic year',
   'students.transfer': 'Move a student to another branch',
-  'fees.read': 'See challans, the price list and fee reports',
-  'fees.write': 'Set prices, raise challans and take payments',
+  'fees.read': 'See vouchers, the price list and fee reports',
+  'fees.write': 'Set prices, raise vouchers and take payments',
   'academics.read': 'See subjects, the timetable and the register',
   'academics.write': 'Set subjects and build the timetable',
   'attendance.mark': 'Take the student register',
@@ -180,7 +180,7 @@ export const PERMISSION_LABELS: Record<Permission, string> = {
 
 export const PERMISSION_DESCRIPTIONS: Partial<Record<Permission, string>> = {
   'fees.write':
-    'Includes marking a challan paid. Grant it only to people who handle money.',
+    'Includes marking a voucher paid. Grant it only to people who handle money.',
   'payroll.write':
     'Includes approving a run, which is irreversible. Separate from payroll.read on purpose.',
   'permissions.manage':

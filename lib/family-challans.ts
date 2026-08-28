@@ -458,12 +458,12 @@ export async function createFamilyChallan(params: {
     );
 
   if (members.length !== challanIds.length) {
-    throw new FamilyChallanError('One of those challans is not at this school.', 404);
+    throw new FamilyChallanError('One of those vouchers is not at this school.', 404);
   }
 
   const alreadyGrouped = members.find((member) => member.familyChallanId !== null);
   if (alreadyGrouped !== undefined) {
-    throw new FamilyChallanError('One of those challans is already on a family voucher.');
+    throw new FamilyChallanError('One of those vouchers is already on a family voucher.');
   }
 
   const closed = members.find(
@@ -471,7 +471,7 @@ export async function createFamilyChallan(params: {
   );
   if (closed !== undefined) {
     throw new FamilyChallanError(
-      'One of those challans has been paid, cancelled or waived since the list was drawn. Refresh and try again.',
+      'One of those vouchers has been paid, cancelled or waived since the list was drawn. Refresh and try again.',
     );
   }
 
@@ -486,13 +486,13 @@ export async function createFamilyChallan(params: {
   );
   if (mixed) {
     throw new FamilyChallanError(
-      'A family voucher covers one billing month. Those challans are from different months.',
+      'A family voucher covers one billing month. Those vouchers are from different months.',
     );
   }
 
   if (first.billingMonth === null || first.billingYear === null) {
     throw new FamilyChallanError(
-      'One-off challans are not grouped into a family voucher — they have no billing month to share.',
+      'One-off vouchers are not grouped into a family voucher — they have no billing month to share.',
     );
   }
 

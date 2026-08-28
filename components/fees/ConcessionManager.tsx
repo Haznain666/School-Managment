@@ -329,7 +329,7 @@ export function ConcessionManager({ feeTypes, canEdit }: ConcessionManagerProps)
           header={
             <CardTitle
               title="New concession"
-              description={`Applied to ${student.name}'s challans from the start date onwards.`}
+              description={`Applied to ${student.name}'s vouchers from the start date onwards.`}
             />
           }
         >

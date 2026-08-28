@@ -140,7 +140,7 @@ export function SchoolProfileForm({ readOnly, initial, canEdit }: SchoolProfileF
           label="Principal name"
           value={principalName}
           disabled={!canEdit}
-          hint="Printed as the head of school on challans and payslips."
+          hint="Printed as the head of school on vouchers and payslips."
           onChange={(event) => {
             setPrincipalName(event.target.value);
           }}

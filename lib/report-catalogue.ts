@@ -192,7 +192,7 @@ export const REPORTS: readonly ReportDefinition[] = [
     filters: ['dateRange', 'branch', 'grade'],
     columns: [
       ...CLASS_COLUMNS,
-      { key: 'challans', label: 'Challans', kind: 'number' },
+      { key: 'vouchers', label: 'Vouchers', kind: 'number' },
       { key: 'students', label: 'Students', kind: 'number', secondary: true },
       { key: 'billed', label: 'Billed', kind: 'money' },
       { key: 'collected', label: 'Collected', kind: 'money' },
@@ -200,14 +200,14 @@ export const REPORTS: readonly ReportDefinition[] = [
       { key: 'rate', label: 'Collected', kind: 'percent' },
     ],
     caveat:
-      'This follows the billing: a challan issued inside the range is billed ' +
+      'This follows the billing: a voucher issued inside the range is billed ' +
       'here, and whatever has been paid against it is collected here, whenever ' +
       'the money actually arrived. So Billed − Collected is exactly ' +
       'Outstanding, and the question it answers is "how much of what we ' +
       'charged in June have we got in". For cash by the month it arrived, use ' +
-      'Monthly revenue. A challan is attributed to the class its student is ' +
-      'enrolled in today, because a challan carries no class of its own. ' +
-      'Cancelled challans are excluded; waived ones are billed and never ' +
+      'Monthly revenue. A voucher is attributed to the class its student is ' +
+      'enrolled in today, because a voucher carries no class of its own. ' +
+      'Cancelled vouchers are excluded; waived ones are billed and never ' +
       'collected, which is what waiving them means.',
   },
 
@@ -231,8 +231,8 @@ export const REPORTS: readonly ReportDefinition[] = [
       { key: 'total', label: 'Total owed', kind: 'money' },
     ],
     caveat:
-      'Aged from each challan’s due date, as at today. Cancelled and waived ' +
-      'challans are excluded — nobody owes them.',
+      'Aged from each voucher’s due date, as at today. Cancelled and waived ' +
+      'vouchers are excluded — nobody owes them.',
   },
 
   {

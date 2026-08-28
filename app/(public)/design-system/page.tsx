@@ -196,7 +196,7 @@ function Showcase() {
         items={[
           { label: 'Dashboard', href: '#' },
           { label: 'Fees', href: '#' },
-          { label: 'Challans', href: '#' },
+          { label: 'Vouchers', href: '#' },
           { label: 'March 2026' },
         ]}
       />
@@ -289,8 +289,8 @@ function Showcase() {
         </Card>
       </div>
 
-      <Card header={<CardTitle title="Challans" description="March 2026" action={<Button size="sm" icon={Plus}>Issue challan</Button>} />}>
-        <Table caption="Fee challans for March 2026">
+      <Card header={<CardTitle title="Vouchers" description="March 2026" action={<Button size="sm" icon={Plus}>Issue voucher</Button>} />}>
+        <Table caption="Fee vouchers for March 2026">
           <TableHead>
             <TableRow>
               <TableHeaderCell>Student</TableHeaderCell>
@@ -379,7 +379,7 @@ function Showcase() {
           <EmptyState
             tone="no-result"
             icon={Search}
-            title="No challans match those filters"
+            title="No vouchers match those filters"
             description="Try widening the date range or clearing the status filter."
             secondaryAction={
               <Button size="sm" variant="secondary">

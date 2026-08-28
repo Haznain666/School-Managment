@@ -271,7 +271,7 @@ export async function getDashboardExceptions(
     {
       key: 'overdue',
       count: gates.fees ? context.overdueChallans : 0,
-      label: 'challans past their due date',
+      label: 'vouchers past their due date',
       href: '/dashboard/fees/defaulters',
     },
     {

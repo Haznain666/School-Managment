@@ -81,10 +81,10 @@ export function LateFeeSettingsForm({ initial, canEdit }: LateFeeSettingsFormPro
   const parsedAmount = Number(amount) || 0;
 
   const summary = !isEnabled
-    ? 'Late fees are switched off. Overdue challans are not charged anything extra.'
+    ? 'Late fees are switched off. Overdue vouchers are not charged anything extra.'
     : lateFeeType === 'fixed'
-      ? `A challan more than ${grace} day${grace === 1 ? '' : 's'} past its due date is charged ${formatPkr(parsedAmount)}, once.`
-      : `A challan is charged ${formatPkr(parsedAmount)} for every day past ${grace} day${
+      ? `A voucher more than ${grace} day${grace === 1 ? '' : 's'} past its due date is charged ${formatPkr(parsedAmount)}, once.`
+      : `A voucher is charged ${formatPkr(parsedAmount)} for every day past ${grace} day${
           grace === 1 ? '' : 's'
         } overdue` +
         (maxLateFee.trim() === ''
@@ -97,7 +97,7 @@ export function LateFeeSettingsForm({ initial, canEdit }: LateFeeSettingsFormPro
         header={
           <CardTitle
             title="Billing"
-            description="When your monthly challans fall due."
+            description="When your monthly vouchers fall due."
           />
         }
       >
@@ -109,7 +109,7 @@ export function LateFeeSettingsForm({ initial, canEdit }: LateFeeSettingsFormPro
             max={28}
             value={dueDay}
             disabled={!canEdit}
-            hint="Capped at the 28th so every month has that day. Individual challans can still be dated by hand."
+            hint="Capped at the 28th so every month has that day. Individual vouchers can still be dated by hand."
             onChange={(event) => {
               setDueDay(event.target.value);
             }}
@@ -158,7 +158,7 @@ export function LateFeeSettingsForm({ initial, canEdit }: LateFeeSettingsFormPro
         header={
           <CardTitle
             title="Late fees"
-            description="Charged on challans that pass their due date."
+            description="Charged on vouchers that pass their due date."
           />
         }
       >
@@ -168,7 +168,7 @@ export function LateFeeSettingsForm({ initial, canEdit }: LateFeeSettingsFormPro
           onChange={setIsEnabled}
           disabled={!canEdit}
           label="Charge late fees"
-          description="Applied when an overdue challan has the charge added to it."
+          description="Applied when an overdue voucher has the charge added to it."
         />
 
         <div className="grid gap-4 sm:grid-cols-2">

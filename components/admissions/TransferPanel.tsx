@@ -142,7 +142,7 @@ export function TransferPanel({
         `${studentName} moved from ${result.fromBranchName} to ${result.toBranchName}. ` +
           `${result.fromBranchName} credits ${formatPkr(result.credit)}; ${result.toBranchName} bills ${formatPkr(result.charge)} on its next run.` +
           (result.cancelledChallans > 0
-            ? ` ${result.cancelledChallans} open challan${result.cancelledChallans === 1 ? ' was' : 's were'} cancelled.`
+            ? ` ${result.cancelledChallans} open voucher${result.cancelledChallans === 1 ? ' was' : 's were'} cancelled.`
             : ''),
       );
     } catch {

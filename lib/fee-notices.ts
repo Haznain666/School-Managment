@@ -154,25 +154,25 @@ export async function sendFeeReminder(
       params.schoolName ?? (await schoolNameFor(db, locationId)) ?? 'your school';
 
     const message =
-      `Dear ${params.guardian.name}, fee challan ${params.challanNumber} for ` +
+      `Dear ${params.guardian.name}, fee voucher ${params.challanNumber} for ` +
       `${params.studentName} of ${formatPkr(params.amountDue)} was due on ` +
       `${params.dueDate}. Please pay at your nearest bank. - ${schoolName}`;
 
     await notifyGuardian(
       locationId,
       params.guardian,
-      `Fee challan ${params.challanNumber} is overdue — ${schoolName}`,
+      `Fee voucher ${params.challanNumber} is overdue — ${schoolName}`,
       message,
     );
 
     console.info(
-      `[fee-notices] fee reminder queued for challan ${params.challanNumber} at ${locationId}`,
+      `[fee-notices] fee reminder queued for voucher ${params.challanNumber} at ${locationId}`,
     );
   } catch (error) {
     // The challan is unchanged and the report still shows it as overdue; the
     // school can send again. Nothing here is worth failing a request over.
     console.warn(
-      `[fee-notices] fee reminder failed for challan ${params.challanNumber} at ${locationId}:`,
+      `[fee-notices] fee reminder failed for voucher ${params.challanNumber} at ${locationId}:`,
       error,
     );
   }
@@ -323,22 +323,22 @@ export async function sendPaymentConfirmation(
 
     const message =
       `Dear ${params.guardian.name}, payment of ${formatPkr(params.amountPaid)} ` +
-      `received for ${params.studentName} against challan ${params.challanNumber}. ` +
+      `received for ${params.studentName} against voucher ${params.challanNumber}. ` +
       `Thank you. - ${schoolName}`;
 
     await notifyGuardian(
       locationId,
       params.guardian,
-      `Payment received for challan ${params.challanNumber} — ${schoolName}`,
+      `Payment received for voucher ${params.challanNumber} — ${schoolName}`,
       message,
     );
 
     console.info(
-      `[fee-notices] payment confirmation queued for challan ${params.challanNumber} at ${locationId}`,
+      `[fee-notices] payment confirmation queued for voucher ${params.challanNumber} at ${locationId}`,
     );
   } catch (error) {
     console.warn(
-      `[fee-notices] payment confirmation failed for challan ${params.challanNumber} at ${locationId}:`,
+      `[fee-notices] payment confirmation failed for voucher ${params.challanNumber} at ${locationId}:`,
       error,
     );
   }

@@ -12,7 +12,7 @@ import { getSchoolBranding } from '@/lib/school-tenant';
 import { isUuid } from '@/lib/validation';
 
 export const metadata: Metadata = {
-  title: 'Print challans',
+  title: 'Print vouchers',
 };
 
 export const dynamic = 'force-dynamic';

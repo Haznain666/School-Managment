@@ -326,7 +326,7 @@ async function headSetsFor(
  *
  * A concession is active when the date falls inside its window; an open-ended
  * one (null `valid_until`) never expires. Passing the *billing* date rather
- * than today matters: regenerating June's challan in August must apply June's
+ * than today matters: regenerating June's voucher in August must apply June's
  * discounts, not August's.
  */
 export async function listActiveConcessions(
@@ -541,7 +541,7 @@ export interface ListChallansResult {
 /**
  * The challan register, filtered and paginated.
  *
- * Grade and section come from the student's enrolment in the challan's own
+ * Grade and section come from the student's enrolment in the voucher's own
  * academic year, so a challan raised last year still shows the class the child
  * was actually in when it was issued.
  */

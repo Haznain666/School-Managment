@@ -31,7 +31,7 @@ import { EmptyState } from '@/components/ui/EmptyState';
 export interface RouteErrorProps {
   error: Error & { digest?: string };
   reset: () => void;
-  /** What failed, in the reader's terms: "the fee challans", "this student". */
+  /** What failed, in the reader's terms: "the fee vouchers", "this student". */
   subject?: string;
 }
 

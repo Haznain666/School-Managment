@@ -275,7 +275,7 @@ export function ChallanTable({
           ref={headerBox}
           type="checkbox"
           className="h-4 w-4 align-middle"
-          aria-label="Select every challan on this page"
+          aria-label="Select every voucher on this page"
           checked={allOnPageSelected}
           onChange={(event) => {
             togglePage(event.target.checked);
@@ -286,7 +286,7 @@ export function ChallanTable({
         <input
           type="checkbox"
           className="h-4 w-4 align-middle"
-          aria-label={`Select challan ${row.challanNumber} for ${row.studentName}`}
+          aria-label={`Select voucher ${row.challanNumber} for ${row.studentName}`}
           checked={selected.has(row.id)}
           onChange={(event) => {
             toggleRow(row.id, event.target.checked);
@@ -296,7 +296,7 @@ export function ChallanTable({
     },
     {
       id: 'challanNumber',
-      header: 'Challan #',
+      header: 'Voucher #',
       muted: true,
       sortable: true,
       className: 'font-mono text-xs',
@@ -442,7 +442,7 @@ export function ChallanTable({
 
       <DataTable
         mode="server"
-        caption="Fee challans"
+        caption="Fee vouchers"
         maxHeight="32rem"
         columns={columns}
         rows={rows}
@@ -470,7 +470,7 @@ export function ChallanTable({
               setSearch(value);
             });
           },
-          placeholder: 'Challan number, student name or student ID',
+          placeholder: 'Voucher number, student name or student ID',
         }}
         filters={[
           {
@@ -612,17 +612,17 @@ export function ChallanTable({
             setAcademicYearId('');
           });
         }}
-        itemNoun={{ singular: 'challan', plural: 'challans' }}
-        emptyTitle="No challans raised yet"
-        emptyDescription="Generate a month's challans and the register fills in."
+        itemNoun={{ singular: 'voucher', plural: 'vouchers' }}
+        emptyTitle="No vouchers raised yet"
+        emptyDescription="Generate a month's vouchers and the register fills in."
         emptyAction={
           canGenerate ? (
             <Link href="/dashboard/fees/challans/generate">
-              <Button size="sm">Generate challans</Button>
+              <Button size="sm">Generate vouchers</Button>
             </Link>
           ) : undefined
         }
-        noResultTitle="No challans match these filters"
+        noResultTitle="No vouchers match these filters"
         noResultDescription="Widen the month, class or status to see more of the register."
         footer={
           data === null ? undefined : (

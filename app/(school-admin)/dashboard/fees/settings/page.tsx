@@ -21,7 +21,7 @@ export default async function FeeSettingsPage() {
     <div className="space-y-6">
       <PageHeader
         title="Fee settings"
-        description="When challans fall due, and how your school treats the ones that pass that date. No late fee is charged until you switch it on."
+        description="When vouchers fall due, and how your school treats the ones that pass that date. No late fee is charged until you switch it on."
       />
 
       <LateFeeSettingsForm

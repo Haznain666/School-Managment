@@ -35,7 +35,7 @@ import { listSiblings } from '@/lib/siblings';
 import { isUuid } from '@/lib/validation';
 
 export const metadata: Metadata = {
-  title: 'Challan',
+  title: 'Voucher',
 };
 
 export const dynamic = 'force-dynamic';
@@ -151,7 +151,7 @@ export default async function ChallanDetailPage({
         <div className="grid gap-4 lg:grid-cols-3">
           <Card className="lg:col-span-2 p-0" header={<CardTitle title="Line items" />}>
             <div className="overflow-x-auto">
-              <Table caption="Challan lines" className="rounded-none border-0">
+              <Table caption="Voucher lines" className="rounded-none border-0">
                 <TableHead>
                   <TableRow>
                     <TableHeaderCell>Fee head</TableHeaderCell>
@@ -280,7 +280,7 @@ export default async function ChallanDetailPage({
         <SiblingCard
           siblings={siblings}
           title="Siblings at this school"
-          description="This student's family. If more than one of them has an open challan this month, a single family voucher can be issued instead — Fees → Family Vouchers."
+          description="This student's family. If more than one of them has an open voucher this month, a single family voucher can be issued instead — Fees → Family Vouchers."
           hrefFor={(sibling) =>
             `/dashboard/admissions/students/${sibling.studentProfileId}`
           }
@@ -290,7 +290,7 @@ export default async function ChallanDetailPage({
           header={
             <CardTitle
               title="Payment history"
-              description="Every amount recorded against this challan, newest first."
+              description="Every amount recorded against this voucher, newest first."
             />
           }
           className="p-0"
@@ -301,7 +301,7 @@ export default async function ChallanDetailPage({
             </p>
           ) : (
             <div className="overflow-x-auto">
-              <Table caption="Payments against this challan" className="rounded-none border-0">
+              <Table caption="Payments against this voucher" className="rounded-none border-0">
                 <TableHead>
                   <TableRow>
                     <TableHeaderCell>Date</TableHeaderCell>

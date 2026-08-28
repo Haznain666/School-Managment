@@ -27,7 +27,7 @@ export default async function FamilyVouchersPage() {
     <div className="max-w-5xl space-y-6">
       <PageHeader
         title="Family vouchers"
-        description="One slip, one total, for a parent with more than one child here. Each child keeps their own challan underneath — a voucher is how the money is collected, not a change to who is billed."
+        description="One slip, one total, for a parent with more than one child here. Each child keeps their own voucher underneath — a voucher is how the money is collected, not a change to who is billed."
       />
 
       <FamilyVouchers

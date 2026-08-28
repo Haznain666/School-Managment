@@ -9,7 +9,7 @@ import { cn } from '@/lib/utils';
  *
  * This product nests further than a sidebar can show:
  * Dashboard → Fees → Challans → a student's challan → its print view; Exams →
- * a term → a paper → marks entry. The sidebar highlights "Challans" for all
+ * a term → a paper → marks entry. The sidebar highlights "Vouchers" for all
  * five, so without a trail the reader's only way back up is the browser button
  * — and after a form submission that is a resubmission prompt.
  *

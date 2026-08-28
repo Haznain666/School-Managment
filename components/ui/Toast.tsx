@@ -8,7 +8,7 @@ import { Icon, type LucideIcon } from '@/components/ui/Icon';
 import { cn } from '@/lib/utils';
 
 /**
- * Transient confirmations — "Challan issued", "3 reminders queued".
+ * Transient confirmations — "Voucher issued", "3 reminders queued".
  *
  * ── What a toast may and may not carry ───────────────────────────────────
  * A toast disappears, so nothing that the reader might need to act on or

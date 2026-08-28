@@ -9,7 +9,7 @@ import { getDueDay, listFeeTypes } from '@/lib/fee-queries';
 import { requireSchoolPermission } from '@/lib/school-guard';
 
 export const metadata: Metadata = {
-  title: 'Generate challans',
+  title: 'Generate vouchers',
 };
 
 export const dynamic = 'force-dynamic';
@@ -30,8 +30,8 @@ export default async function GenerateChallansPage() {
   return (
     <div className="space-y-6">
       <PageHeader
-        title="Generate challans"
-        description="Raise this month&rsquo;s bills. A student who already holds a challan for the period is skipped, so a run can safely be repeated."
+        title="Generate vouchers"
+        description="Raise this month&rsquo;s bills. A student who already holds a voucher for the period is skipped, so a run can safely be repeated."
       />
 
       {academicYears.length === 0 ? (
