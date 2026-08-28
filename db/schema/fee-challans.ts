@@ -48,6 +48,31 @@ export const CHALLAN_KINDS = ['admission'] as const;
 export type ChallanKind = (typeof CHALLAN_KINDS)[number];
 
 /**
+ * What kind of voucher the register is showing.
+ *
+ * A *presentation* distinction rather than a column: `monthly` is a voucher
+ * with a billing month, `one_off` is one without and without a kind, and
+ * `admission` is `challan_kind = 'admission'` — the only kind the database
+ * itself has a rule about. Adding a fourth here should mean adding a constraint
+ * that needs it; see `db/schema/fee-challans.ts`.
+ */
+export const CHALLAN_KIND_FILTERS = ['monthly', 'one_off', 'admission'] as const;
+export type ChallanKindFilter = (typeof CHALLAN_KIND_FILTERS)[number];
+
+export const CHALLAN_KIND_FILTER_LABELS: Record<ChallanKindFilter, string> = {
+  monthly: 'Monthly',
+  one_off: 'One-off',
+  admission: 'Admission',
+};
+
+export function isChallanKindFilter(value: unknown): value is ChallanKindFilter {
+  return (
+    typeof value === 'string' &&
+    (CHALLAN_KIND_FILTERS as readonly string[]).includes(value)
+  );
+}
+
+/**
  * fee_challans — one bill, for one student, for one billing period.
  *
  * A challan is the printed slip a parent takes to the bank, so it is a record

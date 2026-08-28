@@ -3,7 +3,8 @@
  * anything. It is the only place this application can start background work.
  *
  * ── What runs here, and what must not ────────────────────────────────────
- * The email outbox drainer, and since Sprint 11 the announcement scheduler.
+ * The email outbox drainer, the announcement scheduler (Sprint 11) and the
+ * monthly voucher auto-send (Sprint 18).
  * Anything started here runs forever in a process that also serves every
  * request, so the bar is high: it must be idempotent, it must not hold the
  * process open, and it must never throw into the runtime. Both of these meet
@@ -39,6 +40,13 @@ export async function register(): Promise<void> {
     // not be recorded in the Edge compilation. See the docblock above.
     const { startAnnouncementScheduler } = await import('./lib/announcement-scheduler');
     startAnnouncementScheduler();
+
+    // Sprint 18. The monthly voucher email, off at every school until one
+    // turns it on, and claimed with a conditional UPDATE so that seven server
+    // processes produce one send. Same positive `=== 'nodejs'` block, for the
+    // same reason: the import must not be recorded in the Edge compilation.
+    const { startVoucherAutoSend } = await import('./lib/voucher-auto-send');
+    startVoucherAutoSend();
   }
 }
 

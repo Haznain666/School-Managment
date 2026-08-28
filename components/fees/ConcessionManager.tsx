@@ -7,6 +7,7 @@ import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { Card, CardTitle } from '@/components/ui/Card';
 import { Input } from '@/components/ui/Input';
+import { MultiSelect } from '@/components/ui/MultiSelect';
 import { Select } from '@/components/ui/Select';
 import { Textarea } from '@/components/ui/Textarea';
 import {
@@ -32,6 +33,8 @@ interface ConcessionRow {
   discountValue: string;
   appliesToFeeTypeId: string | null;
   appliesToFeeTypeName: string | null;
+  /** The scheme this grant came from, when it came from one. Provenance only. */
+  schemeName?: string | null;
   validFrom: string;
   validUntil: string | null;
   notes: string | null;
@@ -60,7 +63,8 @@ interface DraftConcession {
   concessionName: string;
   discountType: DiscountType;
   discountValue: string;
-  appliesToFeeTypeId: string;
+  /** Empty means every fee head, of every category. See `concessionHeads`. */
+  feeTypeIds: string[];
   validFrom: string;
   validUntil: string;
   notes: string;
@@ -71,7 +75,7 @@ function emptyDraft(): DraftConcession {
     concessionName: '',
     discountType: 'percentage',
     discountValue: '',
-    appliesToFeeTypeId: '',
+    feeTypeIds: [],
     validFrom: today(),
     validUntil: '',
     notes: '',
@@ -85,10 +89,10 @@ function isActive(row: ConcessionRow): boolean {
 }
 
 function describeDiscount(row: ConcessionRow): string {
+  // "every fee head", not "all monthly fees" — the label was describing the
+  // pre-Sprint-17 behaviour, which is the behaviour the bug had.
   const scope =
-    row.appliesToFeeTypeName === null
-      ? 'all monthly fees'
-      : row.appliesToFeeTypeName;
+    row.appliesToFeeTypeName === null ? 'every fee head' : row.appliesToFeeTypeName;
 
   return row.discountType === 'percentage'
     ? `${Number(row.discountValue)}% off ${scope}`
@@ -150,8 +154,10 @@ export function ConcessionManager({ feeTypes, canEdit }: ConcessionManagerProps)
           concessionName: draft.concessionName.trim(),
           discountType: draft.discountType,
           discountValue: value,
-          appliesToFeeTypeId:
-            draft.appliesToFeeTypeId === '' ? null : draft.appliesToFeeTypeId,
+          // An empty list is legal and means every head — the wide case, not
+          // the empty one. STATE.md §5be records what reading it the other way
+          // cost the last time this decision was made.
+          feeTypeIds: draft.feeTypeIds,
           validFrom: draft.validFrom,
           validUntil: draft.validUntil === '' ? null : draft.validUntil,
           notes: draft.notes.trim(),
@@ -323,7 +329,7 @@ export function ConcessionManager({ feeTypes, canEdit }: ConcessionManagerProps)
           header={
             <CardTitle
               title="New concession"
-              description={`Applied to ${student.name}'s challans from the start date onwards.`}
+              description={`Applied to ${student.name}'s vouchers from the start date onwards.`}
             />
           }
         >
@@ -362,21 +368,31 @@ export function ConcessionManager({ feeTypes, canEdit }: ConcessionManagerProps)
               }}
             />
 
-            <Select
-              label="Applies to"
-              options={[
-                { value: '', label: 'All monthly fees' },
-                ...feeTypes.map((feeType) => ({
+            {/*
+              A multi-select, not a single head, and empty means **every** head.
+
+              A school granting "20% off her fees" means every fee the child is
+              charged. Until Sprint 17 the unqualified case was read as monthly
+              heads only, so the commonest discount in Pakistani schooling
+              silently never reached an admission, annual or examination fee —
+              and a discount that does not apply looks exactly like one the
+              school never granted. Leaving this empty is the wide case.
+            */}
+            <div className="sm:col-span-2">
+              <MultiSelect
+                label="Applies to"
+                options={feeTypes.map((feeType) => ({
                   value: feeType.id,
                   label: feeType.name,
-                })),
-              ]}
-              value={draft.appliesToFeeTypeId}
-              hint="Leave as all monthly fees for a general discount."
-              onChange={(event) => {
-                setDraft({ ...draft, appliesToFeeTypeId: event.target.value });
-              }}
-            />
+                }))}
+                value={draft.feeTypeIds}
+                hint="Leave every box unticked for a discount on every fee head."
+                emptyMessage="This school has no fee heads yet."
+                onChange={(next) => {
+                  setDraft({ ...draft, feeTypeIds: next });
+                }}
+              />
+            </div>
 
             <Input
               label="Valid from"

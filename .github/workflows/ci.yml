@@ -83,6 +83,15 @@ jobs:
         if: '!cancelled()'
         run: npm run check-cnic
 
+      # Every rupee amount goes through `lib/money.ts`. The functions were
+      # always right; the call sites wrote `PKR ${row.totalAmount}` and printed
+      # `PKR 125000.00` two columns from the same figure rendered `PKR 125,000`.
+      # A school reading two spellings of one number in one table stops trusting
+      # the table, and the obvious thing to type is the wrong one.
+      - name: Currency formatting
+        if: '!cancelled()'
+        run: npm run check-currency
+
       - name: Theme contrast
         if: '!cancelled()'
         run: npm run check-theme

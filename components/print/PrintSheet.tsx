@@ -47,18 +47,41 @@ const PAGE_RULES: Record<PrintPaper, string> = {
   thermal80: '@page { size: 80mm auto; margin: 3mm; }',
 };
 
+/**
+ * Which way up the sheet is fed.
+ *
+ * Separate from `paper` because the two are different questions and only one of
+ * them has an answer for a till roll: an 80mm receipt has no orientation, it
+ * has a width and no bottom edge. Passing `orientation` with a thermal paper is
+ * therefore ignored rather than being made to mean something.
+ */
+export type PrintOrientation = 'portrait' | 'landscape';
+
 export function PrintSheet({
   paper = 'a4',
+  orientation,
   children,
 }: {
   paper?: PrintPaper;
+  /**
+   * Landscape for the fee voucher, whose three copies sit side by side as the
+   * columns a Pakistani bank counter tears apart. Portrait everywhere else, and
+   * portrait is the default: a document that did not ask is a document that
+   * wants the shape it has always had.
+   */
+  orientation?: PrintOrientation;
   children: React.ReactNode;
 }) {
+  // `paper` still wins when it already names an orientation, so the callers
+  // that pass `a4-landscape` directly are unchanged.
+  const resolved: PrintPaper =
+    paper === 'a4' && orientation === 'landscape' ? 'a4-landscape' : paper;
+
   return (
     <>
       {/* Fixed strings from the record above; nothing caller-supplied is
           interpolated, so there is no injection surface here. */}
-      <style dangerouslySetInnerHTML={{ __html: PAGE_RULES[paper] }} />
+      <style dangerouslySetInnerHTML={{ __html: PAGE_RULES[resolved] }} />
       {/* No `hidden` here: `globals.css` hides this off-screen under
           `@media screen` so the print rules can undo it. See the docblock. */}
       <div data-print-root="" className="bg-white text-black">

@@ -15,6 +15,8 @@ import {
   APPLICATION_STATUS_LABELS,
   type ApplicationStatus,
 } from '@/db/schema/admission-applications';
+import { formatDateOnly } from '@/lib/dates';
+import { formatPhoneForDisplay } from '@/lib/phone-formats';
 import { schoolErrorMessage, schoolFetch } from '@/lib/school-client';
 
 /**
@@ -51,11 +53,6 @@ export function applicationStatusVariant(status: ApplicationStatus): BadgeVarian
     default:
       return 'neutral';
   }
-}
-
-function formatDate(value: string): string {
-  const parsed = new Date(value);
-  return Number.isNaN(parsed.getTime()) ? value : parsed.toISOString().slice(0, 10);
 }
 
 export function ApplicationTable() {
@@ -134,7 +131,7 @@ export function ApplicationTable() {
       header: 'Phone',
       muted: true,
       className: 'font-mono text-xs',
-      cell: (application) => application.guardianPhone,
+      cell: (application) => formatPhoneForDisplay(application.guardianPhone),
     },
     {
       id: 'grade',
@@ -156,7 +153,7 @@ export function ApplicationTable() {
       kind: 'date',
       muted: true,
       sortable: true,
-      cell: (application) => formatDate(application.submittedAt),
+      cell: (application) => formatDateOnly(application.submittedAt),
     },
     {
       id: 'actions',

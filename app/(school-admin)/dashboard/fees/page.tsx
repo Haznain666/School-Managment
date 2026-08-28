@@ -74,7 +74,7 @@ export default async function FeesOverviewPage() {
     <div className="space-y-6">
       <PageHeader
         title="Fee Management"
-        description={`Challans, collections and what is still owed — for ${thisMonth}.`}
+        description={`Vouchers, collections and what is still owed — for ${thisMonth}.`}
       />
 
       {!overview.hasFeeTypes ? (
@@ -121,10 +121,10 @@ export default async function FeesOverviewPage() {
         <StatTile
           label="Outstanding this month"
           value={formatPkr(overview.outstandingThisMonth)}
-          detail={`Still owed on ${thisMonth} challans`}
+          detail={`Still owed on ${thisMonth} vouchers`}
         />
         <StatTile
-          label="Overdue challans"
+          label="Overdue vouchers"
           value={overview.overdueCount.toLocaleString()}
           detail="Past their due date and unsettled"
         />
@@ -212,14 +212,14 @@ export default async function FeesOverviewPage() {
           {canWrite ? (
             <ActionTile
               href="/dashboard/fees/challans/generate"
-              title="Generate challans"
+              title="Generate vouchers"
               description="Raise this month's bills for a student or a whole grade."
             />
           ) : null}
           <ActionTile
             href="/dashboard/fees/challans?status=unpaid"
             title="Record a payment"
-            description="Find an unpaid challan and mark what was received."
+            description="Find an unpaid voucher and mark what was received."
           />
           <ActionTile
             href="/dashboard/fees/reports"
@@ -256,7 +256,7 @@ export default async function FeesOverviewPage() {
             sibling, staff and hardship discounts, per student.
           </li>
           <li>
-            <span className="font-medium text-ink">4. Challans</span> —
+            <span className="font-medium text-ink">4. Vouchers</span> —
             generate monthly bills, print them, and record what comes in.
           </li>
         </ol>

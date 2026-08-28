@@ -2,41 +2,67 @@
 
 import { useCallback, useEffect, useState } from 'react';
 
-import { Badge } from '@/components/ui/Badge';
+import { FamilyVoucherRegister } from '@/components/fees/FamilyVoucherRegister';
 import { Button } from '@/components/ui/Button';
 import { Card, CardTitle } from '@/components/ui/Card';
 import { DataTable, type DataTableColumn } from '@/components/ui/DataTable';
 import { Input } from '@/components/ui/Input';
-import { Select } from '@/components/ui/Select';
+import { Modal } from '@/components/ui/Modal';
+import { formatDateOnly, formatMonthYear } from '@/lib/dates';
+import { formatPkr, toPaise } from '@/lib/money';
+import { formatPhoneForDisplay } from '@/lib/phone-formats';
+import { schoolErrorMessage, schoolFetch } from '@/lib/school-client';
 
-interface Member {
-  challanId: string;
-  studentName: string;
-  studentNumber: string;
-  challanNumber: string;
-  totalAmount: string;
-}
+/**
+ * Family vouchers: one slip for a parent with several children.
+ *
+ * ── The shape of the screen, and why it changed ──────────────────────────
+ * The listing of families that could take one voucher **this month** is now the
+ * first thing on the page, most children first and then largest total. That is
+ * the whole reason the screen exists and it was buried under a month picker,
+ * below a table whose widest column was a list of children's names — a list of
+ * *pupils* where the reader wanted a list of *families*. The names belong in
+ * step 3, where somebody is choosing between them.
+ *
+ * ── The wizard is three questions, in the order a clerk asks them ────────
+ * *Which family* — a real search with a button, because it is a server round
+ * trip over every open voucher in the school and a debounce firing per keystroke
+ * against that is what "the search does not work" describes.
+ *
+ * *Which month* — a family with three children owing since June has three
+ * months to choose between, and clubbing across months would produce a total
+ * that matches no set of slips the parent is holding.
+ *
+ * *What to club* — every open voucher for that month, each one selectable, with
+ * a running total. The generator re-reads them anyway; the selection is what
+ * the clerk means, not what the browser last saw.
+ */
 
-interface Group {
+interface FamilyCandidate {
   guardianId: string;
   guardianName: string;
   phone: string;
-  members: Member[];
-  total: string;
+  email: string | null;
+  children: Array<{ studentProfileId: string; studentName: string; studentNumber: string }>;
+  openMonths: Array<{
+    billingMonth: number;
+    billingYear: number;
+    count: number;
+    total: string;
+  }>;
+  openTotal: string;
 }
 
-interface Issued {
-  id: string;
+interface FamilyVoucher {
+  challanId: string;
+  studentProfileId: string;
+  studentName: string;
+  studentNumber: string;
   challanNumber: string;
-  guardianName: string;
-  phone: string;
-  billingMonth: number | null;
-  billingYear: number | null;
   dueDate: string;
   totalAmount: string;
   paidAmount: string;
   status: string;
-  memberCount: number;
 }
 
 export interface FamilyVouchersProps {
@@ -45,247 +71,161 @@ export interface FamilyVouchersProps {
   defaultYear: number;
 }
 
-const MONTHS = [
-  'January', 'February', 'March', 'April', 'May', 'June',
-  'July', 'August', 'September', 'October', 'November', 'December',
-];
+export function FamilyVouchers({
+  canWrite,
+  defaultMonth,
+  defaultYear,
+}: FamilyVouchersProps) {
+  /* ---------------------------------------------------------- the listing */
+  const [candidates, setCandidates] = useState<FamilyCandidate[] | null>(null);
+  const [listError, setListError] = useState<string | null>(null);
+  const [issuedToken, setIssuedToken] = useState(0);
 
-/**
- * Family vouchers: one slip for a parent with several children.
- *
- * Families are found by the primary guardian's phone number, which is the only
- * grouping key `student_guardians` actually carries — see `lib/family-challans.ts`
- * for why that is both deliberate and imperfect. The children's names are
- * printed on the voucher, so a wrong grouping is visible rather than silent.
- */
-export function FamilyVouchers({ canWrite, defaultMonth, defaultYear }: FamilyVouchersProps) {
-  const [month, setMonth] = useState(String(defaultMonth));
-  const [year, setYear] = useState(String(defaultYear));
-  const [dueDate, setDueDate] = useState('');
+  const loadCandidates = useCallback(async () => {
+    setCandidates(null);
+    try {
+      const payload = await schoolFetch<{ families: FamilyCandidate[] }>(
+        `/api/school/family-challans?month=${String(defaultMonth)}&year=${String(defaultYear)}`,
+      );
+      setCandidates(payload.families);
+      setListError(null);
+    } catch (caught) {
+      setListError(schoolErrorMessage(caught, 'Could not read this month’s vouchers.'));
+      setCandidates([]);
+    }
+  }, [defaultMonth, defaultYear]);
 
-  const [groups, setGroups] = useState<Group[] | null>(null);
-  const [issued, setIssued] = useState<Issued[] | null>(null);
-  const [loadingGroups, setLoadingGroups] = useState(true);
-  const [busyId, setBusyId] = useState<string | null>(null);
+  useEffect(() => {
+    void loadCandidates();
+  }, [loadCandidates, issuedToken]);
+
+  /* ----------------------------------------------------------- the wizard */
+  const [query, setQuery] = useState('');
+  const [searching, setSearching] = useState(false);
+  const [results, setResults] = useState<FamilyCandidate[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
-  const [payingId, setPayingId] = useState<string | null>(null);
-  const [amount, setAmount] = useState('');
-  const [method, setMethod] = useState('cash');
-  const [reference, setReference] = useState('');
+  /** Step 2: the family whose months are being chosen between. */
+  const [family, setFamily] = useState<FamilyCandidate | null>(null);
+  /** Step 3: the chosen month, and that family's vouchers in it. */
+  const [period, setPeriod] = useState<{ month: number; year: number } | null>(null);
+  const [vouchers, setVouchers] = useState<FamilyVoucher[] | null>(null);
+  const [selected, setSelected] = useState<string[]>([]);
+  const [dueDate, setDueDate] = useState('');
+  const [issuing, setIssuing] = useState(false);
 
-  const loadIssued = useCallback(async () => {
-    const response = await fetch('/api/school/family-challans');
-    const payload = (await response.json()) as { ok: boolean; data?: { challans: Issued[] } };
-    if (payload.ok === true && payload.data !== undefined) setIssued(payload.data.challans);
-  }, []);
-
-  const loadGroups = useCallback(async () => {
+  const search = async (): Promise<void> => {
+    setSearching(true);
     setError(null);
-    // Changing the month refetches, so the pending flag is set here rather
-    // than derived from `groups === null` — the second month's wait would
-    // otherwise show the first month's families as though they were current.
-    setLoadingGroups(true);
-    const query = new URLSearchParams({ month, year });
+    setNotice(null);
+
     try {
-      const response = await fetch(`/api/school/family-challans?${query.toString()}`);
-      const payload = (await response.json()) as {
-        ok: boolean;
-        data?: { groups: Group[] };
-        error?: { message: string };
-      };
-      if (payload.ok === true && payload.data !== undefined) setGroups(payload.data.groups);
-      else setError(payload.error?.message ?? 'Could not read those challans.');
-    } catch {
-      setError('Could not read those challans.');
+      const payload = await schoolFetch<{ families: FamilyCandidate[] }>(
+        `/api/school/family-challans/search?q=${encodeURIComponent(query.trim())}`,
+      );
+      setResults(payload.families);
+    } catch (caught) {
+      setResults([]);
+      setError(schoolErrorMessage(caught, 'Could not search for that family.'));
     } finally {
-      setLoadingGroups(false);
+      setSearching(false);
     }
-  }, [month, year]);
+  };
 
-  useEffect(() => {
-    void loadGroups();
-    void loadIssued();
-  }, [loadGroups, loadIssued]);
+  const openMonths = (candidate: FamilyCandidate): void => {
+    setError(null);
+    setNotice(null);
+    setFamily(candidate);
+    setPeriod(null);
+    setVouchers(null);
+    setSelected([]);
+  };
 
-  const issue = useCallback(
-    async (group: Group) => {
-      setBusyId(group.guardianId);
-      setError(null);
-      setNotice(null);
+  const chooseMonth = async (month: number, year: number): Promise<void> => {
+    if (family === null) return;
 
-      try {
-        const response = await fetch('/api/school/family-challans', {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({
-            guardianId: group.guardianId,
-            challanIds: group.members.map((member) => member.challanId),
-            dueDate,
-          }),
-        });
+    setPeriod({ month, year });
+    setVouchers(null);
 
-        const payload = (await response.json()) as {
-          ok: boolean;
-          data?: { result: { challanNumber: string; total: string; members: number } };
-          error?: { message: string };
-        };
+    try {
+      const payload = await schoolFetch<{ vouchers: FamilyVoucher[] }>(
+        `/api/school/family-challans?month=${String(month)}&year=${String(year)}&guardianId=${family.guardianId}`,
+      );
+      setVouchers(payload.vouchers);
+      // Everything ticked to begin with: clubbing all of a month is the
+      // ordinary case, and un-ticking one is easier than ticking four.
+      setSelected(payload.vouchers.map((voucher) => voucher.challanId));
+    } catch (caught) {
+      setVouchers([]);
+      setError(schoolErrorMessage(caught, 'Could not read that family’s vouchers.'));
+    }
+  };
 
-        if (!response.ok || payload.ok !== true || payload.data === undefined) {
-          setError(payload.error?.message ?? 'Could not issue that voucher.');
-          return;
-        }
+  const issue = async (): Promise<void> => {
+    if (family === null) return;
 
-        setNotice(
-          `${payload.data.result.challanNumber} issued for ${group.guardianName} — ` +
-            `${payload.data.result.members} children, PKR ${payload.data.result.total}.`,
-        );
-        await Promise.all([loadGroups(), loadIssued()]);
-      } catch {
-        setError('Could not issue that voucher.');
-      } finally {
-        setBusyId(null);
-      }
-    },
-    [dueDate, loadGroups, loadIssued],
-  );
+    setIssuing(true);
+    setError(null);
 
-  /**
-   * Takes money against a voucher.
+    try {
+      const payload = await schoolFetch<{
+        result: { challanNumber: string; total: string; members: number };
+      }>('/api/school/family-challans', {
+        method: 'POST',
+        body: JSON.stringify({
+          guardianId: family.guardianId,
+          challanIds: selected,
+          dueDate,
+        }),
+      });
+
+      setNotice(
+        `${payload.result.challanNumber} issued for ${family.guardianName} — ` +
+          `${String(payload.result.members)} children, ${formatPkr(payload.result.total)}.`,
+      );
+      setFamily(null);
+      setPeriod(null);
+      setVouchers(null);
+      setSelected([]);
+      setResults(null);
+      setQuery('');
+      setIssuedToken((token) => token + 1);
+    } catch (caught) {
+      setError(schoolErrorMessage(caught, 'Could not issue that voucher.'));
+    } finally {
+      setIssuing(false);
+    }
+  };
+
+  const selectedTotalPaise = (vouchers ?? [])
+    .filter((voucher) => selected.includes(voucher.challanId))
+    .reduce((sum, voucher) => sum + toPaise(voucher.totalAmount), 0);
+
+  /*
+   * No Children column.
    *
-   * The route spreads it across the children's own challans, oldest first, and
-   * writes a `fee_payments` row against each — which is the whole point of the
-   * feature. Without this control the voucher could be issued and then only
-   * paid a child at a time, which is the queueing it exists to remove.
+   * A list of families answers "which family", and four names in a cell is what
+   * pushed the total — the figure the reader is comparing rows on — off the
+   * right of the screen. The names are in step 3, where they are being chosen
+   * between rather than read past.
    */
-  const pay = useCallback(
-    async (voucher: Issued) => {
-      setBusyId(voucher.id);
-      setError(null);
-      setNotice(null);
-
-      try {
-        const response = await fetch(`/api/school/family-challans/${voucher.id}`, {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({
-            amount: Number(amount),
-            paymentMethod: method,
-            reference: reference.trim() === '' ? undefined : reference.trim(),
-          }),
-        });
-
-        const payload = (await response.json()) as {
-          ok: boolean;
-          data?: { result: { distributed: Array<{ amount: string }> } };
-          error?: { message: string };
-        };
-
-        if (!response.ok || payload.ok !== true || payload.data === undefined) {
-          setError(payload.error?.message ?? 'Could not record that payment.');
-          return;
-        }
-
-        const across = payload.data.result.distributed.length;
-        setNotice(
-          `PKR ${Number(amount).toFixed(2)} recorded against ${voucher.challanNumber}, ` +
-            `spread across ${across} child${across === 1 ? '' : 'ren'}’s challans, oldest first.`,
-        );
-        setPayingId(null);
-        setAmount('');
-        setReference('');
-        await Promise.all([loadGroups(), loadIssued()]);
-      } catch {
-        setError('Could not record that payment.');
-      } finally {
-        setBusyId(null);
-      }
-    },
-    [amount, method, reference, loadGroups, loadIssued],
-  );
-
-  const groupColumns: Array<DataTableColumn<Group>> = [
+  const candidateColumns: Array<DataTableColumn<FamilyCandidate>> = [
     {
       id: 'family',
       header: 'Family',
-      sortValue: (group) => group.guardianName,
-      searchValue: (group) =>
-        `${group.guardianName} ${group.phone} ${group.members
-          .map((member) => member.studentName)
-          .join(' ')}`,
-      cell: (group) => (
-        <>
-          <p className="font-medium text-ink">{group.guardianName}</p>
-          <p className="font-mono text-xs text-ink-muted">{group.phone}</p>
-        </>
-      ),
-    },
-    {
-      id: 'children',
-      header: 'Children',
-      muted: true,
-      sortValue: (group) => group.members.length,
-      cell: (group) => (
-        <ul className="text-sm text-ink-muted">
-          {group.members.map((member) => (
-            <li key={member.challanId}>
-              {member.studentName} · {member.challanNumber} · PKR {member.totalAmount}
-            </li>
-          ))}
-        </ul>
-      ),
-    },
-    {
-      id: 'total',
-      header: 'Total',
-      kind: 'money',
-      sortValue: (group) => Number(group.total),
-      cell: (group) => (
-        <span className="font-mono text-sm text-ink">PKR {group.total}</span>
-      ),
-    },
-  ];
-
-  if (canWrite) {
-    groupColumns.push({
-      id: 'issue',
-      header: 'Action',
-      align: 'end',
-      cell: (group) => (
-        <Button
-          size="sm"
-          isLoading={busyId === group.guardianId}
-          disabled={dueDate === ''}
-          title={dueDate === '' ? 'Choose a due date first' : undefined}
-          onClick={() => {
-            void issue(group);
-          }}
-        >
-          Issue one voucher
-        </Button>
-      ),
-    });
-  }
-
-  const issuedColumns: Array<DataTableColumn<Issued>> = [
-    {
-      id: 'voucher',
-      header: 'Voucher',
-      className: 'font-mono text-xs',
-      sortValue: (row) => row.challanNumber,
-      searchValue: (row) => row.challanNumber,
-      cell: (row) => row.challanNumber,
-    },
-    {
-      id: 'family',
-      header: 'Family',
+      rowHeader: true,
       sortValue: (row) => row.guardianName,
-      searchValue: (row) => `${row.guardianName} ${row.phone}`,
+      searchValue: (row) =>
+        `${row.guardianName} ${row.phone} ${row.children
+          .map((child) => `${child.studentName} ${child.studentNumber}`)
+          .join(' ')}`,
       cell: (row) => (
         <>
           {row.guardianName}
-          <span className="block font-mono text-xs text-ink-muted">{row.phone}</span>
+          <span className="block font-mono text-xs font-normal text-ink-muted">
+            {formatPhoneForDisplay(row.phone)}
+          </span>
         </>
       ),
     },
@@ -293,248 +233,301 @@ export function FamilyVouchers({ canWrite, defaultMonth, defaultYear }: FamilyVo
       id: 'children',
       header: 'Children',
       kind: 'number',
-      muted: true,
-      sortValue: (row) => row.memberCount,
-      cell: (row) => row.memberCount,
-    },
-    {
-      id: 'due',
-      header: 'Due',
-      kind: 'date',
-      muted: true,
-      className: 'font-mono text-xs',
-      sortValue: (row) => row.dueDate,
-      cell: (row) => row.dueDate,
-    },
-    {
-      id: 'status',
-      header: 'Status',
-      sortValue: (row) => row.status,
-      cell: (row) => (
-        <Badge
-          variant={
-            row.status === 'paid'
-              ? 'success'
-              : row.status === 'cancelled'
-                ? 'neutral'
-                : row.status === 'partial'
-                  ? 'warning'
-                  : 'danger'
-          }
-        >
-          {row.status}
-        </Badge>
-      ),
+      sortValue: (row) => row.children.length,
+      cell: (row) => row.children.length,
     },
     {
       id: 'total',
-      header: 'Total',
+      header: 'Open total',
       kind: 'money',
       className: 'font-mono',
-      // Sorted on what is still owed rather than on the label, which is
-      // sometimes "paid / billed" and would sort as text.
-      sortValue: (row) => Number(row.totalAmount) - Number(row.paidAmount),
-      cell: (row) =>
-        row.paidAmount === '0.00'
-          ? row.totalAmount
-          : `${row.paidAmount} / ${row.totalAmount}`,
+      sortValue: (row) => toPaise(row.openTotal),
+      cell: (row) => formatPkr(row.openTotal),
     },
   ];
 
   if (canWrite) {
-    issuedColumns.push({
-      id: 'payment',
-      header: 'Payment',
-      align: 'numeric',
-      cell: (row) =>
-        row.status === 'paid' || row.status === 'cancelled' ? (
-          <span className="text-xs text-ink-muted">—</span>
-        ) : payingId === row.id ? (
-          <div className="flex flex-nowrap items-center justify-end gap-2 whitespace-nowrap">
-            <input
-              type="number"
-              aria-label={`Amount received for ${row.challanNumber}`}
-              placeholder="Amount"
-              value={amount}
-              className="w-28 rounded-lg border border-line-strong px-2 py-1 text-sm"
-              onChange={(event) => {
-                setAmount(event.target.value);
-              }}
-            />
-            <select
-              aria-label="Payment method"
-              value={method}
-              className="rounded-lg border border-line-strong px-2 py-1 text-sm"
-              onChange={(event) => {
-                setMethod(event.target.value);
-              }}
-            >
-              <option value="cash">Cash</option>
-              <option value="bank_transfer">Bank transfer</option>
-              <option value="cheque">Cheque</option>
-            </select>
-            <input
-              type="text"
-              aria-label="Reference"
-              placeholder="Slip no."
-              value={reference}
-              className="w-24 rounded-lg border border-line-strong px-2 py-1 text-sm"
-              onChange={(event) => {
-                setReference(event.target.value);
-              }}
-            />
-            <Button
-              size="sm"
-              isLoading={busyId === row.id}
-              disabled={Number(amount) <= 0}
-              onClick={() => {
-                void pay(row);
-              }}
-            >
-              Record
-            </Button>
-            <Button
-              variant="ghost"
-              size="sm"
-              disabled={busyId === row.id}
-              onClick={() => {
-                setPayingId(null);
-              }}
-            >
-              Cancel
-            </Button>
-          </div>
-        ) : (
-          <Button
-            variant="secondary"
-            size="sm"
-            onClick={() => {
-              setPayingId(row.id);
-              // Pre-filled with what is still owed, because paying the voucher
-              // in full is the ordinary case and retyping it is how a digit
-              // gets dropped.
-              setAmount((Number(row.totalAmount) - Number(row.paidAmount)).toFixed(2));
-              setError(null);
-              setNotice(null);
-            }}
-          >
-            Take payment
-          </Button>
-        ),
+    candidateColumns.push({
+      id: 'club',
+      header: 'Action',
+      align: 'end',
+      cell: (row) => (
+        <Button
+          size="sm"
+          variant="secondary"
+          onClick={() => {
+            openMonths(row);
+          }}
+        >
+          Club these
+        </Button>
+      ),
     });
   }
 
   return (
-    <div className="space-y-4">
-      {error !== null ? (
-        <p role="alert" className="rounded-lg bg-status-danger-subtle px-3 py-2 text-sm text-status-danger-ink">
+    <div className="space-y-6">
+      {error === null ? null : (
+        <p
+          role="alert"
+          className="rounded-lg bg-status-danger-subtle px-3 py-2 text-sm text-status-danger-ink"
+        >
           {error}
         </p>
-      ) : null}
-      {notice !== null ? (
-        <p role="status" className="rounded-lg bg-status-success-subtle px-3 py-2 text-sm text-status-success-ink">
+      )}
+
+      {notice === null ? null : (
+        <p
+          role="status"
+          className="rounded-lg bg-status-success-subtle px-3 py-2 text-sm text-status-success-onSubtle"
+        >
           {notice}
         </p>
-      ) : null}
-
-      <Card header={<CardTitle title="Which month?" />}>
-        <div className="grid gap-4 sm:grid-cols-3">
-          <Select
-            label="Month"
-            options={MONTHS.map((name, index) => ({ value: String(index + 1), label: name }))}
-            value={month}
-            onChange={(event) => {
-              setMonth(event.target.value);
-            }}
-          />
-          <Input
-            label="Year"
-            type="number"
-            value={year}
-            onChange={(event) => {
-              setYear(event.target.value);
-            }}
-          />
-          <Input
-            label="Voucher due date"
-            type="date"
-            value={dueDate}
-            hint="Printed on the slip the parent takes to the bank."
-            onChange={(event) => {
-              setDueDate(event.target.value);
-            }}
-          />
-        </div>
-      </Card>
+      )}
 
       <Card
+        className="p-0"
         header={
           <CardTitle
-            title="Families that could have one voucher"
-            description="Two or more children with an open challan for this month, sharing a contact number."
+            title={`Families that could take one voucher — ${formatMonthYear(defaultMonth, defaultYear)}`}
+            description="Most children first, then the largest total. Two or more children with something open this month, sharing a contact."
           />
         }
       >
+        {listError === null ? null : (
+          <p className="px-5 pt-4 text-sm text-status-danger-ink">{listError}</p>
+        )}
+
         <DataTable
           caption="Families that could share one voucher"
-          columns={groupColumns}
-          rows={groups ?? []}
-          getRowKey={(group) => group.guardianId}
-          pending={loadingGroups}
-          defaultSort={{ columnId: 'total', direction: 'desc' }}
+          columns={candidateColumns}
+          rows={candidates ?? []}
+          getRowKey={(row) => row.guardianId}
+          pending={candidates === null}
           search={{ placeholder: 'Guardian, phone or child' }}
-          filters={[
-            {
-              id: 'size',
-              label: 'Children',
-              allLabel: 'Any number',
-              options: [
-                { value: '2', label: 'Two' },
-                { value: '3', label: 'Three' },
-                { value: '4+', label: 'Four or more' },
-              ],
-              rowValue: (group) =>
-                group.members.length >= 4 ? '4+' : String(group.members.length),
-            },
-          ]}
           itemNoun={{ singular: 'family', plural: 'families' }}
-          emptyTitle="Nothing to combine"
-          emptyDescription="No family has more than one open challan for this month."
-          noResultTitle="No families match those filters"
-          noResultDescription="Widen the search or the number of children."
+          emptyTitle="Nothing to combine this month"
+          emptyDescription="No family has more than one open voucher for this month."
+          noResultTitle="No families match that search"
+          noResultDescription="Clear it, or use the search below to look across every month."
         />
       </Card>
 
-      <Card className="p-0" header={<CardTitle title="Issued vouchers" />}>
-        <DataTable
-          caption="Family vouchers"
-          columns={issuedColumns}
-          rows={issued ?? []}
-          getRowKey={(row) => row.id}
-          pending={issued === null}
-          defaultSort={{ columnId: 'due', direction: 'desc' }}
-          search={{ placeholder: 'Voucher number, family or phone' }}
-          filters={[
-            {
-              id: 'status',
-              label: 'Status',
-              allLabel: 'Every voucher',
-              options: [
-                { value: 'unpaid', label: 'Unpaid' },
-                { value: 'partial', label: 'Part paid' },
-                { value: 'paid', label: 'Paid' },
-                { value: 'cancelled', label: 'Cancelled' },
-              ],
-              rowValue: (row) => row.status,
-            },
-          ]}
-          itemNoun={{ singular: 'voucher', plural: 'vouchers' }}
-          emptyTitle="No family vouchers issued yet"
-          emptyDescription="Combine a family above and the voucher appears here."
-          noResultTitle="No vouchers match those filters"
-          noResultDescription="Clear the search or choose another status."
-        />
+      {canWrite ? (
+        <Card
+          header={
+            <CardTitle
+              title="Find a family"
+              description="Search a parent or a child by name, admission number or phone — across every month, not only this one."
+            />
+          }
+        >
+          <div className="flex flex-wrap items-end gap-3">
+            <div className="w-full sm:w-96">
+              <Input
+                label="Search"
+                placeholder="e.g. Ahmed, GVS-2025-0011, 0321"
+                value={query}
+                disabled={searching}
+                onChange={(event) => {
+                  setQuery(event.target.value);
+                }}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter' && query.trim().length >= 2) void search();
+                }}
+              />
+            </div>
+            <Button
+              isLoading={searching}
+              disabled={query.trim().length < 2}
+              onClick={() => {
+                void search();
+              }}
+            >
+              Search
+            </Button>
+          </div>
+
+          {results === null ? null : results.length === 0 ? (
+            <p className="mt-4 text-sm text-ink-muted">
+              No family with more than one child matched that. A single child does
+              not need a family voucher.
+            </p>
+          ) : (
+            <ul className="mt-4 divide-y divide-line">
+              {results.map((candidate) => (
+                <li
+                  key={candidate.guardianId}
+                  className="flex flex-wrap items-center justify-between gap-3 py-3"
+                >
+                  <div className="min-w-0">
+                    <p className="font-medium text-ink">{candidate.guardianName}</p>
+                    <p className="font-mono text-xs text-ink-muted">
+                      {formatPhoneForDisplay(candidate.phone)}
+                      {candidate.email === null ? '' : ` · ${candidate.email}`}
+                    </p>
+                    <p className="mt-0.5 text-sm text-ink-muted">
+                      {candidate.children
+                        .map((child) => child.studentName)
+                        .join(', ')}
+                    </p>
+                  </div>
+
+                  <div className="flex items-center gap-3">
+                    <span className="font-mono text-sm text-ink">
+                      {formatPkr(candidate.openTotal)}
+                    </span>
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      onClick={() => {
+                        openMonths(candidate);
+                      }}
+                    >
+                      Choose month
+                    </Button>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+        </Card>
+      ) : null}
+
+      <Card className="p-0" header={<CardTitle title="Issued family vouchers" />}>
+        <div className="p-5 pt-0">
+          <FamilyVoucherRegister canWrite={canWrite} reloadToken={issuedToken} />
+        </div>
       </Card>
+
+      {/* Step 2 — which month. */}
+      <Modal
+        open={family !== null && period === null}
+        title={family === null ? 'Choose a month' : `${family.guardianName} — which month?`}
+        description="A family voucher covers one billing month, so its total matches the slips the parent is holding."
+        onClose={() => {
+          setFamily(null);
+        }}
+      >
+        {family === null ? null : family.openMonths.length === 0 ? (
+          <p className="text-sm text-ink-muted">
+            This family has nothing open in a billing month. One-off vouchers are
+            never clubbed — they have no month to share.
+          </p>
+        ) : (
+          <ul className="space-y-2">
+            {family.openMonths.map((month) => (
+              <li key={`${String(month.billingYear)}-${String(month.billingMonth)}`}>
+                <button
+                  type="button"
+                  className="flex w-full items-center justify-between rounded-lg border border-line px-3 py-2 text-left hover:border-brand-primary"
+                  onClick={() => {
+                    void chooseMonth(month.billingMonth, month.billingYear);
+                  }}
+                >
+                  <span className="text-sm font-medium text-ink">
+                    {formatMonthYear(month.billingMonth, month.billingYear)}
+                  </span>
+                  <span className="text-sm text-ink-muted">
+                    {month.count} voucher{month.count === 1 ? '' : 's'} ·{' '}
+                    {formatPkr(month.total)}
+                  </span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </Modal>
+
+      {/* Step 3 — what to club. */}
+      <Modal
+        open={period !== null}
+        size="lg"
+        title="What goes on the voucher?"
+        description="Untick anything the family is paying separately. The total below is what the slip will demand."
+        onClose={() => {
+          if (!issuing) setPeriod(null);
+        }}
+        footer={
+          <>
+            <Button
+              variant="secondary"
+              disabled={issuing}
+              onClick={() => {
+                setPeriod(null);
+              }}
+            >
+              Back
+            </Button>
+            <Button
+              isLoading={issuing}
+              disabled={selected.length < 2 || dueDate === ''}
+              title={
+                dueDate === ''
+                  ? 'Choose a due date first'
+                  : selected.length < 2
+                    ? 'A family voucher needs at least two vouchers'
+                    : undefined
+              }
+              onClick={() => {
+                void issue();
+              }}
+            >
+              Generate family voucher
+            </Button>
+          </>
+        }
+      >
+        {vouchers === null ? (
+          <p className="text-sm text-ink-muted">Reading that month’s vouchers…</p>
+        ) : (
+          <div className="space-y-4">
+            <ul className="divide-y divide-line">
+              {vouchers.map((voucher) => (
+                <li key={voucher.challanId} className="flex items-center gap-3 py-2">
+                  <input
+                    type="checkbox"
+                    className="h-4 w-4"
+                    checked={selected.includes(voucher.challanId)}
+                    aria-label={`Include ${voucher.studentName}'s voucher`}
+                    onChange={(event) => {
+                      setSelected((current) =>
+                        event.target.checked
+                          ? [...current, voucher.challanId]
+                          : current.filter((id) => id !== voucher.challanId),
+                      );
+                    }}
+                  />
+                  <span className="min-w-0 flex-1">
+                    <span className="block text-sm text-ink">{voucher.studentName}</span>
+                    <span className="block font-mono text-xs text-ink-muted">
+                      {voucher.challanNumber} · due {formatDateOnly(voucher.dueDate)}
+                    </span>
+                  </span>
+                  <span className="font-mono text-sm text-ink">
+                    {formatPkr(voucher.totalAmount)}
+                  </span>
+                </li>
+              ))}
+            </ul>
+
+            <p className="text-sm font-medium text-ink">
+              {selected.length} selected · {formatPkr(selectedTotalPaise / 100)}
+            </p>
+
+            <Input
+              label="Voucher due date"
+              type="date"
+              hint="Printed on the slip the parent takes to the bank."
+              value={dueDate}
+              disabled={issuing}
+              onChange={(event) => {
+                setDueDate(event.target.value);
+              }}
+            />
+          </div>
+        )}
+      </Modal>
     </div>
   );
 }

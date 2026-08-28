@@ -22,6 +22,7 @@ import {
   type ChallanStatus,
 } from '@/db/schema/fee-challans';
 import { PAYMENT_METHOD_LABELS } from '@/db/schema/fee-payments';
+import { formatDateOnly } from '@/lib/dates';
 import { daysOverdue } from '@/lib/fee-calculator';
 import {
   getChallanDetail,
@@ -34,7 +35,7 @@ import { listSiblings } from '@/lib/siblings';
 import { isUuid } from '@/lib/validation';
 
 export const metadata: Metadata = {
-  title: 'Challan',
+  title: 'Voucher',
 };
 
 export const dynamic = 'force-dynamic';
@@ -150,7 +151,7 @@ export default async function ChallanDetailPage({
         <div className="grid gap-4 lg:grid-cols-3">
           <Card className="lg:col-span-2 p-0" header={<CardTitle title="Line items" />}>
             <div className="overflow-x-auto">
-              <Table caption="Challan lines" className="rounded-none border-0">
+              <Table caption="Voucher lines" className="rounded-none border-0">
                 <TableHead>
                   <TableRow>
                     <TableHeaderCell>Fee head</TableHeaderCell>
@@ -162,7 +163,21 @@ export default async function ChallanDetailPage({
                 <TableBody>
                   {challan.items.map((item) => (
                     <TableRow key={item.id}>
-                      <TableCell>{item.description}</TableCell>
+                      <TableCell>
+                        {item.description}
+                        {/*
+                          Which discount took the money off, and at what rate.
+                          The Concession column beside it carries the rupees; a
+                          figure without its reason is what a parent telephones
+                          the school about, and the clerk who takes that call
+                          has been reading this page.
+                        */}
+                        {item.concessionDetail === null ? null : (
+                          <span className="block text-xs text-ink-muted">
+                            {item.concessionDetail}
+                          </span>
+                        )}
+                      </TableCell>
                       <TableCell align="numeric" muted>
                         {formatAmount(item.amount)}
                       </TableCell>
@@ -236,8 +251,8 @@ export default async function ChallanDetailPage({
             <dl className="space-y-3">
               <Detail label="Billing period" value={period} />
               <Detail label="Academic year" value={challan.academicYearName} />
-              <Detail label="Issue date" value={challan.issueDate} />
-              <Detail label="Due date" value={challan.dueDate} />
+              <Detail label="Issue date" value={formatDateOnly(challan.issueDate)} />
+              <Detail label="Due date" value={formatDateOnly(challan.dueDate)} />
               <Detail label="Billed" value={formatPkr(challan.totalAmount)} />
               <Detail label="Paid" value={formatPkr(challan.paidAmount)} />
               <Detail label="Balance" value={formatPkr(balancePaise / 100)} />
@@ -265,7 +280,7 @@ export default async function ChallanDetailPage({
         <SiblingCard
           siblings={siblings}
           title="Siblings at this school"
-          description="This student's family. If more than one of them has an open challan this month, a single family voucher can be issued instead — Fees → Family Vouchers."
+          description="This student's family. If more than one of them has an open voucher this month, a single family voucher can be issued instead — Fees → Family Vouchers."
           hrefFor={(sibling) =>
             `/dashboard/admissions/students/${sibling.studentProfileId}`
           }
@@ -275,7 +290,7 @@ export default async function ChallanDetailPage({
           header={
             <CardTitle
               title="Payment history"
-              description="Every amount recorded against this challan, newest first."
+              description="Every amount recorded against this voucher, newest first."
             />
           }
           className="p-0"
@@ -286,7 +301,7 @@ export default async function ChallanDetailPage({
             </p>
           ) : (
             <div className="overflow-x-auto">
-              <Table caption="Payments against this challan" className="rounded-none border-0">
+              <Table caption="Payments against this voucher" className="rounded-none border-0">
                 <TableHead>
                   <TableRow>
                     <TableHeaderCell>Date</TableHeaderCell>
@@ -299,7 +314,7 @@ export default async function ChallanDetailPage({
                 <TableBody>
                   {challan.payments.map((payment) => (
                     <TableRow key={payment.id}>
-                      <TableCell muted>{payment.paymentDate}</TableCell>
+                      <TableCell muted>{formatDateOnly(payment.paymentDate)}</TableCell>
                       <TableCell rowHeader align="numeric">
                         {formatAmount(payment.amount)}
                       </TableCell>

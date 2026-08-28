@@ -1,14 +1,14 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 
-import { ChallanTable } from '@/components/fees/ChallanTable';
+import { VoucherRegisterTabs } from '@/components/fees/VoucherRegisterTabs';
 import { Button } from '@/components/ui/Button';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { listAcademicYears, listGrades } from '@/lib/admissions-queries';
 import { requireSchoolPermission } from '@/lib/school-guard';
 
 export const metadata: Metadata = {
-  title: 'Challans',
+  title: 'Vouchers',
 };
 
 export const dynamic = 'force-dynamic';
@@ -28,18 +28,18 @@ export default async function ChallansPage() {
   return (
     <div className="space-y-6">
       <PageHeader
-        title="Challans"
+        title="Vouchers"
         description="Every bill your school has raised, with what has been paid against it."
         actions={
           canGenerate ? (
             <Link href="/dashboard/fees/challans/generate">
-              <Button>Generate challans</Button>
+              <Button>Generate vouchers</Button>
             </Link>
           ) : null
         }
       />
 
-      <ChallanTable
+      <VoucherRegisterTabs
         academicYears={academicYears}
         grades={grades.map((grade) => ({ id: grade.id, label: grade.label }))}
         canGenerate={canGenerate}

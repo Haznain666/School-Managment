@@ -82,7 +82,7 @@ export function ChallanActions({
       setNotice(
         result.queued > 0
           ? 'Reminder queued for the primary guardian.'
-          : 'No reminder was sent — this challan has no guardian on file, or nothing is owed.',
+          : 'No reminder was sent — this voucher has no guardian on file, or nothing is owed.',
       );
     } catch (caught) {
       setError(schoolErrorMessage(caught, 'Could not send the reminder.'));
@@ -150,10 +150,10 @@ export function ChallanActions({
             onClick={() => {
               if (
                 window.confirm(
-                  'Waive this challan? The outstanding balance will no longer be collectable.',
+                  'Waive this voucher? The outstanding balance will no longer be collectable.',
                 )
               ) {
-                void patch('waive', { action: 'waive' }, 'This challan has been waived.');
+                void patch('waive', { action: 'waive' }, 'This voucher has been waived.');
               }
             }}
           >
@@ -168,13 +168,13 @@ export function ChallanActions({
             onClick={() => {
               if (
                 window.confirm(
-                  'Cancel this challan? It will stay on record but will no longer be owed.',
+                  'Cancel this voucher? It will stay on record but will no longer be owed.',
                 )
               ) {
                 void patch(
                   'cancel',
                   { action: 'cancel' },
-                  'This challan has been cancelled.',
+                  'This voucher has been cancelled.',
                 );
               }
             }}

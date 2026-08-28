@@ -28,6 +28,10 @@ export const PERMISSIONS = [
   'users.write',
   'admissions.read',
   'admissions.write',
+  'students.read',
+  'students.create',
+  'students.update',
+  'students.delete',
   'students.import',
   'students.promote',
   'students.transfer',
@@ -77,6 +81,16 @@ export const PERMISSION_GROUPS: readonly PermissionGroup[] = [
     key: 'admissions',
     label: 'Admissions',
     permissions: ['admissions.read', 'admissions.write'],
+  },
+  {
+    key: 'student-records',
+    label: 'Student records',
+    permissions: [
+      'students.read',
+      'students.create',
+      'students.update',
+      'students.delete',
+    ],
   },
   {
     key: 'roll',
@@ -130,11 +144,15 @@ export const PERMISSION_LABELS: Record<Permission, string> = {
   'users.write': 'Invite, edit and deactivate users',
   'admissions.read': 'See students, grades and applications',
   'admissions.write': 'Enrol students and decide applications',
+  'students.read': 'Open a student’s record',
+  'students.create': 'Enrol a student',
+  'students.update': 'Edit a student’s record',
+  'students.delete': 'Delete a student record',
   'students.import': 'Bulk-import students from a spreadsheet',
   'students.promote': 'Roll the school over to the next academic year',
   'students.transfer': 'Move a student to another branch',
-  'fees.read': 'See challans, the price list and fee reports',
-  'fees.write': 'Set prices, raise challans and take payments',
+  'fees.read': 'See vouchers, the price list and fee reports',
+  'fees.write': 'Set prices, raise vouchers and take payments',
   'academics.read': 'See subjects, the timetable and the register',
   'academics.write': 'Set subjects and build the timetable',
   'attendance.mark': 'Take the student register',
@@ -162,7 +180,7 @@ export const PERMISSION_LABELS: Record<Permission, string> = {
 
 export const PERMISSION_DESCRIPTIONS: Partial<Record<Permission, string>> = {
   'fees.write':
-    'Includes marking a challan paid. Grant it only to people who handle money.',
+    'Includes marking a voucher paid. Grant it only to people who handle money.',
   'payroll.write':
     'Includes approving a run, which is irreversible. Separate from payroll.read on purpose.',
   'permissions.manage':
@@ -183,6 +201,12 @@ export const PERMISSION_DESCRIPTIONS: Partial<Record<Permission, string>> = {
     'is the school-wide version of it, for the office.',
   'exams.publish':
     'Publishing a term issues its report cards. Separate from exams.write on purpose.',
+  'students.delete':
+    'Removes the child, their guardians, their enrolment history and their ' +
+    'whole fee record. It is not an undo for a wrong enrolment — withdrawing ' +
+    'is, and it keeps the history. Refused outright once any money has been ' +
+    'received against the student, because a receipt is a fact the school is ' +
+    'not allowed to erase.',
   'students.import':
     'Writes hundreds of student records in one action. Separate from ' +
     'admissions.write because enrolling one child and loading a whole school ' +
@@ -272,6 +296,18 @@ export const UNREVOKABLE: { role: UserRole; permission: Permission } = {
  * division; a head who could edit assignments could widen that narrowing, which
  * would make BR4 a suggestion rather than a boundary. It sits with
  * `school_admin` — the same reasoning that keeps `students.transfer` there.
+ *
+ * Sprint 18 split the student record out of `admissions.*` into four keys, and
+ * the defaults below are chosen so that **nothing changes for any school on the
+ * day this deploys**: `students.read` goes to every role that already holds
+ * `admissions.read`, and `students.create` and `students.update` to every role
+ * that already holds `admissions.write`. A school that has never opened the
+ * permissions screen sees exactly the access it had yesterday.
+ *
+ * `students.delete` is the exception and goes to `school_admin` alone. It is
+ * the only key here that destroys history rather than writing it, and there is
+ * no role for which "may enrol a child" should have implied "may make one
+ * disappear".
  */
 export const DEFAULT_ROLE_PERMISSIONS: Record<UserRole, readonly Permission[]> = {
   school_admin: [...PERMISSIONS],
@@ -280,6 +316,9 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<UserRole, readonly Permission[]> =
     'users.read',
     'admissions.read',
     'admissions.write',
+    'students.read',
+    'students.create',
+    'students.update',
     'fees.read',
     'academics.read',
     'attendance.mark',
@@ -305,6 +344,9 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<UserRole, readonly Permission[]> =
     'users.read',
     'admissions.read',
     'admissions.write',
+    'students.read',
+    'students.create',
+    'students.update',
     'students.import',
     'students.promote',
     'fees.read',
@@ -332,6 +374,9 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<UserRole, readonly Permission[]> =
     'users.read',
     'admissions.read',
     'admissions.write',
+    'students.read',
+    'students.create',
+    'students.update',
     'fees.read',
     'academics.read',
     'academics.write',
@@ -349,6 +394,7 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<UserRole, readonly Permission[]> =
 
   coordinator: [
     'admissions.read',
+    'students.read',
     'academics.read',
     'academics.write',
     'attendance.mark',
@@ -375,6 +421,7 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<UserRole, readonly Permission[]> =
   // grade a parent has already seen must not change without the school knowing.
   teacher: [
     'admissions.read',
+    'students.read',
     'academics.read',
     'attendance.mark',
     'exams.read',
@@ -392,6 +439,7 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<UserRole, readonly Permission[]> =
   // Sprint 8's whole purpose — and does so having read the sentence under it.
   accountant: [
     'admissions.read',
+    'students.read',
     'fees.read',
     'fees.write',
     'payroll.read',
@@ -406,6 +454,7 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<UserRole, readonly Permission[]> =
     'fees.read',
     'academics.read',
     'admissions.read',
+    'students.read',
     'hr.read',
     'hr.write',
     'payroll.read',
@@ -416,6 +465,9 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<UserRole, readonly Permission[]> =
   marketing: [
     'admissions.read',
     'admissions.write',
+    'students.read',
+    'students.create',
+    'students.update',
     'comms.read',
     'comms.write',
     'settings.read',

@@ -27,7 +27,7 @@ export default async function FeeStructuresPage() {
     <div className="space-y-6">
       <PageHeader
         title="Fee structure"
-        description="What each grade pays under each head, for one academic year. Last year&rsquo;s prices stay as they were — challans already issued have to remain explainable."
+        description="What each grade pays under each head, for one academic year. Last year&rsquo;s prices stay as they were — vouchers already issued have to remain explainable."
       />
 
       <FeeSetupNav />

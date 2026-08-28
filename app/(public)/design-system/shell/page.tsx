@@ -76,12 +76,12 @@ export default function ShellPreviewPage() {
         }
       >
         <PageHeader
-          title="Fee challans"
+          title="Fee vouchers"
           description="Issued vouchers for the current term, across every campus."
           breadcrumbs={[
             { label: 'Dashboard', href: '#' },
             { label: 'Fees', href: '#' },
-            { label: 'Challans' },
+            { label: 'Vouchers' },
           ]}
           actions={
             <>

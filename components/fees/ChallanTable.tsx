@@ -16,6 +16,8 @@ import { Select } from '@/components/ui/Select';
 import { TableCell, TableRow } from '@/components/ui/Table';
 import { MONTH_NAMES } from '@/db/schema/academic-years';
 import {
+  CHALLAN_KIND_FILTERS,
+  CHALLAN_KIND_FILTER_LABELS,
   CHALLAN_STATUSES,
   CHALLAN_STATUS_LABELS,
   type ChallanStatus,
@@ -113,13 +115,25 @@ export function ChallanTable({
   grades,
   canGenerate,
 }: ChallanTableProps) {
-  const now = new Date();
-
   const [academicYearId, setAcademicYearId] = useState(
     academicYears.find((year) => year.isActive)?.id ?? academicYears[0]?.id ?? '',
   );
-  const [billingMonth, setBillingMonth] = useState(String(now.getMonth() + 1));
-  const [billingYear, setBillingYear] = useState(String(now.getFullYear()));
+  /*
+   * Both empty, and that is the fix for item 11.
+   *
+   * They defaulted to the current month and year. An admission voucher carries
+   * a **null** `billing_month` by design — an admission is not a period — so it
+   * could never match either filter and appeared in the register on no day of
+   * any month. A school raising one watched it vanish, and there was no
+   * combination of controls on the screen that would bring it back.
+   *
+   * All months / All years is also simply the right first view of a register:
+   * the question it answers is "what have we issued", not "what did we issue
+   * in August".
+   */
+  const [billingMonth, setBillingMonth] = useState('');
+  const [billingYear, setBillingYear] = useState('');
+  const [kind, setKind] = useState('');
   const [gradeId, setGradeId] = useState('');
   const [sectionId, setSectionId] = useState('');
   const [status, setStatus] = useState('');
@@ -172,6 +186,7 @@ export function ChallanTable({
     if (academicYearId !== '') query.set('academicYearId', academicYearId);
     if (billingMonth !== '') query.set('billingMonth', billingMonth);
     if (billingYear !== '') query.set('billingYear', billingYear);
+    if (kind !== '') query.set('kind', kind);
     if (gradeId !== '') query.set('gradeId', gradeId);
     if (sectionId !== '') query.set('sectionId', sectionId);
     if (status !== '') query.set('status', status);
@@ -189,6 +204,7 @@ export function ChallanTable({
     academicYearId,
     billingMonth,
     billingYear,
+    kind,
     gradeId,
     sectionId,
     status,
@@ -259,7 +275,7 @@ export function ChallanTable({
           ref={headerBox}
           type="checkbox"
           className="h-4 w-4 align-middle"
-          aria-label="Select every challan on this page"
+          aria-label="Select every voucher on this page"
           checked={allOnPageSelected}
           onChange={(event) => {
             togglePage(event.target.checked);
@@ -270,7 +286,7 @@ export function ChallanTable({
         <input
           type="checkbox"
           className="h-4 w-4 align-middle"
-          aria-label={`Select challan ${row.challanNumber} for ${row.studentName}`}
+          aria-label={`Select voucher ${row.challanNumber} for ${row.studentName}`}
           checked={selected.has(row.id)}
           onChange={(event) => {
             toggleRow(row.id, event.target.checked);
@@ -280,7 +296,7 @@ export function ChallanTable({
     },
     {
       id: 'challanNumber',
-      header: 'Challan #',
+      header: 'Voucher #',
       muted: true,
       sortable: true,
       className: 'font-mono text-xs',
@@ -426,7 +442,7 @@ export function ChallanTable({
 
       <DataTable
         mode="server"
-        caption="Fee challans"
+        caption="Fee vouchers"
         maxHeight="32rem"
         columns={columns}
         rows={rows}
@@ -454,7 +470,7 @@ export function ChallanTable({
               setSearch(value);
             });
           },
-          placeholder: 'Challan number, student name or student ID',
+          placeholder: 'Voucher number, student name or student ID',
         }}
         filters={[
           {
@@ -466,6 +482,28 @@ export function ChallanTable({
             onChange: (value) => {
               onFilterChange(() => {
                 setStatus(value);
+              });
+            },
+          },
+          {
+            /*
+             * Monthly, One-off, Admission. Expressed in SQL as a shape rather
+             * than a column — see `listChallans` — because only `admission` is
+             * a kind the database has a rule about, and inventing a taxonomy
+             * for the other two would put a column next to a unique index that
+             * does not need one.
+             */
+            id: 'kind',
+            label: 'Kind',
+            allLabel: 'Every kind',
+            options: CHALLAN_KIND_FILTERS.map((value) => ({
+              value,
+              label: CHALLAN_KIND_FILTER_LABELS[value],
+            })),
+            value: kind,
+            onChange: (value) => {
+              onFilterChange(() => {
+                setKind(value);
               });
             },
           },
@@ -555,32 +593,36 @@ export function ChallanTable({
         filtersActive={
           search.trim() !== '' ||
           status !== '' ||
+          kind !== '' ||
           gradeId !== '' ||
           sectionId !== '' ||
           billingMonth !== '' ||
+          billingYear !== '' ||
           academicYearId !== ''
         }
         onClearFilters={() => {
           onFilterChange(() => {
             setSearch('');
             setStatus('');
+            setKind('');
             setGradeId('');
             setSectionId('');
             setBillingMonth('');
+            setBillingYear('');
             setAcademicYearId('');
           });
         }}
-        itemNoun={{ singular: 'challan', plural: 'challans' }}
-        emptyTitle="No challans raised yet"
-        emptyDescription="Generate a month's challans and the register fills in."
+        itemNoun={{ singular: 'voucher', plural: 'vouchers' }}
+        emptyTitle="No vouchers raised yet"
+        emptyDescription="Generate a month's vouchers and the register fills in."
         emptyAction={
           canGenerate ? (
             <Link href="/dashboard/fees/challans/generate">
-              <Button size="sm">Generate challans</Button>
+              <Button size="sm">Generate vouchers</Button>
             </Link>
           ) : undefined
         }
-        noResultTitle="No challans match these filters"
+        noResultTitle="No vouchers match these filters"
         noResultDescription="Widen the month, class or status to see more of the register."
         footer={
           data === null ? undefined : (

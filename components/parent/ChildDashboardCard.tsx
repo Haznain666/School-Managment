@@ -143,7 +143,7 @@ export function ChildDashboardCard({
                   </p>
                   <p className="text-xs text-ink-muted">
                     {fees.oldestUnpaid === null
-                      ? 'Across all challans'
+                      ? 'Across all vouchers'
                       : `Oldest ${fees.oldestUnpaid.challanNumber}, due ${fees.oldestUnpaid.dueDate}`}
                   </p>
                 </>

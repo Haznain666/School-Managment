@@ -25,7 +25,7 @@ import { welcomeStudentGuardians, type ProvisionResult } from './parent-portal-a
  *     challans would read as zero debt and every admission would clear itself
  *     instantly, which is the exact opposite of the rule.
  *
- *   * "none still open" rather than "the admission challan is paid", because
+ *   * "none still open" rather than "the admission voucher is paid", because
  *     this product has no admission-fee challan type. A school bills what it
  *     bills; what it is owed is the sum of the open ones. `cancelled` and
  *     `waived` are closed on purpose — a waived fee is a decision a human made
@@ -104,7 +104,7 @@ export async function settleEnrolmentIfFeePaid(input: {
       );
 
     if (challans.length === 0) {
-      return { ...NOTHING, reason: 'No challan has been issued yet.' };
+      return { ...NOTHING, reason: 'No voucher has been issued yet.' };
     }
 
     const stillOwing = challans.some((challan) =>
@@ -112,7 +112,7 @@ export async function settleEnrolmentIfFeePaid(input: {
     );
 
     if (stillOwing) {
-      return { ...NOTHING, reason: 'A challan is still unpaid.' };
+      return { ...NOTHING, reason: 'A voucher is still unpaid.' };
     }
 
     return await clearEnrolmentFee({ locationId, studentProfileId, actorUid });

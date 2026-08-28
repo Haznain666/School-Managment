@@ -22,6 +22,7 @@ import {
   type ChallanStatus,
 } from '@/db/schema/fee-challans';
 import { listChildrenForGuardian, getActiveAcademicYear } from '@/lib/admissions-queries';
+import { formatDateOnly } from '@/lib/dates';
 import {
   getChallanDetail,
   getStudentFeeSummary,
@@ -60,7 +61,7 @@ function periodLabel(row: ChallanListRow): string {
  * ── On authorisation ─────────────────────────────────────────────────────
  * Every read here is gated on `student_guardians.school_user_id` — the link
  * between this signed-in parent and a child. The `?child=` parameter can only
- * select among children that query already returned, and `?challan=` is checked
+ * select among children that query already returned, and `?voucher=` is checked
  * against the selected child before the challan is fetched. A id belonging to
  * another family therefore resolves to nothing rather than to somebody else's
  * bill.
@@ -162,7 +163,7 @@ export default async function ParentFeesPage({
             header={
               <CardTitle
                 title={openChallan.challanNumber}
-                description={`${periodLabel(openChallan)} · due ${openChallan.dueDate}`}
+                description={`${periodLabel(openChallan)} · due ${formatDateOnly(openChallan.dueDate)}`}
                 action={
                   <Link
                     href={`/parent/fees?child=${selected.studentProfileId}`}
@@ -175,7 +176,7 @@ export default async function ParentFeesPage({
             }
           >
             <div className="overflow-x-auto">
-              <Table caption="Fee challans" className="rounded-none border-0">
+              <Table caption="Fee vouchers" className="rounded-none border-0">
                 <TableHead>
                   <TableRow>
                     <TableHeaderCell>Fee head</TableHeaderCell>
@@ -216,7 +217,7 @@ export default async function ParentFeesPage({
             </div>
 
             <div className="mt-4 flex flex-wrap items-center gap-3">
-              <PrintButton label="Print this challan" />
+              <PrintButton label="Print this voucher" />
               <p className="text-sm text-ink-muted">
                 Take the printed slip to your nearest bank branch to pay.
               </p>
@@ -254,7 +255,7 @@ export default async function ParentFeesPage({
       <Card
         header={
           <CardTitle
-            title="Challan history"
+            title="Voucher history"
             description={`Every bill issued for ${selected.name}.`}
           />
         }
@@ -270,7 +271,7 @@ export default async function ParentFeesPage({
               <TableHead>
                 <TableRow>
                   <TableHeaderCell>Period</TableHeaderCell>
-                  <TableHeaderCell>Challan #</TableHeaderCell>
+                  <TableHeaderCell>Voucher #</TableHeaderCell>
                   <TableHeaderCell align="numeric">Amount</TableHeaderCell>
                   <TableHeaderCell align="numeric">Paid</TableHeaderCell>
                   <TableHeaderCell>Status</TableHeaderCell>
@@ -302,7 +303,7 @@ export default async function ParentFeesPage({
                         {CHALLAN_STATUS_LABELS[row.status]}
                       </Badge>
                     </TableCell>
-                    <TableCell muted>{row.dueDate}</TableCell>
+                    <TableCell muted>{formatDateOnly(row.dueDate)}</TableCell>
                   </TableRow>
                 ))}
               </TableBody>
@@ -319,7 +320,7 @@ function Heading() {
     <div className="print:hidden">
       <PageHeader
         title="Fees"
-        description="Your children&rsquo;s challans and balances. Payments are recorded by the school once received — there is nothing to pay online."
+        description="Your children&rsquo;s vouchers and balances. Payments are recorded by the school once received — there is nothing to pay online."
       />
     </div>
   );

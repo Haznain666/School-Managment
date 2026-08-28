@@ -214,7 +214,7 @@ export function schoolNav({ role, permissions, moduleFlags }: SchoolNavProps): {
       items: [
         { label: 'Overview', href: '/dashboard/fees', icon: 'dashboard' },
         { label: 'Fee Structure', href: '/dashboard/fees/types', icon: 'feeStructure' },
-        { label: 'Challans', href: '/dashboard/fees/challans', icon: 'challans' },
+        { label: 'Vouchers', href: '/dashboard/fees/challans', icon: 'challans' },
         { label: 'Family Vouchers', href: '/dashboard/fees/family', icon: 'familyVouchers' },
         // Aged debt per student. Distinct from the Defaulters *tab* inside Fee
         // Reports, which is a per-challan chase list feeding the reminder

@@ -15,6 +15,7 @@ import {
   FEEDBACK_STATUS_LABELS,
   type FeedbackDecisionStatus,
 } from '@/db/schema';
+import { formatDateOnly } from '@/lib/dates';
 import {
   FEEDBACK_SECTION_DESCRIPTIONS,
   FEEDBACK_SECTION_LABELS,
@@ -373,7 +374,7 @@ export function FeedbackListing({
             kind: 'date',
             sortable: true,
             muted: true,
-            cell: (row) => new Date(row.createdAt).toLocaleDateString(),
+            cell: (row) => formatDateOnly(row.createdAt),
           },
         ]}
       />

@@ -11,6 +11,7 @@ import {
   FEEDBACK_STATUSES,
   FEEDBACK_STATUS_LABELS,
 } from '@/db/schema';
+import { formatDateOnly } from '@/lib/dates';
 import { natureBadgeVariant, statusBadgeVariant } from '@/lib/feedback';
 import type { FeedbackListRow } from '@/lib/feedback-queries';
 
@@ -128,7 +129,7 @@ export function SchoolFeedbackTable({ rows }: SchoolFeedbackTableProps) {
           kind: 'date',
           sortValue: (row) => row.createdAt,
           muted: true,
-          cell: (row) => new Date(row.createdAt).toLocaleDateString(),
+          cell: (row) => formatDateOnly(row.createdAt),
         },
       ]}
     />

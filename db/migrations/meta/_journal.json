@@ -239,6 +239,13 @@
       "when": 1787832000000,
       "tag": "0033_sprint17_student_credits",
       "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "7",
+      "when": 1787918400000,
+      "tag": "0034_sprint18_vouchers_concessions",
+      "breakpoints": true
     }
   ]
 }

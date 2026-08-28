@@ -34,9 +34,14 @@ export * from './school-id-sequences';
 // Sprint 5 — Fee Management.
 export * from './fee-types';
 export * from './fee-structures';
+// Exported before `student-concessions`, which references it: a grant records
+// which scheme it came from. Sprint 18.
+export * from './concession-schemes';
 export * from './student-concessions';
+export * from './student-concession-fee-types';
 export * from './fee-challans';
 export * from './fee-challan-items';
+export * from './fee-challan-reminders';
 export * from './fee-payments';
 export * from './late-fee-rules';
 export * from './challan-sequences';

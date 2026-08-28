@@ -424,11 +424,11 @@ async function searchChallans(input: SchoolSearchInput): Promise<SearchHit[]> {
     .limit(LIMIT);
 
   return rows.map((row) => ({
-    key: `challan:${row.id}`,
+    key: `voucher:${row.id}`,
     title: row.challanNumber,
     subtitle: `${row.studentName} · ${formatPkr(Number(row.totalAmount))} · due ${row.dueDate}`,
     href: `/dashboard/fees/challans/${row.id}`,
-    page: 'Challan',
+    page: 'Voucher',
     badge: row.status,
   }));
 }
@@ -583,7 +583,7 @@ export async function searchSchoolPortal(
     group('users', 'Portal accounts', 'users', users, '/dashboard/users'),
     group('classes', 'Classes & sections', 'grades', classes, '/dashboard/admissions/grades'),
     group('subjects', 'Subjects', 'subjects', subjectRows, '/dashboard/academics/subjects'),
-    group('challans', 'Fee challans', 'fees', challans, '/dashboard/fees/challans'),
+    group('vouchers', 'Fee vouchers', 'fees', challans, '/dashboard/fees/challans'),
     group(
       'applications',
       'Applications',
@@ -810,11 +810,11 @@ export async function searchParentPortal(input: {
       '/parent/children',
     ),
     group(
-      'challans',
-      'Fee challans',
+      'vouchers',
+      'Fee vouchers',
       'fees',
       challans.map((row) => ({
-        key: `challan:${row.id}`,
+        key: `voucher:${row.id}`,
         title: row.challanNumber,
         subtitle: `${row.studentName} · ${formatPkr(Number(row.totalAmount))} · due ${row.dueDate}`,
         href: '/parent/fees',
@@ -867,11 +867,11 @@ export async function searchStudentPortal(input: {
 
   return [
     group(
-      'challans',
-      'My fee challans',
+      'vouchers',
+      'My fee vouchers',
       'fees',
       challans.map((row) => ({
-        key: `challan:${row.id}`,
+        key: `voucher:${row.id}`,
         title: row.challanNumber,
         subtitle: `${formatPkr(Number(row.totalAmount))} · due ${row.dueDate}`,
         href: '/student/fees',

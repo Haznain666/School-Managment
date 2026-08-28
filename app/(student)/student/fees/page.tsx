@@ -15,6 +15,7 @@ import {
 import { MONTH_NAMES } from '@/db/schema/academic-years';
 import { CHALLAN_STATUS_LABELS, type ChallanStatus } from '@/db/schema/fee-challans';
 import { getStudentBySchoolUserId } from '@/lib/admissions-queries';
+import { formatDateOnly } from '@/lib/dates';
 import {
   getStudentFeeSummary,
   listStudentChallans,
@@ -99,25 +100,25 @@ export default async function StudentFeesPage() {
 
       {challans.length === 0 ? (
         <EmptyState
-          title="No challans have been issued"
-          description="A fee challan appears here once your school raises one against your name."
+          title="No vouchers have been issued"
+          description="A fee voucher appears here once your school raises one against your name."
         />
       ) : (
         <Card
           header={
             <CardTitle
-              title="Challan history"
+              title="Voucher history"
               description="Every bill issued against your name. Your parent or guardian prints and pays these."
             />
           }
           className="p-0"
         >
           <div className="overflow-x-auto">
-            <Table caption="Fee challans" className="rounded-none border-0">
+            <Table caption="Fee vouchers" className="rounded-none border-0">
               <TableHead>
                 <TableRow>
                   <TableHeaderCell>Period</TableHeaderCell>
-                  <TableHeaderCell>Challan #</TableHeaderCell>
+                  <TableHeaderCell>Voucher #</TableHeaderCell>
                   <TableHeaderCell align="numeric">Amount</TableHeaderCell>
                   <TableHeaderCell align="numeric">Paid</TableHeaderCell>
                   <TableHeaderCell>Status</TableHeaderCell>
@@ -140,7 +141,7 @@ export default async function StudentFeesPage() {
                         {CHALLAN_STATUS_LABELS[row.status]}
                       </Badge>
                     </TableCell>
-                    <TableCell muted>{row.dueDate}</TableCell>
+                    <TableCell muted>{formatDateOnly(row.dueDate)}</TableCell>
                   </TableRow>
                 ))}
               </TableBody>

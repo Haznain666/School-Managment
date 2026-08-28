@@ -171,7 +171,7 @@ export const DEFAULT_CHART: readonly ChartAccountSeed[] = [
     name: 'Fees Receivable',
     type: 'asset',
     systemKey: 'fees_receivable',
-    description: 'Fees billed on a challan and not yet received.',
+    description: 'Fees billed on a voucher and not yet received.',
   },
   {
     code: '2000',

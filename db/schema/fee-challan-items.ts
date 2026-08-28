@@ -36,6 +36,19 @@ export const feeChallanItems = pgTable(
       .default('0'),
     /** amount - concessionAmount. */
     netAmount: numeric('net_amount', { precision: 12, scale: 2 }).notNull(),
+    /**
+     * The concessions that produced `concession_amount`, named — e.g.
+     * `Sibling Discount 20%, Staff Discount PKR 2,000`.
+     *
+     * Persisted at generation time for exactly the reason `description` is: a
+     * scheme renamed in March must not rewrite what February's slip said it
+     * was. Null when nothing applied to the line, which is most lines.
+     *
+     * A parent reads a voucher once, at a counter, and a bare `−4,000` in the
+     * Concession column is a figure they have to ring the school to
+     * understand. This is the line that stops that call.
+     */
+    concessionDetail: text('concession_detail'),
   },
   (table) => [index('fee_challan_items_challan_id_idx').on(table.challanId)],
 );

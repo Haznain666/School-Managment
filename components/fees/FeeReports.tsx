@@ -11,6 +11,7 @@ import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
 import { MONTH_NAMES } from '@/db/schema/academic-years';
 import { formatAmount, formatPkr } from '@/lib/money';
+import { formatPhoneForDisplay } from '@/lib/phone-formats';
 import { schoolErrorMessage, schoolFetch } from '@/lib/school-client';
 
 /**
@@ -174,7 +175,7 @@ function OutstandingSection({ grades }: { grades: readonly GradeOption[] }) {
     },
     {
       id: 'link',
-      header: <span className="sr-only">Challan</span>,
+      header: <span className="sr-only">Voucher</span>,
       align: 'numeric',
       cell: (row) => (
         <Link
@@ -192,7 +193,7 @@ function OutstandingSection({ grades }: { grades: readonly GradeOption[] }) {
       header={
         <CardTitle
           title="Outstanding fees"
-          description="Unpaid and partly-paid challans, most overdue first."
+          description="Unpaid and partly-paid vouchers, most overdue first."
         />
       }
       className="p-0"
@@ -212,7 +213,7 @@ function OutstandingSection({ grades }: { grades: readonly GradeOption[] }) {
           getRowKey={(row) => row.challanId}
           pending={pending}
           defaultSort={{ columnId: 'overdue', direction: 'desc' }}
-          search={{ placeholder: 'Student, ID or challan number' }}
+          search={{ placeholder: 'Student, ID or voucher number' }}
           filters={[
             {
               id: 'age',
@@ -261,9 +262,9 @@ function OutstandingSection({ grades }: { grades: readonly GradeOption[] }) {
               {(rows ?? []).length === 1 ? '' : 's'}.
             </p>
           }
-          itemNoun={{ singular: 'challan', plural: 'challans' }}
+          itemNoun={{ singular: 'voucher', plural: 'vouchers' }}
           emptyTitle="Nothing is outstanding"
-          emptyDescription="Every challan raised has been settled. That is worth knowing."
+          emptyDescription="Every voucher raised has been settled. That is worth knowing."
           noResultTitle="Nothing outstanding for these filters"
           noResultDescription="Widen the grade or the billing month to see more."
         />
@@ -531,7 +532,7 @@ function DefaultersSection({
           {row.guardianName ?? '—'}
           {row.guardianPhone === null ? null : (
             <span className="block font-mono text-xs text-ink-muted">
-              {row.guardianPhone}
+              {formatPhoneForDisplay(row.guardianPhone)}
             </span>
           )}
         </>
@@ -625,7 +626,7 @@ function DefaultersSection({
           getRowKey={(row) => row.challanId}
           pending={pending}
           defaultSort={{ columnId: 'overdue', direction: 'desc' }}
-          search={{ placeholder: 'Student, guardian or challan number' }}
+          search={{ placeholder: 'Student, guardian or voucher number' }}
           filters={[
             {
               id: 'reachable',

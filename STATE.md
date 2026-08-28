@@ -8569,3 +8569,177 @@ there.
 * No test-cases document was written for this sprint.
 * Nothing here has been driven in a browser against the live tenant; the twelve
   acceptance criteria in `SPRINT-17-SPEC.md` are the QA script.
+
+---
+
+## 5bf. Sprint 18, phase 1 — the student record, the enrolment lock and DD-MMM-YYYY — 2026-08-28
+
+Spec: `SPRINT-18-SPEC.md`, eighteen items. **This is items 1, 2, 3, 4, 5, 15
+and 16 only.** Items 6–14, 17 and 18 — the voucher email, the currency sweep,
+the "Challan → Voucher" rename, the landscape print format, concession schemes,
+auto-send and the family-voucher wizard — are a later phase and none of them has
+been started.
+
+Migration: **none written, deliberately.** A single `0034` covering the whole
+sprint is folded together at the end; what this phase needs is recorded in
+`SPRINT-18-DDL-NOTES.md` at the repo root. `db/schema/role-permissions.ts`
+derives its CHECK from `PERMISSIONS` and is therefore already correct — it is
+the *live* constraint that is behind.
+
+Gates run and green: `typecheck`, `lint`, `check-loaders`, `check-forms`,
+`check-address-phone`, `check-cnic`, `check-sprint-periods`, `check-accounting`.
+`npm run build` was **not** run — it is the DevOps agent's step, and running it
+here would need the worktree `node_modules` stub deleted first (§5f).
+
+### The student record is four permissions now, and the screens follow them
+
+`students.read`, `students.create`, `students.update`, `students.delete`, in a
+new `PERMISSION_GROUPS` entry the permissions screen picks up on its own.
+
+**The defaults are chosen so that nothing changes for any school on the day this
+deploys**: the first three go to exactly the roles that already hold
+`admissions.read` / `admissions.write`, and only `school_admin` gets the fourth.
+A school with no `role_permissions` row gets them with no write at all, which is
+what that table's override design is for and why the code can ship ahead of the
+CHECK.
+
+Two screens were guarding themselves with a hand-kept list of roles —
+`role === 'school_admin' || role === 'branch_admin'` — and had drifted from the
+routes behind them: `PATCH /api/school/students/[studentId]` accepted
+`admissions.write`, so a principal could already edit a record through the API
+while the Edit button was hidden from them. **A control that is hidden but not
+enforced is the wrong half of the pair to keep.** Both now read the permission.
+
+### DELETE deletes two rows, not one, and refuses on a receipt
+
+The cascade only runs downhill. `student_profiles` references `school_users`,
+so deleting the profile alone leaves a directory row holding the child's name,
+the `student:` sentinel phone and the admission number's uniqueness — the number
+could not be reissued and the ghost would appear in the user list. Both rows go,
+in one `batch()`.
+
+It refuses with **409** once `fee_payments` holds anything against any of the
+student's vouchers, with the count in the message and *withdraw instead* in the
+same sentence. Money the school has received is answered for in the ledger, in a
+bank reconciliation and to the parent holding the counterfoil; no admissions
+screen gets to make it stop having happened. The confirm modal requires the
+admission number to be typed, because every school has two children called
+Muhammad Ali and a yes/no box is clicked through.
+
+### The Guardian phone column was printing student ids
+
+`listStudents` selected `guardianPhone: schoolUsers.phone` — the **student's**
+own directory row, whose phone is the sentinel `student:GVS-2025-0011` that
+`studentDirectoryPhone` writes because the column is `NOT NULL` and a
+seven-year-old has no phone. So the column showed sentinels and the free-text
+search on it could only ever match one.
+
+It now reads the primary guardian through a joined subquery,
+`(array_agg(phone order by is_primary_contact desc, created_at asc))[1]` —
+an ordered aggregate, which is one of the few things with no Drizzle operator
+and therefore legitimately a raw `sql` template; **no JavaScript value is
+interpolated into it.** The search gained a second pattern that re-expresses
+typed digits in the stored trunk form, because `0321 123 4567` and
+`+923211234567` are the same number and share no substring.
+
+### The fee chip, and why the filter is written from the same ranking
+
+Four states — `Admission unpaid`, `Overdue`, `Due`, `Cleared` — ranked by how
+specific the reason is rather than by severity, in `lib/student-fee-status.ts`.
+A student can be in several at once, exactly one chip shows, and the SQL filter
+in `listStudents` excludes the stronger states from the weaker ones so that
+filtering by *Overdue* returns the students whose chip says Overdue. **A filter
+that returns rows the reader can see contradict it is worse than no filter.**
+
+One grouped subquery over `fee_challans`, left-joined once and included in the
+count query too — a total that counted rows the page cannot show would page the
+reader off the end of the list. Overdue is decided by `current_date` **in the
+database**, so nothing crosses the driver and there is one clock rather than the
+browser's and the server's.
+
+### The guardian card locks until the CNIC is answered
+
+A fresh card has nothing enabled but `CnicField`. It opens when the lookup
+returns — match or no match, either is an answer — or when the clerk presses
+**"No CNIC to hand — enter by hand"**, which is offered only while the field is
+blank.
+
+Three things about that lock which should not be re-litigated:
+
+1. **A failed lookup unlocks the card.** A network blip must not become an
+   enrolment nobody can finish.
+2. **A card that arrives carrying details is never locked.** That is the
+   converted-application path: the parent typed their name and number on the
+   public form weeks ago, often with no CNIC, and locking it would leave the
+   clerk staring at fields they cannot correct behind an escape hatch that only
+   offers itself when the CNIC box is empty.
+3. **Unlocking never reverses.** Taking fields away from somebody mid-sentence
+   is not a safety feature. What a CNIC edit invalidates is the *match*, not the
+   answer.
+
+On a match, name / email / phone go read-only pointing at the guardian panel on
+the sibling's profile; relationship, occupation and primary contact stay
+editable because they are facts about *this* child. The relationship also now
+prefills from the matched record when it is still free for this student — a
+mother enrolling her second child was being offered Father, the form's default,
+and the clerk who left it created a second father and split the family the
+lookup had just recognised.
+
+### `formatPhoneForDisplay` refuses to touch anything with a letter in it
+
+The stored form is right and stays: `student_guardians.phone` is an identity.
+The defect was on the way **out** — the E.164 string was handed to `PhoneField`,
+whose value is display-format, so `isValidMobile('+923211234567')` was false and
+the field showed an error on a number the server itself had written.
+
+The guard matters more than the formatting. `school_users.phone` for a student
+is `student:GVS-2025-0011`, whose digits (`20250011`) are a plausible landline
+count — a mask applied blindly renders it `(202) 50011`, a number that does not
+exist, derived from something that was never a number. Any letter in the value
+and it is returned untouched.
+
+### Dates: `lib/dates.ts`, and the one thing it must never do
+
+`formatDateOnly`, `formatDateTime`, `formatMonthYear`, `DATE_INPUT_HINT`. A
+`YYYY-MM-DD` column value is split on the hyphens and **never handed to
+`new Date`**, which reads it as UTC midnight and prints the day before anywhere
+west of Greenwich — a date of birth and a due date both a day early, on a screen
+that has never been wrong for anyone in Karachi.
+
+`DataTable` renders `kind: 'date'` through it, but only for a string that really
+is a column value (`isIsoDateValue`). That narrowness is load-bearing:
+`Date.parse` accepts `'August 2025'` and answers the first of it, so the
+academic-year table would have had its months turned into days, and the cash
+counter's `'Never'` would have become an em dash.
+
+### Deviations from the spec, and why
+
+* **The `Fees` column is not sortable.** The states are ranked by specificity,
+  not severity, so a sort on them would order rows by a rule that reads as
+  urgency and is not one. The filter answers the question the sort was for.
+* **`students.read` also went to `coordinator`, `teacher`, `accountant` and
+  `hr_manager`.** The spec said "every role that holds `admissions.read`
+  today", and those four do — a teacher's register and a challan's section
+  picker both read students through these routes, and dropping either would
+  empty a dropdown rather than refuse a page.
+* **The delete removes the `school_users` row as well**, where the spec says
+  "a real delete of `student_profiles`". See above: the cascade does not run
+  that way.
+* **The date sweep is broad but not exhaustive.** Everything on item 15's list
+  is done — the profile card, the guardian panel, the voucher print view and
+  detail page, the defaulters list, the application table and detail, and both
+  portals — plus the two feedback tables and the user panel. A `<input
+  type="date">` that is *not* a date of birth did not get the hint.
+
+### Still open
+
+* **Migration `0034` is not written.** Until the CHECK is widened, an
+  administrator toggling any of the four new keys on the permissions screen is
+  refused by Postgres with a constraint name and no explanation. Everything else
+  in this phase works without it.
+* Items 6–14, 17 and 18 of the spec are untouched, including the
+  "Challan → Voucher" rename, so the product still says *Challan* in most
+  places while this phase's own new copy says *Voucher*.
+* Nothing here has been driven in a browser. The chip, the lock and the delete
+  refusal all need a real tenant with real vouchers to be believed.
+* `npm run build` has not been run on this branch.

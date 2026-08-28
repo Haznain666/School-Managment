@@ -122,7 +122,7 @@ function ResultsBody({
         icon={SearchX}
         tone="no-result"
         title={`Nothing matches “${trimmed}”`}
-        description="Check the spelling, or try part of a name, an admission number or a challan number."
+        description="Check the spelling, or try part of a name, an admission number or a voucher number."
       />
     );
   }

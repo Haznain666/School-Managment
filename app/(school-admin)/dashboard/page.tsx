@@ -67,7 +67,7 @@ const MODULE_HOMES: Partial<Record<string, string>> = {
 
 const MODULE_DESCRIPTIONS: Partial<Record<string, string>> = {
   admissions: 'Enrol students, review applications and set up your academic year.',
-  fee_management: 'Generate challans, record payments and chase what is overdue.',
+  fee_management: 'Generate vouchers, record payments and chase what is overdue.',
 };
 
 /** Below this, an attendance bar is marked as well as measured. */
@@ -312,7 +312,7 @@ export default async function SchoolDashboardPage() {
     ...(showFees
       ? [
           {
-            label: 'Challans',
+            label: 'Vouchers',
             href: '/dashboard/fees/challans',
             icon: 'challans' as const,
             description: 'Generate, print and record payments.',
@@ -515,7 +515,7 @@ export default async function SchoolDashboardPage() {
                   ? 'Nobody is behind'
                   : `${outstanding.defaulterCount.toLocaleString()} student${
                       outstanding.defaulterCount === 1 ? '' : 's'
-                    } behind on a challan`
+                    } behind on a voucher`
             }
           />
         ) : null}

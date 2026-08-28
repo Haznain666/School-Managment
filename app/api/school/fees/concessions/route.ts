@@ -1,9 +1,15 @@
-import { and, eq } from 'drizzle-orm';
+import { and, eq, inArray } from 'drizzle-orm';
 
-import { feeTypes, isDiscountType, studentConcessions, studentProfiles } from '@/db/schema';
+import {
+  feeTypes,
+  isDiscountType,
+  studentConcessionFeeTypes,
+  studentConcessions,
+  studentProfiles,
+} from '@/db/schema';
 import { withSchoolAuth } from '@/lib/api-auth';
 import { apiFailure, apiSuccess, handleApiError, readJsonBody } from '@/lib/api-response';
-import { db } from '@/lib/drizzle';
+import { batch, db } from '@/lib/drizzle';
 import { repriceOpenChallans } from '@/lib/fee-challans';
 import { listConcessions } from '@/lib/fee-queries';
 import { paiseToNumeric, toPaise } from '@/lib/money';
@@ -55,7 +61,10 @@ interface CreateConcessionBody {
   concessionName?: unknown;
   discountType?: unknown;
   discountValue?: unknown;
+  /** Legacy single head, still accepted and folded into `feeTypeIds`. */
   appliesToFeeTypeId?: unknown;
+  /** The heads this concession applies to. Empty = every head. */
+  feeTypeIds?: unknown;
   validFrom?: unknown;
   validUntil?: unknown;
   notes?: unknown;
@@ -138,45 +147,76 @@ export const POST = withSchoolAuth(
         return apiFailure('invalid_body', 'That student does not exist.', 400);
       }
 
-      const appliesToFeeTypeId = isUuid(body.appliesToFeeTypeId)
-        ? body.appliesToFeeTypeId
-        : null;
+      /*
+       * The heads this concession is narrowed to.
+       *
+       * A *set* since Sprint 18, written to `student_concession_fee_types`.
+       * `appliesToFeeTypeId` is still accepted from an older client and folded
+       * into the same set, because there is one calculator reading both and it
+       * must not learn to care which shape a row arrived in.
+       *
+       * **An empty set means every fee head, of every category.** That is the
+       * rule and not a shortcut — see STATE.md §5be for what the narrow reading
+       * cost when it was last made.
+       */
+      const feeTypeIds = [
+        ...new Set([
+          ...(Array.isArray(body.feeTypeIds) ? body.feeTypeIds.filter(isUuid) : []),
+          ...(isUuid(body.appliesToFeeTypeId) ? [body.appliesToFeeTypeId] : []),
+        ]),
+      ];
 
-      if (appliesToFeeTypeId !== null) {
-        const feeType = await db
+      if (feeTypeIds.length > 0) {
+        const found = await db
           .select({ id: feeTypes.id })
           .from(feeTypes)
           .where(
             and(
-              eq(feeTypes.id, appliesToFeeTypeId),
+              inArray(feeTypes.id, feeTypeIds),
               eq(feeTypes.locationId, auth.locationId),
             ),
-          )
-          .limit(1);
+          );
 
-        if (feeType[0] === undefined) {
+        if (found.length !== feeTypeIds.length) {
           return apiFailure('invalid_body', 'That fee type does not exist.', 400);
         }
       }
 
-      const created = await db
-        .insert(studentConcessions)
-        .values({
+      const concessionId = crypto.randomUUID();
+
+      // Bound to locals because the inserts below are built inside a callback,
+      // and TypeScript drops the narrowings above for a property read there —
+      // it cannot know the object is unchanged by the time the callback runs.
+      // The same note sits on the payments route, for the same reason.
+      const discountType = body.discountType;
+      const validFrom = body.validFrom;
+
+      // The grant and its narrowing commit together. A grant that landed
+      // without its heads would be a discount against *every* fee head instead
+      // of the one the school chose — wider than intended, and silently so.
+      await batch(db, (tx) => [
+        tx.insert(studentConcessions).values({
+          id: concessionId,
           locationId: auth.locationId,
           studentProfileId,
           concessionName,
-          discountType: body.discountType,
+          discountType,
           discountValue:
-            body.discountType === 'percentage'
+            discountType === 'percentage'
               ? discountValue.toFixed(2)
               : paiseToNumeric(toPaise(discountValue)),
-          appliesToFeeTypeId,
-          validFrom: body.validFrom,
+          validFrom,
           validUntil,
           approvedByUid: auth.uid,
           notes: readOptionalString(body.notes),
-        })
-        .returning({ id: studentConcessions.id });
+        }),
+        ...feeTypeIds.map((feeTypeId) =>
+          tx.insert(studentConcessionFeeTypes).values({
+            studentConcessionId: concessionId,
+            feeTypeId,
+          }),
+        ),
+      ]);
 
       /*
        * A discount granted now reaches the bills already sitting unpaid.
@@ -200,10 +240,7 @@ export const POST = withSchoolAuth(
         actorUid: auth.uid,
       });
 
-      return apiSuccess(
-        { concessionId: created[0]?.id ?? null, reprice },
-        201,
-      );
+      return apiSuccess({ concessionId, reprice }, 201);
     } catch (error) {
       return handleApiError(error);
     }

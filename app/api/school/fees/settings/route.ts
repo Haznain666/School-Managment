@@ -2,6 +2,7 @@ import { isLateFeeType, lateFeeRules } from '@/db/schema';
 import { withSchoolAuth } from '@/lib/api-auth';
 import { apiFailure, apiSuccess, handleApiError, readJsonBody } from '@/lib/api-response';
 import { db } from '@/lib/drizzle';
+import { DEFAULT_AUTO_SEND_DAY } from '@/lib/voucher-auto-send';
 import { DEFAULT_DUE_DAY, getLateFeeRule } from '@/lib/fee-queries';
 import { paiseToNumeric, toPaise } from '@/lib/money';
 import { readBoolean } from '@/lib/validation';
@@ -33,6 +34,8 @@ export const GET = withSchoolAuth(
       return apiSuccess({
         settings: rule ?? {
           dueDay: DEFAULT_DUE_DAY,
+          autoSendVouchers: false,
+          autoSendDay: DEFAULT_AUTO_SEND_DAY,
           isEnabled: false,
           graceDays: 0,
           lateFeeType: 'fixed' as const,
@@ -50,6 +53,8 @@ export const GET = withSchoolAuth(
 
 interface UpdateSettingsBody {
   dueDay?: unknown;
+  autoSendVouchers?: unknown;
+  autoSendDay?: unknown;
   isEnabled?: unknown;
   graceDays?: unknown;
   lateFeeType?: unknown;
@@ -78,6 +83,27 @@ export const PATCH = withSchoolAuth(
       }
 
       const isEnabled = readBoolean(body.isEnabled, false);
+
+      /*
+       * Auto-send. Absent means off, and off is the only safe default.
+       *
+       * A sprint that deployed and began emailing every parent at a school
+       * which never asked for it would be the worst thing this module could do,
+       * and an email cannot be recalled. So the flag is read explicitly and a
+       * body that does not mention it turns the feature off rather than
+       * preserving whatever was there — this is a replace, not a merge, and the
+       * form always sends both fields.
+       */
+      const autoSendVouchers = readBoolean(body.autoSendVouchers, false);
+
+      const autoSendDay = Number(body.autoSendDay ?? DEFAULT_AUTO_SEND_DAY);
+      if (!Number.isInteger(autoSendDay) || autoSendDay < 1 || autoSendDay > 28) {
+        return apiFailure(
+          'invalid_body',
+          'The send day must be a whole number between 1 and 28.',
+          400,
+        );
+      }
 
       const graceDays = Number(body.graceDays ?? 0);
       if (!Number.isInteger(graceDays) || graceDays < 0 || graceDays > 90) {
@@ -142,6 +168,8 @@ export const PATCH = withSchoolAuth(
         .values({
           locationId: auth.locationId,
           dueDay,
+          autoSendVouchers,
+          autoSendDay,
           isEnabled,
           graceDays,
           lateFeeType: body.lateFeeType,
@@ -152,6 +180,8 @@ export const PATCH = withSchoolAuth(
           target: lateFeeRules.locationId,
           set: {
             dueDay,
+            autoSendVouchers,
+            autoSendDay,
             isEnabled,
             graceDays,
             lateFeeType: body.lateFeeType,

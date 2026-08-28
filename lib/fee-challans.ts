@@ -19,10 +19,10 @@ import {
 
 import { resolveAdmissionFee } from './admission-fee';
 import { generateChallanNumber, reserveChallanNumbers } from './challan-number';
+import { formatMonthYear } from './dates';
 import { batch, type Database, type Tx } from './drizzle';
 import {
   applyCreditToTotals,
-  calculateChallanItems,
   calculateChallanLines,
   defaultDueDate,
   summariseChallanItems,
@@ -37,6 +37,7 @@ import {
   listBillableStructures,
   toDateOnly,
 } from './fee-queries';
+import { sendFeeVouchers, type FeeVoucherNotice } from './fee-notices';
 import { paiseToNumeric, toPaise } from './money';
 
 /**
@@ -228,6 +229,25 @@ function grantOverflowStatements(
   ];
 }
 
+/**
+ * Queues the voucher emails for a batch, without letting them touch the caller.
+ *
+ * `void`-ed and caught here rather than at each of the four call sites, so that
+ * "a generation can never fail because of an email" is one rule in one place
+ * instead of four copies of a `.catch` somebody will eventually forget. The
+ * writes have already committed by the time this is reached; see
+ * `sendFeeVouchers`.
+ */
+function queueVoucherEmails(
+  db: Database,
+  locationId: string,
+  notices: readonly FeeVoucherNotice[],
+): void {
+  void sendFeeVouchers(db, locationId, notices).catch((error: unknown) => {
+    console.warn(`[fee-challans] voucher emails could not be queued at ${locationId}:`, error);
+  });
+}
+
 export interface PreviewParams {
   locationId: string;
   studentProfileId: string;
@@ -301,7 +321,7 @@ export async function previewChallan(
   if (items.length === 0) {
     throw new ChallanGenerationError(
       'no_monthly_fees',
-      `${placement.gradeName} has no monthly fee heads priced for this year, so a monthly challan would be empty.`,
+      `${placement.gradeName} has no monthly fee heads priced for this year, so a monthly voucher would be empty.`,
       409,
     );
   }
@@ -375,7 +395,7 @@ export async function generateChallan(
   if (existing[0] !== undefined) {
     throw new ChallanGenerationError(
       'already_exists',
-      `${preview.studentName} already has challan ${existing[0].challanNumber} for this month.`,
+      `${preview.studentName} already has voucher ${existing[0].challanNumber} for this month.`,
       409,
     );
   }
@@ -418,6 +438,9 @@ export async function generateChallan(
         amount: item.amount,
         concessionAmount: item.concessionAmount,
         netAmount: item.netAmount,
+        // Frozen with the line, like `description`. A scheme renamed in March
+        // must not rewrite what February's slip said it was.
+        concessionDetail: item.concessionDetail,
       }),
     ),
     // Inside the same transaction as the challan, never after it. A credit
@@ -438,6 +461,20 @@ export async function generateChallan(
       overflowPaise: preview.overflowPaise,
       actorUid: params.actorUid,
     }),
+  ]);
+
+  // Item 6a. The voucher reaches the parent by itself rather than waiting for
+  // a child to carry the slip home.
+  queueVoucherEmails(db, params.locationId, [
+    {
+      studentProfileId: params.studentProfileId,
+      studentName: preview.studentName,
+      challanNumber,
+      periodLabel: formatMonthYear(params.billingMonth, params.billingYear),
+      dueDate: preview.dueDate,
+      totalAmount: preview.totalAmount,
+      items: preview.items,
+    },
   ]);
 
   return {
@@ -474,7 +511,7 @@ export interface GenerateAdmissionChallanParams {
  *     whole reason it is safe to leave them null rather than stamping today's
  *     month on a charge that has nothing to do with today's month.
  *
- *  2. **Only the resolved admission head is billed.** `calculateChallanItems`
+ *  2. **Only the resolved admission head is billed.** `calculateChallanLines`
  *     is given that one structure row and no `billingMonth`, so its monthly
  *     filter does not run and nothing else on the price list comes with it. A
  *     school raising an admission voucher must not accidentally bill a year's
@@ -525,7 +562,7 @@ export async function generateAdmissionChallan(
         'already_exists',
         state.challan === null
           ? 'This admission has already been confirmed as paid, so there is nothing to bill.'
-          : `This admission has already been billed on challan ${state.challan.challanNumber}.`,
+          : `This admission has already been billed on voucher ${state.challan.challanNumber}.`,
         409,
       );
     case 'not_billed':
@@ -628,6 +665,7 @@ export async function generateAdmissionChallan(
           amount: item.amount,
           concessionAmount: item.concessionAmount,
           netAmount: item.netAmount,
+          concessionDetail: item.concessionDetail,
         }),
       ),
       ...consumeCreditStatements(tx, {
@@ -670,6 +708,18 @@ export async function generateAdmissionChallan(
     }
     throw error;
   }
+
+  queueVoucherEmails(db, params.locationId, [
+    {
+      studentProfileId: params.studentProfileId,
+      studentName,
+      challanNumber,
+      periodLabel: `Admission - ${placement.academicYearName}`,
+      dueDate,
+      totalAmount: totals.totalAmount,
+      items: totals.items,
+    },
+  ]);
 
   return {
     id: challanId,
@@ -954,6 +1004,9 @@ export async function bulkGenerateChallans(
 
   const challans: BulkGenerateResult['challans'] = [];
   const problems: BulkGenerateResult['problems'] = [];
+  // Collected rather than sent per student: the fan-out is one pass over the
+  // outbox at the end, which is what the outbox is for.
+  const notices: FeeVoucherNotice[] = [];
   let failed = 0;
 
   const writeOne = async (candidate: BulkCandidate, index: number): Promise<void> => {
@@ -962,12 +1015,21 @@ export async function bulkGenerateChallans(
       failed += 1;
       problems.push({
         studentName: candidate.studentName,
-        reason: 'No challan number could be reserved.',
+        reason: 'No voucher number could be reserved.',
       });
       return;
     }
 
-    const items = calculateChallanItems(
+    /*
+     * `calculateChallanLines`, not `calculateChallanItems`.
+     *
+     * The overflow — discount the per-line clamp could not absorb — was being
+     * dropped here while both single-generation paths banked it, so a fixed
+     * concession larger than a monthly fee simply ceased to exist on the one
+     * run that raises almost every voucher a school issues. The calculator's
+     * own docblock says it: anything that *writes* a challan uses this one.
+     */
+    const { items, overflowPaise } = calculateChallanLines(
       structures,
       concessionsByStudent.get(candidate.studentProfileId) ?? [],
       params.billingMonth,
@@ -1019,6 +1081,7 @@ export async function bulkGenerateChallans(
             amount: item.amount,
             concessionAmount: item.concessionAmount,
             netAmount: item.netAmount,
+            concessionDetail: item.concessionDetail,
           }),
         ),
         ...consumeCreditStatements(tx, {
@@ -1028,11 +1091,27 @@ export async function bulkGenerateChallans(
           creditApplied: totals.creditApplied,
           actorUid: params.actorUid,
         }),
+        ...grantOverflowStatements(tx, {
+          locationId: params.locationId,
+          studentProfileId: candidate.studentProfileId,
+          challanId,
+          overflowPaise,
+          actorUid: params.actorUid,
+        }),
       ]);
       challans.push({
         challanNumber,
         studentName: candidate.studentName,
         totalAmount: totals.totalAmount,
+      });
+      notices.push({
+        studentProfileId: candidate.studentProfileId,
+        studentName: candidate.studentName,
+        challanNumber,
+        periodLabel: formatMonthYear(params.billingMonth, params.billingYear),
+        dueDate,
+        totalAmount: totals.totalAmount,
+        items: totals.items,
       });
     } catch (error) {
       // One student's failure must not stop the run; the rest are already
@@ -1040,7 +1119,7 @@ export async function bulkGenerateChallans(
       failed += 1;
       problems.push({
         studentName: candidate.studentName,
-        reason: 'The challan could not be written. Try generating it individually.',
+        reason: 'The voucher could not be written. Try generating it individually.',
       });
       console.warn(
         `[fee-challans] bulk generation failed for ${candidate.studentProfileId} at ${params.locationId}:`,
@@ -1055,6 +1134,8 @@ export async function bulkGenerateChallans(
       chunk.map(async (candidate, offset) => writeOne(candidate, start + offset)),
     );
   }
+
+  queueVoucherEmails(db, params.locationId, notices);
 
   return { generated: challans.length, skipped, failed, challans, problems };
 }
@@ -1172,7 +1253,7 @@ export async function repriceOpenChallans(
         reason: 'It could not be repriced. The concession itself was saved.',
       });
       console.warn(
-        `[fee-challans] repricing failed for challan ${challan.id} at ${params.locationId}:`,
+        `[fee-challans] repricing failed for voucher ${challan.id} at ${params.locationId}:`,
         error,
       );
     }
@@ -1210,6 +1291,7 @@ async function repriceOneChallan(
         description: feeChallanItems.description,
         amount: feeChallanItems.amount,
         concessionAmount: feeChallanItems.concessionAmount,
+        concessionDetail: feeChallanItems.concessionDetail,
       })
       .from(feeChallanItems)
       .where(
@@ -1237,7 +1319,12 @@ async function repriceOneChallan(
   // exactly as it is on a freshly generated challan — the clamp must not be
   // the last thing that knows about it.
   let lineOverflowPaise = 0;
-  const updates: Array<{ id: string; concessionAmount: string; netAmount: string }> = [];
+  const updates: Array<{
+    id: string;
+    concessionAmount: string;
+    netAmount: string;
+    concessionDetail: string | null;
+  }> = [];
 
   for (const line of lines) {
     const amountPaise = toPaise(line.amount);
@@ -1272,11 +1359,17 @@ async function repriceOneChallan(
     const linePaise = toPaise(pricedLines.items[0]?.concessionAmount ?? '0');
     concessionPaise += linePaise;
 
-    if (linePaise !== toPaise(line.concessionAmount)) {
+    const detail = pricedLines.items[0]?.concessionDetail ?? null;
+
+    // The explanation moves with the figure, or the two drift: a line saying
+    // `−4,000 · Sibling Discount 20%` after the discount was withdrawn is worse
+    // than one saying nothing, because it is confidently wrong.
+    if (linePaise !== toPaise(line.concessionAmount) || detail !== line.concessionDetail) {
       updates.push({
         id: line.id,
         concessionAmount: paiseToNumeric(linePaise),
         netAmount: paiseToNumeric(amountPaise - linePaise),
+        concessionDetail: detail,
       });
     }
   }
@@ -1345,6 +1438,7 @@ async function repriceOneChallan(
         .set({
           concessionAmount: update.concessionAmount,
           netAmount: update.netAmount,
+          concessionDetail: update.concessionDetail,
         })
         .where(eq(feeChallanItems.id, update.id)),
     ),

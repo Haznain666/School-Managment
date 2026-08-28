@@ -12,7 +12,7 @@ import { getSchoolBranding } from '@/lib/school-tenant';
 import { isUuid } from '@/lib/validation';
 
 export const metadata: Metadata = {
-  title: 'Print challans',
+  title: 'Print vouchers',
 };
 
 export const dynamic = 'force-dynamic';
@@ -114,14 +114,14 @@ export default async function BulkChallanPrintPage({
           )}
         </p>
         <p className="mt-2 text-sm text-muted">
-          In the print dialog choose <strong>A4</strong> and enable{' '}
+          In the print dialog choose <strong>A4 landscape</strong> and enable{' '}
           <strong>Background graphics</strong> — without it the table rules and
           cut lines do not appear on the page.
         </p>
         <PrintNow className="mt-4" />
       </Card>
 
-      <PrintSheet paper="a4">
+      <PrintSheet paper="a4" orientation="landscape">
         {found.map((challan, index) => (
           <ChallanCopies
             key={challan.id}

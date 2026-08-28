@@ -17,7 +17,7 @@ import { settleEnrolmentIfFeePaid } from '@/lib/enrolment-fee-gate';
 import { challanStatusFor, remainingBalance } from '@/lib/fee-calculator';
 import { getChallanDetail } from '@/lib/fee-queries';
 import { sendPaymentConfirmation } from '@/lib/fee-notices';
-import { formatAmount, paiseToNumeric, toPaise } from '@/lib/money';
+import { formatPkr, paiseToNumeric, toPaise } from '@/lib/money';
 import { isUuid, readOptionalString } from '@/lib/validation';
 
 /**
@@ -93,10 +93,10 @@ export const GET = withSchoolAuth<RouteContext>(
   async (_request, auth, context) => {
     try {
       const { challanId } = await context.params;
-      if (!isUuid(challanId)) return apiFailure('not_found', 'Challan not found.', 404);
+      if (!isUuid(challanId)) return apiFailure('not_found', 'Voucher not found.', 404);
 
       const challan = await getChallanDetail(auth.locationId, challanId);
-      if (challan === null) return apiFailure('not_found', 'Challan not found.', 404);
+      if (challan === null) return apiFailure('not_found', 'Voucher not found.', 404);
 
       return apiSuccess({
         payments: challan.payments,
@@ -171,15 +171,15 @@ export const POST = withSchoolAuth<RouteContext>(
   async (request, auth, context) => {
     try {
       const { challanId } = await context.params;
-      if (!isUuid(challanId)) return apiFailure('not_found', 'Challan not found.', 404);
+      if (!isUuid(challanId)) return apiFailure('not_found', 'Voucher not found.', 404);
 
       const challan = await getChallanDetail(auth.locationId, challanId);
-      if (challan === null) return apiFailure('not_found', 'Challan not found.', 404);
+      if (challan === null) return apiFailure('not_found', 'Voucher not found.', 404);
 
       if (challan.status === 'cancelled' || challan.status === 'waived') {
         return apiFailure(
           'challan_closed',
-          `This challan is ${challan.status}, so no payment can be recorded against it.`,
+          `This voucher is ${challan.status}, so no payment can be recorded against it.`,
           409,
         );
       }
@@ -222,7 +222,7 @@ export const POST = withSchoolAuth<RouteContext>(
       if (amountPaise > remainingPaise) {
         return apiFailure(
           'amount_too_large',
-          `Only PKR ${formatAmount(remainingPaise / 100)} is still owed on this challan.`,
+          `Only ${formatPkr(remainingPaise / 100)} is still owed on this voucher.`,
           400,
         );
       }

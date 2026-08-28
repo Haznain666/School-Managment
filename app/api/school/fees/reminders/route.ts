@@ -6,6 +6,7 @@ import { apiFailure, apiSuccess, handleApiError, readJsonBody } from '@/lib/api-
 import { db } from '@/lib/drizzle';
 import { primaryGuardiansFor } from '@/lib/fee-queries';
 import { canReachGuardian, sendFeeReminder } from '@/lib/fee-notices';
+import { recordReminder } from '@/lib/fee-reminders';
 import { toPaise } from '@/lib/money';
 import { isUuid } from '@/lib/validation';
 
@@ -97,6 +98,7 @@ export const POST = withSchoolAuth(
       );
 
       let queued = 0;
+      let recorded = 0;
       let noGuardian = 0;
       let unreachable = 0;
 
@@ -120,6 +122,23 @@ export const POST = withSchoolAuth(
 
         queued += 1;
 
+        /*
+         * The record that this family has been chased (item 6b).
+         *
+         * Awaited, unlike the send. It is one INSERT with the sequence computed
+         * inside it, and the number it produces is what the chip on the
+         * defaulters row says — so a response claiming three reminders while
+         * the rows were still landing would be a screen that disagrees with
+         * itself on refresh. `recordReminder` never throws.
+         */
+        const sequence = await recordReminder({
+          locationId: auth.locationId,
+          challanId: row.id,
+          sentToEmail: guardian.email,
+          sentByUid: auth.uid,
+        });
+        if (sequence !== null) recorded += 1;
+
         // Fired, not awaited: see the note at the top of this file.
         void sendFeeReminder(db, auth.locationId, {
           guardian,
@@ -135,6 +154,7 @@ export const POST = withSchoolAuth(
 
       return apiSuccess({
         queued,
+        recorded,
         skipped: rows.length - owing.length,
         noGuardian,
         unreachable,

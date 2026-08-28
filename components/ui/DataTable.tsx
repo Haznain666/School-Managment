@@ -27,6 +27,7 @@ import {
   TableRow,
   type TableAlign,
 } from '@/components/ui/Table';
+import { formatDateOnly, isIsoDateValue } from '@/lib/dates';
 import { cn } from '@/lib/utils';
 
 /**
@@ -297,6 +298,35 @@ function compareValues(
 function defaultAlign<Row>(column: DataTableColumn<Row>): TableAlign {
   if (column.align !== undefined) return column.align;
   return column.kind === 'number' || column.kind === 'money' ? 'numeric' : 'start';
+}
+
+/**
+ * What goes in the cell — and, for a `date` column, in the one date format.
+ *
+ * ── Why this is the table's job and not each caller's ────────────────────
+ * A `kind: 'date'` column has already told this component that its value is a
+ * date; leaving it to render `'2026-08-02'` as it stands means the product
+ * shows a column-shaped ISO string on one screen and `8/2/2026` on the next,
+ * and `8/2/2026` is the second of August or the eighth of February depending
+ * on a setting nobody in the school chose. `formatDateOnly` reads a
+ * `YYYY-MM-DD` as a calendar date rather than as UTC midnight, which is the
+ * other half of the same defect — see `lib/dates.ts`.
+ *
+ * Only a plain string that is *actually* a column value is touched, and only
+ * then. A cell that returns an element has decided how it wants to look — a
+ * badge, a link, a date with a note under it — and a cell that returns
+ * `'Never'`, `'in 3 days'` or `'August 2025'` has already turned its value into
+ * a sentence. Reaching into either would be this component overruling its
+ * caller, and in the last case it would turn a month into the first of it.
+ */
+function renderCell<Row>(column: DataTableColumn<Row>, row: Row): ReactNode {
+  const content = column.cell(row);
+
+  if (column.kind === 'date' && typeof content === 'string' && isIsoDateValue(content)) {
+    return formatDateOnly(content);
+  }
+
+  return content;
 }
 
 function isSortable<Row>(column: DataTableColumn<Row>): boolean {
@@ -740,7 +770,7 @@ export function DataTable<Row>({
                         muted={column.muted}
                         className={column.className}
                       >
-                        {column.cell(row)}
+                        {renderCell(column, row)}
                       </TableCell>
                     ))}
                   </TableRow>

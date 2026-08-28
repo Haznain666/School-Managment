@@ -36,7 +36,7 @@ export default async function RecordPaymentPage({
     <div className="space-y-6">
       <PageHeader
         breadcrumbs={[
-          { label: 'Challans', href: '/dashboard/fees/challans' },
+          { label: 'Vouchers', href: '/dashboard/fees/challans' },
           { label: challan.challanNumber, href: `/dashboard/fees/challans/${challanId}` },
           { label: 'Record payment' },
         ]}

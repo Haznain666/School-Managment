@@ -4,10 +4,12 @@ import { and, eq } from 'drizzle-orm';
 
 import { schools } from '@/db/schema';
 
+import { formatDateOnly } from './dates';
 import type { Database } from './drizzle';
 import { enqueueEmail } from './email-outbox';
 import { smtpConfigured } from './email-sender';
-import { formatAmount } from './money';
+import { primaryGuardiansFor } from './fee-queries';
+import { formatPkr } from './money';
 
 /**
  * Fee notices to guardians (Sprint 5).
@@ -152,27 +154,146 @@ export async function sendFeeReminder(
       params.schoolName ?? (await schoolNameFor(db, locationId)) ?? 'your school';
 
     const message =
-      `Dear ${params.guardian.name}, fee challan ${params.challanNumber} for ` +
-      `${params.studentName} of PKR ${formatAmount(params.amountDue)} was due on ` +
+      `Dear ${params.guardian.name}, fee voucher ${params.challanNumber} for ` +
+      `${params.studentName} of ${formatPkr(params.amountDue)} was due on ` +
       `${params.dueDate}. Please pay at your nearest bank. - ${schoolName}`;
 
     await notifyGuardian(
       locationId,
       params.guardian,
-      `Fee challan ${params.challanNumber} is overdue — ${schoolName}`,
+      `Fee voucher ${params.challanNumber} is overdue — ${schoolName}`,
       message,
     );
 
     console.info(
-      `[fee-notices] fee reminder queued for challan ${params.challanNumber} at ${locationId}`,
+      `[fee-notices] fee reminder queued for voucher ${params.challanNumber} at ${locationId}`,
     );
   } catch (error) {
     // The challan is unchanged and the report still shows it as overdue; the
     // school can send again. Nothing here is worth failing a request over.
     console.warn(
-      `[fee-notices] fee reminder failed for challan ${params.challanNumber} at ${locationId}:`,
+      `[fee-notices] fee reminder failed for voucher ${params.challanNumber} at ${locationId}:`,
       error,
     );
+  }
+}
+
+/** One voucher, as the email describes it. */
+export interface FeeVoucherNotice {
+  studentProfileId: string;
+  studentName: string;
+  challanNumber: string;
+  /** `Aug 2026`, or the session name for a one-off. */
+  periodLabel: string;
+  /** `YYYY-MM-DD`. Rendered as DD-MMM-YYYY. */
+  dueDate: string;
+  /** PKR payable. */
+  totalAmount: string | number;
+  items: readonly {
+    description: string;
+    netAmount: string;
+    /** `Sibling Discount 20%`, when one applied. */
+    concessionDetail?: string | null;
+  }[];
+  /**
+   * The contact to write to, when the caller already knows it.
+   *
+   * A family voucher is one slip for several children and goes to the guardian
+   * it was issued to — not to each child's primary contact, which would be the
+   * same person receiving the same voucher three times. Omitted everywhere
+   * else, where the primary contact per student is the right answer and is
+   * resolved in one query for the whole batch.
+   */
+  guardian?: GuardianContact | undefined;
+}
+
+/**
+ * Emails a freshly raised voucher to each student's primary contact.
+ *
+ * -- Why a voucher has to reach the parent by itself --------------------
+ * Every route that raised one left the paper in the office and told nobody. A
+ * school's actual process was then a child carrying a slip home, which is how a
+ * fee becomes overdue for reasons that have nothing to do with money. This is
+ * the whole of Sprint 18's through-line: *a voucher has to reach the parent by
+ * itself.*
+ *
+ * -- Shape: exactly the reminder's, and for the same reasons ------------
+ * Never awaited inside a request, never able to fail a generation, and queued
+ * through `enqueueEmail` rather than sent. A bulk run of three hundred vouchers
+ * is three hundred INSERTs and a drainer, not three hundred SMTP connections
+ * opened from inside one request and racing the process's lifetime -- see
+ * `notifyGuardian` for what that cost when the reminders path did it.
+ *
+ * It also swallows everything. A generation that failed because a mail host was
+ * slow would leave the school with no voucher *and* no email, which is strictly
+ * worse than a voucher nobody was told about.
+ *
+ * One query for the guardians of the whole batch, so the bulk caller pays for
+ * one lookup rather than one per child.
+ */
+export async function sendFeeVouchers(
+  db: Database,
+  locationId: string,
+  notices: readonly FeeVoucherNotice[],
+): Promise<void> {
+  if (notices.length === 0) return;
+
+  try {
+    const needLookup = notices.filter((notice) => notice.guardian === undefined);
+
+    const [schoolName, guardians] = await Promise.all([
+      schoolNameFor(db, locationId),
+      primaryGuardiansFor(
+        locationId,
+        needLookup.map((notice) => notice.studentProfileId),
+      ),
+    ]);
+
+    const school = schoolName ?? 'your school';
+
+    for (const notice of notices) {
+      const guardian = notice.guardian ?? guardians.get(notice.studentProfileId);
+      // A child with no guardian recorded is a real state -- an older record, a
+      // conversion that skipped it -- and not one worth logging per voucher on
+      // a three-hundred-strong run.
+      if (guardian === undefined) continue;
+
+      const lines = notice.items
+        .map((item) => {
+          const detail =
+            item.concessionDetail === null || item.concessionDetail === undefined
+              ? ''
+              : ` (${item.concessionDetail})`;
+          return `  ${item.description}${detail}: ${formatPkr(item.netAmount)}`;
+        })
+        .join('\n');
+
+      const message =
+        `Dear ${guardian.name},\n\n` +
+        `Fee voucher ${notice.challanNumber} has been issued for ${notice.studentName} ` +
+        `for ${notice.periodLabel}.\n\n` +
+        `${lines}\n\n` +
+        `Total payable: ${formatPkr(notice.totalAmount)}\n` +
+        `Due on: ${formatDateOnly(notice.dueDate)}\n\n` +
+        `A printed copy is available from the school office. ` +
+        `Please pay at your nearest bank on or before the due date.\n\n` +
+        `- ${school}`;
+
+      await notifyGuardian(
+        locationId,
+        guardian,
+        `Fee voucher ${notice.challanNumber} - ${school}`,
+        message,
+      );
+    }
+
+    console.info(
+      `[fee-notices] ${notices.length} fee voucher email(s) processed at ${locationId}`,
+    );
+  } catch (error) {
+    // The vouchers are already written and printable. Nothing here is worth
+    // failing a generation over.
+    console.warn(`[fee-notices] fee voucher emails failed at ${locationId}:`, error);
   }
 }
 
@@ -201,23 +322,23 @@ export async function sendPaymentConfirmation(
       params.schoolName ?? (await schoolNameFor(db, locationId)) ?? 'your school';
 
     const message =
-      `Dear ${params.guardian.name}, payment of PKR ${formatAmount(params.amountPaid)} ` +
-      `received for ${params.studentName} against challan ${params.challanNumber}. ` +
+      `Dear ${params.guardian.name}, payment of ${formatPkr(params.amountPaid)} ` +
+      `received for ${params.studentName} against voucher ${params.challanNumber}. ` +
       `Thank you. - ${schoolName}`;
 
     await notifyGuardian(
       locationId,
       params.guardian,
-      `Payment received for challan ${params.challanNumber} — ${schoolName}`,
+      `Payment received for voucher ${params.challanNumber} — ${schoolName}`,
       message,
     );
 
     console.info(
-      `[fee-notices] payment confirmation queued for challan ${params.challanNumber} at ${locationId}`,
+      `[fee-notices] payment confirmation queued for voucher ${params.challanNumber} at ${locationId}`,
     );
   } catch (error) {
     console.warn(
-      `[fee-notices] payment confirmation failed for challan ${params.challanNumber} at ${locationId}:`,
+      `[fee-notices] payment confirmation failed for voucher ${params.challanNumber} at ${locationId}:`,
       error,
     );
   }

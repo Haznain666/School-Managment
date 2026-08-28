@@ -297,7 +297,7 @@ announcement the school believes went out and nobody received.
 
 ## Green build
 
-All nine must pass before anything is merged:
+All ten must pass before anything is merged:
 
 ```
 npm run typecheck
@@ -306,6 +306,7 @@ npm run check-loaders
 npm run check-forms
 npm run check-address-phone
 npm run check-cnic
+npm run check-currency
 npm run check-sprint-periods
 npm run check-accounting
 npm run build
@@ -315,11 +316,11 @@ Plus whichever of the other `check-*` scripts covers the area you touched —
 `check-reports`, `check-dashboard`, `check-portals`, `check-provisioning`,
 `check-smtp`.
 
-`.github/workflows/ci.yml` runs the seven that need no database —
+`.github/workflows/ci.yml` runs the eight that need no database —
 `check-loaders`, `check-forms`, `check-address-phone`, `check-cnic`,
-`check-theme`, `check-sprint-periods` and `check-accounting` — on every push and
-pull request, so the loader, CNIC and double-entry rules are enforced by the
-repository and not only by whoever remembers them. The rest execute against the real schema and stay on a
+`check-currency`, `check-theme`, `check-sprint-periods` and `check-accounting` —
+on every push and pull request, so the loader, CNIC, currency and double-entry
+rules are enforced by the repository and not only by whoever remembers them. The rest execute against the real schema and stay on a
 machine that holds the credentials.
 
 ### Building in a worktree

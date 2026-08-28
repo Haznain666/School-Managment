@@ -10,6 +10,7 @@ import {
   uuid,
 } from 'drizzle-orm/pg-core';
 
+import { concessionSchemes } from './concession-schemes';
 import { feeTypes } from './fee-types';
 import { schools } from './schools';
 import { studentProfiles } from './student-profiles';
@@ -53,8 +54,31 @@ export const studentConcessions = pgTable(
     discountType: text('discount_type').notNull().$type<DiscountType>(),
     /** A percentage (0–100) or a flat PKR amount, per `discount_type`. */
     discountValue: numeric('discount_value', { precision: 10, scale: 2 }).notNull(),
-    /** Null = every fee head, whatever its category. */
+    /**
+     * The single head this grant is narrowed to, for rows written before
+     * Sprint 18. Null = every fee head, whatever its category.
+     *
+     * Superseded by `student_concession_fee_types`, which holds a *set*, and
+     * deliberately **not backfilled**. `listActiveConcessions` folds this
+     * column into the array on the way out, so a legacy row keeps behaving
+     * exactly as it did. New grants leave it null and write the join rows.
+     */
     appliesToFeeTypeId: uuid('applies_to_fee_type_id').references(() => feeTypes.id, {
+      onDelete: 'set null',
+    }),
+    /**
+     * The scheme this grant came from, when it came from one (Sprint 18).
+     *
+     * Provenance, never a live join: the name, the rate and the dates are
+     * copied onto this row at grant time and are what price a voucher. It
+     * answers "which policy is this" — which is the question an audit asks and
+     * the one nothing could answer before — and never "how much is it worth".
+     *
+     * `set null` on delete, so removing a scheme leaves every grant it made
+     * standing. Deleting a policy is not the same act as taking a discount off
+     * four hundred children, and it must not silently be one.
+     */
+    schemeId: uuid('scheme_id').references(() => concessionSchemes.id, {
       onDelete: 'set null',
     }),
     validFrom: date('valid_from').notNull(),
@@ -70,6 +94,9 @@ export const studentConcessions = pgTable(
   (table) => [
     index('student_concessions_location_id_idx').on(table.locationId),
     index('student_concessions_student_profile_id_idx').on(table.studentProfileId),
+    // "Who is on the staff discount, and who already holds this scheme" — the
+    // second of those is asked once per student on every bulk apply.
+    index('student_concessions_scheme_id_idx').on(table.schemeId),
     check(
       'student_concessions_discount_type_check',
       sql`${table.discountType} IN ('percentage', 'fixed')`,

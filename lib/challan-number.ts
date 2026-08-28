@@ -89,7 +89,7 @@ export async function generateChallanNumber(
 
   const sequence = rows[0]?.lastSequence;
   if (sequence === undefined) {
-    throw new ChallanNumberError('Could not reserve a challan number. Please try again.');
+    throw new ChallanNumberError('Could not reserve a voucher number. Please try again.');
   }
 
   return formatChallanNumber(code, billingYear, billingMonth, sequence);
@@ -135,7 +135,7 @@ export async function reserveChallanNumbers(
 
   const last = rows[0]?.lastSequence;
   if (last === undefined) {
-    throw new ChallanNumberError('Could not reserve challan numbers. Please try again.');
+    throw new ChallanNumberError('Could not reserve voucher numbers. Please try again.');
   }
 
   // `last` is the highest number in our block; the block starts count-1 below it.

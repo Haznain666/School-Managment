@@ -9,6 +9,7 @@ import {
   gte,
   ilike,
   inArray,
+  isNotNull,
   isNull,
   lt,
   lte,
@@ -31,6 +32,7 @@ import {
   schoolUsers,
   schools,
   sections,
+  studentConcessionFeeTypes,
   studentConcessions,
   studentCredits,
   studentEnrollments,
@@ -38,6 +40,7 @@ import {
   studentProfiles,
   gradeLabel,
   isChallanStatus,
+  type ChallanKindFilter,
   type ChallanStatus,
   type CreditReason,
   type DiscountType,
@@ -276,27 +279,62 @@ export async function listConcessions(
 }
 
 /**
+ * One grant, in the shape the calculator prices from.
+ *
+ * `appliesToFeeTypeIds` is the Sprint 18 head *set*; `appliesToFeeTypeId` is
+ * the single-head column every pre-Sprint-18 row still carries. Both are
+ * returned and the calculator folds them together, because there is no
+ * backfill: a grant written in Sprint 5 must price exactly as it always did.
+ * An empty set with a null legacy column means **every head, of every
+ * category** — see `concessionHeads` in `lib/fee-calculator.ts`.
+ */
+export interface ActiveConcessionRow {
+  id: string;
+  concessionName: string;
+  discountType: DiscountType;
+  discountValue: string;
+  appliesToFeeTypeId: string | null;
+  appliesToFeeTypeIds: string[];
+}
+
+/** The head sets of many grants at once, keyed by grant id. */
+async function headSetsFor(
+  concessionIds: readonly string[],
+): Promise<Map<string, string[]>> {
+  const result = new Map<string, string[]>();
+  if (concessionIds.length === 0) return result;
+
+  const rows = await db
+    .select({
+      studentConcessionId: studentConcessionFeeTypes.studentConcessionId,
+      feeTypeId: studentConcessionFeeTypes.feeTypeId,
+    })
+    .from(studentConcessionFeeTypes)
+    .where(inArray(studentConcessionFeeTypes.studentConcessionId, [...concessionIds]));
+
+  for (const row of rows) {
+    const heads = result.get(row.studentConcessionId) ?? [];
+    heads.push(row.feeTypeId);
+    result.set(row.studentConcessionId, heads);
+  }
+
+  return result;
+}
+
+/**
  * The concessions in force for a student on a given date.
  *
  * A concession is active when the date falls inside its window; an open-ended
  * one (null `valid_until`) never expires. Passing the *billing* date rather
- * than today matters: regenerating June's challan in August must apply June's
+ * than today matters: regenerating June's voucher in August must apply June's
  * discounts, not August's.
  */
 export async function listActiveConcessions(
   locationId: string,
   studentProfileId: string,
   onDate: string,
-): Promise<
-  Array<{
-    id: string;
-    concessionName: string;
-    discountType: DiscountType;
-    discountValue: string;
-    appliesToFeeTypeId: string | null;
-  }>
-> {
-  return db
+): Promise<ActiveConcessionRow[]> {
+  const rows = await db
     .select({
       id: studentConcessions.id,
       concessionName: studentConcessions.concessionName,
@@ -316,6 +354,10 @@ export async function listActiveConcessions(
         ),
       ),
     );
+
+  const heads = await headSetsFor(rows.map((row) => row.id));
+
+  return rows.map((row) => ({ ...row, appliesToFeeTypeIds: heads.get(row.id) ?? [] }));
 }
 
 /** Concessions in force for many students at once, keyed by student. */
@@ -323,28 +365,8 @@ export async function listActiveConcessionsForStudents(
   locationId: string,
   studentProfileIds: readonly string[],
   onDate: string,
-): Promise<
-  Map<
-    string,
-    Array<{
-      id: string;
-      concessionName: string;
-      discountType: DiscountType;
-      discountValue: string;
-      appliesToFeeTypeId: string | null;
-    }>
-  >
-> {
-  const result = new Map<
-    string,
-    Array<{
-      id: string;
-      concessionName: string;
-      discountType: DiscountType;
-      discountValue: string;
-      appliesToFeeTypeId: string | null;
-    }>
-  >();
+): Promise<Map<string, ActiveConcessionRow[]>> {
+  const result = new Map<string, ActiveConcessionRow[]>();
 
   if (studentProfileIds.length === 0) return result;
 
@@ -370,6 +392,8 @@ export async function listActiveConcessionsForStudents(
       ),
     );
 
+  const heads = await headSetsFor(rows.map((row) => row.id));
+
   for (const row of rows) {
     const existing = result.get(row.studentProfileId) ?? [];
     existing.push({
@@ -378,6 +402,7 @@ export async function listActiveConcessionsForStudents(
       discountType: row.discountType,
       discountValue: row.discountValue,
       appliesToFeeTypeId: row.appliesToFeeTypeId,
+      appliesToFeeTypeIds: heads.get(row.id) ?? [],
     });
     result.set(row.studentProfileId, existing);
   }
@@ -392,6 +417,13 @@ export async function listActiveConcessionsForStudents(
 export interface LateFeeSettings {
   /** Day of the month monthly challans fall due. */
   dueDay: number;
+  /**
+   * Whether the school emails its parents this month's open vouchers on a
+   * timer. Off until a school turns it on — see `db/schema/late-fee-rules.ts`.
+   */
+  autoSendVouchers: boolean;
+  /** Day of the month that send runs on. */
+  autoSendDay: number;
   isEnabled: boolean;
   graceDays: number;
   lateFeeType: LateFeeType;
@@ -414,6 +446,8 @@ export async function getLateFeeRule(
       lateFeeType: lateFeeRules.lateFeeType,
       lateFeeAmount: lateFeeRules.lateFeeAmount,
       maxLateFee: lateFeeRules.maxLateFee,
+      autoSendVouchers: lateFeeRules.autoSendVouchers,
+      autoSendDay: lateFeeRules.autoSendDay,
     })
     .from(lateFeeRules)
     .where(eq(lateFeeRules.locationId, locationId))
@@ -483,6 +517,7 @@ export interface ListChallansFilters {
   academicYearId?: string | undefined;
   billingMonth?: number | undefined;
   billingYear?: number | undefined;
+  kind?: ChallanKindFilter | undefined;
   gradeId?: string | undefined;
   sectionId?: string | undefined;
   status?: string | undefined;
@@ -506,7 +541,7 @@ export interface ListChallansResult {
 /**
  * The challan register, filtered and paginated.
  *
- * Grade and section come from the student's enrolment in the challan's own
+ * Grade and section come from the student's enrolment in the voucher's own
  * academic year, so a challan raised last year still shows the class the child
  * was actually in when it was issued.
  */
@@ -522,6 +557,24 @@ export async function listChallans(
   if (filters.academicYearId !== undefined && filters.academicYearId !== '') {
     conditions.push(eq(feeChallans.academicYearId, filters.academicYearId));
   }
+  /*
+   * The kind filter, and the reason the register needed one.
+   *
+   * An admission voucher carries a **null** `billing_month` by design — an
+   * admission is not a period — so the month filter could never match it and it
+   * appeared in no list at all. The register defaulted to the current month, so
+   * in practice every admission voucher a school raised was invisible from the
+   * moment it was written.
+   */
+  if (filters.kind === 'monthly') {
+    conditions.push(isNotNull(feeChallans.billingMonth));
+  } else if (filters.kind === 'one_off') {
+    conditions.push(isNull(feeChallans.billingMonth));
+    conditions.push(isNull(feeChallans.challanKind));
+  } else if (filters.kind === 'admission') {
+    conditions.push(eq(feeChallans.challanKind, 'admission'));
+  }
+
   if (filters.billingMonth !== undefined) {
     conditions.push(eq(feeChallans.billingMonth, filters.billingMonth));
   }
@@ -730,6 +783,16 @@ export interface ChallanItemRow {
   amount: string;
   concessionAmount: string;
   netAmount: string;
+  /**
+   * The head's category, read live from `fee_types`.
+   *
+   * Null once the head has been deleted — the line survives it, carrying its
+   * frozen `description`, and the Details line simply drops the category rather
+   * than guessing one.
+   */
+  feeCategory: string | null;
+  /** `Sibling Discount 20%`, frozen on the line when the voucher was raised. */
+  concessionDetail: string | null;
 }
 
 export interface ChallanPaymentRow {
@@ -828,8 +891,14 @@ export async function getChallanDetail(
         amount: feeChallanItems.amount,
         concessionAmount: feeChallanItems.concessionAmount,
         netAmount: feeChallanItems.netAmount,
+        concessionDetail: feeChallanItems.concessionDetail,
+        // Live, because `fee_challan_items` has never carried it and a
+        // back-filled guess would be a fact about today printed on a slip from
+        // February. A deleted head leaves it null and the line says less.
+        feeCategory: feeTypes.feeCategory,
       })
       .from(feeChallanItems)
+      .leftJoin(feeTypes, eq(feeTypes.id, feeChallanItems.feeTypeId))
       .where(
         and(
           eq(feeChallanItems.locationId, locationId),
@@ -1437,4 +1506,38 @@ export async function guardianOwnsStudent(
     );
 
   return (rows[0]?.value ?? 0) > 0;
+}
+
+/**
+ * How much money this school has taken against one student, as a count of
+ * receipts.
+ *
+ * ── Why it is a count and not a boolean ──────────────────────────────────
+ * Its one caller is `DELETE /api/school/students/[studentId]`, and the number
+ * goes into the refusal: "has 3 payments recorded against their vouchers" is a
+ * sentence a clerk can check, where "cannot be deleted" invites a second and a
+ * third attempt at the same button.
+ *
+ * Joined through `fee_challans` rather than read from a student column, because
+ * `fee_payments` has no student of its own — a payment is made against a bill,
+ * which is the only relationship that survives a family voucher clubbing four
+ * children's bills together.
+ */
+export async function countPaymentsForStudent(
+  locationId: string,
+  studentProfileId: string,
+): Promise<number> {
+  const rows = await db
+    .select({ value: count() })
+    .from(feePayments)
+    .innerJoin(feeChallans, eq(feeChallans.id, feePayments.challanId))
+    .where(
+      and(
+        eq(feePayments.locationId, locationId),
+        eq(feeChallans.locationId, locationId),
+        eq(feeChallans.studentProfileId, studentProfileId),
+      ),
+    );
+
+  return rows[0]?.value ?? 0;
 }
