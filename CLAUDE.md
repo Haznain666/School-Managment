@@ -205,6 +205,30 @@ Reserve `` sql`` `` for expressions that have no operator — `count(*) filter
 (…)`, `extract(isodow from …)`, a cast. If you are writing a comparison, there
 is an operator for it.
 
+### And when you do write one: alias it to a name no joined table has
+
+**Drizzle renders a column inside a `` sql`` `` template *unqualified*.** That is
+the same rendering behaviour §5av of `STATE.md` records against the day book,
+and it has now shipped a defect twice.
+
+| Write | Not |
+| --- | --- |
+| `` sql`…`.as('guardian_phone') ``, referenced as `"primary_guardian"."guardian_phone"` | `` sql`…`.as('phone') `` |
+
+The second one is Sprint 18's: an ordered aggregate aliased `phone`, in a
+statement that also joins `school_users.phone`. Postgres refused the whole query
+with 42702, `column reference "phone" is ambiguous`, and the all-students screen
+was a 500 at every school for as long as it was live.
+
+**Qualify every reference to it, including the one in the `WHERE`.** That is not
+tidiness. In Sprint 18's query an unqualified `phone` in the `WHERE` would have
+bound to `school_users.phone` — the `student:<admission number>` sentinel — and
+searched the wrong column *silently* instead of failing.
+
+**Nothing in the repository can catch this.** No check script executes a query,
+so a green build says only that the SQL compiled, never that Postgres would
+accept it. The gate is opening the screen.
+
 ---
 
 ## RULE: the ledger is append-only, and everything that moves money posts to it

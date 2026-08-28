@@ -4,7 +4,29 @@
 resume without re-deriving context. Updated at the end of every development
 step, before the session ends.
 
-**Last updated:** 2026-08-27 (**Sprint 17 — onboarding, the admission fee, and
+**Last updated:** 2026-08-28 (**Sprint 18 — a challan is a Voucher, concession
+schemes the school owns, student CRUD as four permissions, and the family
+voucher as three steps — §5bg. `0034` APPLIED and verified, 34 rows → 35.
+**DEPLOYED AND LIVE as `02904e373dc3`**, PRs #37 and #38 merged.
+
+⚠ **#37 shipped a 500.** `/dashboard/admissions/students` was down at every
+school on `dbe7571156cb` — `listStudents` aliased a raw-`sql` subquery column
+`phone` and Drizzle emits those *unqualified*, so it collided with the joined
+`school_users.phone`: Postgres 42702, `column reference "phone" is ambiguous`.
+**This is the second time that exact Drizzle behaviour has shipped a defect**
+— §5av is the first. Alias to a name no joined table has, and qualify it.
+Nine green gates could not see it because none of them executes a query; §5bf
+had recorded, in its own words, that the phase was never driven in a browser.
+#38 is QA's fix for it plus four more.
+
+⚠ **`npm run build` caught what nothing else could** — a `'use client'` table
+value-importing from a `server-only` module. A bundling fault is invisible to
+typecheck, lint and all eight check scripts. Do not treat the build as the slow
+gate to skip.
+
+⚠ **One row was left at LGS and it is money**: a 5,000.00 unspent credit on
+Student 11, needing a human's `DELETE`. See §5bg.**;
+2026-08-27 (**Sprint 17 — onboarding, the admission fee, and
 the discount that never applied — §5be. `0033` APPLIED and verified.
 **DEPLOYED AND LIVE as `51c185f367cd`**, PR #33 merged. Four defects found by QA
 driving the fee module against real data, plus one caught in review; all five
@@ -8743,3 +8765,173 @@ counter's `'Never'` would have become an em dash.
 * Nothing here has been driven in a browser. The chip, the lock and the delete
   refusal all need a real tenant with real vouchers to be believed.
 * `npm run build` has not been run on this branch.
+
+---
+
+## 5bg. Sprint 18 — the voucher, the concession the school owns, and the 500 that shipped — 2026-08-28
+
+Spec: `SPRINT-18-SPEC.md`, eighteen items reported by the product owner against
+Lahore Grammar School. **§5bf above describes only phase 1 and is superseded by
+this section**: all eighteen items are now built, migrated, deployed and driven.
+
+Migration **`0034` is APPLIED and verified** —
+`db/migrations/0034_sprint18_vouchers_concessions.sql`. 34 bookkeeping rows
+before, **35** after. Three new tables, four new columns, one widened CHECK; 30
+constraint-firing assertions, each expected refusal inside its own `SAVEPOINT`
+per §5be, whole transaction rolled back, 30 of 30 passed.
+
+**DEPLOYED AND LIVE as `02904e373dc3`.** PR
+[#37](https://github.com/Haznain666/School-Managment/pull/37) (the sprint) and
+[#38](https://github.com/Haznain666/School-Managment/pull/38) (QA's fixes,
+including a live 500) both merged. Test cases:
+`test-cases/TEST-CASES-SPRINT-18.md` — 63 passed, 6 defects, 62 not executed.
+Release note: `release-notes/RELEASE-NOTES-SPRINT-18.md`.
+
+### 🐛 The all-students screen shipped as a 500 at every school
+
+`dbe7571156cb` went live with `/dashboard/admissions/students` returning 500 for
+every user at every school. Items 3 and 4 could not render a row.
+
+`listStudents` aliased its guardian-phone ordered aggregate as `phone`. **Drizzle
+emits a raw-`sql` subquery column unqualified**, `school_users.phone` is joined
+on the same statement, and Postgres refused the whole query — 42702,
+`column reference "phone" is ambiguous`.
+
+**This is the second time this exact Drizzle behaviour has cost a shipped
+defect.** §5av is the first: the day book threw on every call for five sprints
+for the same reason. The rule that follows from having paid for it twice:
+
+> **Alias a raw-`sql` subquery column to something no joined table has, and
+> qualify every reference to it.** `guardian_phone`, never `phone`.
+
+The qualification is not cosmetic. Unqualified in the `WHERE`, the search would
+have bound to `school_users.phone` — the `student:<admission number>` sentinel
+that item 3 exists to stop showing people. It would have silently searched the
+wrong column instead of failing loudly.
+
+**No gate could have caught it.** Nine were green: none of them executes a
+query. What would have caught it is driving the screen once, and §5bf records in
+its own words that phase 1 had never been driven in a browser.
+
+### The build is the only gate with a bundler in it
+
+`npm run build` refused the artifact after item 6e moved the defaulters screen
+onto `DataTable`:
+
+    ./lib/defaulters.ts
+    Error: You're importing a component that needs "server-only".
+
+`AgedDebtTable` is a client component and imported `AGING_BUCKETS` and
+`BUCKET_LABELS` as **values**. They are pure constants sitting above everything
+in that file that touches the database — but the bundler follows a value import,
+and `lib/defaulters.ts` opens with `import 'server-only'`.
+`lib/aging-buckets.ts` now holds them with no imports at all, and
+`lib/defaulters.ts` re-exports them so no server-side caller changed.
+
+Typecheck, lint and all eight check scripts were green throughout. A
+`server-only` violation is a bundling fact. **That is the argument for the build
+staying in CLAUDE.md's nine rather than being the slow one to skip.**
+
+A sweep of the whole boundary found three other client components importing from
+`server-only` modules — `FeeClearancePanel`, five exam components, three
+feedback components — and every one is `import type`, erased before the bundler
+sees it. Only the value import broke.
+
+### The four other defects QA found
+
+* **The register's Kind column called every admission voucher a One-off.**
+  Filtering by *Admission* returned four rows all labelled One-off:
+  `listChallans` never selected `challan_kind`, so the cell inferred a kind from
+  `billing_month`, which an admission voucher deliberately leaves null.
+* **A scheme's Students count was always nought** — the same
+  unqualified-emission class as the 500. The correlated subquery came out as
+  `where "scheme_id" = "id"`, comparing each row's `scheme_id` to its own primary
+  key. Raw SQL counted 1; the API returned 0.
+* **A Tuition-only concession was described as "off every fee head."** The
+  sentence read the legacy single-head column, which a multi-select grant leaves
+  null. The calculator was right and only the description was wrong — which is
+  the dangerous direction, because a description reads as a guarantee.
+* **Item 9 missed the navbar search placeholder**, the most-read string in the
+  product, plus two hints, a page description and five refusals.
+
+### Sprint 17's credit-idempotence regression holds
+
+Specifically re-tested, because §5be records a *fix* introducing it: after a
+third unrelated concession write forced another reprice, Student 11's credit was
+still exactly one 5,000.00 row with its original timestamp.
+`grantedOverflowPaise` is doing its job. Do not remove it.
+
+### The rename was mechanical and three of its results were not
+
+150 words across 41 files, restricted to string literals and JSX text so that
+`const challan = …` stayed code. Three occurrences inside strings were
+identifiers and keep the old spelling: `icon: 'challans'` is a key into the icon
+registry, `challan-copy` is a CSS class `globals.css` styles by name, and
+`BulkGenerateResult['challans']` indexes a type. Typecheck caught two; the rule
+that skips a match touching `/`, `-`, `.` or `_` caught the third.
+
+Nothing else was renamed — not a table, a column, a route, a file or a
+permission key. A route rename breaks every bookmark a school has.
+
+### Two environment facts, both new
+
+* **`DATABASE_URL` in `.env.local` holds unescaped literal `@` characters in the
+  password.** `postgres.js` tolerates it; **`npx drizzle-kit migrate` hung on it
+  for five minutes and applied nothing.** That is why the documented
+  `npm run db:migrate` route does not work. `0034` was applied through
+  drizzle-orm's own `postgres-js` migrator instead — same statements, same
+  `drizzle.__drizzle_migrations` bookkeeping. Percent-encoding the password
+  would likely restore the documented route.
+* **Streamed Suspense boundaries never reveal while the Browser pane is
+  undisplayed.** React 19 gates reveals on `requestAnimationFrame`, and an
+  uncomposited pane fires none. This is **not** §5be's missing static copy —
+  assets were fine, chunks returned 200, fibers were attached. The workaround
+  (override rAF, drain React's `$RB`/`$RV` queue) is written up in the
+  test-cases file.
+
+### ⚠ QA shares a database with production, and that has teeth
+
+`.env.standalone.local` **must have SMTP blanked**. Any voucher generated during
+QA queues real mail to real parents, which the *live* drainer will then send.
+The outbox came out of this run at 17 sent and 0 queued — no parent was emailed
+— but only because it was blanked in time.
+
+### ⚠ One row left behind at LGS, and it is money
+
+A **5,000.00 unspent `discount_overflow` credit for Student 11**
+(`8d7a36af-c562-4728-ba37-df5e20f0fde8`), banked by a deliberate overflow test
+and stranded by the limitation below. It is harmless until Student 11's next
+voucher, which would silently consume 5,000 rupees the school never granted.
+The exact `DELETE` is in `test-cases/TEST-CASES-SPRINT-18.md`.
+
+`student_credits` is not one of the two append-only ledger tables, so removing
+it breaks no rule — but **an agent deleting a row from a live production
+database should be a human decision**, and it was left for one.
+
+LGS is otherwise exactly as found: both QA schemes deleted, all grants removed,
+Student 11's voucher restored to 50,000 / 15,000 / 35,000 unpaid, ledger
+untouched. One benign permanent change: that voucher's items now carry
+`concession_detail` where they carried null, which is accurate and is what item
+14 wants.
+
+### Known limitation, reported rather than built
+
+**Removing a concession does not claw back the overflow credit it banked.**
+Repricing the open voucher is correct; the banked credit stays. Reducing a
+credit that may already be partly spent is a decision about real money, so QA
+stopped rather than guessing — the right call, and the same judgement §5be
+records about a cancelled voucher not returning its credit.
+
+### What was NOT verified, honestly
+
+Items 1, 2, 6, 10, 17 and 18 are largely unexecuted. The enrolment wizard was
+never driven. Items 6, 17 and 18 all require emailing real guardians or posting
+to an append-only ledger at a live tenant. Item 10's print layout cannot be
+judged from the DOM.
+
+**Item 18's even-spread partial-payment arithmetic is the sum most worth
+checking in this sprint and it remains unchecked** — LGS has no family fixture
+for it. All of these need a **disposable tenant**, which is now the single most
+valuable thing this project could build for its own QA.
+
+### Next free migration number is `0035`.
