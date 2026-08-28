@@ -131,7 +131,7 @@ export function SchoolNavbar({
           <GlobalSearch
             endpoint="/api/school/search"
             resultsHref={searchResultsHref}
-            placeholder="Search students, staff, challans…  /"
+            placeholder="Search students, staff, vouchers…  /"
             tone="brand"
             className="w-full max-w-md"
           />

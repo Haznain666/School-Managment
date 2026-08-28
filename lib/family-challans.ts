@@ -417,7 +417,7 @@ export async function createFamilyChallan(params: {
   const { locationId, guardianId, challanIds, dueDate, actorUid } = params;
 
   if (challanIds.length < 2) {
-    throw new FamilyChallanError('A family voucher needs at least two challans.');
+    throw new FamilyChallanError('A family voucher needs at least two vouchers.');
   }
 
   const guardianRows = await db
@@ -939,7 +939,7 @@ export async function cancelFamilyChallan(
 
   if (Number(voucher.paidAmount) > 0) {
     throw new FamilyChallanError(
-      'Money has been paid against this voucher and distributed to the children’s challans. Cancelling it would leave those receipts pointing at nothing.',
+      'Money has been paid against this voucher and distributed to the children’s vouchers. Cancelling it would leave those receipts pointing at nothing.',
       409,
     );
   }
