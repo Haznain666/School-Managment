@@ -448,14 +448,41 @@ export async function listStudents(
   const primaryGuardian = db
     .select({
       studentProfileId: studentGuardians.studentProfileId,
+      /*
+       * Aliased `guardian_phone`, not `phone`, and that is load-bearing.
+       *
+       * Drizzle emits a raw-`sql` subquery column by its alias *unqualified* —
+       * `"phone"`, not `"primary_guardian"."phone"`. `school_users` is joined
+       * on the same statement and has a `phone` of its own, so the alias
+       * `phone` made the whole listing fail to parse with
+       * `column reference "phone" is ambiguous` (42702) — a 500 on the
+       * all-students screen, every time. A name no other joined table carries
+       * resolves unambiguously without qualifying anything.
+       */
       phone: sql<string>`(array_agg(${studentGuardians.phone} order by ${studentGuardians.isPrimaryContact} desc, ${studentGuardians.createdAt} asc))[1]`.as(
-        'phone',
+        'guardian_phone',
       ),
     })
     .from(studentGuardians)
     .where(eq(studentGuardians.locationId, locationId))
     .groupBy(studentGuardians.studentProfileId)
     .as('primary_guardian');
+
+  /*
+   * The joined subquery's column, written out qualified.
+   *
+   * Drizzle emits a raw-`sql` subquery column by its bare alias, and this
+   * statement also joins `school_users`, which has a `phone`. Unqualified, the
+   * SELECT failed to parse (`column reference "phone" is ambiguous`, 42702) and
+   * the WHERE below would have silently bound to `school_users.phone` — the
+   * `student:<admission number>` sentinel this column exists to stop matching.
+   * A qualified reference to a joined relation is valid in both clauses, which
+   * a select-list alias would not be in the WHERE.
+   *
+   * No JavaScript value is interpolated here; the search pattern is bound by
+   * `ilike` as a parameter, as CLAUDE.md requires.
+   */
+  const guardianPhoneColumn = sql<string>`"primary_guardian"."guardian_phone"`;
 
   /*
    * Every open voucher this school holds, counted once per student.
@@ -558,7 +585,7 @@ export async function listStudents(
       // The guardian's number, and never `school_users.phone` — the student's
       // own directory row carries the `student:<admission number>` sentinel
       // there, so that comparison could only ever match a sentinel.
-      ilike(primaryGuardian.phone, pattern),
+      ilike(guardianPhoneColumn, pattern),
     ];
 
     /*
@@ -571,7 +598,7 @@ export async function listStudents(
     const digits = search.replace(/\D/g, '');
     if (digits.length >= 4) {
       const stored = digits.startsWith('0') ? `92${digits.slice(1)}` : digits;
-      patterns.push(ilike(primaryGuardian.phone, `%${stored}%`));
+      patterns.push(ilike(guardianPhoneColumn, `%${stored}%`));
     }
 
     const matches = or(...patterns);
@@ -592,7 +619,7 @@ export async function listStudents(
       branchId: grades.branchId,
       branchName: branches.name,
       academicYearName: academicYears.name,
-      guardianPhone: primaryGuardian.phone,
+      guardianPhone: guardianPhoneColumn,
       enrollmentDate: studentEnrollments.enrollmentDate,
       status: studentEnrollments.status,
       rollNumber: studentEnrollments.rollNumber,

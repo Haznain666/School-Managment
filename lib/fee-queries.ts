@@ -40,6 +40,7 @@ import {
   studentProfiles,
   gradeLabel,
   isChallanStatus,
+  type ChallanKind,
   type ChallanKindFilter,
   type ChallanStatus,
   type CreditReason,
@@ -243,6 +244,19 @@ export interface ConcessionRow {
   discountValue: string;
   appliesToFeeTypeId: string | null;
   appliesToFeeTypeName: string | null;
+  /**
+   * The Sprint 18 head *set*, by name, for the screen to describe the grant.
+   *
+   * Without it the panel could only read the legacy single-head column, which
+   * a multi-select grant leaves null — so a concession the clerk had scoped to
+   * Tuition Fee alone was described on screen as "off every fee head". The
+   * calculator was right and the sentence above it was wrong, which is the
+   * worst of the two to get wrong: nothing errors and the clerk reads a
+   * discount that is wider than the one they granted.
+   *
+   * Empty **and** a null legacy column genuinely does mean every head.
+   */
+  appliesToFeeTypeNames: string[];
   validFrom: string;
   validUntil: string | null;
   notes: string | null;
@@ -253,7 +267,7 @@ export async function listConcessions(
   locationId: string,
   studentProfileId: string,
 ): Promise<ConcessionRow[]> {
-  return db
+  const rows = await db
     .select({
       id: studentConcessions.id,
       studentProfileId: studentConcessions.studentProfileId,
@@ -276,6 +290,32 @@ export async function listConcessions(
       ),
     )
     .orderBy(desc(studentConcessions.validFrom));
+
+  if (rows.length === 0) return [];
+
+  // One grouped read for the whole panel rather than one per grant, the same
+  // shape `listConcessionSchemes` uses for a scheme's heads.
+  const heads = await db
+    .select({
+      studentConcessionId: studentConcessionFeeTypes.studentConcessionId,
+      feeTypeName: feeTypes.name,
+    })
+    .from(studentConcessionFeeTypes)
+    .innerJoin(feeTypes, eq(feeTypes.id, studentConcessionFeeTypes.feeTypeId))
+    .where(
+      inArray(
+        studentConcessionFeeTypes.studentConcessionId,
+        rows.map((row) => row.id),
+      ),
+    )
+    .orderBy(asc(feeTypes.sortOrder), asc(feeTypes.name));
+
+  return rows.map((row) => ({
+    ...row,
+    appliesToFeeTypeNames: heads
+      .filter((head) => head.studentConcessionId === row.id)
+      .map((head) => head.feeTypeName),
+  }));
 }
 
 /**
@@ -480,6 +520,15 @@ export interface ChallanListRow {
   sectionName: string | null;
   billingMonth: number | null;
   billingYear: number | null;
+  /**
+   * What kind of bill this is, as the register's Kind filter means it.
+   *
+   * Read for the *label*, not only the filter. Without it a null
+   * `billing_month` is the only thing the table can see, and an admission
+   * voucher is indistinguishable from a genuine one-off — so filtering by
+   * Admission returned four rows whose own Kind column called them One-off.
+   */
+  challanKind: ChallanKind | null;
   dueDate: string;
   issueDate: string;
   subtotal: string;
@@ -667,6 +716,7 @@ function challanSelect() {
       sectionName: sections.name,
       billingMonth: feeChallans.billingMonth,
       billingYear: feeChallans.billingYear,
+      challanKind: feeChallans.challanKind,
       dueDate: feeChallans.dueDate,
       issueDate: feeChallans.issueDate,
       subtotal: feeChallans.subtotal,
@@ -739,6 +789,7 @@ interface RawChallanRow {
   sectionName: string | null;
   billingMonth: number | null;
   billingYear: number | null;
+  challanKind: ChallanKind | null;
   dueDate: string;
   issueDate: string;
   subtotal: string;
@@ -765,6 +816,7 @@ function mapChallanRow(row: RawChallanRow): ChallanListRow {
     sectionName: row.sectionName,
     billingMonth: row.billingMonth,
     billingYear: row.billingYear,
+    challanKind: row.challanKind,
     dueDate: row.dueDate,
     issueDate: row.issueDate,
     subtotal: row.subtotal,
@@ -845,6 +897,7 @@ export async function getChallanDetail(
       rollNumber: studentEnrollments.rollNumber,
       billingMonth: feeChallans.billingMonth,
       billingYear: feeChallans.billingYear,
+      challanKind: feeChallans.challanKind,
       dueDate: feeChallans.dueDate,
       issueDate: feeChallans.issueDate,
       subtotal: feeChallans.subtotal,

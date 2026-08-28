@@ -15,6 +15,7 @@ import {
   DISCOUNT_TYPE_LABELS,
   type DiscountType,
 } from '@/db/schema/student-concessions';
+import { formatDateOnly } from '@/lib/dates';
 import { formatPkr } from '@/lib/money';
 import { schoolErrorMessage, schoolFetch } from '@/lib/school-client';
 
@@ -33,6 +34,8 @@ interface ConcessionRow {
   discountValue: string;
   appliesToFeeTypeId: string | null;
   appliesToFeeTypeName: string | null;
+  /** The Sprint 18 head set by name. Empty, with a null legacy id, is every head. */
+  appliesToFeeTypeNames?: string[];
   /** The scheme this grant came from, when it came from one. Provenance only. */
   schemeName?: string | null;
   validFrom: string;
@@ -89,10 +92,22 @@ function isActive(row: ConcessionRow): boolean {
 }
 
 function describeDiscount(row: ConcessionRow): string {
-  // "every fee head", not "all monthly fees" — the label was describing the
-  // pre-Sprint-17 behaviour, which is the behaviour the bug had.
+  /*
+   * The head *set* first, then the legacy single-head column, then "every".
+   *
+   * "every fee head", not "all monthly fees" — the label was describing the
+   * pre-Sprint-17 behaviour, which is the behaviour the bug had. And a grant
+   * made through the Sprint 18 multi-select leaves the legacy column null, so
+   * reading only that column described a Tuition-only discount as applying to
+   * every head — wider than what was granted, with nothing to signal it.
+   */
+  const named = row.appliesToFeeTypeNames ?? [];
   const scope =
-    row.appliesToFeeTypeName === null ? 'every fee head' : row.appliesToFeeTypeName;
+    named.length > 0
+      ? named.join(', ')
+      : row.appliesToFeeTypeName === null
+        ? 'every fee head'
+        : row.appliesToFeeTypeName;
 
   return row.discountType === 'percentage'
     ? `${Number(row.discountValue)}% off ${scope}`
@@ -277,8 +292,10 @@ export function ConcessionManager({ feeTypes, canEdit }: ConcessionManagerProps)
                       {describeDiscount(row)}
                     </p>
                     <p className="text-xs text-ink-muted">
-                      From {row.validFrom}
-                      {row.validUntil === null ? ' · no end date' : ` to ${row.validUntil}`}
+                      From {formatDateOnly(row.validFrom)}
+                      {row.validUntil === null
+                        ? ' · no end date'
+                        : ` to ${formatDateOnly(row.validUntil)}`}
                     </p>
                     {row.notes === null || row.notes === '' ? null : (
                       <p className="mt-1 text-xs text-ink-muted">{row.notes}</p>

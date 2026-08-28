@@ -62,7 +62,7 @@ export async function generateChallanNumber(
   const code = normalizeSchoolCode(schoolCode);
   if (code === '') {
     throw new ChallanNumberError(
-      'This school has no school code set. Add one in the Super Admin panel before generating challans.',
+      'This school has no school code set. Add one in the Super Admin panel before generating vouchers.',
     );
   }
 
@@ -116,7 +116,7 @@ export async function reserveChallanNumbers(
   const code = normalizeSchoolCode(schoolCode);
   if (code === '') {
     throw new ChallanNumberError(
-      'This school has no school code set. Add one in the Super Admin panel before generating challans.',
+      'This school has no school code set. Add one in the Super Admin panel before generating vouchers.',
     );
   }
 

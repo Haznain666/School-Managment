@@ -45,12 +45,12 @@ export const POST = withSchoolAuth(
       }
 
       if (!Array.isArray(body.challanIds) || body.challanIds.length === 0) {
-        return apiFailure('invalid_body', 'Select at least one challan.', 400);
+        return apiFailure('invalid_body', 'Select at least one voucher.', 400);
       }
 
       const challanIds = body.challanIds.filter(isUuid);
       if (challanIds.length === 0) {
-        return apiFailure('invalid_body', 'Select at least one challan.', 400);
+        return apiFailure('invalid_body', 'Select at least one voucher.', 400);
       }
 
       if (challanIds.length > MAX_REMINDERS) {

@@ -43,7 +43,7 @@ const CATEGORY_OPTIONS = FEE_CATEGORIES.map((value) => ({
 }));
 
 const CATEGORY_HINT: Record<FeeCategory, string> = {
-  monthly: 'Billed on every monthly challan.',
+  monthly: 'Billed on every monthly voucher.',
   one_time: 'Billed once, when the student joins.',
   annual: 'Billed once a year.',
 };
@@ -324,7 +324,7 @@ export function FeeTypeManager({ canEdit }: FeeTypeManagerProps) {
               min={0}
               max={999}
               value={draft.sortOrder}
-              hint="Lower numbers appear first on the challan."
+              hint="Lower numbers appear first on the voucher."
               onChange={(event) => {
                 setDraft({ ...draft, sortOrder: event.target.value });
               }}

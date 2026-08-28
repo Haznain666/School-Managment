@@ -149,7 +149,7 @@ async function getSchoolCode(db: Database, locationId: string): Promise<string> 
   if (code === '') {
     throw new ChallanGenerationError(
       'no_school_code',
-      'This school has no school code set. Add one in the Super Admin panel before generating challans.',
+      'This school has no school code set. Add one in the Super Admin panel before generating vouchers.',
       409,
     );
   }
@@ -986,7 +986,7 @@ export async function bulkGenerateChallans(
   if (structures.length === 0) {
     throw new ChallanGenerationError(
       'no_fee_structure',
-      'No fee structure is set up for this grade in the selected academic year. Add one before generating challans.',
+      'No fee structure is set up for this grade in the selected academic year. Add one before generating vouchers.',
       409,
     );
   }

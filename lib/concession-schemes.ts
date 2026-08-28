@@ -81,12 +81,27 @@ export async function listConcessionSchemes(
       validUntil: concessionSchemes.validUntil,
       isActive: concessionSchemes.isActive,
       notes: concessionSchemes.notes,
-      // A grouped count rather than one query per scheme: the tab shows it on
-      // every row, and a school with a dozen schemes should not cost a dozen
-      // round trips to render a list.
+      /*
+       * A grouped count rather than one query per scheme: the tab shows it on
+       * every row, and a school with a dozen schemes should not cost a dozen
+       * round trips to render a list.
+       *
+       * ── Both sides are written out qualified, and that is the whole point ──
+       * Interpolating the columns instead — `${studentConcessions.schemeId} =
+       * ${concessionSchemes.id}` — emits them *unqualified*:
+       *
+       *     select count(*) from "student_concessions"
+       *     where "scheme_id" = "id"
+       *
+       * Inside the subquery only `student_concessions` is in scope, and it has
+       * an `id` of its own, so that compares every row's `scheme_id` to its own
+       * primary key. It is never true, it raises no error, and the Students
+       * column read 0 at a school where a scheme had already been granted —
+       * the one number on the tab that says whether applying a scheme worked.
+       */
       grantedCount: sql<number>`(
-        select count(*) from ${studentConcessions}
-        where ${studentConcessions.schemeId} = ${concessionSchemes.id}
+        select count(*) from "student_concessions"
+        where "student_concessions"."scheme_id" = "concession_schemes"."id"
       )`.mapWith(Number),
     })
     .from(concessionSchemes)

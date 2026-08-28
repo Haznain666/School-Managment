@@ -19,7 +19,7 @@ export default async function FeeTypesPage() {
     <div className="space-y-6">
       <PageHeader
         title="Fee types"
-        description="The heads your school bills under. A head&rsquo;s category decides when it is charged — only monthly heads appear on a monthly challan."
+        description="The heads your school bills under. A head&rsquo;s category decides when it is charged — only monthly heads appear on a monthly voucher."
       />
 
       <FeeSetupNav />
