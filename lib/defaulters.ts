@@ -14,6 +14,7 @@ import {
   OPEN_CHALLAN_STATUSES,
 } from '@/db/schema';
 
+import { AGING_BUCKETS, type AgingBucket } from './aging-buckets';
 import { db } from './drizzle';
 import { remindersForStudents, type ReminderChip } from './fee-reminders';
 import { maskPhone } from './phone';
@@ -36,16 +37,20 @@ import { maskPhone } from './phone';
  * is how a collection call goes wrong.
  */
 
-export const AGING_BUCKETS = ['current', 'd1_30', 'd31_60', 'd61_90', 'd90_plus'] as const;
-export type AgingBucket = (typeof AGING_BUCKETS)[number];
-
-export const BUCKET_LABELS: Record<AgingBucket, string> = {
-  current: 'Not yet due',
-  d1_30: '1–30 days',
-  d31_60: '31–60 days',
-  d61_90: '61–90 days',
-  d90_plus: 'Over 90 days',
-};
+/*
+ * Re-exported, not declared here.
+ *
+ * The definitions moved to `lib/aging-buckets.ts` so that the client component
+ * drawing the aged-debt table can import them without dragging this module's
+ * `server-only` marker — and `db/drizzle` behind it — into the browser bundle.
+ * Every server-side caller of `@/lib/defaulters` keeps working unchanged.
+ */
+export {
+  AGING_BUCKETS,
+  BUCKET_LABELS,
+  isAgingBucket,
+  type AgingBucket,
+} from './aging-buckets';
 
 export interface DefaulterRow {
   studentProfileId: string;
@@ -335,6 +340,3 @@ export async function listDefaulters(
 }
 
 /** Kept so a caller can type the filter without importing the whole module. */
-export function isAgingBucket(value: unknown): value is AgingBucket {
-  return typeof value === 'string' && (AGING_BUCKETS as readonly string[]).includes(value);
-}

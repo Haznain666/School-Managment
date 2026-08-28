@@ -12,7 +12,7 @@ import { Modal } from '@/components/ui/Modal';
 import { Select } from '@/components/ui/Select';
 import { PAYMENT_METHODS, PAYMENT_METHOD_LABELS } from '@/db/schema/fee-payments';
 import { formatDateOnly } from '@/lib/dates';
-import { AGING_BUCKETS, BUCKET_LABELS, type AgingBucket } from '@/lib/defaulters';
+import { AGING_BUCKETS, BUCKET_LABELS, type AgingBucket } from '@/lib/aging-buckets';
 import { formatAmount, formatPkr, toPaise } from '@/lib/money';
 import { formatPhoneForDisplay } from '@/lib/phone-formats';
 import { schoolErrorMessage, schoolFetch } from '@/lib/school-client';
