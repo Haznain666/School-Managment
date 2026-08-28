@@ -51,6 +51,7 @@ interface ChallanRow {
   sectionName: string | null;
   billingMonth: number | null;
   billingYear: number | null;
+  challanKind: string | null;
   dueDate: string;
   totalAmount: string;
   paidAmount: string;
@@ -105,7 +106,17 @@ const MONTH_OPTIONS = [
   ...MONTH_NAMES.map((name, index) => ({ value: String(index + 1), label: name })),
 ];
 
+/**
+ * The Kind cell, written from the same three shapes the Kind filter selects on.
+ *
+ * `challanKind` is read *first* and on purpose. An admission voucher carries a
+ * null `billing_month` by design, so a label derived from the month alone calls
+ * it "One-off" — which is how filtering by Admission came back with four rows
+ * whose own Kind column disagreed with the filter that had just found them.
+ * The filter and this label now answer from the same column.
+ */
 function billingLabel(row: ChallanRow): string {
+  if (row.challanKind === 'admission') return 'Admission';
   if (row.billingMonth === null || row.billingYear === null) return 'One-off';
   return `${MONTH_NAMES[row.billingMonth - 1] ?? row.billingMonth} ${row.billingYear}`;
 }
