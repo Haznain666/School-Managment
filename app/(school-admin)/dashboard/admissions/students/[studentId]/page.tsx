@@ -5,6 +5,7 @@ import { notFound } from 'next/navigation';
 import { FeeClearancePanel } from '@/components/admissions/FeeClearancePanel';
 import { GuardianPanel } from '@/components/admissions/GuardianPanel';
 import { SiblingCard } from '@/components/admissions/SiblingCard';
+import { StudentDocumentsCard } from '@/components/admissions/StudentDocumentsCard';
 import { StudentProfileCard } from '@/components/admissions/StudentProfileCard';
 import { Badge } from '@/components/ui/Badge';
 import { Card, CardTitle } from '@/components/ui/Card';
@@ -21,6 +22,7 @@ import {
   getStudentDetail,
   listEnrollmentHistory,
   listGuardians,
+  listStudentDocuments,
 } from '@/lib/admissions-queries';
 import { formatDateOnly } from '@/lib/dates';
 import { MAX_GUARDIANS } from '@/lib/enrollment';
@@ -49,13 +51,18 @@ export default async function StudentProfilePage({
 }: {
   params: Promise<{ studentId: string }>;
   /**
-   * `?photo=failed&reason=…` from the enrolment wizard.
+   * `?photo=failed&reason=…` from the enrollment wizard.
    *
    * Reading `searchParams` normally opts a page out of prerendering — see
    * CLAUDE.md — but this page has been `force-dynamic` since it was written,
    * because it is one student's record. There is nothing to lose here.
    */
-  searchParams: Promise<{ photo?: string; reason?: string }>;
+  searchParams: Promise<{
+    photo?: string;
+    reason?: string;
+    documents?: string;
+    documentsReason?: string;
+  }>;
 }) {
   const { claims, locationId, permissions } =
     await requireSchoolPermission('students.read');
@@ -69,7 +76,8 @@ export default async function StudentProfilePage({
   // A branch-scoped admin may only look inside their own branch.
   if (claims.branchId !== null && student.branchId !== claims.branchId) notFound();
 
-  const [guardians, enrollments, siblings, admissionFee, credits] = await Promise.all([
+  const [guardians, enrollments, siblings, admissionFee, credits, documents] =
+    await Promise.all([
     listGuardians(locationId, studentId),
     listEnrollmentHistory(locationId, studentId),
     // Derived, never stored: everyone who shares a guardian identity with this
@@ -77,19 +85,42 @@ export default async function StudentProfilePage({
     // that rule costs.
     listSiblings(locationId, studentId),
     // The admission fee as the *fee structure* has it, not as a flag on the
-    // enrolment. Sprint 17: the panel below used to know only whether somebody
+    // enrollment. Sprint 17: the panel below used to know only whether somebody
     // had ticked this admission as paid, which meant it offered that tick on a
     // grade whose admission fee had never been priced.
     resolveAdmissionFee(locationId, studentId),
     // Credit carried forward. `SUM(amount)` over an append-only table — see
     // `db/schema/student-credits.ts`, which is emphatically not the ledger.
     getStudentCreditHistory(locationId, studentId),
+    // Sprint 19b, item 16c. Chips on a card rather than a table: a school holds
+    // six of these and the only question asked of the list is "have we got her
+    // B-Form".
+    listStudentDocuments(locationId, studentId),
   ]);
 
-  const { photo: photoFlag, reason: photoReason } = await searchParams;
+  const {
+    photo: photoFlag,
+    reason: photoReason,
+    documents: documentsFlag,
+    documentsReason,
+  } = await searchParams;
+
   const photoUploadProblem =
     photoFlag === 'failed'
       ? (photoReason ?? 'The upload did not complete.')
+      : null;
+
+  /*
+   * A document that did not make it off the enrollment wizard.
+   *
+   * Carried as its own flag rather than folded into `photo=failed`, because
+   * the two are answered in two different places on this page — and a message
+   * saying the photo failed, printed over a photo that is fine, sends the
+   * operator to fix the wrong thing.
+   */
+  const documentUploadProblem =
+    documentsFlag === 'failed'
+      ? (documentsReason ?? 'One or more documents did not upload.')
       : null;
 
   // The row that granted the credit, so the card can link to the voucher that
@@ -100,7 +131,7 @@ export default async function StudentProfilePage({
   /*
    * Whether this admission is still waiting on its fee.
    *
-   * Read off the *active* enrolment specifically. A student with none — one
+   * Read off the *active* enrollment specifically. A student with none — one
    * who has left, or whose placement has not been made — has no admission to
    * confirm, and treating that as "awaiting fee" would hold their guardians'
    * portal accounts behind a payment nobody is going to make.
@@ -140,6 +171,21 @@ export default async function StudentProfilePage({
           )}
 
           {/*
+            Sprint 19b, item 17. Gated on `exams.read` — the same permission the
+            page itself requires — because this is a link to a child's marks and
+            the roles a school deliberately withholds results from must not be
+            offered them here either.
+          */}
+          {permissions.includes('exams.read') ? (
+            <Link
+              href={`/dashboard/admissions/students/${studentId}/history`}
+              className="text-sm font-medium text-brand-primary hover:underline"
+            >
+              Academic history
+            </Link>
+          ) : null}
+
+          {/*
             A transfer always starts from looking at one named child, which is
             why it is reached from here and not from a list. Gated on its own
             permission rather than on `canEdit`: moving a student reassigns
@@ -168,7 +214,7 @@ export default async function StudentProfilePage({
         }}
       />
 
-      <Card header={<CardTitle title="Current enrolment" />}>
+      <Card header={<CardTitle title="Current enrollment" />}>
         {current === null ? (
           <p className="text-sm text-ink-muted">
             This student has no placement in the active academic year.
@@ -185,13 +231,13 @@ export default async function StudentProfilePage({
         )}
       </Card>
 
-      <Card header={<CardTitle title="Enrolment history" />} className="p-0">
+      <Card header={<CardTitle title="Enrollment history" />} className="p-0">
         {history.length === 0 ? (
           <p className="px-5 py-4 text-sm text-ink-muted">
             No earlier academic years on record.
           </p>
         ) : (
-          <Table caption="Enrolment history">
+          <Table caption="Enrollment history">
               <TableHead>
                 <TableRow>
                   <TableHeaderCell>Year</TableHeaderCell>
@@ -243,6 +289,22 @@ export default async function StudentProfilePage({
           )}
         />
       )}
+
+      {documentUploadProblem === null ? null : (
+        <p
+          role="alert"
+          className="rounded-lg bg-status-warning-subtle px-3 py-2 text-sm text-status-warning-onSubtle"
+        >
+          {documentUploadProblem} The enrollment itself completed — add the
+          missing documents below.
+        </p>
+      )}
+
+      <StudentDocumentsCard
+        studentProfileId={student.studentProfileId}
+        documents={documents}
+        canEdit={canEdit}
+      />
 
       {/*
         Above the guardians rather than below them, because the guardians are

@@ -57,7 +57,7 @@ import { HITS_PER_GROUP, likePattern, type SearchGroup, type SearchHit } from '.
  * actually search a school system for — an admission number, a challan number,
  * a section called "5-A". `ILIKE '%…%'` on the handful of columns that carry
  * names is unindexed and honest, and the largest table it touches is one
- * school's enrolments. Every query is capped, so the cost has a ceiling. When a
+ * school's enrollments. Every query is capped, so the cost has a ceiling. When a
  * school arrives that this is slow for, the fix is a trigram index on the same
  * columns and not a rewrite.
  *
@@ -191,7 +191,7 @@ export interface SchoolSearchInput {
  * Reads through `student_enrollments` rather than `student_profiles`, so an
  * applicant converted but never enrolled does not appear as a student — they
  * appear under Applications, which is where they are. `DISTINCT ON` is not
- * needed because a student has one active enrolment per year by constraint
+ * needed because a student has one active enrollment per year by constraint
  * (migration `0019`).
  */
 async function searchStudents(input: SchoolSearchInput): Promise<SearchHit[]> {
@@ -500,7 +500,7 @@ async function searchChallans(input: SchoolSearchInput): Promise<SearchHit[]> {
     .from(feeChallans)
     .innerJoin(studentProfiles, eq(studentProfiles.id, feeChallans.studentProfileId))
     .innerJoin(schoolUsers, eq(schoolUsers.id, studentProfiles.schoolUserId))
-    // Left, not inner: a challan for a student between enrolments must still be
+    // Left, not inner: a challan for a student between enrollments must still be
     // findable, and an inner join here would hide exactly the ones being chased.
     .leftJoin(
       studentEnrollments,

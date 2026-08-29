@@ -13,7 +13,7 @@ import { isUuid } from '@/lib/validation';
  *
  * Replays the CRM sync for one student and all of their guardians.
  *
- * Enrolment deliberately does not fail when GHL is unreachable, which means a
+ * Enrollment deliberately does not fail when GHL is unreachable, which means a
  * school can end up with records that have no contact id. This is how they are
  * repaired, without re-entering the child.
  *

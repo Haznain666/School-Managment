@@ -2,6 +2,7 @@ import { sql } from 'drizzle-orm';
 import {
   boolean,
   check,
+  doublePrecision,
   index,
   pgTable,
   text,
@@ -35,7 +36,7 @@ export const GUARDIAN_RELATIONSHIP_LABELS: Record<GuardianRelationship, string> 
  *
  * `other` alone is not a description — it is the absence of one — so the
  * school's own words replace it wherever a relationship is shown. Defined here
- * rather than in a component because the enrolment review, the guardian panel,
+ * rather than in a component because the enrollment review, the guardian panel,
  * the parent portal and the sibling card all render it, and a second copy of
  * this rule is a second place for a bare "Other" to leak out.
  */
@@ -82,7 +83,7 @@ export const FIRST_GUARDIAN_RELATIONSHIPS = [
  *
  * Derived from `FIRST_GUARDIAN_RELATIONSHIPS` rather than typed out beside it.
  * Sprint 17 added `guardian` to that list and left four hand-written copies of
- * "father, mother or sibling" behind in the API, the form and the enrolment
+ * "father, mother or sibling" behind in the API, the form and the enrollment
  * parser — so the product accepted a legal guardian and then told the clerk who
  * chose one that it would not. A message that contradicts the rule it is
  * explaining is worse than no message.
@@ -165,11 +166,38 @@ export const studentGuardians = pgTable(
      * Stored in exactly one spelling. `normalizeCnic` in `lib/national-id.ts`
      * is the only thing that writes it, migration `0026` normalised the rows
      * that predate the rule, and `CnicField` is the only field that collects
-     * it. Null stays perfectly legal: a school must be able to enrol a child
+     * it. Null stays perfectly legal: a school must be able to enroll a child
      * whose parent left the card at home.
      */
     cnic: text('cnic'),
     occupation: text('occupation'),
+    /**
+     * Where this guardian lives — Sprint 19b, item 18.
+     *
+     * ── Never required, and that is the whole rule ──────────────────────
+     * The same reasoning `cnic` above carries, and it transfers whole: an
+     * admissions desk with a queue in front of it will invent an answer to get
+     * past a required field, and an invented address on a fee notice is worse
+     * than an absent one. `AddressAutocomplete` fills it where Mapbox can and
+     * degrades to a plain text box where it cannot, which in Pakistan is most
+     * addresses — see that component's docblock on what Mapbox actually knows.
+     *
+     * Free text, not a structured address. A school writing to a family writes
+     * what the family wrote; parsing it into house/street/town would mean
+     * choosing a schema for "Street 4, near Masjid-e-Noor, Chak 47/GB", and
+     * every school in the country would need a different one.
+     */
+    address: text('address'),
+    /**
+     * Where that address is, when it was chosen from a suggestion.
+     *
+     * Both null whenever the operator typed the address by hand, which is the
+     * common case and is not a degraded one. Matching `branches` in type and in
+     * meaning so one component can serve both: `doublePrecision`, because a
+     * coordinate is a measurement and not money.
+     */
+    latitude: doublePrecision('latitude'),
+    longitude: doublePrecision('longitude'),
     isPrimaryContact: boolean('is_primary_contact').notNull().default(false),
     /**
      * When the parent-portal welcome was queued for this guardian.

@@ -135,7 +135,7 @@ export default async function AdmissionsOverviewPage({
           hint={
             overview.activeYear === null
               ? 'No active academic year'
-              : `Active enrolments in ${overview.activeYear.name}`
+              : `Active enrollments in ${overview.activeYear.name}`
           }
         />
         <StatCard
@@ -165,7 +165,7 @@ export default async function AdmissionsOverviewPage({
         <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
           <ActionTile
             href="/dashboard/admissions/enroll"
-            title="Enrol a student"
+            title="Enroll a student"
             description="Add a student directly, without an application."
           />
           <ActionTile
@@ -184,7 +184,7 @@ export default async function AdmissionsOverviewPage({
       <Card
         header={
           <CardTitle
-            title="Recent enrolments"
+            title="Recent enrollments"
             description="The last ten students admitted this year."
             action={
               <Link

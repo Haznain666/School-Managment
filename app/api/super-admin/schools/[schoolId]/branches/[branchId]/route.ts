@@ -285,7 +285,7 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
  *
  * ── The residual risk this does not carry ────────────────────────────────
  * `grades` cascades from a branch, and grades are referenced by sections,
- * enrolments and exams which do **not** cascade. A branch with a grade ladder
+ * enrollments and exams which do **not** cascade. A branch with a grade ladder
  * but no people could therefore still be refused by Postgres itself. That
  * refusal is caught and reported rather than surfacing as a 500 — same
  * treatment `deleteSchoolMember` gives a referenced member.
@@ -379,7 +379,7 @@ export async function DELETE(request: NextRequest, context: RouteContext) {
           'conflict',
           `${branch.name} is still referenced by records this cannot safely ` +
             'remove — most likely its grade ladder is in use by sections, ' +
-            'enrolments or exams. Deactivate it instead.',
+            'enrollments or exams. Deactivate it instead.',
           409,
         );
       }

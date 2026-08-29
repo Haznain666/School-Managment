@@ -259,7 +259,7 @@ export const POST = withSchoolAuth<RouteContext>(
        * at then, and a ledger whose past moves when a student transfers is not
        * a ledger.
        *
-       * **Null still posts.** A student with no active enrolment for that year
+       * **Null still posts.** A student with no active enrollment for that year
        * has no campus, and a missing campus is not a reason to refuse somebody
        * standing at a counter with cash.
        */

@@ -17,14 +17,14 @@ import { previewNextStudentId } from '@/lib/student-id';
 import { isUuid } from '@/lib/validation';
 
 export const metadata: Metadata = {
-  title: 'Enrol student',
+  title: 'Enroll student',
 };
 
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 
 /**
- * Direct enrolment.
+ * Direct enrollment.
  *
  * `?fromApplication=<id>` pre-fills the form from an accepted application, for
  * the case where an admin would rather adjust the details than convert
@@ -123,7 +123,7 @@ export default async function EnrollStudentPage({
   return (
     <div className="max-w-4xl space-y-6">
       <div>
-        <h2 className="text-xl font-semibold text-ink">Enrol a student</h2>
+        <h2 className="text-xl font-semibold text-ink">Enroll a student</h2>
         <p className="mt-1 text-sm text-ink-muted">
           Creates the student’s record, their placement for {activeYear.name} and
           their guardians, then mirrors them into GoHighLevel.

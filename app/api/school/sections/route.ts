@@ -15,7 +15,7 @@ import { isUuid, readString } from '@/lib/validation';
  * POST create one
  *
  * Sections are per (grade, academic year): last year's Class 5 A and this
- * year's are different rows, so last year's enrolments keep pointing at the
+ * year's are different rows, so last year's enrollments keep pointing at the
  * group that actually existed then.
  */
 

@@ -157,7 +157,7 @@ export function TransferPanel({
       <Card header={<CardTitle title="Transferred" />}>
         <p className="text-sm text-ink">{done}</p>
         <p className="mt-3 text-sm text-ink-muted">
-          Their old enrolment is closed as transferred, not deleted — it still
+          Their old enrollment is closed as transferred, not deleted — it still
           says which campus and section they were in, and when.
         </p>
       </Card>

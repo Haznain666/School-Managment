@@ -19,7 +19,7 @@ import { isUuid, readOptionalString } from '@/lib/validation';
  * DELETE discard a draft
  *
  * An applied run is immutable. Editing one would leave a record describing a
- * decision different from the enrolments it actually produced, and the whole
+ * decision different from the enrollments it actually produced, and the whole
  * reason `promotion_decisions` is stored at all is so the run can be read back
  * afterwards and believed.
  */
@@ -108,7 +108,7 @@ export const PATCH = withSchoolAuth<RouteContext>(
           // A retain stays where it is and a graduate goes nowhere, so neither
           // carries a section. Storing one anyway would create a second place
           // the answer could be wrong — `applyPromotionRun` reads a retained
-          // student's section off their enrolment.
+          // student's section off their enrollment.
           toSectionId: decision === 'promote' ? toSectionId : null,
           note: readOptionalString(entry['note']),
         });

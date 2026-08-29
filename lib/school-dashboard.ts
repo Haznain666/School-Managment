@@ -152,7 +152,7 @@ export interface ExceptionGates {
  * the anti-join form of this query is the kind that silently returns every
  * section the day somebody adds a join condition to the wrong side.
  *
- * A section with no active enrolment is not an exception. An empty class cannot
+ * A section with no active enrollment is not an exception. An empty class cannot
  * have its register taken, and listing it would put a permanent red number on
  * the screen that no action clears.
  */

@@ -597,7 +597,7 @@ export interface ListChallansResult {
 /**
  * The challan register, filtered and paginated.
  *
- * Grade and section come from the student's enrolment in the voucher's own
+ * Grade and section come from the student's enrollment in the voucher's own
  * academic year, so a challan raised last year still shows the class the child
  * was actually in when it was issued.
  */
@@ -706,8 +706,8 @@ export async function listChallans(
 /**
  * The joins every challan listing needs.
  *
- * The enrolment join is left, and matched on the challan's own academic year:
- * a student whose enrolment was later withdrawn must still appear on the
+ * The enrollment join is left, and matched on the challan's own academic year:
+ * a student whose enrollment was later withdrawn must still appear on the
  * register with their bill, just without a class against it.
  */
 function challanSelect() {

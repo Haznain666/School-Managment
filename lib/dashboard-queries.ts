@@ -502,7 +502,7 @@ export async function getAttendanceByClass(
 }
 
 /* -----------------------------------------------------------------------------
- * Enrolment.
+ * Enrollment.
  * -------------------------------------------------------------------------- */
 
 /** Active students per class in the active year. */
@@ -1270,7 +1270,7 @@ export async function getAttendanceAverage(
   return Math.round((1000 * (rows[0]?.attended ?? 0)) / considered) / 10;
 }
 
-/** Enrolment now, against how many were on the roll when the year opened. */
+/** Enrollment now, against how many were on the roll when the year opened. */
 export interface EnrolmentComparison {
   now: number;
   atYearStart: number;
@@ -1280,7 +1280,7 @@ export interface EnrolmentComparison {
 /**
  * How the roll has moved since the academic year opened.
  *
- * "At year start" is enrolments dated on or before the first day of the year,
+ * "At year start" is enrollments dated on or before the first day of the year,
  * counted from `enrollment_date` rather than `created_at` — a school entering
  * its existing roll in September records the date the child actually joined,
  * and `created_at` would report every one of them as a new admission on the day
@@ -1625,7 +1625,7 @@ export async function getSetupProgress(locationId: string): Promise<SetupProgres
       label: 'Enrolled students',
       count: students,
       href: '/dashboard/admissions/enroll',
-      hint: 'Enrol or import the roll.',
+      hint: 'Enroll or import the roll.',
     }),
     ...feeHeadKpis,
   ];
@@ -1947,7 +1947,7 @@ async function countRows(
 export interface CampusScorecardRow {
   branchId: string;
   branchName: string;
-  /** Active enrolments in the current academic year. */
+  /** Active enrollments in the current academic year. */
   students: number;
   /** Percent present over the last 30 days, or null where nothing was marked. */
   attendanceRate: number | null;
@@ -1969,9 +1969,9 @@ const SCORECARD_ATTENDANCE_DAYS = 30;
 /**
  * Every student's campus, as a subquery.
  *
- * Distinct on purpose: a student who transferred mid-year has two enrolment
+ * Distinct on purpose: a student who transferred mid-year has two enrollment
  * rows, and without `selectDistinct` their voucher would be counted once per
- * campus they have been at. Only `active` enrolments are followed, so the
+ * campus they have been at. Only `active` enrollments are followed, so the
  * campus a child is at *now* is the one their money is counted under — which is
  * the campus that will be chasing it.
  */
@@ -2193,7 +2193,7 @@ export interface CampusTrend {
  * dropped: a line labelled "Other campuses (4)" is a fact, and four missing
  * campuses is a lie of omission.
  *
- * "Largest" is by collections over the window, not by enrolment. The chart is
+ * "Largest" is by collections over the window, not by enrollment. The chart is
  * about money, and a big campus that collects nothing is precisely the line an
  * owner needs to see.
  */
@@ -2308,7 +2308,7 @@ export async function getCollectionTrendByCampus(
  *
  * So the campus is *derived on read*, for exactly the rows that lack one and
  * can be traced: `source = 'fee_payment'` -> `source_id` -> `fee_payments` ->
- * `fee_challans` -> the student's enrolment for that voucher's year -> their
+ * `fee_challans` -> the student's enrollment for that voucher's year -> their
  * grade's campus. Old rows and new rows then group identically and the two
  * charts reconcile. Nothing is written.
  */
@@ -2346,7 +2346,7 @@ export async function getCampusLedgerTotals(
    * one: a payment taken this month against last year's voucher belongs to the
    * campus the child was at then, and a ledger whose past moves when a student
    * transfers is not a ledger. Migration `0019` constrains a student to one
-   * active enrolment per year, so this is one row per payment rather than a
+   * active enrollment per year, so this is one row per payment rather than a
    * pick among several — the same reading `searchStudents` relies on, and the
    * reason no `DISTINCT ON` is needed. Without that guarantee the left join
    * below would duplicate ledger entries and double the money.

@@ -190,7 +190,7 @@ export default async function ApplicationDetailPage({
             href={`/dashboard/admissions/enroll?fromApplication=${application.id}`}
             className="font-medium text-brand-primary hover:underline"
           >
-            Open the enrolment form pre-filled from this application
+            Open the enrollment form pre-filled from this application
           </Link>
           .
         </p>

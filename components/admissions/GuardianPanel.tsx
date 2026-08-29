@@ -104,10 +104,10 @@ export function GuardianPanel({
   /**
    * What the new guardian may be recorded as.
    *
-   * The same rule the enrolment form applies, fed the guardians already on this
+   * The same rule the enrollment form applies, fed the guardians already on this
    * student: Father and Mother each disappear once they are taken, and a
    * student with no guardian at all cannot be given an "Other" as their first
-   * one. `availableRelationships` is shared with the enrolment form so the two
+   * one. `availableRelationships` is shared with the enrollment form so the two
    * screens cannot disagree.
    */
   const relationshipChoices = availableRelationships(
@@ -123,7 +123,7 @@ export function GuardianPanel({
   /**
    * Fill the form in from a guardian this school already holds.
    *
-   * The same call the enrolment form makes. It matters more here, if anything:
+   * The same call the enrollment form makes. It matters more here, if anything:
    * this is the panel an admin opens when a second parent turns up months
    * after the admission, and it is the moment at which a family already in the
    * system gets a second, unrelated record instead.
@@ -332,7 +332,7 @@ export function GuardianPanel({
         {awaitingFee ? (
           <p className="mb-4 rounded-lg bg-status-info-subtle px-3 py-2 text-sm text-status-info-onSubtle">
             This student&rsquo;s admission fee has not been paid yet. Their
-            enrolment is recorded, and the parent portal welcome goes out on its
+            enrollment is recorded, and the parent portal welcome goes out on its
             own the moment the fee clears — there is nothing to press here.
           </p>
         ) : null}
@@ -428,7 +428,7 @@ export function GuardianPanel({
         {isAdding ? (
           <div className="mt-4 grid gap-4 border-t border-line pt-4 sm:grid-cols-2">
             {/*
-              The CNIC leads here for the same reason it leads on the enrolment
+              The CNIC leads here for the same reason it leads on the enrollment
               form: it is what decides whether this is a new person or one the
               school already holds, and asking for it after the name is asking
               for it after that decision has been made.
@@ -568,7 +568,7 @@ export function GuardianPanel({
       <Card header={<CardTitle title="GoHighLevel sync" />}>
         <p className="text-sm text-ink-muted">
           {unsynced
-            ? 'Some records have not reached GoHighLevel. Enrolment never fails because of a CRM outage, so this can be re-run at any time.'
+            ? 'Some records have not reached GoHighLevel. Enrollment never fails because of a CRM outage, so this can be re-run at any time.'
             : 'This student and every guardian have a GoHighLevel contact.'}
         </p>
 

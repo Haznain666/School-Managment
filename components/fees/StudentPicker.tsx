@@ -23,7 +23,7 @@ export interface PickedStudent {
 }
 
 export interface StudentPickerProps {
-  /** Restricts results to one year's enrolments. */
+  /** Restricts results to one year's enrollments. */
   academicYearId?: string | undefined;
   selected: PickedStudent | null;
   onSelect: (student: PickedStudent | null) => void;

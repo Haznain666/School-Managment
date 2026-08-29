@@ -4,7 +4,31 @@
 resume without re-deriving context. Updated at the end of every development
 step, before the session ends.
 
-**Last updated:** 2026-08-29 (**Sprint 19a — the branch boundary, the owner's
+**Last updated:** 2026-08-29 (**Sprint 19b — the campus calendar, student
+documents, academic history and Enrol→Enroll — §5bi. Items 14–19 of
+`SPRINT-19-SPEC.md`. `0036_sprint19b_admissions.sql` is **WRITTEN AND NOT
+APPLIED**; journal `idx: 36`. `SPRINT-19B-DDL-NOTES.md` says what breaks
+without it.
+
+⚠ **`0036` goes in before this code, and one consequence is worse than the
+rest.** Three screens 500 without it — academic years, promote, and a student
+profile — which is loud and harmless. The fourth is not: the enrolment wizard
+now sends `address`, `latitude` and `longitude` on every guardian, and that
+insert is inside the enrolment transaction, so **enrolling a child stops working
+at every school** and the clerk is told to check the details. The document
+upload also writes to Storage *before* its row, so every attempt on an
+unmigrated database leaves an orphaned object nothing will clean up.
+
+Thirteen gates green — including all three database-backed ones. **`npm run
+build` was NOT run**: a dev server holds `.next` in this worktree, and it is
+DevOps's step. It is also the only gate with a bundler in it, and 19b moves
+three constant modules between server and client.
+
+⚠ **Nothing here has been driven in a browser.** Four of the new statements
+*were* executed against the live schema and Postgres accepted all four,
+including the seven-table `listStudentExamHistory`; the three that need `0036`
+failed with exactly the missing-relation error the notes predict.**);
+2026-08-29 (**Sprint 19a — the branch boundary, the owner's
 cross-campus dashboard, and one resolver every read goes through — §5bh.
 `0035` is **APPLIED AND VERIFIED** — 35 bookkeeping rows → 36, applied through
 drizzle-orm's own `postgres-js` migrator on the session pooler (5432) because
@@ -7368,6 +7392,7 @@ to `gte` anyway, so the pattern is no longer in the codebase to be copied.
 
 | Date | Session did | Next |
 | --- | --- | --- |
+| 2026-08-29 | **Sprint 19b — the calendar belongs to a campus, and the paperwork to a child** (§5bi). Items 14–19 of `SPRINT-19-SPEC.md`; 1–13 are 19a, live as `821443b781df`, untouched. **`academic_year_branches`** — a join table, not a nullable column, because a year can run at two campuses out of three; a year with no rows is school-wide, which is every year that exists today, so nothing is backfilled. Academic years are created in **runs** that never duplicate: a candidate that already exists is skipped and counted ("7 created, 3 already existed"), because refusing the whole run over one year is how a school ends up with half a calendar. The active year now falls back to the session containing `current_date`, **decided in Postgres** so there is one clock, and never overrides a year somebody marked. Promotion gained a campus selector, a named explanation where "Goes to" was silently empty plus a one-click **Copy this year's sections into 2027-28**, and a **422** on a cross-campus destination naming both campuses — that is a transfer, and doing it here would move a child with nothing recording it. **`student_documents`**: ten per student, 5 MB, PNG/JPEG **sniffed from the file's own bytes** because a renamed `.exe` presents as `image/png` to a browser; a skippable Documents step in the wizard and a chip card on the profile. New `/…/students/[id]/history` reads **published papers only** and links each percentage and comment to that exam's report card in a new tab. Guardians gained an address through `AddressAutocomplete`. **Enrol → Enroll: 276 replacements across 88 files**, strings, comments and JSX text only — 20 code positions left alone, including two API response keys, and 20 JSX-text positions renamed from an explicit allow-list. Thirteen gates green. | **Apply `0036` first, then deploy** (`SPRINT-19B-DDL-NOTES.md`). Three screens 500 without it and — the one to read twice — **every enrolment rolls back**, because the wizard now sends a guardian address into a column that does not exist. Then `npm run build`, which was not run here: a dev server holds `.next`, and 19b moves three constant modules between server and client, which is the one thing only a bundler sees. Then the two-campus tenant, still. |
 | 2026-08-29 | **Sprint 19a — the branch boundary, and the owner who sees across it** (§5bh). Items 1–13 of `SPRINT-19-SPEC.md`; 14–19 are phase 19b on `0036` and untouched. **One resolver**, `lib/branch-scope.ts`, and every read goes through it — `claims.branchId` in a query is now the defect, not the pattern. Nine catalogue tables gain a **nullable** `branch_id` where NULL means *shared*, which is every existing row, so nothing changes for any school on the day it deploys. `school_user_branches` grants extra campuses per person rather than per role. The owner's dashboard gained a campus selector, five tiles that name their worst campus, four cross-campus charts and a sortable per-campus scorecard whose rows link to `?branch=`. New `branches.manage` permission, branch detail and edit screens, a DELETE that refuses with 409 naming students, staff, members *and ledger entries* and wants the campus code typed. The branch form is one component with Branch Admin and Branch Principal toggles and **one** server validator, `lib/branch-leads.ts` — *the school owner* writes an assignment and sends no email, which is decision D3. Four reports gained a campus, the sidebar collapses, and `BarChart`'s horizontal labels stop drawing over the card. New `check-branch-scope`: 1,296 assertions, no database, in `ci.yml`, and it caught a real miss (`listLeaveTypeOptions`) on its first run. Twelve gates green. | **Apply `0035` first, then deploy** — the code 500s on every scoped surface without it (`SPRINT-19A-DDL-NOTES.md`). Then stage the three new route files so `check-loaders` is green, then `npm run build`. Then the thing 19a needs more than any sprint before it: **a two-campus tenant**. The scorecard, the charts, the selector, a grant, a branch-bound reader's search and both refusals have no fixture anywhere and have never returned a row. |
 | 2026-08-26 | **Sprint 16 — feedback, global search, and three dashboard fixes** (§5bd). Four new tables in `0032`, applied and verified with the CHECKs made to fire inside a rolled-back transaction. A school sends a bug or a suggestion with up to five PNG/JPEG/PDF files; the platform is notified in-app and by email, reads a four-section queue with filters, sorting, pagination and a counter toggle, and replies, decides or deletes — each of which notifies the school both ways. Driven end to end against the live database with two real schools: a real PNG and PDF round-tripped byte-exact, tenancy isolation gave 404 on both the attachment and the reply, and every notification and email row was read back out of Postgres. Global search on all five portals, five scoped functions rather than one with a role parameter. **The second scrollbar was `sr-only`** — `position: absolute` with no positioned ancestor escapes `<main>`'s `overflow-y` and grows the root; the bottom-most hidden `<figcaption>` sat at document y = 1185, which was `scrollHeight` exactly. Five QA defects found and fixed, one of them only findable against real data: *Teachers 0* at a school with a teacher on the HR register and no portal account. **Merged to `main` locally, `--no-ff`, nothing pushed.** | **Pushed, merged (PR #32) and live as `47e072c1f058`** the same day; the cache purge and commit confirmation both ran green. Left on the live deployment: press **Provision** on both schools (outstanding from §5bc). Still nobody has signed in as a teacher, parent or student — that is now three sprints of scoping asserted in code and never held in a hand, and it is the next thing worth an hour. |
 | 2026-08-22 | **The deploy was never blocked, and the probe that would have said so was gitignored** (§5ax). Asked to fix "the Hostinger SSH issue". There is none: hPanel has auto-deployment on from GitHub, and it built `17099d4` at 16:52 in 2m29s, Completed — the WhatsApp merge had been live for hours. The five `HOSTINGER_SSH_*` secrets are leftovers from the rsync workflow #24 deleted and are read by nothing; the three `deploy.yml` actually reads are all set. **This file had said the opposite for two days**, accurately on 2026-08-20 and falsely from 2026-08-21, which is the §5aw failure one level up. **The real bug, found while disproving the false one:** `.gitignore` line 13 was a bare `build/`, which matches at any depth and therefore matched `app/api/internal/build/` — an App Router segment, not build output. `/api/internal/build` has never been committed, so Hostinger never had it and production 404s it, and the verification workflow's "which commit is live" step **could never have passed on any deploy** — its failure message blamed the deployment. Both patterns anchored to the root. **CI structurally cannot catch this** (an ignored file is absent from a fresh checkout), so `check-loaders` now asks git whether each route file on disk is tracked — 237 assertions, proven against a planted route in an ignored directory. Cache purged in hPanel. | Set `SMOKE_SUPER_ADMIN_EMAIL` and `SMOKE_SUPER_ADMIN_PASSWORD` — the only secrets genuinely missing — then run *Verify the live deployment* and watch it pass for the first time. Then the twenty minutes of clicking that three sprints have now deferred. |
@@ -9435,3 +9460,364 @@ four were invisible to all thirteen gates — D1 is the only one that gained a
 gate it would have failed.
 
 ### Next free migration number is `0036`.
+
+---
+
+## 5bi. Sprint 19b — the calendar belongs to a campus, and the paperwork to a child — 2026-08-29
+
+Spec: `SPRINT-19-SPEC.md`, **items 14 to 19 only**. Items 1–13 are phase 19a,
+merged and live as `821443b781df` with `0035` applied; nothing here re-does any
+of it.
+
+Migration: **`0036_sprint19b_admissions.sql` is WRITTEN AND NOT APPLIED.**
+Journal entry `idx: 36`, stamped `1788091200000`. `SPRINT-19B-DDL-NOTES.md` at
+the repo root records what it does, how to verify it, how to undo it and — the
+part that matters — what breaks if the code deploys ahead of it.
+
+`0036` was confirmed free by **listing `db/migrations/`**, not by trusting
+prose. The directory ends at `0035`.
+
+### ⚠ `0036` must be applied before this code deploys, and one row is worse than the rest
+
+| Surface | Without `0036` |
+| --- | --- |
+| `/dashboard/admissions/academic-years` | 500 — `listAcademicYears` reads `academic_year_branches` on every render |
+| `/dashboard/admissions/promote` | 500 — same call |
+| `/dashboard/admissions/students/[id]` | 500 — the profile reads `student_documents` inside its `Promise.all` |
+| **`POST /api/school/students`** | **the whole enrolment rolls back** |
+
+That last one is the one to read twice. The others break *reads*, which is loud
+and harmless. The enrolment wizard now sends `address`, `latitude` and
+`longitude` on every guardian, and the insert is inside the enrolment
+transaction — so without the columns, **enrolling a child stops working at every
+school**, and the clerk is told "Could not complete the enrolment. Please check
+the details and try again."
+
+There is also an invisible cost: `POST …/documents` writes to Supabase Storage
+*before* it writes the row, so on a database without the table every attempted
+upload leaves an orphaned object nothing will ever clean up, because the only
+thing that knew its path was the row that failed. The order is still right — the
+alternative is a chip that opens a 404 — and the DDL notes say how to find them
+afterwards.
+
+### Item 14 — a campus calendar, created in runs
+
+**`academic_year_branches`**, a join table rather than a nullable column. A year
+with no rows is **school-wide**, which is every academic year at every school on
+the day this deploys, so nothing is backfilled and no existing year changes
+meaning. It is D1's "null means shared" one shape over, and it is a table
+because *a year can run at two campuses out of three* — which one column cannot
+say, and which a group with a separate O-Levels campus has on day one.
+
+`ON DELETE CASCADE` on **both** parents, deliberately not `0035`'s `SET NULL`. A
+grading scheme outliving its campus is still the school's; a row saying "this
+year runs at this campus" with the campus gone is not school-wide, it is
+meaningless. `SET NULL` is not even available — the column is NOT NULL, because
+the absence this table encodes is *having no row*.
+
+**`yearRunsAt` is `sharedOrOwnedBy`'s trap one table over**, and it is why the
+scope predicate is `NOT EXISTS … OR EXISTS …` rather than a join. An INNER JOIN
+on `academic_year_branches` returns **nothing at all at every school today**,
+because every year is school-wide — and an empty academic-year list does not
+read as a wrong filter. It reads as a school whose calendar was never set up, on
+the screen a clerk opens when they cannot enrol anybody.
+
+**The run.** `lib/academic-year-runs.ts` is dependency-free of the database and
+of `server-only`, so the create form previews the exact rows the route will
+write. The end *year* is derived (`endMonth <= startMonth` crosses the new year)
+and never asked, which removes the one field an operator could answer
+inconsistently. Capped at ten a run.
+
+**A run never duplicates.** The identity of a session is
+`(startMonth, startYear, endMonth, endYear, sorted campus set)`; a candidate
+that already exists is skipped and counted, and the answer is "7 years created,
+3 already existed". Refusing the whole run because one year exists is how a
+school ends up with half a calendar and no way to tell which half — the years
+that failed and the years never asked for look identical afterwards.
+
+The campus set is **part of the key**, which is a decision: `2026-2027 at
+Karachi` and `2026-2027 school-wide` are different rows saying different things.
+It reads oddly on a list; the alternative reads worse, because a group giving
+Karachi its own calendar would find the run silently did nothing.
+
+The one place the run branches is `count === 1`: the single-year form gets a
+**409 naming the existing year**, because "0 created, 1 already existed" is a
+summary, and a summary of one is a refusal declining to say so.
+
+**Item 14c — one clock, and it is the database's.** `getActiveAcademicYear` now
+falls back to the year whose span contains `current_date`, decided in Postgres
+with `make_date(...) <= current_date AND current_date < make_date(...) + interval '1 month'`.
+A marked year always wins — `is_active` sorts first and the calendar is only
+consulted when nothing is marked. Before this, "nothing marked" resolved to
+null, which closed the public application form, emptied the dashboard counts and
+refused every enrolment; a school that has just built its calendar in a run and
+not yet pressed *Set as active* is in exactly that state.
+
+`getMarkedActiveAcademicYear` is a **second** function rather than a flag,
+because the create form's checkbox and the table's *Set as active* button both
+need "has anybody actually chosen one" and would otherwise be answered by the
+calendar. The table badges the calendar-chosen year *Current by calendar*, so a
+school looking at a list where every row says Inactive can see which session the
+rest of the product is using.
+
+### Item 15 — promote students
+
+**15a.** The screen resolved grades from `claims.branchId`, which answers for
+one campus: a person granted two saw only their own, and the owner of a
+three-campus group saw three classes called "Grade 5" with nothing to tell them
+apart. It now takes `resolveBranchScope` + `BranchSelector`, and the years are
+scoped too — a group whose Karachi campus runs April–March must not be offered
+Lahore's sessions.
+
+**15b.** "Goes to" was always empty, and the filter was **correct**: a receiving
+year with no sections has no destinations. What was wrong is that the screen
+said nothing, so an empty `<select>` read as a control that had failed to load,
+and the operator's next move was to report a bug rather than to go and build
+next year's classes. Three states now, because the answer to each differs:
+
+* the receiving year has no sections at all — name it, link to Grades &
+  sections, and offer **Copy this year's sections into 2027-28**;
+* it has sections but none at this class's campus — say so, and do *not* offer
+  the copy, which would build the wrong campus's ladder;
+* there are destinations — the picker, unchanged.
+
+`copySectionsIntoYear` clones **active** sections only (a deactivated class is
+one the school stopped running) and **does not copy `class_teacher_id`** — who
+teaches 5-A next year is a decision nobody has made in June, and copying this
+year's answer hands next year's marks entry to whoever happened to hold it.
+Capacity *is* copied: a room holds what it holds. Idempotent by the existing
+unique index rather than by a pre-check two clerks could both pass.
+
+**15c.** A promotion never crosses a campus. The picker filters destinations on
+the sending grade's `branch_id`, and `applyPromotionRun` re-reads the campus on
+both ends of every promote decision and refuses with **422** naming both. 422
+and not 409 on purpose: a 409 says "these rows clash, fix them and re-run", and
+this says "what you have described is a different operation". A cross-campus
+move is a **transfer** — its own screen, its own fee split, its own row in
+`student_transfers` — and doing it here would move a child leaving nothing
+anywhere recording that it happened. `crossCampus` is a separate field on
+`ApplyResult` for exactly that reason, and an unresolvable campus is *not*
+treated as a mismatch: a section the lookup cannot find is already about to fail
+on its foreign key, and reporting it here would name a campus that does not
+exist.
+
+### Item 16 — student documents
+
+**Ten per student, 5 MB each, PNG or JPEG.** Both limits in the route and both
+stated on the form, because a limit met without warning reads as a broken
+upload.
+
+**The type is decided by the bytes.** `sniffImageType` in
+`lib/image-signature.ts` reads the PNG signature (all eight bytes — the high
+bit catches a seven-bit transfer, the `\r\n` catches a line-ending conversion)
+and the JPEG SOI (three bytes, not four: the fourth varies by encoder and `E1`
+is what every phone camera produces). The declared type has to *agree*, and what
+is stored is the sniffed answer — so `image/jpg`, which is not a media type but
+is what some Windows browsers send, never reaches the column. A renamed `.exe`
+presents as `image/png` to a browser and would pass every header-only check.
+
+Dependency-free rather than `file-type`: two formats, eleven bytes of signature,
+and the alternative adds a hundred detectors this product refuses to a server
+bundle somebody would then have to audit. `lib/storage.ts` makes the same
+argument about `@supabase/supabase-js`.
+
+**Order of operations: Storage first, row second on upload; row first, object
+second on delete.** Whichever half fails, the survivor has to be the harmless
+one — an orphaned object is invisible and costs kilobytes, while a row whose
+chip opens a 404 is indistinguishable from a deletion that did not happen.
+
+The wizard gains a **Documents** step between Academic placement and Review, and
+it is **entirely skippable** — no validation to fail. An admissions desk with a
+queue in front of it must never be blocked by a birth certificate that is at
+home, and a required upload there produces a photograph of a blank sheet filed
+as a B-Form. The files are held as `File` objects and uploaded *after* the
+student exists, because the path is keyed by `student_profiles.id`, and
+sequentially rather than in parallel: ten 5 MB uploads at once times out, and
+the count check is a read-then-write that ten simultaneous requests would all
+pass.
+
+The wizard now carries **two failure flags**, `photo=failed` and
+`documents=failed`, rather than one. They are answered in two different places
+on the profile, and a message saying the photo failed printed over a photo that
+is fine sends the operator to fix the wrong thing.
+
+On the profile it is **chips, not a table**. A school holds six of these and the
+only question asked of the list is "have we got her B-Form", which a row of
+titles answers at a glance. Each chip is a link with `target="_blank"
+rel="noopener"`, because the document is a reference being checked *against* the
+record already on screen.
+
+### Item 17 — academic history
+
+`/dashboard/admissions/students/[studentId]/history`, one row per **exam**.
+
+"Published" means the **paper** is published — `exam_subjects.results_status`,
+the same gate `getSectionReportCards` reads. An unpublished mark is a teacher
+part-way through a sheet, and a history showing one would change after a parent
+had read it. The **term's** publication is carried alongside and badged *Card
+not issued*, because a published paper is what makes the mark real and a
+published term is what makes the report card issuable — two different facts, and
+an administrator on the phone needs both.
+
+The percentage is the **mean of the paper percentages**, not
+obtained-over-available, because that is the figure the report card resolves its
+grade from and ranks on. A history showing the other number would disagree with
+the card it links to, and the card is the one the parent is holding — §5bg
+records what that divergence costs when it ships.
+
+Pass/fail is derived from the papers and only in marks mode. There is no stored
+per-exam judgement: `student_term_results` holds the school's judgement for the
+whole **term**, which is a different and later decision, and printing it against
+one exam would tell a parent the child had failed a mid-term the school never
+said that about. In descriptor mode there is no verdict at all and the
+descriptors are listed — folding four papers into one word would be the product
+deciding that "Exceeding" beats "Satisfactory" by one, which no school has asked
+it to do.
+
+The link carries the section **the child was in for that exam**, read off the
+exam rather than off their current enrolment: a child who has since moved class
+must still be able to print the card the school issued.
+
+### Item 18 — the guardian's address
+
+`student_guardians.address`, `.latitude`, `.longitude`, shaped exactly like
+`branches` so one component serves both. `AddressAutocomplete` in the wizard's
+guardian step, so Mapbox's absence degrades to a plain text box — which in
+Pakistan is the common case and not a degraded one.
+
+Editable **even on a matched guardian**, unlike name, phone and email. Where
+somebody lives is a fact about this enrolment as much as about the person: a
+family that has moved since an older child was enrolled will say so at the desk,
+and refusing the correction is how the school keeps posting to the old house.
+
+Never required, and clearing the address clears the coordinates — a pin with no
+address is unreadable everywhere it appears.
+
+### Item 19 — Enrol → Enroll
+
+**276 replacements across 88 files**, in two passes, both driven by a lexer that
+classifies every character as code, line comment, block comment, string or
+template — with a stack, so the text *after* an interpolation is still template
+text.
+
+Only four word forms are eligible: `enrol`, `enrols`, `enrolment`, `enrolments`.
+Anything camel-cased — `getEnrolmentComparison`, `settleEnrolmentIfFeePaid`,
+`clearEnrolmentFee`, `showEnrolment`, `activeEnrolment`, `campusEnrolmentSummary`,
+`enrolmentByStudent`, `EnrolmentComparison` — is an identifier and is excluded by
+that alone.
+
+**20 code positions were left untouched**, each one read by hand: local
+variables in `lib/portal-results.ts`, `lib/enrolment-fee-gate.ts`,
+`lib/dashboard-queries.ts` and the dashboard page, and **two API response keys**
+(`enrolment: {` in the voucher and payment routes) which are part of a contract.
+
+**20 JSX-text positions were renamed from an explicit `file:line` allow-list**,
+because a JavaScript lexer sees JSX text as code and there is no honest
+heuristic that separates `an enrolment is` from `const enrolment =`. Listing
+them is auditable; guessing is not.
+
+⚠ **One deliberate widening of the spec's rule.** The spec says skip any match
+touching `/ - . _`. Taken literally that skips **39 sentence-final full stops** —
+"…converted into a full enrolment." — which are prose, not routes. A trailing
+`.` is now treated as a property access only when an identifier follows it, and
+two hyphenated prose compounds (`post-enrolment` in two docblocks) were renamed
+by hand. `lib/enrolment-fee-gate.ts`'s filename, and every reference to it, is
+untouched — as is `enrolment-fee-gate` wherever it appears, because the hyphen
+rule catches it.
+
+`lib/enrollment.ts` and `lib/enrolment-fee-gate.ts` keep their filenames. No
+route, CSS class or type key changed.
+
+### Deviations from the spec, and why
+
+* **`academic_year_branches` carries `location_id`.** The spec's DDL sketch has
+  only the two foreign keys. Every read in this repository is tenant-first, and
+  a join table that cannot be filtered by tenant without two joins is one every
+  query pays for. It is indexed twice, `(location_id, academic_year_id)` and
+  `(location_id, branch_id)`.
+* **No new permission keys.** 19b reuses `admissions.read` / `admissions.write`
+  for the calendar, `students.read` / `students.update` for documents and
+  `exams.read` for the history. None of these is a new *kind* of thing a school
+  would grant separately, and a permission is a question the permissions screen
+  has to ask.
+* **The academic-year screen's controls moved from `role === 'school_admin'` to
+  `permissions.includes('admissions.write')`.** The routes have accepted
+  `admissions.write` all along, so a principal holding it could already create a
+  year through the API while the screen hid the button. §5bf records the same
+  correction on the student profile: a control hidden but not enforced is the
+  wrong half of the pair to keep.
+* **The campus filter on the academic-year list is a `DataTable` facet, not a
+  `?branch=` navigation** — the only campus control in the product that is. The
+  scope has already decided which years this person may *see*, on the server;
+  the facet reads a list of a few dozen rows, and sending the page back for that
+  would cost ~1s to filter something already on screen.
+* **The academic history is gated on `exams.read`, not `students.read`.** It is
+  a child's marks, and the roles a school deliberately withholds results from
+  must not reach them from the admissions module either.
+* **The single-year form's 409 links to the list rather than to the year.**
+  `apiFailure` takes three arguments and has no details payload; adding one is a
+  change to every error path in the product for one message.
+* **`late_fee_rules`-style inertness has no equivalent here** — every column
+  `0036` adds is read by code that shipped with it.
+
+### What was NOT verified, honestly
+
+* **Nothing here has been driven in a browser.** No screen, no upload, no
+  refusal, no run. §5bg's and §5bh's conclusion is that this is the gate that
+  matters and the one thirteen green checks cannot stand in for — and §5bh's
+  four defects were all found by a person opening a screen.
+* **`0036` has not been applied**, so no query touching `academic_year_branches`
+  or `student_documents` has ever returned a row. What *was* proved: the four
+  statements that need no new table were **executed against the live schema** —
+  `getActiveAcademicYear` with its new `make_date` predicate,
+  `listGrades` scoped by `ownedBy`, `copySectionsIntoYear`'s read half, and
+  `listStudentExamHistory`, which joins **seven** tables and is the statement
+  CLAUDE.md's alias rule is written about. Postgres accepted all four; an
+  ambiguous column reference is a *planning* error, so running them against a
+  school that does not exist is enough to prove the statement. The three that
+  need `0036` failed with exactly the missing-relation error the DDL notes
+  predict, which is itself the check.
+* **No `.as()` alias was introduced anywhere in 19b**, so the 42702 class that
+  has now shipped three times has no new surface here. Every selection key maps
+  to a real column and Drizzle qualifies all of them.
+* **Magic-byte sniffing has never seen a real file.** `sniffImageType` is
+  asserted by no test and driven by no script; it has been read, not run.
+* **The document upload has never reached Supabase Storage** from this branch.
+  The path convention is `buildStoragePath`'s and the bucket is the one the
+  photo already writes to, but nothing has proved the round trip.
+* **`npm run build` was not run** — a dev server is running in this worktree and
+  the two share `.next`. It is DevOps's step, and it is the only gate with a
+  bundler in it: 19b moves constants between server and client modules in three
+  places (`db/schema/student-documents.ts`, `lib/academic-year-runs.ts`,
+  `lib/image-signature.ts`), all three of which are deliberately free of
+  `server-only` and are value-imported by `'use client'` components. That is
+  precisely the shape §5bg says only the build can see.
+
+### Gates run and green
+
+`typecheck`, `lint`, `check-loaders` (277 assertions), `check-forms`,
+`check-address-phone`, `check-cnic`, `check-currency`, `check-sprint-periods`,
+`check-accounting`, `check-theme`, `check-branch-scope` (1,314), and all three
+database-backed ones — `check-reports`, `check-dashboard` (47 aggregates) and
+`check-portals` (22 queries). `npm run build` is DevOps's and was not run here.
+
+### Still open
+
+* **Apply `0036`.** Then open the three screens in the table above; all three
+  500 without it and all three are one click from the sidebar, so a successful
+  apply is visible in ten seconds without a query.
+* The disposable **two-campus tenant** §5bg and §5bh both ask for. 19b adds four
+  more things that need one: a campus-scoped academic year, the cross-campus
+  promotion refusal, the copy-sections button under a scope, and the campus
+  facet on the year list.
+* **The guardian panel on a student's profile does not yet ask for an address.**
+  The column, the parser and the enrolment wizard all carry it; the panel that
+  edits a guardian afterwards does not, so an address can be recorded at
+  enrolment and not corrected later. The spec scoped item 18 to the wizard and
+  this is the natural next hour.
+* **Documents are admin-only.** Nothing in the parent or student portal shows a
+  child's own paperwork, and no route serves it to them.
+* Nine screens still render server-side catalogue lists without passing a scope
+  (§5bh's own open item). Unchanged by 19b.
+
+### Next free migration number is `0037`.

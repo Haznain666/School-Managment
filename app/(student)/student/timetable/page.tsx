@@ -23,7 +23,7 @@ export const runtime = 'nodejs';
  * A student's own week.
  *
  * The section is resolved from the uid in their verified session — school user,
- * then profile, then this year's active enrolment. There is no id in the URL, so
+ * then profile, then this year's active enrollment. There is no id in the URL, so
  * a student cannot ask for another class's timetable.
  */
 export default async function StudentTimetablePage() {

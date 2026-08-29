@@ -133,7 +133,7 @@ export const POST = withSchoolAuth(
       }
 
       // The register the client posted is checked against the section's real
-      // enrolment list. A student id from another class would otherwise be
+      // enrollment list. A student id from another class would otherwise be
       // marked here, in this section's name.
       const enrolled = await db
         .select({

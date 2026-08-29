@@ -20,13 +20,13 @@ import { studentProfiles } from './student-profiles';
 /**
  * student_transfers — a student moved from one campus to another.
  *
- * ── Why this is a record and not just an updated enrolment ───────────────
+ * ── Why this is a record and not just an updated enrollment ───────────────
  * A transfer is three facts a school is asked about later: when the child left
  * the old campus, when they started at the new one, and what happened to the
  * fees in between. Editing `student_enrollments.section_id` in place answers
  * none of them, and the question always comes from a parent holding a challan.
  *
- * So the enrolment is closed as `transferred` and a new one opened at the
+ * So the enrollment is closed as `transferred` and a new one opened at the
  * receiving branch, exactly as promotion does it, and this row is the join
  * between them.
  *
@@ -68,11 +68,11 @@ export const studentTransfers = pgTable(
     toSectionId: uuid('to_section_id')
       .notNull()
       .references(() => sections.id),
-    /** The enrolment closed by this transfer. */
+    /** The enrollment closed by this transfer. */
     fromEnrollmentId: uuid('from_enrollment_id')
       .notNull()
       .references(() => studentEnrollments.id),
-    /** The enrolment it opened. */
+    /** The enrollment it opened. */
     toEnrollmentId: uuid('to_enrollment_id').references(() => studentEnrollments.id, {
       onDelete: 'set null',
     }),
@@ -101,7 +101,7 @@ export const studentTransfers = pgTable(
       table.effectiveDate,
     ),
     // A student cannot be transferred to the branch they are already at: that
-    // is a section change, which the enrolment screen already does, and
+    // is a section change, which the enrollment screen already does, and
     // allowing it here would produce a transfer record with nothing to explain.
     check(
       'student_transfers_branch_differs_check',

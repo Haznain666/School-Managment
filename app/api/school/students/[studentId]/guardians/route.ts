@@ -166,7 +166,7 @@ export const POST = withSchoolAuth<RouteContext>(
        * The relationship rules, enforced on the second entry point too.
        *
        * The first guardian rule applies when there is no guardian yet — adding
-       * the very first one from this panel is the same decision the enrolment
+       * the very first one from this panel is the same decision the enrollment
        * form makes on its first card, and it must not be a way around it.
        */
       if (
@@ -266,7 +266,7 @@ export const POST = withSchoolAuth<RouteContext>(
       /*
        * The fee gate, read rather than assumed.
        *
-       * `feeStatus` lives on the *active* enrolment. A student with none —
+       * `feeStatus` lives on the *active* enrollment. A student with none —
        * withdrawn, transferred out, or a profile with no placement yet — has
        * no admission to gate, so their guardians are welcomed immediately;
        * holding them back would leave the welcome waiting on a payment nobody

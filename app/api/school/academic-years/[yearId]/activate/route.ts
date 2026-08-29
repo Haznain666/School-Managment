@@ -11,12 +11,12 @@ import { isUuid } from '@/lib/validation';
  * POST /api/school/academic-years/[yearId]/activate
  *
  * Makes one year the school's current session. Everything that says "this year"
- * — new enrolments, the dashboard counts, the public application form — reads
+ * — new enrollments, the dashboard counts, the public application form — reads
  * that flag, so exactly one row may hold it.
  *
  * The promotion runs before the demotion: if the second statement fails the
  * school briefly has two active years, which the queries resolve by taking the
- * first. The other order would leave them with none, which breaks enrolment
+ * first. The other order would leave them with none, which breaks enrollment
  * outright.
  */
 

@@ -2901,3 +2901,247 @@ export async function listTeacherScheduleRows(
     mechanism: row.mechanism ?? DEFAULT_CRITERIA.mechanism,
   }));
 }
+
+// -----------------------------------------------------------------------------
+// Sprint 19b — one child's academic history
+// -----------------------------------------------------------------------------
+
+/** One exam this child has a published result for. */
+export interface StudentExamHistoryRow {
+  examId: string;
+  examTitle: string;
+  examDate: string;
+  termId: string;
+  termName: string;
+  /** Whether the *term* has been published — what a parent's copy waits on. */
+  termIsPublished: boolean;
+  academicYearName: string;
+  gradeName: string;
+  sectionId: string;
+  sectionName: string;
+  /** How many published papers this row is computed from. */
+  papers: number;
+  /**
+   * The mean of the published papers' percentages. Null in descriptor mode and
+   * for an exam where nothing carried a mark.
+   *
+   * The **mean**, not obtained-over-available, because that is the figure the
+   * report card resolves its grade from and ranks on. A history showing the
+   * other number would disagree with the card it links to — and the card is the
+   * one the parent is holding. §5bg records what that divergence costs.
+   */
+  percentage: number | null;
+  /** Papers scored below their own pass mark. */
+  failedPapers: number;
+  /** Papers the child did not sit. They carry no mark and no verdict. */
+  absentPapers: number;
+  /** The descriptors this exam earned, distinct, in paper order. */
+  descriptors: ReportCardSubcategory[];
+  /** The subject-wise comments, joined. `exam_results.remarks`. */
+  comment: string | null;
+}
+
+/** One exam being folded together, plus the percentages the mean is taken over. */
+interface ExamHistoryAccumulator {
+  row: StudentExamHistoryRow;
+  percentages: number[];
+}
+
+/**
+ * Every exam this child has a published result for — Sprint 19b, item 17.
+ *
+ * ── "Published" means the *paper* is published ──────────────────────────
+ * `exam_subjects.results_status = 'published'`, which is the same gate
+ * `getSectionReportCards` reads. An unpublished mark is not a fact about the
+ * child yet — it is a teacher part-way through a sheet — and a history that
+ * showed one would change after a parent had read it.
+ *
+ * The **term's** own publication is carried alongside rather than used as the
+ * filter, because the two answer different questions: a published paper is what
+ * makes the mark real, and a published term is what makes the report *card*
+ * issuable. This screen is the school's own, so it reads the first and says the
+ * second on the row.
+ *
+ * ── One row per exam: not per paper, not per term ───────────────────────
+ * A term holds several exams and an exam holds several papers. The unit a
+ * school talks about — "how did she do in the mid-term" — is the exam, and it
+ * is also the unit that maps onto one report card: an exam names a term and a
+ * section, which is exactly what `/dashboard/exams/report-cards/print` takes.
+ *
+ * ── Pass or fail is derived from the papers, and only in marks mode ─────
+ * A paper is failed when the child *sat* it and scored below its own pass mark.
+ * There is no stored per-exam judgement to read: `student_term_results` holds
+ * the school's judgement for the whole **term**, which is a different and later
+ * decision, and printing it against one exam would tell a parent the child had
+ * failed a mid-term the school never said that about.
+ *
+ * In descriptor mode there are no pass marks, so there is no verdict and the
+ * descriptor is the answer. That is why `descriptors` is a list rather than a
+ * summary: no school has asked this product to decide that "Exceeding" beats
+ * "Satisfactory" by one, and folding four papers into one word would be exactly
+ * that decision.
+ *
+ * ── Grouped in Node, deliberately ───────────────────────────────────────
+ * One statement fetching one child's marks — a few hundred rows at the very end
+ * of a school career — and the grouping needs `resultPicker`, which is the one
+ * implementation of "which sitting counts" that the tabulation sheet, the
+ * report card and the exam charts all share. Re-expressing that as SQL would be
+ * a second implementation of the rule that matters most and is least visible.
+ */
+export async function listStudentExamHistory(
+  locationId: string,
+  studentProfileId: string,
+): Promise<StudentExamHistoryRow[]> {
+  const rows = await db
+    .select({
+      examId: exams.id,
+      examTitle: exams.title,
+      examDate: exams.examDate,
+      termId: examTerms.id,
+      termName: examTerms.name,
+      termIsPublished: examTerms.isPublished,
+      academicYearName: academicYears.name,
+      gradeName: grades.name,
+      gradeDisplayName: grades.displayName,
+      sectionId: sections.id,
+      sectionName: sections.name,
+      paperId: examSubjects.id,
+      resitStatus: examSubjects.resitStatus,
+      maxMarks: examSubjects.maxMarks,
+      passingMarks: examSubjects.passingMarks,
+      attempt: examResults.attempt,
+      marksObtained: examResults.marksObtained,
+      isAbsent: examResults.isAbsent,
+      remarks: examResults.remarks,
+      subcategoryId: resultSubcategories.id,
+      subcategoryLabel: resultSubcategories.label,
+      subcategoryColor: resultSubcategories.colorHex,
+    })
+    .from(examResults)
+    .innerJoin(examSubjects, eq(examSubjects.id, examResults.examSubjectId))
+    .innerJoin(exams, eq(exams.id, examSubjects.examId))
+    .innerJoin(examTerms, eq(examTerms.id, exams.termId))
+    .innerJoin(sections, eq(sections.id, exams.sectionId))
+    .innerJoin(grades, eq(grades.id, exams.gradeId))
+    .innerJoin(academicYears, eq(academicYears.id, sections.academicYearId))
+    .leftJoin(
+      resultSubcategories,
+      eq(resultSubcategories.id, examResults.subcategoryId),
+    )
+    .where(
+      and(
+        eq(examResults.locationId, locationId),
+        eq(examResults.studentProfileId, studentProfileId),
+        // Published papers only — see the docblock. Archived rows are excluded
+        // for the reason the report card excludes them: an archived paper is
+        // one the school has withdrawn, not one it stands behind.
+        eq(examSubjects.resultsStatus, 'published'),
+        isNull(examSubjects.archivedAt),
+        isNull(exams.archivedAt),
+        isNull(examTerms.archivedAt),
+      ),
+    )
+    .orderBy(
+      desc(academicYears.startYear),
+      desc(examTerms.sequenceOrder),
+      desc(exams.examDate),
+      asc(examSubjects.orderIndex),
+    );
+
+  // Which sitting counts, decided by the module every other reader of these
+  // marks uses. A published re-sit replaces the original; anything else falls
+  // back to it.
+  const counted = new Map(
+    rows.map((row) => [`${row.paperId}:${row.attempt}`, row] as const),
+  );
+  const pick = resultPicker(
+    rows.map((row) => ({
+      examSubjectId: row.paperId,
+      studentProfileId,
+      attempt: row.attempt,
+    })),
+  );
+
+  const byExam = new Map<string, ExamHistoryAccumulator>();
+  const seenPapers = new Set<string>();
+
+  for (const row of rows) {
+    // One visit per paper. A paper with an original *and* a re-sit appears
+    // twice, and counting both would double its weight in the mean.
+    if (seenPapers.has(row.paperId)) continue;
+    seenPapers.add(row.paperId);
+
+    const chosen = pick(
+      { id: row.paperId, resitStatus: row.resitStatus },
+      studentProfileId,
+    );
+    const result =
+      chosen === undefined ? undefined : counted.get(`${row.paperId}:${chosen.attempt}`);
+    if (result === undefined) continue;
+
+    const accumulator = byExam.get(row.examId) ?? {
+      row: {
+        examId: row.examId,
+        examTitle: row.examTitle,
+        examDate: row.examDate,
+        termId: row.termId,
+        termName: row.termName,
+        termIsPublished: row.termIsPublished,
+        academicYearName: row.academicYearName,
+        gradeName: gradeLabel({
+          name: row.gradeName,
+          displayName: row.gradeDisplayName,
+        }),
+        sectionId: row.sectionId,
+        sectionName: row.sectionName,
+        papers: 0,
+        percentage: null,
+        failedPapers: 0,
+        absentPapers: 0,
+        descriptors: [],
+        comment: null,
+      },
+      percentages: [],
+    };
+
+    accumulator.row.papers += 1;
+
+    const maxMarks = toMark(result.maxMarks) ?? 0;
+    const passingMarks = toMark(result.passingMarks) ?? 0;
+    const marks = toMark(result.marksObtained);
+
+    if (result.isAbsent) accumulator.row.absentPapers += 1;
+    if (marks !== null && marks < passingMarks) accumulator.row.failedPapers += 1;
+    if (marks !== null && maxMarks > 0) {
+      accumulator.percentages.push(percentageOf(marks, maxMarks));
+    }
+
+    if (
+      result.subcategoryId !== null &&
+      !accumulator.row.descriptors.some(
+        (descriptor) => descriptor.id === result.subcategoryId,
+      )
+    ) {
+      accumulator.row.descriptors.push({
+        id: result.subcategoryId,
+        label: result.subcategoryLabel ?? '',
+        colorHex: result.subcategoryColor,
+      });
+    }
+
+    const remark = result.remarks?.trim() ?? '';
+    if (remark !== '') {
+      accumulator.row.comment =
+        accumulator.row.comment === null
+          ? remark
+          : `${accumulator.row.comment} · ${remark}`;
+    }
+
+    byExam.set(row.examId, accumulator);
+  }
+
+  return [...byExam.values()].map((accumulator) => ({
+    ...accumulator.row,
+    percentage: overallPercentage(accumulator.percentages),
+  }));
+}

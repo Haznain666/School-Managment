@@ -14,7 +14,7 @@ import { cn } from '@/lib/utils';
  * ── Two orientations, and what decides between them ──────────────────────
  * A vertical bar's category label gets `plotWidth / categories.length` to live
  * in, and that budget decides everything. Twelve months across 640 units is
- * ~48 units per label, which "Jan" fits and "Admissions & Enrolment" does not.
+ * ~48 units per label, which "Jan" fits and "Admissions & Enrollment" does not.
  * The module-adoption chart on the Super Admin dashboard drew eleven full
  * module names into ~54 units each, so every label overran its neighbours and
  * the axis became one unreadable smear of overlapping words.

@@ -31,7 +31,7 @@ export const ENROLLMENT_STATUS_LABELS: Record<EnrollmentStatus, string> = {
 };
 
 /**
- * Whether the admission fee on this enrolment has been settled.
+ * Whether the admission fee on this enrollment has been settled.
  *
  * ── Why this is a second column and not a fifth status ───────────────────
  * "A student is only enrolled once their fee is paid" is a real rule, and the
@@ -42,7 +42,7 @@ export const ENROLLMENT_STATUS_LABELS: Record<EnrollmentStatus, string> = {
  * to every one of them for four days — no register to mark, no challan to pay,
  * and therefore no way to ever leave the state.
  *
- * The enrolment is real from the moment it is written. What is conditional is
+ * The enrollment is real from the moment it is written. What is conditional is
  * whether it has been *confirmed*, and that is what this records.
  */
 export const FEE_CLEARANCE_STATUSES = ['outstanding', 'cleared'] as const;
@@ -66,7 +66,7 @@ export function isFeeClearanceStatus(value: unknown): value is FeeClearanceStatu
  * This is the history table: promoting a child to the next class adds a row
  * rather than editing the old one, so "which section was she in two years ago"
  * stays answerable. The unique key enforces the other half of that rule — a
- * student cannot hold two enrolments in the same year.
+ * student cannot hold two enrollments in the same year.
  *
  * `section_id` and `academic_year_id` deliberately do not cascade: deleting a
  * year or a section that has students must fail loudly, and the API turns that
@@ -98,7 +98,7 @@ export const studentEnrollments = pgTable(
      *
      * Defaults to `outstanding`, so a newly admitted child starts unconfirmed
      * and the guardians' portal welcome is held back until the money is in.
-     * Every enrolment that existed before this column was added was back-filled
+     * Every enrollment that existed before this column was added was back-filled
      * to `cleared` — those children are already at school, and re-opening a
      * settled admission to chase a fee that was paid last year would be a
      * fabricated debt.
@@ -119,10 +119,10 @@ export const studentEnrollments = pgTable(
     index('student_enrollments_section_id_idx').on(table.sectionId),
     index('student_enrollments_academic_year_id_idx').on(table.academicYearId),
     /*
-     * One **active** enrolment per student per year — not one enrolment.
+     * One **active** enrollment per student per year — not one enrollment.
      *
      * The unqualified form was right until students could move between
-     * campuses mid-year. A transfer closes the enrolment at the old campus and
+     * campuses mid-year. A transfer closes the enrollment at the old campus and
      * opens one at the new, both inside the same academic year, and the
      * unqualified index forbade the second row outright.
      *
@@ -140,7 +140,7 @@ export const studentEnrollments = pgTable(
       .on(table.locationId, table.studentProfileId, table.academicYearId)
       .where(sql`${table.status} = 'active'`),
     // The list screens filter on this, and the fee gate scans it for the
-    // enrolments still waiting on money.
+    // enrollments still waiting on money.
     index('student_enrollments_location_fee_status_idx').on(
       table.locationId,
       table.feeStatus,

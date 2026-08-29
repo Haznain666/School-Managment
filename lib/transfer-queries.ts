@@ -21,7 +21,7 @@ import { db } from './drizzle';
  * Moving a student between campuses.
  *
  * ── A transfer is recorded, not applied in place ─────────────────────────
- * The enrolment is closed as `transferred` and a new one opened at the
+ * The enrollment is closed as `transferred` and a new one opened at the
  * receiving branch — the same shape promotion uses, and for the same reason. A
  * school is asked three things afterwards, always by somebody holding a
  * challan: when the child left, when they started, and what happened to the
@@ -53,7 +53,7 @@ export interface TransferCandidate {
   branchName: string;
 }
 
-/** The student's current active enrolment, with everything a transfer needs. */
+/** The student's current active enrollment, with everything a transfer needs. */
 export async function getTransferCandidate(
   locationId: string,
   studentProfileId: string,
@@ -235,7 +235,7 @@ export async function transferStudent(params: TransferParams): Promise<TransferR
 
   const current = await getTransferCandidate(locationId, studentProfileId);
   if (current === null) {
-    throw new TransferError('That student has no active enrolment to transfer.', 404);
+    throw new TransferError('That student has no active enrollment to transfer.', 404);
   }
 
   const destinationRows = await db
@@ -275,7 +275,7 @@ export async function transferStudent(params: TransferParams): Promise<TransferR
 
   await db.transaction(async (tx) => {
     /*
-     * Close the old enrolment *before* opening the new one.
+     * Close the old enrollment *before* opening the new one.
      *
      * `student_enrollments_location_id_profile_year_idx` is unique on
      * (location, student, year) **where status = 'active'** — one active
