@@ -20,9 +20,12 @@ and CSV routes, search, the users list, both branch screens and the eight
 catalogue routes. On a database without the table every one of them is a 500
 that names nothing. §5aw, one module over.
 
-⚠ **Nothing in 19a has been driven in a browser**, and LGS has one campus, so
-the group view — the scorecard, the four cross-campus charts, the campus
-selector itself — has no fixture anywhere and has never returned a row.
+⚠ **19a is MERGED AND LIVE as `4b4b735e9a2c`, and `0035` is APPLIED.** It has
+been driven at LGS, which has **two** campuses — Defence Branch and Karachi
+Branch — so the group view does render. A claim in the first draft of §5bh that
+LGS had one campus and the group view had no fixture was **wrong** and is
+corrected there. Four defects were found by driving it; all four are written
+up in §5bh.
 
 All thirteen gates green including `npm run build`; `check-loaders` passes now
 that the three new route files are staged (§5ax's git-tracking check).**);
@@ -9230,8 +9233,11 @@ on the whole dashboard, which is exactly what §5bg shipped.
   against the live schema only because every new predicate is a no-op when the
   scope is null, which is what an unscoped caller resolves to.
 * **The campus scorecard, the four cross-campus charts and
-  `getCampusLedgerTotals` have never returned a row.** LGS has one campus, so
-  the group view has no fixture anywhere. This is the same disposable-tenant gap
+  `getCampusLedgerTotals` have never returned a row.** ⚠ **This was wrong.** LGS
+  has **two** campuses, Defence Branch and Karachi Branch; the group view
+  renders and is what found D1 below. The claim was made from the fact that
+  `check-dashboard` returned no rows, which proves an *empty tenant* was queried
+  and nothing at all about the real one. This is the same disposable-tenant gap
   §5bg names as the most valuable thing this project could build for its own QA,
   and 19a is the sprint that most needs it.
 * **The two-campus paths are unexercised end to end**: a grant in
@@ -9248,5 +9254,184 @@ on the whole dashboard, which is exactly what §5bg shipped.
   siblings all call `list*` with no `branchIds`. They are correct today because
   every row is shared, and `check-branch-scope` covers the `lib/` half; the
   page half is the remaining work and is listed here rather than left implicit.
+
+### D1 — the dashboard contradicted itself about where the money came from
+
+Found by driving `/dashboard` at LGS under *All campuses*. Two charts, one
+screen, the same PKR 20,000:
+
+* **Collection by campus** — `Defence Branch: billed 95,000, collected 20,000`
+* **Income against expense by campus** — `Defence 0`, `Karachi 0`,
+  `No campus (school-wide): income 20,000`
+
+**The ledger was not wrong; it was never told.**
+`app/api/school/fees/challans/[challanId]/payments/route.ts` has called
+`postTransaction` for `source: 'fee_payment'` since Sprint 13.5 **without a
+`branchId`**, so every fee-payment posting ever written has `branch_id = NULL`.
+Nothing in the fee module noticed, because the fee module reaches a campus
+through the student's grade and never reads that column. The owner's dashboard
+is the first screen to put the two side by side, and it disagreed with itself
+immediately.
+
+Fixed on both sides, because one alone is not enough:
+
+* **Write** — `campusForStudent` in `lib/admissions-queries.ts`, read *before*
+  the transaction opens, and passed as `branchId`. Keyed on the **voucher's**
+  academic year, not the school's current one: a payment taken this month
+  against last year's voucher belongs to the campus the child was at then, and
+  a ledger whose past moves when a student transfers is not a ledger. **A null
+  still posts** — a student with no active enrolment has no campus, and that is
+  not a reason to refuse somebody standing at a counter with cash.
+* **Read** — existing rows cannot be repaired by a write. `ledger_transactions`
+  is append-only, a correction is a reversing entry, and there is nothing to
+  reverse: the money is right and only the label was missing. So
+  `getCampusLedgerTotals` *derives* the campus for `source = 'fee_payment'` rows
+  whose `branch_id` is null, through `source_id` → `fee_payments` →
+  `fee_challans` → that year's enrolment → the grade's campus, and groups on
+  the coalesce of the two. **No `UPDATE`, and no data migration.**
+
+`source = 'fee_payment'` is part of the **join condition**, not the `WHERE`:
+`source_id` is untyped, so an expense's id must not be able to match a
+payment's — and in the `WHERE` it would have thrown away every expense row,
+which is half the chart.
+
+### ⚠ A Drizzle selection key never reaches the SQL — the alias rule, sharpened
+
+This is the third instance of the class §5av and §5bg record, and it changes
+what the rule has to say. **`{ postingCampusId: grades.branchId }` in a
+subquery emits `select "grades"."branch_id"` with no `AS` at all.** The key is a
+TypeScript name; the derived table's column is still called `branch_id`.
+
+So the first version of this fix — written believing the key was the alias, and
+with a docblock *asserting* an alias called `posting_campus_id` — produced a
+subquery whose campus column was `branch_id`, joined into a statement that also
+has `ledger_transactions.branch_id`. It executed, because Drizzle qualified
+both. The comment above it was simply false.
+
+It was caught by **printing `toSQL()` and reading it**, which is the only thing
+that can catch it: `check-dashboard` passed on the wrong version too, because
+qualified-by-luck is still valid SQL.
+
+The corrected form uses an explicit alias on a wrapped expression —
+``sql`${grades.branchId}`.as('posting_campus_id')`` — and the printed SQL then
+shows the second half of the trap:
+
+```sql
+left join (select "fee_payments"."id"  as "fee_payment_id",
+                  "grades"."branch_id" as "posting_campus_id" …) "fee_payment_campus"
+       on ("ledger_transactions"."source" = $9 and "fee_payment_id" = "ledger_transactions"."source_id")
+…
+ group by coalesce("ledger_transactions"."branch_id", "posting_campus_id")
+```
+
+**Once aliased, Drizzle emits the outer references unqualified.** `.as()` trades
+a wrong name for a missing qualifier — which is exactly why the alias has to be
+a name nothing else in the statement has. It is not tidiness; it is the only
+thing standing between that query and a 42702.
+
+`campusOfStudent` in the same file was aliased the same way for the same
+reason (`student_campus_id`, `campus_student_profile_id`). Nothing joined to it
+today collides, and the next person to add a join should not have to find that
+out.
+
+### The gate that would have caught it now exists
+
+`scripts/check-dashboard-queries.ts` registers all five cross-campus
+aggregates — `getCampusScorecard` (scoped and not), `getCollectionTrendByCampus`
+and `getCampusLedgerTotals` (scoped and not). An ambiguous column reference is a
+**planning** error, so Postgres raises 42702 before it reads a row: running them
+against a school that does not exist is enough to prove the statement, which is
+the strongest thing available without a fixture. 42 aggregates → **47**.
+
+What it still cannot prove is that the two charts *agree*, which needs the
+two-campus tenant and a person looking at the screen.
+
+### D2 — a money axis drew outside its own card
+
+`PADDING.left` was the constant `46` in `BarChart` and `LineChart`, and 46 is
+the right number for `compactNumber`: `"20k"` is three glyphs. It is the wrong
+number for a money formatter. `"PKR 20,000"` measures ~56 units, is drawn at
+`x = left - 8` anchored `end`, and therefore starts at **-16** — sixteen units
+outside the viewBox, printed over whatever sits beside the card.
+
+Two charts shipped that way: *Ageing of receivables*, which has been drawing
+outside itself since Sprint 15, and *Collections by campus*, new in 19a. Sprint
+19a item 5 fixed the **horizontal** category labels and never looked at the
+vertical axis, which is the same defect one axis over.
+
+`axisGutter(ticks, format)` in `lib/chart-scale.ts` measures the gutter from the
+widest formatted tick instead of assuming it, and both charts call it. The floor
+of 46 keeps every existing compact-formatted chart pixel-identical to what it
+drew before. Verified in the browser by counting end-anchored SVG text starting
+left of the viewBox across the whole page: **8 → 0**.
+
+⚠ Nothing in the repository can catch the next one. `check-forms` asserts the
+module-adoption chart's geometry and no other chart's, and no check script
+measures a rendered glyph. A money formatter on a new chart is one constant
+away from this again.
+
+### D3 — `?branch=BOGUS` was a 500, and a well-formed foreign id was worse
+
+`pick()` in `lib/branch-scope.ts` had no shape check, and was called with
+`allowed: null` for the owner — "honour whatever was asked". Two defects, in
+opposite directions:
+
+* **A malformed id was a 500.** `branch_id` is `uuid`, so `?branch=BOGUS`
+  reached `grades.branch_id in ($1)` and Postgres refused the whole statement
+  with **22P02** before reading a row. A query parameter anybody can type, in a
+  link anybody can paste, took down the school-admin dashboard.
+* **A well-formed id belonging to another tenant was accepted.** It narrowed
+  every tile and chart to a campus this school does not have, and produced an
+  all-zero dashboard that reported no error. That is the worse of the two,
+  because nothing on the screen says it is wrong.
+
+Now `isUuid` first — before any membership test, so neither path can regress it
+— and the owner's `allowed` is this school's own campus ids rather than `null`.
+Both cases fall back to All campuses.
+
+⚠ **19a's own commit message claimed this already worked** — "an unknown or
+out-of-scope campus id resolves to nothing selected, never to a 500 and never
+to somebody else's campus". It was true for a branch-bound member, whose
+`allowed` list caught it by accident, and false for the owner, who is the only
+person the group view is for. A guarantee that holds on one path and is
+asserted for all of them is the shape to distrust.
+
+### D4 — the delete guard counted a table nothing has ever written to
+
+`DELETE /api/school/branches/[branchId]` counted `students.branch_id`.
+`students` is the minimal Sprint 1 table that **nothing in the product has ever
+inserted into** — enrolment writes `student_profiles` and `student_enrollments`
+— so the count was zero at every school and the refusal could never name the
+children it was protecting.
+
+Two consequences, and the second is the one that destroyed data:
+
+* A campus with children in it *was* still refused, but only as a caught
+  foreign-key error from `student_enrollments.section_id` (which has no
+  cascade) and a vague sentence about "classes, timetables or exams". That is a
+  backstop, not a design.
+* **A campus configured but not yet enrolled tripped nothing at all.** `grades`
+  is `ON DELETE CASCADE` from `branches`, and `sections` and `fee_structures`
+  cascade from `grades` in turn, so deleting such a campus destroyed the whole
+  class ladder and the price list — silently, raising nothing, leaving no record
+  that any of it had existed.
+
+The guard now counts active enrolments through section → grade → campus, and
+counts `grades` as well, so the second case is refused by this route with a
+sentence rather than by nothing at all. Verified in the browser: **409 —
+"Defence Branch still has 12 enrolled students, 14 classes, 8 portal members"**,
+and nothing was deleted.
+
+### What shipping D1-D4 did and did not settle
+
+Fixed, verified in a browser at LGS against its two campuses, and **no
+migration of any kind**: four code changes, no DDL, no data rewrite. The ledger
+repair in D1 is a read-side derivation precisely so that stays true, and
+`0035` remains the last migration applied.
+
+Still open, and unchanged by this: the disposable two-campus tenant §5bg asks
+for. All four of these were found by a person opening a screen, and three of the
+four were invisible to all thirteen gates — D1 is the only one that gained a
+gate it would have failed.
 
 ### Next free migration number is `0036`.

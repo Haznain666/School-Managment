@@ -229,6 +229,32 @@ searched the wrong column *silently* instead of failing.
 so a green build says only that the SQL compiled, never that Postgres would
 accept it. The gate is opening the screen.
 
+### A selection key is not an alias, and `.as()` is not a qualification
+
+Two further facts, both found in Sprint 19a by printing `toSQL()` rather than
+trusting a docblock — which is the only way any of this is ever established.
+
+**A Drizzle selection key never reaches the SQL.** Writing
+`.select({ postingCampusId: grades.branchId })` on a subquery emits no `AS` at
+all: the derived column is still called `branch_id`, whatever the TypeScript
+property is called. So a subquery "aliased" that way carries the *original*
+column name into a statement that may already join a table having it — the
+42702 above, with a docblock beside it swearing otherwise. Only an explicit
+`.as()` on a wrapped expression renames anything.
+
+**And once you do alias it, Drizzle emits the outer references *unqualified*.**
+`.as()` trades a wrong name for a missing qualifier. That is why the alias must
+be unique across the whole statement rather than merely descriptive: nothing
+will qualify it for you, so uniqueness is the only thing standing between the
+query and an ambiguous reference.
+
+| Write | Not |
+| --- | --- |
+| `` sql`…`.as('posting_campus_id') `` — a name no joined table has | `.select({ postingCampusId: grades.branchId })` — emits `branch_id` |
+
+Read the generated SQL when a statement joins more than three tables. It is one
+`console.log(query.toSQL())` and it is the only evidence that exists.
+
 ---
 
 ## RULE: the ledger is append-only, and everything that moves money posts to it

@@ -1,5 +1,12 @@
 import { ChartEmpty, ChartFrame, ChartLegend } from '@/components/charts/ChartFrame';
-import { areaPath, compactNumber, linearScale, smoothPath, type Point } from '@/lib/chart-scale';
+import {
+  areaPath,
+  axisGutter,
+  compactNumber,
+  linearScale,
+  smoothPath,
+  type Point,
+} from '@/lib/chart-scale';
 import { cn } from '@/lib/utils';
 
 /**
@@ -91,7 +98,12 @@ export function LineChart({
 
   const scale = linearScale(allValues);
 
-  const plotWidth = WIDTH - PADDING.left - PADDING.right;
+  // The y-axis gutter is measured from the widest formatted tick rather
+  // than assumed — see `axisGutter`. A money formatter needs more room
+  // than `compactNumber`, and assuming otherwise drew outside the viewBox.
+  const padLeft = axisGutter(scale.ticks, format);
+
+  const plotWidth = WIDTH - padLeft - PADDING.right;
   const plotHeight = HEIGHT - PADDING.top - PADDING.bottom;
   const baseline = PADDING.top + plotHeight;
 
@@ -99,7 +111,7 @@ export function LineChart({
   // zero and drawing it off the left edge.
   const stepX = categories.length > 1 ? plotWidth / (categories.length - 1) : 0;
   const xFor = (index: number) =>
-    categories.length > 1 ? PADDING.left + index * stepX : PADDING.left + plotWidth / 2;
+    categories.length > 1 ? padLeft + index * stepX : padLeft + plotWidth / 2;
   const yFor = (value: number) => baseline - scale.ratio(value) * plotHeight;
 
   const showArea = area && series.length === 1;
@@ -158,7 +170,7 @@ export function LineChart({
           return (
             <g key={tick}>
               <line
-                x1={PADDING.left}
+                x1={padLeft}
                 x2={WIDTH - PADDING.right}
                 y1={y}
                 y2={y}
@@ -166,7 +178,7 @@ export function LineChart({
                 strokeWidth={1}
               />
               <text
-                x={PADDING.left - 8}
+                x={padLeft - 8}
                 y={y}
                 textAnchor="end"
                 dominantBaseline="middle"
@@ -271,7 +283,7 @@ export function LineChart({
       </g>
 
       <line
-        x1={PADDING.left}
+        x1={padLeft}
         x2={WIDTH - PADDING.right}
         y1={baseline}
         y2={baseline}

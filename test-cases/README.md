@@ -149,6 +149,9 @@ release-note claims:
 
 | Release | Cases | File |
 | --- | --- | --- |
+| Sprint 19a — The branch boundary & the owner's dashboard | 13 items, 4 defects | [read](TEST-CASES-SPRINT-19A.md) |
+| Sprint 18 — Vouchers, concessions & student CRUD | 63 passed, 6 defects | [read](TEST-CASES-SPRINT-18.md) |
+| Sprint 17 — Onboarding, the admission fee & the discount | — | [read](TEST-CASES-SPRINT-17.md) |
 | Sprint 16 — Feedback, global search & the dashboard fixes | 119 | [read](TEST-CASES-SPRINT-16.md) |
 | School onboarding fixes | 27 | [read](TEST-CASES-SCHOOL-ONBOARDING-FIXES.md) |
 | Address & phone fields | 25 | [read](TEST-CASES-ADDRESS-AND-PHONE-FIELDS.md) |

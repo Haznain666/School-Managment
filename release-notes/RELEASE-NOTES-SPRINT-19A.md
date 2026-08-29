@@ -12,7 +12,9 @@ resolver reads the new table on every screen that has a campus scope, so the
 database had to know about it first. It was applied while the previous build was
 still serving, and nothing about that build could see it.
 
-**This release has not been driven in a browser yet** — QA follows.
+**Driven in a browser since, at a school with two campuses.** Four defects came
+out of that and all four are fixed — see *Fixed after QA* at the end. None of
+them needed a schema change.
 
 ---
 
@@ -168,3 +170,43 @@ campuses.
 Academic-year runs across campuses, the promotion screen's campus, student
 documents, academic history and the guardian address are **phase 19b** and are
 not in this release.
+
+
+---
+
+## Fixed after QA
+
+Sprint 19a was released and then driven at a real school with two campuses,
+which is the only thing that finds any of the following. All four are code
+fixes: **no migration, no DDL, and nothing rewritten in the database.**
+
+- **The dashboard no longer contradicts itself about where money came from.**
+  *Collection by campus* credited PKR 20,000 to Defence Branch while *Income
+  against expense by campus*, on the same screen, filed the same rupees under
+  *No campus*. Every fee payment ever recorded was posted to the ledger without
+  a campus, because the payment route never passed one — the fee module reaches
+  a campus through the student and never reads that column, so nothing noticed
+  until the two figures were put side by side. New payments now carry the
+  campus, and the campus of an existing payment is worked out when the chart is
+  drawn. **No historical row was altered:** the ledger is append-only, the money
+  was always right, and only the label was missing.
+- **A campus filter that does not exist no longer breaks the dashboard.** A
+  mistyped or stale `?branch=` in the address bar returned a server error. It
+  now falls back to *All campuses*. A campus id belonging to a **different**
+  school used to be accepted in silence and quietly emptied every figure on the
+  page — an all-zero dashboard with nothing on it to say it was wrong. It is
+  now rejected the same way.
+- **Money charts stop printing over the card beside them.** An axis labelled in
+  rupees — *Ageing of receivables*, and *Collections by campus* — needs more
+  room than one labelled "20k", and did not take it, so the labels were drawn
+  outside the chart. The axis now measures its own widest label. *Ageing of
+  receivables* has been drawing outside itself since Sprint 15.
+- **Deleting a campus can no longer destroy a term's setup in silence.** The
+  refusal counted students in a table the product has never written to, so the
+  count was always nought and the warning could never name anybody. A campus
+  that was set up but had nobody enrolled yet tripped nothing at all — and
+  deleting it took every class, every section and the whole fee structure with
+  it, without a word. Deleting a campus now refuses with the real numbers:
+  *"Defence Branch still has 12 enrolled students, 14 classes, 8 portal
+  members"*. Deactivating it is still offered, and is still the right answer for
+  a campus that is closing.
