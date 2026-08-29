@@ -4,6 +4,11 @@ import { branches, isCurriculumLevel } from '@/db/schema';
 import { apiFailure, apiSuccess, handleApiError, readJsonBody } from '@/lib/api-response';
 import { withSchoolAuth } from '@/lib/api-auth';
 import { sanitiseClassLevels } from '@/lib/branch-classes';
+import {
+  applyBranchLead,
+  describeBranchLead,
+  readBranchLead,
+} from '@/lib/branch-leads';
 import { demoteOtherMainBranches } from '@/lib/branches';
 import { isPakistaniCity } from '@/lib/cities';
 import { db } from '@/lib/drizzle';
@@ -33,15 +38,19 @@ import { USER_ROLES } from '@/types/school-auth';
  * unchanged and still exists — an operator setting a school up over the phone
  * is a real workflow — and the two write the same table under the same rules.
  *
- * ── What this route deliberately does NOT do ─────────────────────────────
- * It never creates a member. The Super Admin route offers `inviteAsBranchAdmin`
- * because that is an operator's only chance to give a new campus somebody, and
- * because a branch email typed there previously went nowhere at all. Inside the
- * school portal that reasoning does not hold: the administrator creating this
- * branch is already signed in, and Invite Staff is one screen away — it is
- * where they were heading when the missing branch stopped them. Inviting here
- * as well would mint a `branch_admin` nobody asked for and then show them a
- * form offering to invite the same person again.
+ * ── It now answers "who runs this campus" too (Sprint 19a, item 3) ───────
+ * This route used to refuse to create a member on principle: the administrator
+ * making the branch was already signed in, and Invite Staff was one screen
+ * away. That was right about the *old* control, which could only invite the
+ * campus's own email address and produced an account named after the building.
+ *
+ * It is wrong about the new one. A school group creating its third campus is
+ * answering "who runs it" in the same breath as "where is it", and making them
+ * do it on a second screen is how a campus ends up with nobody in it — which is
+ * a campus whose staff cannot be invited and whose fees nobody can raise.
+ *
+ * Both routes now read the *same validator*, `lib/branch-leads.ts`. Neither
+ * has its own copy of the rules, and neither can drift from the form.
  */
 
 export const runtime = 'nodejs';
@@ -72,6 +81,9 @@ interface CreateBranchBody {
   boardName?: unknown;
   classLevels?: unknown;
   isMainBranch?: unknown;
+  /** Who runs this campus. Validated by `lib/branch-leads.ts`. */
+  branchAdmin?: unknown;
+  branchPrincipal?: unknown;
 }
 
 /**
@@ -90,6 +102,18 @@ export const POST = withSchoolAuth(
       const body = await readJsonBody<CreateBranchBody>(request);
       if (body === null) {
         return apiFailure('invalid_body', 'Expected a JSON body.', 400);
+      }
+
+      // Read before the branch is written: an unusable answer is a 400, not a
+      // created campus with a half-applied administrator behind it.
+      const branchAdmin = readBranchLead(body.branchAdmin);
+      if (typeof branchAdmin === 'string') {
+        return apiFailure('invalid_body', branchAdmin, 400);
+      }
+
+      const branchPrincipal = readBranchLead(body.branchPrincipal);
+      if (typeof branchPrincipal === 'string') {
+        return apiFailure('invalid_body', branchPrincipal, 400);
       }
 
       const name = readString(body.name);
@@ -197,7 +221,31 @@ export const POST = withSchoolAuth(
         await demoteOtherMainBranches(auth.locationId, branch.id);
       }
 
-      return apiSuccess({ branch: { ...branch, isMainBranch } }, 201);
+      // After the campus is committed, and never allowed to fail it. See the
+      // Super Admin route for the argument at length.
+      const leads = [
+        await applyBranchLead('admin', branchAdmin, {
+          locationId: auth.locationId,
+          branchId: branch.id,
+          branchName: name,
+          actor: auth.uid,
+        }),
+        await applyBranchLead('principal', branchPrincipal, {
+          locationId: auth.locationId,
+          branchId: branch.id,
+          branchName: name,
+          actor: auth.uid,
+        }),
+      ].filter((outcome) => outcome !== null);
+
+      return apiSuccess(
+        {
+          branch: { ...branch, isMainBranch },
+          leads,
+          notes: leads.map((outcome) => describeBranchLead(outcome)),
+        },
+        201,
+      );
     } catch (error) {
       return handleApiError(error);
     }

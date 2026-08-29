@@ -14,6 +14,8 @@ import { BarChart } from '@/components/charts/BarChart';
 import { DonutChart } from '@/components/charts/DonutChart';
 import { LineChart } from '@/components/charts/LineChart';
 import { Sparkline } from '@/components/charts/Sparkline';
+import { BranchSelector } from '@/components/school/BranchSelector';
+import { CampusScorecard } from '@/components/school/CampusScorecard';
 import { SetupProgressCard } from '@/components/school/SetupProgressCard';
 import { Card, CardTitle } from '@/components/ui/Card';
 import { PageHeader } from '@/components/ui/PageHeader';
@@ -25,9 +27,12 @@ import {
   getAttendanceAverage,
   getAttendanceByClass,
   getAttendanceTrend,
+  getCampusLedgerTotals,
+  getCampusScorecard,
   getClassStrength,
   getCollectionComparison,
   getCollectionTrend,
+  getCollectionTrendByCampus,
   getEnrolmentComparison,
   getFeeStatusSplit,
   getOutstandingSummary,
@@ -36,6 +41,7 @@ import {
   getTodaySnapshot,
   settle,
   type AggregateScope,
+  type CampusScorecardRow,
 } from '@/lib/dashboard-queries';
 import {
   getDashboardExceptions,
@@ -44,6 +50,7 @@ import {
 } from '@/lib/school-dashboard';
 import { getAccountingOverview } from '@/lib/accounting-queries';
 import { getActiveAcademicYear } from '@/lib/admissions-queries';
+import { effectiveBranchIds, resolveBranchScope } from '@/lib/branch-scope';
 import { formatPkr } from '@/lib/money';
 import { PLATFORM_MODULES } from '@/lib/platform-modules';
 import { describeScope, resolvePrincipalScope } from '@/lib/principal-resolver';
@@ -106,6 +113,27 @@ const ATTENDANCE_CONCERN = 85;
  * `settle` turns a failed read into one absent tile with a reason, never a
  * zero and never a blank page. `PKR 0` on a school that collected three lakh
  * this morning is confidently wrong and unfalsifiable by the reader.
+ *
+ * ── Sprint 19a: the owner of a group is asking a different question ──────
+ * A principal asks "did we collect this month". The owner of three campuses
+ * asks **which campus is behind, and by how much** — and no total answers that.
+ * So the screen has two modes, decided by the campus selector at the top:
+ *
+ *   *All campuses* — the group view. The five headline tiles, then the
+ *     cross-campus charts and the per-campus scorecard, which is the artifact
+ *     an owner actually works from.
+ *   *One campus*   — byte-for-byte the screen this has always been, scoped.
+ *     No cross-campus charts, because there is nothing left to compare.
+ *
+ * The selector writes `?branch=`, the page is already `force-dynamic`, and
+ * `resolveBranchScope` validates the id — an unknown one falls back to the
+ * caller's whole scope rather than erroring or, far worse, showing them
+ * somebody else's campus.
+ *
+ * A school with **one** campus sees no selector at all and is pinned to it
+ * (item 13). That is also why `SetupProgressCard` still appears for the owner
+ * of a one-campus school: the card is per-campus, and a one-campus school is
+ * always looking at a campus.
  */
 
 /** The calendar month containing `at`, as two `YYYY-MM-DD` strings. */
@@ -118,8 +146,19 @@ function monthOf(at: Date): { from: string; to: string } {
   };
 }
 
-export default async function SchoolDashboardPage() {
+export default async function SchoolDashboardPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ branch?: string | string[] }>;
+}) {
   const { claims, locationId } = await requireSchoolRole(ADMIN_PORTAL_ROLES);
+
+  const requestedBranch = (await searchParams).branch;
+  const branchScope = await resolveBranchScope(
+    locationId,
+    claims,
+    Array.isArray(requestedBranch) ? requestedBranch[0] : requestedBranch,
+  );
 
   // Not wrapped, deliberately: without the counts, the module flags, the
   // permission list or the scope there is no page, and an empty frame would say
@@ -133,9 +172,24 @@ export default async function SchoolDashboardPage() {
   ]);
 
   const principalScope = await resolvePrincipalScope(locationId, claims.role, me?.id ?? null);
-  const scope = await resolveDashboardScope(locationId, principalScope);
+
+  /*
+   * The campuses every aggregate on this page is narrowed to: the selection
+   * when there is one, the caller's whole scope when there is not. Null means
+   * every campus, which is what an owner with nothing selected gets and what
+   * every school had before this sprint.
+   */
+  const campusIds = effectiveBranchIds(branchScope);
+  const scope = await resolveDashboardScope(locationId, principalScope, campusIds);
   const aggregateScope: AggregateScope = { gradeIds: scope.gradeIds };
   const scopeNote = describeScope(principalScope);
+
+  /*
+   * The cross-campus half of the screen appears only when there is more than
+   * one campus in view. With a single campus selected there is nothing to
+   * compare, and a bar chart with one bar is a number drawn slowly.
+   */
+  const showGroupView = branchScope.selected === null && !branchScope.pinned;
 
   const canInvite = permissions.includes('users.write');
   const enabledModules = PLATFORM_MODULES.filter((entry) => moduleFlags[entry.key]);
@@ -176,6 +230,9 @@ export default async function SchoolDashboardPage() {
     outcomes,
     accounting,
     accountingLast,
+    scorecard,
+    campusTrends,
+    campusLedger,
   ] = await Promise.all([
     settle('today snapshot', locationId, () => getTodaySnapshot(locationId, aggregateScope)),
     showFees
@@ -256,6 +313,31 @@ export default async function SchoolDashboardPage() {
           getAccountingOverview(locationId, monthOf(lastMonth)),
         )
       : null,
+
+    /*
+     * The three cross-campus reads. Each is `settle`d like everything else on
+     * this page — a scorecard that could not be read is one absent card with a
+     * reason, never a table of zeroes claiming every campus collected nothing.
+     *
+     * All three are skipped outright when a single campus is in view, so a
+     * branch-bound reader never pays for a query whose output they would not
+     * be shown.
+     */
+    showGroupView && showFees
+      ? settle('campus scorecard', locationId, () =>
+          getCampusScorecard(locationId, branchScope.branchIds),
+        )
+      : null,
+    showGroupView && showFees
+      ? settle('campus collection trend', locationId, () =>
+          getCollectionTrendByCampus(locationId, branchScope.branchIds),
+        )
+      : null,
+    showGroupView && showAccounting
+      ? settle('campus ledger totals', locationId, () =>
+          getCampusLedgerTotals(locationId, monthOf(now), branchScope.branchIds),
+        )
+      : null,
   ]);
 
   // The exceptions read depends on the outstanding count, which is already in
@@ -280,6 +362,65 @@ export default async function SchoolDashboardPage() {
   );
 
   const totalStrength = classStrength?.reduce((sum, row) => sum + row.value, 0) ?? 0;
+
+  /*
+   * Item 4a. Every tile carries a comparison, and under *All campuses* every
+   * tile also **names its worst campus** — which is the whole reason an owner
+   * opened this screen. A group total tells them the group is behind; it does
+   * not tell them where to telephone.
+   *
+   * All of these are folded from the scorecard rather than read again, so a
+   * tile and the table below it can never disagree about which campus is worst.
+   * They are `undefined` when the scorecard is absent — a single campus is in
+   * view, the fee module is off, or the read failed — and the tiles fall back
+   * to exactly the copy they carried before this sprint.
+   */
+  const campusCount = scorecard === null ? null : scorecard.length;
+
+  const groupRate =
+    scorecard === null
+      ? null
+      : (() => {
+          const billed = scorecard.reduce((sum, row) => sum + row.billed, 0);
+          if (billed === 0) return null;
+          const collected = scorecard.reduce((sum, row) => sum + row.collected, 0);
+          return Math.round((1000 * collected) / billed) / 10;
+        })();
+
+  const over90Share =
+    scorecard === null
+      ? null
+      : (() => {
+          const owed = scorecard.reduce((sum, row) => sum + row.outstanding, 0);
+          if (owed === 0) return null;
+          const old = scorecard.reduce((sum, row) => sum + row.over90, 0);
+          return Math.round((1000 * old) / owed) / 10;
+        })();
+
+  const worstCollector =
+    scorecard === null
+      ? null
+      : scorecard
+          .filter((row) => row.collectionRate !== null)
+          .reduce<CampusScorecardRow | null>(
+            (low, row) =>
+              low === null || row.collectionRate! < low.collectionRate! ? row : low,
+            null,
+          );
+
+  // Null attendance is excluded rather than treated as the worst: a campus
+  // whose register has not been taken is not the campus with the lowest
+  // attendance, and naming it as such on a tile is a sentence somebody acts on.
+  const worstAttendance =
+    scorecard === null
+      ? null
+      : scorecard
+          .filter((row) => row.attendanceRate !== null)
+          .reduce<CampusScorecardRow | null>(
+            (low, row) =>
+              low === null || row.attendanceRate! < low.attendanceRate! ? row : low,
+            null,
+          );
 
   /*
    * The chip row. Ordered by how often it is wanted rather than by module: an
@@ -385,6 +526,13 @@ export default async function SchoolDashboardPage() {
             ? 'No academic year is active yet — set one to start enrolling.'
             : `An overview of ${counts.activeYearName}.`
         }
+        actions={
+          <BranchSelector
+            options={branchScope.options}
+            selected={branchScope.selected}
+            allowsAll={branchScope.allowsAll}
+          />
+        }
       />
 
       {/*
@@ -457,7 +605,18 @@ export default async function SchoolDashboardPage() {
         the card collapses to one line and the numbers become a summary of the
         school rather than a checklist.
       */}
-      {setup === null ? null : <SetupProgressCard progress={setup} />}
+      {/*
+        Item 4d. The setup panel is per-campus — "has this campus created its
+        classes, priced its fees, built its timetable" — so it belongs to
+        whoever runs a campus, and it is noise on a group view where the answer
+        differs per campus and the card shows one number.
+
+        Rendered when the reader is branch-bound, or when a specific campus is
+        selected. A one-campus school is pinned to its only campus, so its owner
+        still sees it — which is the case where it matters most, and a rule that
+        hid it from them would be worse than the arrangement it replaces.
+      */}
+      {setup === null || showGroupView ? null : <SetupProgressCard progress={setup} />}
 
       <StatTileGrid>
         {showFees ? (
@@ -478,7 +637,15 @@ export default async function SchoolDashboardPage() {
             }
             deltaPeriod="vs the same point last month"
             detail={
-              today === null ? undefined : `${formatPkr(today.collectedToday)} received today`
+              groupRate !== null
+                ? `${groupRate}% of this year's billing collected${
+                    worstCollector === null
+                      ? ''
+                      : ` · lowest: ${worstCollector.branchName} at ${worstCollector.collectionRate}%`
+                  }`
+                : today === null
+                  ? undefined
+                  : `${formatPkr(today.collectedToday)} received today`
             }
             visual={
               collectionTrend === null || collectionTrend.length === 0 ? undefined : (
@@ -509,13 +676,15 @@ export default async function SchoolDashboardPage() {
             }
             deltaKind="state"
             detail={
-              outstanding === null
-                ? undefined
-                : outstanding.defaulterCount === 0
-                  ? 'Nobody is behind'
-                  : `${outstanding.defaulterCount.toLocaleString()} student${
-                      outstanding.defaulterCount === 1 ? '' : 's'
-                    } behind on a voucher`
+              over90Share !== null
+                ? `${over90Share}% of what is owed is more than 90 days old`
+                : outstanding === null
+                  ? undefined
+                  : outstanding.defaulterCount === 0
+                    ? 'Nobody is behind'
+                    : `${outstanding.defaulterCount.toLocaleString()} student${
+                        outstanding.defaulterCount === 1 ? '' : 's'
+                      } behind on a voucher`
             }
           />
         ) : null}
@@ -555,7 +724,11 @@ export default async function SchoolDashboardPage() {
                   : 'bad'
             }
             deltaPeriod="vs the 30-day average"
-            detail="Present or late, of everyone marked"
+            detail={
+              worstAttendance === null
+                ? 'Present or late, of everyone marked'
+                : `Lowest campus over 30 days: ${worstAttendance.branchName} at ${worstAttendance.attendanceRate}%`
+            }
           />
         ) : null}
 
@@ -581,9 +754,13 @@ export default async function SchoolDashboardPage() {
           }
           deltaPeriod="since the year opened"
           detail={
-            counts.activeYearName === null
-              ? 'No active academic year'
-              : `Enrolled in ${counts.activeYearName}`
+            campusCount !== null && campusCount > 1
+              ? `Across ${campusCount} campuses${
+                  counts.activeYearName === null ? '' : `, in ${counts.activeYearName}`
+                }`
+              : counts.activeYearName === null
+                ? 'No active academic year'
+                : `Enrolled in ${counts.activeYearName}`
           }
         />
 
@@ -648,6 +825,158 @@ export default async function SchoolDashboardPage() {
         for a school that has no fee module, and an administrator has no way to
         tell "this is not for you" from "this broke".
       */}
+      {/*
+        ── The group view (item 4b) ─────────────────────────────────────────
+
+        Four artifacts, and the chart type of each is a decision rather than a
+        default:
+
+         (a) Collection by campus — a **horizontal** bar chart, because campus
+             names are words rather than codes and horizontal is the mode this
+             repo built for exactly that. Grouped, not stacked: the comparison
+             is billed *against* collected, and a stack answers "what do they
+             total", which nobody asked.
+         (b) Income against expense by campus — the same, and never a dual y
+             axis: both series are PKR, so one axis is the honest one.
+         (c) Enrolment share — a donut at five campuses or fewer, a horizontal
+             bar above that. Part-of-whole is a donut's one job and a donut
+             stops working past five slices. The switch is here, in the page,
+             because only the page knows how many campuses there are.
+         (d) A twelve-month line per campus, capped at six lines with the
+             remainder folded into one named "Other campuses" — the ramp has six
+             colours and a seventh line is either a repeat or a rainbow.
+
+        Aged debt gets no cross-campus chart: five buckets across eight campuses
+        is forty grouped bars. It is the scorecard's Outstanding and Over-90
+        columns instead, and the existing aging chart still renders unchanged
+        the moment a single campus is chosen.
+      */}
+      {showGroupView && scorecard !== null && scorecard.length > 0 ? (
+        <div className="space-y-5">
+          <div className="grid gap-5 lg:grid-cols-2">
+            <Card
+              header={
+                <CardTitle
+                  title="Collection by campus"
+                  description="Billed against collected, this academic year"
+                />
+              }
+            >
+              <BarChart
+                title="Billed and collected by campus"
+                summary={campusMoneySummary(scorecard)}
+                categories={scorecard.map((row) => row.branchName)}
+                series={[
+                  { label: 'Billed', values: scorecard.map((row) => row.billed) },
+                  { label: 'Collected', values: scorecard.map((row) => row.collected) },
+                ]}
+                format={(value) => formatPkr(value)}
+                orientation="horizontal"
+              />
+            </Card>
+
+            <Card
+              header={
+                <CardTitle
+                  title="Enrolment share"
+                  description={`${scorecard.reduce((sum, row) => sum + row.students, 0).toLocaleString()} students across ${scorecard.length} campuses`}
+                />
+              }
+            >
+              {scorecard.length <= 5 ? (
+                <DonutChart
+                  title="Students by campus"
+                  summary={campusEnrolmentSummary(scorecard)}
+                  slices={scorecard.map((row) => ({
+                    label: row.branchName,
+                    value: row.students,
+                  }))}
+                  format={(value) => `${Math.round(value)} students`}
+                  centerValue={String(
+                    scorecard.reduce((sum, row) => sum + row.students, 0),
+                  )}
+                  centerLabel="enrolled"
+                />
+              ) : (
+                <BarChart
+                  title="Students by campus"
+                  summary={campusEnrolmentSummary(scorecard)}
+                  categories={scorecard.map((row) => row.branchName)}
+                  series={[
+                    { label: 'Students', values: scorecard.map((row) => row.students) },
+                  ]}
+                  format={(value) => String(Math.round(value))}
+                  orientation="horizontal"
+                />
+              )}
+            </Card>
+
+            {campusLedger !== null && campusLedger.length > 0 ? (
+              <Card
+                header={
+                  <CardTitle
+                    title="Income against expense by campus"
+                    description="This month, from the ledger"
+                  />
+                }
+              >
+                <BarChart
+                  title="Income and expense by campus"
+                  summary={campusLedgerSummary(campusLedger)}
+                  categories={campusLedger.map((row) => row.branchName)}
+                  series={[
+                    {
+                      label: 'Income',
+                      values: campusLedger.map((row) => row.incomePaise / 100),
+                    },
+                    {
+                      label: 'Expense',
+                      values: campusLedger.map((row) => row.expensePaise / 100),
+                    },
+                  ]}
+                  format={(value) => formatPkr(value)}
+                  orientation="horizontal"
+                />
+              </Card>
+            ) : null}
+
+            {campusTrends !== null && campusTrends.length > 0 ? (
+              <Card
+                header={
+                  <CardTitle
+                    title="Collections by campus"
+                    description="Twelve months, one line per campus"
+                  />
+                }
+              >
+                <LineChart
+                  title="Monthly collections by campus"
+                  summary={campusTrendSummary(campusTrends)}
+                  categories={campusTrends[0]!.points.map((point) => point.label)}
+                  series={campusTrends.map((trend) => ({
+                    label: trend.branchName,
+                    values: trend.points.map((point) => point.value),
+                  }))}
+                  format={(value) => formatPkr(value)}
+                />
+              </Card>
+            ) : null}
+          </div>
+
+          <Card
+            header={
+              <CardTitle
+                title="Per-campus scorecard"
+                description="This academic year. Sort on any column, or open a campus to see only its numbers."
+              />
+            }
+            className="p-0"
+          >
+            <CampusScorecard rows={scorecard} />
+          </Card>
+        </div>
+      ) : null}
+
       {showFees ? (
         <div className="grid gap-5 lg:grid-cols-2">
           <Card
@@ -709,6 +1038,13 @@ export default async function SchoolDashboardPage() {
             )}
           </Card>
 
+          {/*
+            Aged debt stays a single-scope chart. Under *All campuses* it is the
+            group's total, which is still a fact worth having — what it is not
+            is a comparison, and item 4b's `(e)` is the argument for why forty
+            grouped bars would be worse than the scorecard columns that replaced
+            them.
+          */}
           <Card
             header={
               <CardTitle
@@ -1041,6 +1377,77 @@ function funnelSummary(rows: ReadonlyArray<{ label: string; value: number }>): s
   const parts = rows.filter((row) => row.value > 0).map((row) => `${row.value} ${row.label}`);
 
   return `${total} application${total === 1 ? '' : 's'}: ${parts.join(', ')}.`;
+}
+
+/*
+ * The four cross-campus summaries.
+ *
+ * Every chart in this product carries one sentence a screen reader hears
+ * instead of the drawing, and these are built from the data rather than written
+ * by hand so they cannot go stale. On the group view they carry more weight
+ * than usual: **each one names the worst campus**, which is the whole reason an
+ * owner opened the screen, and a reader who cannot see the chart would
+ * otherwise be told only what the total was.
+ */
+function campusMoneySummary(rows: readonly CampusScorecardRow[]): string {
+  const billed = rows.reduce((sum, row) => sum + row.billed, 0);
+  if (billed === 0) return 'Nothing has been billed at any campus this year yet.';
+
+  const collected = rows.reduce((sum, row) => sum + row.collected, 0);
+  const rated = rows.filter((row) => row.collectionRate !== null);
+
+  if (rated.length === 0) {
+    return `${formatPkr(collected)} collected of ${formatPkr(billed)} billed.`;
+  }
+
+  const worst = rated.reduce(
+    (low, row) => (row.collectionRate! < low.collectionRate! ? row : low),
+    rated[0]!,
+  );
+
+  return `${formatPkr(collected)} collected of ${formatPkr(billed)} billed across ${rows.length} campuses. Furthest behind: ${worst.branchName} at ${worst.collectionRate}%.`;
+}
+
+function campusEnrolmentSummary(rows: readonly CampusScorecardRow[]): string {
+  const total = rows.reduce((sum, row) => sum + row.students, 0);
+  if (total === 0) return 'No campus has an active enrolment yet.';
+
+  const largest = rows.reduce((best, row) => (row.students > best.students ? row : best), rows[0]!);
+  const smallest = rows.reduce((low, row) => (row.students < low.students ? row : low), rows[0]!);
+
+  return `${total} students across ${rows.length} campuses. Largest: ${largest.branchName} with ${largest.students}. Smallest: ${smallest.branchName} with ${smallest.students}.`;
+}
+
+function campusLedgerSummary(
+  rows: ReadonlyArray<{ branchName: string; incomePaise: number; expensePaise: number }>,
+): string {
+  const income = rows.reduce((sum, row) => sum + row.incomePaise, 0);
+  const expense = rows.reduce((sum, row) => sum + row.expensePaise, 0);
+  if (income === 0 && expense === 0) return 'Nothing has been posted this month.';
+
+  const worst = rows.reduce(
+    (low, row) =>
+      row.incomePaise - row.expensePaise < low.incomePaise - low.expensePaise ? row : low,
+    rows[0]!,
+  );
+
+  return `${formatPkr(income / 100)} in and ${formatPkr(expense / 100)} out this month. Weakest: ${worst.branchName}, net ${formatPkr((worst.incomePaise - worst.expensePaise) / 100)}.`;
+}
+
+function campusTrendSummary(
+  trends: ReadonlyArray<{ branchName: string; points: ReadonlyArray<{ value: number }> }>,
+): string {
+  const totals = trends.map((trend) => ({
+    name: trend.branchName,
+    total: trend.points.reduce((sum, point) => sum + point.value, 0),
+  }));
+
+  const grand = totals.reduce((sum, entry) => sum + entry.total, 0);
+  if (grand === 0) return 'No payments have been received in the last twelve months.';
+
+  const best = totals.reduce((high, entry) => (entry.total > high.total ? entry : high), totals[0]!);
+
+  return `${formatPkr(grand)} collected over twelve months across ${trends.length} lines. Largest: ${best.name} at ${formatPkr(best.total)}.`;
 }
 
 function outcomesSummary(

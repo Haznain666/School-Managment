@@ -4,7 +4,29 @@
 resume without re-deriving context. Updated at the end of every development
 step, before the session ends.
 
-**Last updated:** 2026-08-28 (**Sprint 18 — a challan is a Voucher, concession
+**Last updated:** 2026-08-29 (**Sprint 19a — the branch boundary, the owner's
+cross-campus dashboard, and one resolver every read goes through — §5bh.
+`0035` is **APPLIED AND VERIFIED** — 35 bookkeeping rows → 36, applied through
+drizzle-orm's own `postgres-js` migrator on the session pooler (5432) because
+`drizzle-kit migrate` still hangs on the unescaped `@` in the password.
+34 catalogue assertions and 30 constraint-firing tests, each expected refusal
+inside its own `SAVEPOINT`, whole transaction rolled back; nothing left behind.
+`SPRINT-19A-DDL-NOTES.md` says why the order mattered.
+
+✅ **`0035` went in before the code, which is the order that matters.**
+`lib/branch-scope.ts` selects from `school_user_branches` on every request that
+resolves a campus scope — the dashboard, admissions, reports and their print
+and CSV routes, search, the users list, both branch screens and the eight
+catalogue routes. On a database without the table every one of them is a 500
+that names nothing. §5aw, one module over.
+
+⚠ **Nothing in 19a has been driven in a browser**, and LGS has one campus, so
+the group view — the scorecard, the four cross-campus charts, the campus
+selector itself — has no fixture anywhere and has never returned a row.
+
+All thirteen gates green including `npm run build`; `check-loaders` passes now
+that the three new route files are staged (§5ax's git-tracking check).**);
+2026-08-28 (**Sprint 18 — a challan is a Voucher, concession
 schemes the school owns, student CRUD as four permissions, and the family
 voucher as three steps — §5bg. `0034` APPLIED and verified, 34 rows → 35.
 **DEPLOYED AND LIVE as `02904e373dc3`**, PRs #37 and #38 merged.
@@ -7343,6 +7365,7 @@ to `gte` anyway, so the pattern is no longer in the codebase to be copied.
 
 | Date | Session did | Next |
 | --- | --- | --- |
+| 2026-08-29 | **Sprint 19a — the branch boundary, and the owner who sees across it** (§5bh). Items 1–13 of `SPRINT-19-SPEC.md`; 14–19 are phase 19b on `0036` and untouched. **One resolver**, `lib/branch-scope.ts`, and every read goes through it — `claims.branchId` in a query is now the defect, not the pattern. Nine catalogue tables gain a **nullable** `branch_id` where NULL means *shared*, which is every existing row, so nothing changes for any school on the day it deploys. `school_user_branches` grants extra campuses per person rather than per role. The owner's dashboard gained a campus selector, five tiles that name their worst campus, four cross-campus charts and a sortable per-campus scorecard whose rows link to `?branch=`. New `branches.manage` permission, branch detail and edit screens, a DELETE that refuses with 409 naming students, staff, members *and ledger entries* and wants the campus code typed. The branch form is one component with Branch Admin and Branch Principal toggles and **one** server validator, `lib/branch-leads.ts` — *the school owner* writes an assignment and sends no email, which is decision D3. Four reports gained a campus, the sidebar collapses, and `BarChart`'s horizontal labels stop drawing over the card. New `check-branch-scope`: 1,296 assertions, no database, in `ci.yml`, and it caught a real miss (`listLeaveTypeOptions`) on its first run. Twelve gates green. | **Apply `0035` first, then deploy** — the code 500s on every scoped surface without it (`SPRINT-19A-DDL-NOTES.md`). Then stage the three new route files so `check-loaders` is green, then `npm run build`. Then the thing 19a needs more than any sprint before it: **a two-campus tenant**. The scorecard, the charts, the selector, a grant, a branch-bound reader's search and both refusals have no fixture anywhere and have never returned a row. |
 | 2026-08-26 | **Sprint 16 — feedback, global search, and three dashboard fixes** (§5bd). Four new tables in `0032`, applied and verified with the CHECKs made to fire inside a rolled-back transaction. A school sends a bug or a suggestion with up to five PNG/JPEG/PDF files; the platform is notified in-app and by email, reads a four-section queue with filters, sorting, pagination and a counter toggle, and replies, decides or deletes — each of which notifies the school both ways. Driven end to end against the live database with two real schools: a real PNG and PDF round-tripped byte-exact, tenancy isolation gave 404 on both the attachment and the reply, and every notification and email row was read back out of Postgres. Global search on all five portals, five scoped functions rather than one with a role parameter. **The second scrollbar was `sr-only`** — `position: absolute` with no positioned ancestor escapes `<main>`'s `overflow-y` and grows the root; the bottom-most hidden `<figcaption>` sat at document y = 1185, which was `scrollHeight` exactly. Five QA defects found and fixed, one of them only findable against real data: *Teachers 0* at a school with a teacher on the HR register and no portal account. **Merged to `main` locally, `--no-ff`, nothing pushed.** | **Pushed, merged (PR #32) and live as `47e072c1f058`** the same day; the cache purge and commit confirmation both ran green. Left on the live deployment: press **Provision** on both schools (outstanding from §5bc). Still nobody has signed in as a teacher, parent or student — that is now three sprints of scoping asserted in code and never held in a hand, and it is the next thing worth an hour. |
 | 2026-08-22 | **The deploy was never blocked, and the probe that would have said so was gitignored** (§5ax). Asked to fix "the Hostinger SSH issue". There is none: hPanel has auto-deployment on from GitHub, and it built `17099d4` at 16:52 in 2m29s, Completed — the WhatsApp merge had been live for hours. The five `HOSTINGER_SSH_*` secrets are leftovers from the rsync workflow #24 deleted and are read by nothing; the three `deploy.yml` actually reads are all set. **This file had said the opposite for two days**, accurately on 2026-08-20 and falsely from 2026-08-21, which is the §5aw failure one level up. **The real bug, found while disproving the false one:** `.gitignore` line 13 was a bare `build/`, which matches at any depth and therefore matched `app/api/internal/build/` — an App Router segment, not build output. `/api/internal/build` has never been committed, so Hostinger never had it and production 404s it, and the verification workflow's "which commit is live" step **could never have passed on any deploy** — its failure message blamed the deployment. Both patterns anchored to the root. **CI structurally cannot catch this** (an ignored file is absent from a fresh checkout), so `check-loaders` now asks git whether each route file on disk is tracked — 237 assertions, proven against a planted route in an ignored directory. Cache purged in hPanel. | Set `SMOKE_SUPER_ADMIN_EMAIL` and `SMOKE_SUPER_ADMIN_PASSWORD` — the only secrets genuinely missing — then run *Verify the live deployment* and watch it pass for the first time. Then the twenty minutes of clicking that three sprints have now deferred. |
 | 2026-08-22 | **WhatsApp removed from the platform, and three faults underneath it** (§5aw). Four reports, one session. **WhatsApp is gone, not gated** — `lib/channels.ts`, `ChannelToggleList`, `sendWhatsAppMessage`, `PLATFORM_CHANNELS` and the whole channel-vs-module distinction deleted; `lib/ghl-fees.ts` rewritten as `lib/fee-notices.ts` with no GHL import left in it. GHL survives as contact sync only. `0028` drops the two invitation columns and the `school_modules` row, and **re-labels** `announcement_recipients.channel = 'whatsapp'` to `'notice'` rather than deleting the school's own delivery record. **The invite form had never accepted a formatted number**: the route validated with `/^\+?[0-9\s-]{7,20}$/`, which has no brackets in it, against a client that masks every value into `(021) 444444` — so it refused its own form's output, and `identity` on the PhoneField refused a landline besides. Both now import `lib/phone-formats.ts`, the rule `PhoneField`'s own docblock already stated. **The dashboard outage was `0027`**: `getAccountingOverview` counting a `ledger_transactions` that did not exist, inside a `Promise.all`, so one tile took the students count, the staff count, three charts and every quick action with it. `0027` and `0028` are **both applied to the live database now** — 27 rows of bookkeeping before, 29 after — and each optional read is wrapped so the page degrades one tile at a time. **"Unexpected response."** was the login route being the one route on this surface with no `try`/`catch`; probing the live endpoint with a wrong address returns a correct 401 JSON, so the report was a transient the message refused to name. Both client helpers now report the status and distinguish 502/503/504 from a defect. All nine gates green, plus all five database-backed checks — `check-reports` had been failing on the same missing tables and now passes. | **Nothing here has been clicked in a browser** — the sign-in needs a password and no session may type one, so the invite form, the dashboard and the bulk-modules page are verified by query and by build, not by eye. Twenty minutes with a real login is the next thing worth doing. ~~Then deploy: `HOSTINGER_SSH_*` is still missing.~~ **Wrong — see §5ax.** It deployed by itself; Hostinger's GitHub connection has auto-deployment on. Then the automatic sibling discount. |
@@ -8935,3 +8958,295 @@ for it. All of these need a **disposable tenant**, which is now the single most
 valuable thing this project could build for its own QA.
 
 ### Next free migration number is `0035`.
+
+---
+
+## 5bh. Sprint 19a — the branch is the unit, and the owner sees across them — 2026-08-29
+
+Spec: `SPRINT-19-SPEC.md`, nineteen items in two phases. **This is phase 19a —
+items 1 to 13 only.** Items 14–19 (academic-year runs, promotion, student
+documents, academic history, the guardian address and the Enrol→Enroll rename)
+are phase 19b, take migration `0036`, and none of them has been started.
+
+Migration: **`0035_sprint19a_branch_boundary.sql` is APPLIED AND VERIFIED** —
+2026-08-29, 35 bookkeeping rows before and **36** after, entry `id=36` stamped
+`1788004800000` to match the journal. `SPRINT-19A-DDL-NOTES.md` at the repo root
+records what it does, how to verify it and — the part that matters — what
+breaks if the code deploys ahead of it.
+
+**It was applied while the Sprint 18 build was still serving**, which is the
+order the DDL notes call for and the reverse of the order that would have taken
+the dashboard, admissions, reports, search, the users list, both branch screens
+and the eight catalogue routes down at once.
+
+`drizzle-kit migrate` was not used and still cannot be: `DATABASE_URL` holds an
+unescaped literal `@` in the password and Sprint 18 watched it hang for five
+minutes and apply nothing. `0035`, like `0034`, went in through **drizzle-orm's
+own `postgres-js` migrator** — same statements, same `drizzle.__drizzle_migrations`
+bookkeeping — against the *pooler host on port 5432* (session mode; 6543 is
+transaction mode and will not do DDL, and the direct `db.<ref>.supabase.co`
+host is IPv6-only, §5c). Percent-encoding the password would likely restore the
+documented route and nobody has done it yet.
+
+Verified against the catalogue rather than the success message: **34 read-only
+assertions** (`school_user_branches` at 6 columns / 3 CASCADE FKs / 3 indexes
+including the UNIQUE on `(school_user_id, branch_id)`; all nine `branch_id`
+columns uuid and nullable with `confdeltype='n'` — SET NULL, not CASCADE, on
+every one; nine `(location_id, branch_id)` indexes; the CHECK at 37 keys with
+`branches.manage` among them) and **30 constraint-firing tests** inside one
+transaction that was rolled back, each expected refusal in its own `SAVEPOINT`
+per §5be. All nine SET NULL rules were made to actually fire — a temporary
+campus created, a catalogue row hung off it, the campus deleted, the row
+asserted still present with `branch_id` NULL. Row counts were identical before
+and after; nothing was left behind.
+
+⚠ One test failure was the *test's* fault and is worth recording, because it
+will recur: asserting the `location_id` FK by reusing a `(school_user_id,
+branch_id)` pair an earlier assertion had already inserted gets `23505` from
+the unique index, which fires first, not the `23503` being tested. Use a pair
+no earlier assertion has claimed. Re-run with an unused pair: refused `23503`
+on `school_user_branches_location_id_schools_location_id_fk`, with a control
+insert proving the pair itself was acceptable.
+
+Gates run and green: `typecheck`, `lint`, `check-forms`, `check-address-phone`,
+`check-cnic`, `check-currency`, `check-sprint-periods`, `check-accounting`, the
+new `check-branch-scope`, and all three database-backed ones — `check-reports`,
+`check-dashboard`, `check-portals`. `check-loaders` is green now that the three
+new route files are staged; the one assertion it had been failing was §5ax's
+git-tracking check, never a loader shape.
+
+**`npm run build` is green** — the thirteenth gate and the only one with a
+bundler in it. §5bg's worry was live this sprint, because 19a moved constants
+between server and client modules, and the build is the only thing that would
+have seen a `'use client'` module value-importing from a `server-only` one. It
+saw nothing. All three new routes are in the route table —
+`/dashboard/branches/[branchId]`, `/dashboard/branches/[branchId]/edit` and
+`/api/school/branches/[branchId]` — the middleware bundle is 41.4 kB, and
+`.next/standalone/server.js` was emitted. **526 files copied from `.next/static`
+into `.next/standalone/.next/static`** per §5be; the standalone tree is 113 MB.
+The §5f `node_modules` stub was absent before the build and was not recreated by
+it — check anyway next time, it is cheap and the failure is baffling.
+
+### ✅ `0035` was applied before this code deployed — why that was the order
+
+`lib/branch-scope.ts` selects from `school_user_branches` on **every request
+that resolves a campus scope**, which is the dashboard, admissions, reports and
+their print and CSV routes, search, the users list, both branch screens and the
+eight catalogue routes. On a database without `0035` every one of them is a 500
+that names nothing.
+
+That is §5aw one module over — the day a missing `ledger_transactions` inside a
+`Promise.all` took the whole dashboard down — and it is why `0029` carries the
+banner it does. The migration is expand-only and nothing the Sprint 18 build
+read touched any of it, so it was applied while that *old* build was still up
+and serving — the order the DDL notes call for, and it cost nothing.
+
+### The four decisions, which are not to be re-litigated
+
+Taken with the product owner before any code was written, recorded in §0 of the
+spec, and implemented exactly:
+
+**D1 — a catalogue row belongs to one campus, or to none.** Nine tables gain a
+**nullable** `branch_id`: `subjects`, `fee_types`, `grading_schemes`,
+`exam_terms`, `concession_schemes`, `leave_types`, `salary_components`,
+`result_subcategories`, `late_fee_rules`. NULL means *shared by every branch*
+and is what every existing row is, so nothing changes for any school on the day
+this deploys. A `NOT NULL` backfill to the main branch was rejected: a
+three-campus school would have to re-create the same grading scheme three
+times, and the backfill cannot be undone because nothing records which rows
+were school-wide before it ran.
+
+**D2 — cross-branch access is granted per person, not per role.**
+`school_user_branches`. A role permission would grant it to every holder of
+that role at once and could not be taken back from one of them.
+
+**D3 — the owner is `school_admin` with `branch_id IS NULL`; extra hats are
+assignments, not accounts.** The branch form's *the school owner* answer writes
+a `school_user_branches` row (Branch Admin) or a `principal_assignments` row
+(Branch Principal), and **no invitation and no password email**. A second
+`school_users` row per hat breaks the one-membership-per-person unique index
+and, where it does not, puts the owner in Users & Staff twice.
+
+**D4 — two phases.** 19a closes the leak and ships the owner dashboard.
+
+### `resolveBranchScope` is the only place the rule lives
+
+`lib/branch-scope.ts`. Four kinds of caller, resolved in this order:
+
+1. a campus on the membership row → that campus plus its grants;
+2. no campus and `school_admin` → every campus (the owner);
+3. no campus and some other role → every campus, narrowed *downstream* by
+   `resolvePrincipalScope`;
+4. the platform operator, who has no membership row and falls into (2).
+
+Rule 1 is checked **before** the role deliberately: a `school_admin` created
+for one campus stays confined to it rather than being promoted to the group.
+
+**If you find yourself writing `claims.branchId` inside a query, that is the
+defect this module exists to prevent.** The one legitimate reader of it is this
+file.
+
+Two things about the shape that should not be undone:
+
+* **`bound` is not `branchIds !== null`.** A one-campus school resolves
+  `branchIds` to that campus *for everybody, including its owner* — right for
+  reading, wrong for writing. A subject the owner adds today at a one-campus
+  school should still be the *school's* when a second campus opens next year,
+  not silently confined to the first. `bound` is false for them and
+  `branchForWrite` writes NULL.
+* **An out-of-scope `?branch=` is not an error.** A stale bookmark, a link
+  pasted between colleagues at different campuses, and a campus deactivated
+  since the tab was opened all arrive as the same request. All three resolve to
+  the caller's whole scope — never a 500, never somebody else's campus.
+
+### `sharedOrOwnedBy` and `ownedBy` are one identifier apart and opposite
+
+The single most dangerous thing in this sprint, and the reason
+`check-branch-scope` exists:
+
+| Column | Null means | Use |
+| --- | --- | --- |
+| the nine catalogue tables, `announcements.branch_id` | *shared by every campus* | `sharedOrOwnedBy` — `isNull OR inArray` |
+| `staff`, `school_users`, `admission_applications`, `expenses` | a row with no campus is school-wide **and not a campus's** | `ownedBy` — `inArray` |
+
+`eq(subjects.branchId, campus)` on the first class returns **nothing at all at
+every school**, because every catalogue row in production is shared — and an
+empty subject list reads as a school that was never set up rather than as a
+filter that is wrong. `sharedOrOwnedBy` on the second class would put the
+school's owner into a campus's staff list.
+
+`check-branch-scope` asserts there is no `eq(<t>.branchId` anywhere in `lib/`
+for the nine, per file per table, and that every exported `list*` function
+reading one of them mentions the scope — or carries
+`// check-branch-scope: <reason>`, which makes an intentional school-wide read a
+decision somebody wrote down. 1,296 assertions, no database, and it is in
+`ci.yml`.
+
+### What each item did
+
+**1.** "Principal name" → **"Head of School"** on the school profile form, the
+Super Admin create form and the Super Admin detail page. The column stays
+`schools.principal_name`; a rename is 1,200 lines of unreviewable diff for a
+caption, and `lib/global-search.ts` searches it by name.
+
+**2.** The boundary. `lib/branch-scope.ts`, `school_user_branches`, the nine
+columns, the eight catalogue routes filtered on GET and guarded on POST, the
+users list filtered on the page query, the total **and** all three facet counts
+(§5bf's trap), and `lib/global-search.ts` — the widest read in the product —
+scoped across students, classes, vouchers, staff, portal accounts,
+applications, subjects and announcements.
+
+**3.** One branch form everywhere, with **Branch Admin** and **Branch
+Principal** toggles, each offering *the school owner* or *somebody else*. The
+validator is one module, `lib/branch-leads.ts`, read by both routes — not two
+copies. `inviteAsBranchAdmin` is replaced, not kept beside it: it could only
+ever invite the campus's own email address and produced an account called
+"Johar Town Campus administrator", which is a role rather than a person.
+
+**4.** The owner dashboard. A campus selector writing `?branch=`, five tiles
+each naming their worst campus under *All campuses*, four cross-campus charts
+and a per-campus scorecard. When one campus is selected the screen is
+byte-for-byte what it has always been, scoped.
+
+**5.** `BarChart`'s horizontal labels are truncated to 26 characters with an
+SVG `<title>` carrying the full string. The hidden data table and the `summary`
+keep it untruncated — the chart may abbreviate, the accessible copy may not.
+
+**6.** The sidebar sections collapse and start closed, except the one holding
+the current route, which opens on load and cannot be closed. State per section
+in `localStorage` inside `try`/`catch`. Suppressed in icon-only mode, where
+there is no heading left to click.
+
+**7.** Users & Staff was **already** on `DataTable` + `readListQuery` at 50 —
+that half of the item was done in an earlier sprint. What it needed was the
+campus boundary, applied to the page query, the total and all three facets.
+
+**8.** `/dashboard/branches/[branchId]` and `/edit`, a new `branches.manage`
+permission (default `school_admin` only), and a DELETE that refuses with **409**
+naming the counts — students, staff, portal members *and ledger entries* — and
+requires the branch **code** to be typed. Every school group has two campuses
+called "Main".
+
+**9.** `academic-results`, `account-summary`, `monthly-accounts` and
+`income-expense-summary` gained a campus filter. `lib/report-options.ts` now
+takes the resolved scope rather than `sessionBranchId`, so a principal granted
+two extra campuses is offered them instead of no control at all.
+
+**10.** Settings lost the principal card. The component moved to the branch
+page, filtered to that campus.
+
+**11.** Admissions Overview takes a campus, above the funnel.
+
+**12 and 13** are consequences of the above rather than code of their own.
+
+### Deviations from the spec, and why
+
+* **`late_fee_rules.branch_id` is inert.** `location_id` on that table is
+  `.unique()` — one policy per school — so no second row can exist to carry a
+  campus. The column ships because it is expand-only; relaxing the unique index
+  is a separate decision, because the moment two rows can exist every reader has
+  to choose between them and there is no code today that would.
+* **`newThisMonth` on Admissions Overview is not narrowed**, and the tile says
+  so. A `student_profiles` row is created before the child is placed in a
+  section, so there is no campus on it and no join that would find one.
+* **The reports' campus is derived once, on the page**, and passed to the runner
+  in `params.branchId` rather than through `ReportScope.sessionBranchId`. A
+  single session field cannot express "one of these three campuses", and the
+  printed sheet's caption is read from the same value — a sheet whose header
+  names a different campus from its figures is worse than one with no header.
+  `sessionBranchId` stays, deprecated, because `check-reports` drives the
+  runners with no session.
+* **A branch-bound caller who has *not* chosen among several granted campuses
+  gets their own campus on a report**, not all of theirs. Every runner applies
+  `eq(column, branchId)`, and widening that to `inArray` is fourteen runners of
+  change for a case that has never occurred in production. The dropdown offers
+  the rest and the sheet is captioned with whichever is applied.
+* **Chart (e), aged debt, has no cross-campus version** — the spec asks for
+  none. Five buckets across eight campuses is forty grouped bars. It is the
+  scorecard's Outstanding and Over-90 columns instead.
+* **`branches.manage` was not given to `branch_admin`.** A campus administrator
+  editing the campus record is editing the boundary they are confined by.
+  Creating a campus stays on `settings.write` where it has been since Sprint
+  10.5, so a school that has never opened the permissions screen can still make
+  its first campus exactly as it could yesterday.
+
+### The Drizzle alias rule, paid for twice, obeyed here
+
+This sprint writes cross-campus aggregates, and `fee_challans` has no
+`branch_id` — a voucher reaches a campus through its student's section's grade.
+That subquery is `campusOfStudent` in `lib/dashboard-queries.ts` and its branch
+column is aliased **`campus_id`**, never `branch_id`, with every reference
+qualified. The statement joins `grades`, `sections` and `branches`, three tables
+that between them have a `branch_id`; an ambiguous reference would be a 42702
+on the whole dashboard, which is exactly what §5bg shipped.
+
+### What was NOT verified, honestly
+
+* **Nothing here has been driven in a browser.** No screen, no toggle, no
+  refusal. §5bg's own conclusion is that this is the gate that matters and the
+  one nine green checks cannot stand in for.
+* **`0035` has not been applied**, so no query touching a new column has ever
+  executed. `check-reports`, `check-dashboard` and `check-portals` all pass
+  against the live schema only because every new predicate is a no-op when the
+  scope is null, which is what an unscoped caller resolves to.
+* **The campus scorecard, the four cross-campus charts and
+  `getCampusLedgerTotals` have never returned a row.** LGS has one campus, so
+  the group view has no fixture anywhere. This is the same disposable-tenant gap
+  §5bg names as the most valuable thing this project could build for its own QA,
+  and 19a is the sprint that most needs it.
+* **The two-campus paths are unexercised end to end**: a grant in
+  `school_user_branches`, a branch-bound reader's search results, the 403 on an
+  out-of-scope write, and the 409 on deleting a campus with students.
+* `npm run build` has not been run on this branch.
+
+### Still open
+
+* Phase **19b** — items 14 to 19, migration `0036`.
+* The three new route files need staging before `check-loaders` is green.
+* Nine screens still render server-side catalogue lists without passing a
+  scope — the subjects page, the exam term pages, the grading page and their
+  siblings all call `list*` with no `branchIds`. They are correct today because
+  every row is shared, and `check-branch-scope` covers the `lib/` half; the
+  page half is the remaining work and is listed here rather than left implicit.
+
+### Next free migration number is `0036`.

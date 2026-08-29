@@ -3,14 +3,12 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 
 import { schools } from '@/db/schema';
-import { PrincipalAssignments } from '@/components/school/PrincipalAssignments';
 import { SchoolBrandingForm } from '@/components/school/SchoolBrandingForm';
 import { SchoolProfileForm } from '@/components/school/SchoolProfileForm';
 import { Card, CardTitle } from '@/components/ui/Card';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { db } from '@/lib/drizzle';
 import { requireSchoolPermission } from '@/lib/school-guard';
-import { listBranchOptions } from '@/lib/school-queries';
 
 export const metadata: Metadata = {
   title: 'Settings',
@@ -61,9 +59,6 @@ export default async function SchoolSettingsPage() {
   }
 
   const canEdit = permissions.includes('settings.write');
-  const branchOptions = permissions.includes('principals.manage')
-    ? await listBranchOptions(locationId)
-    : [];
 
   return (
     <div className="space-y-6">
@@ -105,8 +100,33 @@ export default async function SchoolSettingsPage() {
         </Card>
       ) : null}
 
+      {/*
+        The principal card left this page in Sprint 19a (item 10).
+
+        "Who runs this campus" is a question about a campus, and it was being
+        asked on a page about the school's logo and postal address — where the
+        campus had to be chosen from a dropdown before the question could even be
+        read. It is now on each campus's own page, which is where somebody stands
+        when they ask it. The component was not deleted and `principals.manage`
+        keeps its meaning and its default grants.
+
+        The pointer stays, because a school administrator who knew where the card
+        used to be will look here first.
+      */}
       {permissions.includes('principals.manage') ? (
-        <PrincipalAssignments branches={branchOptions} canEdit />
+        <Card header={<CardTitle title="Principals" />}>
+          <p className="text-sm text-ink-muted">
+            Who heads each campus is set on that campus. Open a branch and the
+            assignment card is on its page — along with its address, its code and
+            everything else printed on the vouchers it issues.
+          </p>
+          <Link
+            href="/dashboard/branches"
+            className="mt-3 inline-block text-sm font-medium text-brand-primary hover:underline"
+          >
+            Branches
+          </Link>
+        </Card>
       ) : null}
 
       <Card header={<CardTitle title="Notification preferences" />}>

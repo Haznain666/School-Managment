@@ -1,6 +1,16 @@
 import 'server-only';
 
-import { and, desc, eq, ilike, inArray, or, sql, type SQL } from 'drizzle-orm';
+import {
+  and,
+  desc,
+  eq,
+  ilike,
+  inArray,
+  or,
+  sql,
+  type AnyColumn,
+  type SQL,
+} from 'drizzle-orm';
 
 import {
   admissionApplications,
@@ -18,6 +28,7 @@ import {
   subjects,
 } from '@/db/schema';
 
+import { ownedBy, sharedOrOwnedBy } from './branch-scope';
 import { db } from './drizzle';
 import { formatPkr } from './money';
 import type { Permission } from './permissions';
@@ -109,6 +120,52 @@ function withScope(conditions: SQL[], scope: SearchScope | undefined): void {
   if (condition !== undefined) conditions.push(condition);
 }
 
+/**
+ * The campus boundary — Sprint 19a, item 2d.
+ *
+ * **Search is the widest read in the product.** It crosses nine modules in one
+ * request, it is the most-used control in the navbar, and every hit is a link
+ * straight into the record — so a campus that leaks here leaks a child's name,
+ * a guardian's mobile number and a voucher's balance in one keystroke, to
+ * somebody who has no screen anywhere else that would show them.
+ *
+ * Three shapes are needed, because the tables differ in what a null means:
+ *
+ *   `campusRows`    a `branch_id` that names the owner outright — `staff`,
+ *                   `school_users`, `admission_applications`. `inArray`.
+ *   `sharedRows`    a nullable `branch_id` where null means *shared* —
+ *                   `subjects`, `announcements`. `sharedOrOwnedBy`.
+ *   `campusGrades`  no `branch_id` at all: the row reaches a campus through a
+ *                   section's grade. A subquery rather than a fetched list, so
+ *                   Postgres plans it as a semi-join.
+ *
+ * Every one of them is a no-op when `branchIds` is null, which is what a
+ * school-wide reader gets and what every reader got before this sprint.
+ */
+function campusRows(
+  column: AnyColumn,
+  branchIds: string[] | null | undefined,
+): SQL | undefined {
+  return branchIds == null ? undefined : ownedBy(column, branchIds);
+}
+
+function campusGrades(locationId: string, branchIds: string[] | null | undefined): SQL | undefined {
+  if (branchIds == null) return undefined;
+
+  return inArray(
+    sections.gradeId,
+    db
+      .select({ id: grades.id })
+      .from(grades)
+      .where(and(eq(grades.locationId, locationId), inArray(grades.branchId, branchIds))),
+  );
+}
+
+/** Appends a condition when there is one. Saves five `if`s below. */
+function push(conditions: SQL[], condition: SQL | undefined): void {
+  if (condition !== undefined) conditions.push(condition);
+}
+
 /* -------------------------------------------------------------------------- */
 /* The administrative portal                                                   */
 /* -------------------------------------------------------------------------- */
@@ -118,6 +175,14 @@ export interface SchoolSearchInput {
   query: string;
   permissions: readonly Permission[];
   scope?: SearchScope;
+  /**
+   * The campuses this reader may see, from `resolveBranchScope`.
+   *
+   * `null` or absent is every campus, which is what a school-wide reader gets
+   * and what every reader got before Sprint 19a — so an unscoped caller's
+   * results are byte-for-byte what they were.
+   */
+  branchIds?: string[] | null;
 }
 
 /**
@@ -134,6 +199,7 @@ async function searchStudents(input: SchoolSearchInput): Promise<SearchHit[]> {
 
   const conditions: SQL[] = [eq(studentEnrollments.locationId, input.locationId)];
   withScope(conditions, input.scope);
+  push(conditions, campusGrades(input.locationId, input.branchIds));
 
   const matches = or(
     ilike(schoolUsers.name, pattern),
@@ -247,7 +313,13 @@ async function searchStaff(input: SchoolSearchInput): Promise<SearchHit[]> {
     })
     .from(staff)
     .leftJoin(branches, eq(branches.id, staff.branchId))
-    .where(and(eq(staff.locationId, input.locationId), matches))
+    .where(
+      and(
+        eq(staff.locationId, input.locationId),
+        campusRows(staff.branchId, input.branchIds),
+        matches,
+      ),
+    )
     .orderBy(staff.firstName)
     .limit(LIMIT);
 
@@ -293,6 +365,10 @@ async function searchUsers(input: SchoolSearchInput): Promise<SearchHit[]> {
       and(
         eq(schoolUsers.locationId, input.locationId),
         sql`${schoolUsers.role} NOT IN ('student', 'parent')`,
+        // `ownedBy`, not `sharedOrOwnedBy`: a member with a null `branch_id` is
+        // a *school-wide* role — the owner, an accountant — and a campus
+        // administrator has never been shown them in Users & Staff either.
+        campusRows(schoolUsers.branchId, input.branchIds),
         matches,
       ),
     )
@@ -316,6 +392,7 @@ async function searchClasses(input: SchoolSearchInput): Promise<SearchHit[]> {
 
   const conditions: SQL[] = [eq(sections.locationId, input.locationId)];
   withScope(conditions, input.scope);
+  push(conditions, campusGrades(input.locationId, input.branchIds));
 
   const matches = or(
     ilike(sections.name, pattern),
@@ -365,7 +442,17 @@ async function searchSubjects(input: SchoolSearchInput): Promise<SearchHit[]> {
       isActive: subjects.isActive,
     })
     .from(subjects)
-    .where(and(eq(subjects.locationId, input.locationId), matches))
+    .where(
+      and(
+        eq(subjects.locationId, input.locationId),
+        // Shared subjects as well as this campus's own. `eq` here would return
+        // nothing at every school, because every subject in production is
+        // shared — and an empty Subjects group in the search results reads as
+        // a school that teaches nothing.
+        sharedOrOwnedBy(subjects.branchId, input.branchIds ?? null),
+        matches,
+      ),
+    )
     .orderBy(subjects.name)
     .limit(LIMIT);
 
@@ -392,6 +479,7 @@ async function searchChallans(input: SchoolSearchInput): Promise<SearchHit[]> {
 
   const conditions: SQL[] = [eq(feeChallans.locationId, input.locationId)];
   withScope(conditions, input.scope);
+  push(conditions, campusGrades(input.locationId, input.branchIds));
 
   const matches = or(
     ilike(feeChallans.challanNumber, pattern),
@@ -453,7 +541,13 @@ async function searchApplications(input: SchoolSearchInput): Promise<SearchHit[]
       submittedAt: admissionApplications.submittedAt,
     })
     .from(admissionApplications)
-    .where(and(eq(admissionApplications.locationId, input.locationId), matches))
+    .where(
+      and(
+        eq(admissionApplications.locationId, input.locationId),
+        campusRows(admissionApplications.branchId, input.branchIds),
+        matches,
+      ),
+    )
     .orderBy(desc(admissionApplications.submittedAt))
     .limit(LIMIT);
 
@@ -471,6 +565,7 @@ async function searchAnnouncements(
   locationId: string,
   query: string,
   href: string,
+  branchIds: string[] | null = null,
 ): Promise<SearchHit[]> {
   const pattern = likePattern(query);
 
@@ -486,7 +581,17 @@ async function searchAnnouncements(
       createdAt: announcements.createdAt,
     })
     .from(announcements)
-    .where(and(eq(announcements.locationId, locationId), matches))
+    // `announcements.branch_id` is nullable and a null one is a *school-wide*
+    // notice, which every campus is meant to see — so this is the shared form,
+    // not the owned one. Getting it the other way round would hide the head
+    // office's own notices from every campus that has one.
+    .where(
+      and(
+        eq(announcements.locationId, locationId),
+        sharedOrOwnedBy(announcements.branchId, branchIds),
+        matches,
+      ),
+    )
     .orderBy(desc(announcements.createdAt))
     .limit(LIMIT);
 
@@ -572,7 +677,12 @@ export async function searchSchoolPortal(
       can('fees.read') ? searchChallans(input) : [],
       can('admissions.read') ? searchApplications(input) : [],
       can('comms.read')
-        ? searchAnnouncements(input.locationId, input.query, '/dashboard/communications')
+        ? searchAnnouncements(
+            input.locationId,
+            input.query,
+            '/dashboard/communications',
+            input.branchIds ?? null,
+          )
         : [],
     ]);
 

@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 
+import { BranchSelector } from '@/components/school/BranchSelector';
 import { Badge } from '@/components/ui/Badge';
 import { Card, CardTitle } from '@/components/ui/Card';
 import {
@@ -12,6 +13,7 @@ import {
   TableRow,
 } from '@/components/ui/Table';
 import { getAdmissionsOverview } from '@/lib/admissions-queries';
+import { effectiveBranchIds, resolveBranchScope } from '@/lib/branch-scope';
 import { requireSchoolPermission } from '@/lib/school-guard';
 
 export const metadata: Metadata = {
@@ -59,13 +61,54 @@ function ActionTile({
  * Every count is scoped to the caller's own school and to its active academic
  * year — the location id comes from their verified session, so there is no
  * request parameter that could widen it to another tenant.
+ *
+ * ── And, from Sprint 19a, to a campus (item 11) ──────────────────────────
+ * The same selector the dashboard carries, the same `?branch=` parameter and
+ * the same resolver. "Sections with space" is the figure that made this
+ * necessary: at a three-campus group it was answering a question nobody had
+ * asked, because a place at the Karachi campus is not a place for a child whose
+ * family lives beside the Lahore one.
+ *
+ * A school with one campus sees no control at all (item 13), and a branch-bound
+ * reader sees only what they may reach. An unknown `?branch=` falls back to
+ * their whole scope rather than erroring — `lib/branch-scope.ts` rule 4.
  */
-export default async function AdmissionsOverviewPage() {
-  const { locationId } = await requireSchoolPermission('admissions.read');
-  const overview = await getAdmissionsOverview(locationId);
+export default async function AdmissionsOverviewPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ branch?: string | string[] }>;
+}) {
+  const { claims, locationId } = await requireSchoolPermission('admissions.read');
+
+  const requested = (await searchParams).branch;
+  const branchScope = await resolveBranchScope(
+    locationId,
+    claims,
+    Array.isArray(requested) ? requested[0] : requested,
+  );
+
+  const overview = await getAdmissionsOverview(
+    locationId,
+    effectiveBranchIds(branchScope),
+  );
 
   return (
     <div className="space-y-6">
+      {/*
+        Above the funnel, as the spec asks, and above the "no academic year"
+        warning too: which campus is being looked at changes what that warning
+        is about.
+      */}
+      {branchScope.options.length === 0 ? null : (
+        <div className="max-w-xs">
+          <BranchSelector
+            options={branchScope.options}
+            selected={branchScope.selected}
+            allowsAll={branchScope.allowsAll}
+          />
+        </div>
+      )}
+
       {overview.activeYear === null ? (
         <Card>
           <h2 className="text-base font-semibold text-ink">
@@ -108,7 +151,9 @@ export default async function AdmissionsOverviewPage() {
         <StatCard
           label="New this month"
           value={overview.newThisMonth}
-          hint="Student records created"
+          // Says so on the tile, because it is the one figure here a campus
+          // selection does not narrow — see `getAdmissionsOverview`.
+          hint="Student records created, across every campus"
         />
       </div>
 

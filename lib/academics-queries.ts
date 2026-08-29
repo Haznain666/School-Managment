@@ -21,6 +21,7 @@ import {
 
 import { minutesFromTime } from '@/db/schema/timetable-slots';
 
+import { sharedOrOwnedBy } from './branch-scope';
 import { db } from './drizzle';
 
 /**
@@ -53,12 +54,26 @@ const SUBJECT_COLUMNS = {
   isActive: subjects.isActive,
 } as const;
 
+/**
+ * The school's subjects, narrowed to a campus when the caller has one.
+ *
+ * `branchIds` is `sharedOrOwnedBy`'s, not `eq`'s: a subject with no campus is
+ * shared by the whole school and is what every row is until somebody says
+ * otherwise. Omitting it — which every caller predating Sprint 19a does — reads
+ * every campus, exactly as before.
+ */
 export async function listSubjects(
   locationId: string,
-  filters: { activeOnly?: boolean | undefined } = {},
+  filters: {
+    activeOnly?: boolean | undefined;
+    branchIds?: string[] | null | undefined;
+  } = {},
 ): Promise<SubjectRow[]> {
   const conditions: SQL[] = [eq(subjects.locationId, locationId)];
   if (filters.activeOnly === true) conditions.push(eq(subjects.isActive, true));
+
+  const branchFilter = sharedOrOwnedBy(subjects.branchId, filters.branchIds ?? null);
+  if (branchFilter !== undefined) conditions.push(branchFilter);
 
   return db
     .select(SUBJECT_COLUMNS)

@@ -30,6 +30,7 @@ import {
   MOBILE_HINT,
   MOBILE_PLACEHOLDER,
 } from '@/lib/phone-formats';
+import { cn } from '@/lib/utils';
 import { superAdminFetch, SuperAdminApiError } from '@/lib/super-admin-client';
 
 export interface BranchFormValues {
@@ -49,9 +50,32 @@ export interface BranchFormValues {
   classLevels: string[];
   isMainBranch: boolean;
   isActive: boolean;
-  /** Create the branch email as this campus's administrator and invite them. */
-  inviteAsBranchAdmin: boolean;
+  /** Who administers this campus. See `lib/branch-leads.ts`. */
+  branchAdmin: BranchLeadValues;
+  /** Who heads this campus. Identical shape; writes an assignment as well. */
+  branchPrincipal: BranchLeadValues;
 }
+
+/**
+ * One of the two "who runs this campus" answers.
+ *
+ * `mode: 'none'` is the toggle switched off, which is the default for both and
+ * is what every existing caller of this form posted before Sprint 19a. A form
+ * that says nothing changes nothing.
+ */
+export interface BranchLeadValues {
+  mode: 'none' | 'owner' | 'invite';
+  fullName: string;
+  phone: string;
+  email: string;
+}
+
+const EMPTY_LEAD: BranchLeadValues = {
+  mode: 'none',
+  fullName: '',
+  phone: '',
+  email: '',
+};
 
 export interface BranchFormProps {
   /**
@@ -97,7 +121,8 @@ const EMPTY: BranchFormValues = {
   classLevels: [],
   isMainBranch: false,
   isActive: true,
-  inviteAsBranchAdmin: false,
+  branchAdmin: EMPTY_LEAD,
+  branchPrincipal: EMPTY_LEAD,
 };
 
 const CURRICULUM_OPTIONS = CURRICULUM_LEVELS.map((level) => ({
@@ -127,6 +152,37 @@ const CURRICULUM_OPTIONS = CURRICULUM_LEVELS.map((level) => ({
  * offered Grade 9 and Grade 10, a Cambridge one O1/O2/O3 — so changing the
  * curriculum re-filters what is already ticked rather than silently keeping
  * rungs the new curriculum does not have.
+ *
+ * ── The one branch form in the product (Sprint 19a, item 3) ──────────────
+ * Four screens render this component: the Super Admin wizard's step 2, the
+ * Super Admin branch create and edit pages, and — new this sprint — the school
+ * portal's own `/dashboard/branches/new` and `/dashboard/branches/[id]/edit`.
+ * There is deliberately no second campus form anywhere, because the validation
+ * behind it is one module (`lib/branch-leads.ts`) and a second form would be a
+ * second set of rules to keep in step with it.
+ *
+ * ── Who runs this campus: two toggles, both off ──────────────────────────
+ * A campus is a boundary, and a boundary with nobody inside it is a campus
+ * whose staff cannot be invited, whose fees nobody can raise and whose
+ * timetable nobody can build. Until this sprint the only answer the form could
+ * give was "invite the branch email address", which produced an account called
+ * "Johar Town Campus administrator" — a role, not a person.
+ *
+ * So there are two questions, each optional and each with the same shape:
+ *
+ *   **The school owner** — writes a scope row against the account that already
+ *   exists. **No invitation, no password email**, and the form says so in one
+ *   sentence, because an operator who is not told will go looking for the mail.
+ *   Decision D3: one person, one login, many scopes.
+ *
+ *   **Somebody else** — full name, mobile and email, which mints the account
+ *   and sends the password link. All three are required together and
+ *   `lib/branch-leads.ts` refuses without them: `school_users.phone` is NOT
+ *   NULL and unique per school, so there is no row to write without a number,
+ *   and an account with no address is one nobody can ever sign in to.
+ *
+ * Both may be answered at once — a campus with an administrator *and* a head
+ * is the normal case at a school group, not an edge one.
  */
 export function BranchForm({
   schoolId,
@@ -184,16 +240,32 @@ export function BranchForm({
     }));
   }, []);
 
+  const setLead = useCallback(
+    (key: 'branchAdmin' | 'branchPrincipal', next: Partial<BranchLeadValues>) => {
+      setValues((current) => ({ ...current, [key]: { ...current[key], ...next } }));
+    },
+    [],
+  );
+
   /**
-   * Both an address and a mobile are required to invite anyone.
-   * `school_users.phone` is NOT NULL and unique per school — it is how a member
-   * is identified within a tenant — so an email alone cannot produce a row.
+   * Why a lead cannot be saved yet, or null.
+   *
+   * Mirrors `readBranchLead` on the server rather than replacing it. The server
+   * is the rule — §5aw records what happened the last time a route's validator
+   * and its own form disagreed about a phone number — and this exists so the
+   * operator is told before the round trip rather than after it.
    */
-  const canInvite =
-    values.email.trim() !== '' &&
-    emailRejectionReason(values.email) === null &&
-    isValidMobile(values.phone) &&
-    values.phone.trim() !== '';
+  const leadProblem = (lead: BranchLeadValues, hat: string): string | null => {
+    if (lead.mode !== 'invite') return null;
+    if (lead.fullName.trim() === '') return `Enter the ${hat}'s full name.`;
+    if (!isValidMobile(lead.phone)) {
+      return `Enter the ${hat}'s mobile number. ${MOBILE_HINT}`;
+    }
+    if (lead.email.trim() === '') {
+      return `Enter the ${hat}'s email address — it is where the password link goes.`;
+    }
+    return emailRejectionReason(lead.email);
+  };
 
   const handleSubmit = useCallback(
     async (event: FormEvent<HTMLFormElement>) => {
@@ -226,6 +298,18 @@ export function BranchForm({
         return;
       }
 
+      const adminProblem = leadProblem(values.branchAdmin, 'campus administrator');
+      if (adminProblem !== null) {
+        setError(adminProblem);
+        return;
+      }
+
+      const principalProblem = leadProblem(values.branchPrincipal, 'campus principal');
+      if (principalProblem !== null) {
+        setError(principalProblem);
+        return;
+      }
+
       setIsSubmitting(true);
 
       const payload = {
@@ -243,11 +327,14 @@ export function BranchForm({
         classLevels: values.classLevels,
         isMainBranch: values.isMainBranch,
         isActive: values.isActive,
-        // Only ever meaningful on create, in the panel, and only when there is
-        // somebody to invite. Editing a branch must not silently mint a member,
-        // and the school-side route ignores this field outright.
-        inviteAsBranchAdmin:
-          isPlatform && !isEdit && canInvite && values.inviteAsBranchAdmin,
+        /*
+         * Only ever sent on create. Editing a campus must not silently mint a
+         * member or re-grant a scope somebody has deliberately revoked, and
+         * both routes ignore these fields on PATCH regardless — this is the
+         * courtesy, the server is the rule.
+         */
+        branchAdmin: isEdit ? undefined : values.branchAdmin,
+        branchPrincipal: isEdit ? undefined : values.branchPrincipal,
       };
 
       try {
@@ -265,11 +352,16 @@ export function BranchForm({
           // Not `superAdminFetch`: its 401 handler sends the browser to
           // /super-admin/login, which is the last place a school administrator
           // should land when their own session lapses.
-          const response = await fetch('/api/school/branches', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(payload),
-          });
+          const response = await fetch(
+            isEdit && initial?.id !== undefined
+              ? `/api/school/branches/${initial.id}`
+              : '/api/school/branches',
+            {
+              method: isEdit && initial?.id !== undefined ? 'PATCH' : 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(payload),
+            },
+          );
 
           const result = (await response.json()) as {
             ok?: boolean;
@@ -290,7 +382,12 @@ export function BranchForm({
           return;
         }
 
-        router.push(doneUrl ?? `/super-admin/schools/${schoolId}/branches`);
+        router.push(
+          doneUrl ??
+            (isPlatform
+              ? `/super-admin/schools/${schoolId}/branches`
+              : '/dashboard/branches'),
+        );
         router.refresh();
       } catch (caught) {
         setError(
@@ -301,17 +398,7 @@ export function BranchForm({
         setIsSubmitting(false);
       }
     },
-    [
-      values,
-      isEdit,
-      initial?.id,
-      schoolId,
-      router,
-      canInvite,
-      isPlatform,
-      doneUrl,
-      onSaved,
-    ],
+    [values, isEdit, initial?.id, schoolId, router, isPlatform, doneUrl, onSaved],
   );
 
   const curriculumHint =
@@ -468,28 +555,39 @@ export function BranchForm({
           </div>
 
           {/*
-            Offered only on create, and only once there is an email to attach it
-            to. An email typed here used to go nowhere at all, which is what
-            "the email is not being sent to the user" meant. It sits directly
-            under the address it acts on rather than at the foot of the form.
+            Who runs this campus. Offered only on create — see the payload note
+            above for why an edit never mints a member.
+
+            It sits here, under the campus's own contact details, rather than at
+            the foot of the form: the operator has just typed an address and a
+            number for the campus, and the next question a school group asks
+            itself is who answers them.
           */}
-          {isPlatform && !isEdit && values.email.trim() !== '' ? (
-            <div className="sm:col-span-2">
-              <Toggle
-                label="Invite this email as the branch administrator"
-                description={
-                  canInvite
-                    ? `${values.email.trim()} will be given a branch administrator account for this campus and emailed a link to set their password.`
-                    : 'A mobile number is needed as well — it is how a member is identified within a school. Add one above to enable this.'
-                }
-                checked={canInvite && values.inviteAsBranchAdmin}
-                disabled={isSubmitting || !canInvite}
+          {isEdit ? null : (
+            <div className="space-y-4 sm:col-span-2">
+              <BranchLeadFields
+                title="Branch Administrator"
+                hat="campus administrator"
+                description="Runs this campus day to day: invites its staff, enrols its students and raises its vouchers."
+                value={values.branchAdmin}
+                disabled={isSubmitting}
                 onChange={(next) => {
-                  setField('inviteAsBranchAdmin', next);
+                  setLead('branchAdmin', next);
+                }}
+              />
+
+              <BranchLeadFields
+                title="Branch Principal"
+                hat="campus principal"
+                description="Heads this campus academically. Also given a principal assignment for it, which is what narrows what they see."
+                value={values.branchPrincipal}
+                disabled={isSubmitting}
+                onChange={(next) => {
+                  setLead('branchPrincipal', next);
                 }}
               />
             </div>
-          ) : null}
+          )}
 
           {/* 8. Curriculum level — it decides what 9 may contain. */}
           <div className="sm:col-span-2">
@@ -595,5 +693,162 @@ export function BranchForm({
         )}
       </div>
     </form>
+  );
+}
+
+/**
+ * One "who runs this campus" question: a toggle, then a choice, then a person.
+ *
+ * Rendered twice with different copy rather than written twice, because the two
+ * answers differ in exactly one place — the principal also gets an assignment —
+ * and that difference is the server's, not this component's.
+ *
+ * ── The radio is not a dropdown ──────────────────────────────────────────
+ * Two options, both of which change what is asked next. A `<select>` with two
+ * entries hides the second answer behind a click and gives the reader nothing
+ * to compare; the whole point here is that "the school owner" costs nothing and
+ * "somebody else" sends an email to a real person, and an operator should be
+ * able to see both sentences before choosing.
+ */
+function BranchLeadFields({
+  title,
+  hat,
+  description,
+  value,
+  disabled,
+  onChange,
+}: {
+  title: string;
+  /** The role in the school's own words, for the field hints. */
+  hat: string;
+  description: string;
+  value: BranchLeadValues;
+  disabled: boolean;
+  onChange: (next: Partial<BranchLeadValues>) => void;
+}) {
+  const on = value.mode !== 'none';
+
+  const optionClass = (selected: boolean): string =>
+    cn(
+      'flex cursor-pointer gap-3 rounded-lg border p-3 text-sm transition',
+      selected ? 'border-brand-primary bg-brand-primary/5' : 'border-line hover:border-line-strong',
+      disabled && 'cursor-not-allowed opacity-60',
+    );
+
+  return (
+    <div className="rounded-lg border border-line p-4">
+      <Toggle
+        label={title}
+        description={description}
+        checked={on}
+        disabled={disabled}
+        onChange={(next) => {
+          // Switching off clears the answer rather than remembering it. A
+          // half-typed invitation kept behind a closed toggle is an email
+          // waiting to be sent by somebody who thinks they cancelled it.
+          onChange(
+            next
+              ? { mode: 'owner' }
+              : { mode: 'none', fullName: '', phone: '', email: '' },
+          );
+        }}
+      />
+
+      {on ? (
+        <div className="mt-4 space-y-3">
+          <label className={optionClass(value.mode === 'owner')}>
+            <input
+              type="radio"
+              className="mt-0.5 h-4 w-4"
+              name={`${title}-mode`}
+              checked={value.mode === 'owner'}
+              disabled={disabled}
+              onChange={() => {
+                onChange({ mode: 'owner' });
+              }}
+            />
+            <span>
+              <span className="font-medium text-ink">The school owner</span>
+              <span className="mt-0.5 block text-ink-muted">
+                They already have a login, so no invitation is sent and no
+                password email goes out. This campus is simply added to what
+                they can see.
+              </span>
+            </span>
+          </label>
+
+          <label className={optionClass(value.mode === 'invite')}>
+            <input
+              type="radio"
+              className="mt-0.5 h-4 w-4"
+              name={`${title}-mode`}
+              checked={value.mode === 'invite'}
+              disabled={disabled}
+              onChange={() => {
+                onChange({ mode: 'invite' });
+              }}
+            />
+            <span>
+              <span className="font-medium text-ink">Somebody else</span>
+              <span className="mt-0.5 block text-ink-muted">
+                Creates an account for them and emails a link to set their own
+                password.
+              </span>
+            </span>
+          </label>
+
+          {value.mode === 'invite' ? (
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="sm:col-span-2">
+                <Input
+                  label="Full name"
+                  required
+                  value={value.fullName}
+                  disabled={disabled}
+                  placeholder="Ayesha Khan"
+                  hint={`The ${hat}'s own name, not the campus's.`}
+                  onChange={(event) => {
+                    onChange({ fullName: event.target.value });
+                  }}
+                />
+              </div>
+
+              <Input
+                label="Mobile Number"
+                type="tel"
+                inputMode="numeric"
+                required
+                value={value.phone}
+                disabled={disabled}
+                placeholder={MOBILE_PLACEHOLDER}
+                hint={MOBILE_HINT}
+                error={
+                  value.phone === '' || isValidMobile(value.phone)
+                    ? undefined
+                    : 'Enter eleven digits, e.g. (0321) 123-4567.'
+                }
+                onChange={(event) => {
+                  onChange({ phone: formatMobile(event.target.value) });
+                }}
+              />
+
+              <Input
+                label="Email"
+                type="email"
+                required
+                value={value.email}
+                disabled={disabled}
+                placeholder="ayesha@school.edu.pk"
+                hint="Where the password link is sent."
+                error={emailRejectionReason(value.email) ?? undefined}
+                onChange={(event) => {
+                  onChange({ email: event.target.value });
+                }}
+              />
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+    </div>
   );
 }

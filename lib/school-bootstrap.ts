@@ -48,13 +48,19 @@ export interface BootstrapAdminParams {
   /**
    * Defaults to `school_admin`, which is what this module was written for.
    *
-   * `branch_admin` is the one other value used, by the branch form: an email
-   * typed against a new campus can be invited as that campus's administrator.
-   * Deliberately not open to every role — everyone else still arrives through
-   * the school's own invitation flow, so the platform operator does not become
-   * a general-purpose user administrator for tenants they do not belong to.
+   * `branch_admin` and, from Sprint 19a, `principal` are the two other values
+   * used, both by the branch form: a campus can be created with the person who
+   * administers it and the person who heads it, and each is an account with a
+   * password link. Deliberately **not** open to every role — everyone else
+   * still arrives through the school's own invitation flow, so the platform
+   * operator does not become a general-purpose user administrator for tenants
+   * they do not belong to.
+   *
+   * A `principal` created this way is given a `principal_assignments` row for
+   * the campus in the same request (`lib/branch-leads.ts`). Without one the
+   * role narrows nothing and the new head signs in to the whole group.
    */
-  role?: 'school_admin' | 'branch_admin';
+  role?: 'school_admin' | 'branch_admin' | 'principal';
   /** The campus a `branch_admin` administers. Null for a school-wide admin. */
   branchId?: string | null | undefined;
 }

@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from 'next/server';
 
+import { resolveBranchScope } from '@/lib/branch-scope';
 import { csvBody, csvFilename, csvHeaders } from '@/lib/csv-export';
 import { hasPermission } from '@/lib/permission-queries';
 import { isReportKey, parseReportParams, reportFor } from '@/lib/report-catalogue';
@@ -83,11 +84,39 @@ export async function GET(
     search[key] ??= value;
   }
 
-  const params = parseReportParams(definition, search);
+  const requested = parseReportParams(definition, search);
+
+  /*
+   * The campus, resolved the same way the screen and the printed sheet resolve
+   * it — same function, same fallback (Sprint 19a, item 9).
+   *
+   * This is the export, and it is the one of the three a reader takes away and
+   * reconciles against a spreadsheet weeks later. A CSV holding a different
+   * campus's figures from the table it was exported from is the defect the
+   * report catalogue's whole one-definition-three-renderers design exists to
+   * prevent, and the campus is the newest thing that could vary between them.
+   */
+  const branchScope = await resolveBranchScope(
+    claims.locationId,
+    claims,
+    requested.branchId,
+  );
+
+  const params = {
+    ...requested,
+    branchId:
+      branchScope.branchIds === null
+        ? requested.branchId
+        : (branchScope.selected ?? branchScope.branchIds[0]),
+  };
 
   const result = await runReport(
     definition.key,
-    { locationId: claims.locationId, sessionBranchId: claims.branchId },
+    {
+      locationId: claims.locationId,
+      sessionBranchId: null,
+      branchIds: branchScope.branchIds,
+    },
     params,
   );
 

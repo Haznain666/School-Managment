@@ -55,8 +55,8 @@ jobs:
       # The protocol checks. Each one asserts a rule that is true today and
       # would otherwise quietly stop being true — a loader on every
       # data-fetching route, the form conventions, one component per address
-      # and phone field, legible derived colours on every palette, and the
-      # calendar/period/colour rules this sprint added.
+      # and phone field, legible derived colours on every palette, the
+      # calendar/period/colour rules, and the campus boundary.
       #
       # Only the ones that need no database are here. `check-dashboard`,
       # `check-portals`, `check-reports` and `check-provisioning` execute
@@ -118,6 +118,18 @@ jobs:
       - name: Accounting — the ledger balances and the chart agrees with the migration
         if: '!cancelled()'
         run: npm run check-accounting
+
+      # The branch boundary. Every failure it catches is silent and looks
+      # correct: a listing that forgets its campus filter returns *more* rows,
+      # and more rows is what a working screen looks like. The opposite mistake
+      # is worse — `eq` against a nullable `branch_id` returns nothing at all at
+      # every school, because every catalogue row in production is shared, and
+      # an empty subject list reads as a school that was never set up.
+      #
+      # It reads source text and the migration file, so it needs no database.
+      - name: Branch scope — every listing knows which campus it is on
+        if: '!cancelled()'
+        run: npm run check-branch-scope
 
       # Build last: it repeats type checking internally, so running it after a
       # failed typecheck would only echo errors already reported above.

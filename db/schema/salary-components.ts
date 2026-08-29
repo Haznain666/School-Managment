@@ -11,6 +11,7 @@ import {
   uuid,
 } from 'drizzle-orm/pg-core';
 
+import { branches } from './branches';
 import { schools } from './schools';
 
 export const COMPONENT_KINDS = ['earning', 'deduction'] as const;
@@ -59,6 +60,18 @@ export const salaryComponents = pgTable(
     locationId: text('location_id')
       .notNull()
       .references(() => schools.locationId, { onDelete: 'cascade' }),
+    /**
+     * The campus that owns this pay head, or null when the school shares it.
+     * See `lib/branch-scope.ts` for the read rule and `db/schema/subjects.ts`
+     * for why it is nullable rather than backfilled.
+     *
+     * A payslip already issued does not read this: `payslip_items` carries its
+     * own copy of the head's name and amount, exactly as a voucher line carries
+     * its price.
+     */
+    branchId: uuid('branch_id').references(() => branches.id, {
+      onDelete: 'set null',
+    }),
     name: text('name').notNull(),
     description: text('description'),
     kind: text('kind').notNull().$type<ComponentKind>(),
@@ -87,6 +100,10 @@ export const salaryComponents = pgTable(
   },
   (table) => [
     index('salary_components_location_id_idx').on(table.locationId),
+    index('salary_components_location_branch_idx').on(
+      table.locationId,
+      table.branchId,
+    ),
     // Seeding upserts on this, so re-running it cannot duplicate a head.
     uniqueIndex('salary_components_location_id_name_idx').on(
       table.locationId,

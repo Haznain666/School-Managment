@@ -13,6 +13,7 @@ import {
   uuid,
 } from 'drizzle-orm/pg-core';
 
+import { branches } from './branches';
 import { feeTypes } from './fee-types';
 import { schools } from './schools';
 
@@ -55,6 +56,18 @@ export const concessionSchemes = pgTable(
     locationId: text('location_id')
       .notNull()
       .references(() => schools.locationId, { onDelete: 'cascade' }),
+    /**
+     * The campus that owns this scheme, or null when the school shares it.
+     * See `lib/branch-scope.ts` for the read rule and `db/schema/subjects.ts`
+     * for why it is nullable rather than backfilled.
+     *
+     * A grant already made is unaffected either way: `student_concessions`
+     * freezes the name, the rate and the dates at grant time, and `scheme_id`
+     * is provenance rather than a live join.
+     */
+    branchId: uuid('branch_id').references(() => branches.id, {
+      onDelete: 'set null',
+    }),
     /** What the school calls it, e.g. `Sibling Discount`. */
     name: text('name').notNull(),
     discountType: text('discount_type').notNull().$type<'percentage' | 'fixed'>(),
@@ -79,6 +92,10 @@ export const concessionSchemes = pgTable(
   },
   (table) => [
     index('concession_schemes_location_id_idx').on(table.locationId),
+    index('concession_schemes_location_branch_idx').on(
+      table.locationId,
+      table.branchId,
+    ),
     uniqueIndex('concession_schemes_location_name_idx').on(
       table.locationId,
       table.name,

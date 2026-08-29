@@ -1252,8 +1252,26 @@ function startOfMonth(): Date {
 
 export async function getAdmissionsOverview(
   locationId: string,
+  branchIds: string[] | null = null,
 ): Promise<AdmissionsOverview> {
   const activeYear = await getActiveAcademicYear(locationId);
+
+  /*
+   * The campus boundary — Sprint 19a, item 11.
+   *
+   * Three of the four counts reach a campus through `grades.branch_id`, which
+   * is where every student-side query in this module already goes; the fourth
+   * reads `admission_applications.branch_id` directly. `null` is every campus,
+   * which is what every caller before this sprint got.
+   *
+   * **`newThisMonth` is deliberately not narrowed**, and the tile says so. A
+   * `student_profiles` row is created before the child is placed in a section,
+   * so there is no campus on it and no join that would find one — a record
+   * typed at 10am and enrolled at 11am belongs to no campus in between.
+   * Narrowing it by guesswork would under-count the one figure the admissions
+   * desk is measured on.
+   */
+  const byCampus = branchIds === null ? undefined : inArray(grades.branchId, branchIds);
 
   const [
     studentRows,
@@ -1268,11 +1286,23 @@ export async function getAdmissionsOverview(
       : db
           .select({ value: count() })
           .from(studentEnrollments)
+          .innerJoin(
+            sections,
+            and(
+              eq(sections.id, studentEnrollments.sectionId),
+              eq(sections.locationId, locationId),
+            ),
+          )
+          .innerJoin(
+            grades,
+            and(eq(grades.id, sections.gradeId), eq(grades.locationId, locationId)),
+          )
           .where(
             and(
               eq(studentEnrollments.locationId, locationId),
               eq(studentEnrollments.academicYearId, activeYear.id),
               eq(studentEnrollments.status, 'active'),
+              byCampus,
             ),
           ),
     db
@@ -1282,6 +1312,9 @@ export async function getAdmissionsOverview(
         and(
           eq(admissionApplications.locationId, locationId),
           inArray(admissionApplications.status, [...OPEN_APPLICATION_STATUSES]),
+          branchIds === null
+            ? undefined
+            : inArray(admissionApplications.branchId, branchIds),
         ),
       ),
     db
@@ -1298,8 +1331,17 @@ export async function getAdmissionsOverview(
       limit: 10,
       page: 1,
       orderBy: 'recent',
+      // The same `scope` shape BR4 uses, so a campus selection and a
+      // principal's assignment narrow this list through one code path.
+      scope: { branchIds, gradeIds: null },
     }),
-    listApplications(locationId, { status: 'pending', limit: 5 }),
+    listApplications(locationId, {
+      status: 'pending',
+      limit: 5,
+      ...(branchIds === null || branchIds.length !== 1
+        ? {}
+        : { branchId: branchIds[0] }),
+    }),
     activeYear === null
       ? Promise.resolve([])
       : listSectionsWhere(
@@ -1307,6 +1349,20 @@ export async function getAdmissionsOverview(
             eq(sections.locationId, locationId),
             eq(sections.academicYearId, activeYear.id),
             eq(sections.isActive, true),
+            branchIds === null
+              ? undefined
+              : inArray(
+                  sections.gradeId,
+                  db
+                    .select({ id: grades.id })
+                    .from(grades)
+                    .where(
+                      and(
+                        eq(grades.locationId, locationId),
+                        inArray(grades.branchId, branchIds),
+                      ),
+                    ),
+                ),
           ),
         ),
   ]);

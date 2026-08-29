@@ -17,6 +17,9 @@ export * from './emergency-login-tokens';
 export * from './password-setup-tokens';
 export * from './ghl-tokens';
 export * from './branches';
+// Sprint 19a — the campuses one person may see beyond their own. It comes
+// after `branches` and `school-users` because it references both.
+export * from './school-user-branches';
 export * from './users';
 export * from './students';
 export * from './staff';

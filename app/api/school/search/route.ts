@@ -24,7 +24,15 @@ export const GET = withSchoolAuth(
   async (request, auth) => {
     try {
       const results = await searchForSession(
-        { locationId: auth.locationId, uid: auth.uid, role: auth.role },
+        // Same four fields the results page passes, so the header dropdown and
+        // `/dashboard/search` cannot disagree about which campuses a person
+        // may see — which is the property this module exists to guarantee.
+        {
+          locationId: auth.locationId,
+          uid: auth.uid,
+          role: auth.role,
+          branchId: auth.branchId,
+        },
         request.nextUrl.searchParams.get('q') ?? '',
       );
 

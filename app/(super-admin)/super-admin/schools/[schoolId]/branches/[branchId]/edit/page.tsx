@@ -56,7 +56,10 @@ export default async function EditBranchPage({
           isMainBranch: branch.isMainBranch,
           // Create-only. An existing branch already has whatever members it
           // has, and editing it must never mint another.
-          inviteAsBranchAdmin: false,
+          // Never offered on edit — the form hides both toggles and both
+          // routes ignore them on PATCH. See `components/super-admin/BranchForm.tsx`.
+          branchAdmin: { mode: 'none', fullName: '', phone: '', email: '' },
+          branchPrincipal: { mode: 'none', fullName: '', phone: '', email: '' },
           isActive: branch.isActive,
         }}
       />

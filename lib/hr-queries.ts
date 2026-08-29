@@ -41,6 +41,7 @@ import {
   type StaffStatus,
 } from '@/db/schema';
 
+import { sharedOrOwnedBy } from './branch-scope';
 import { db } from './drizzle';
 import { toPaise } from './money';
 import {
@@ -281,10 +282,16 @@ export interface SalaryComponentRow {
 
 export async function listSalaryComponents(
   locationId: string,
-  options: { activeOnly?: boolean } = {},
+  options: { activeOnly?: boolean; branchIds?: string[] | null | undefined } = {},
 ): Promise<SalaryComponentRow[]> {
   const conditions: SQL[] = [eq(salaryComponents.locationId, locationId)];
   if (options.activeOnly === true) conditions.push(eq(salaryComponents.isActive, true));
+
+  const branchFilter = sharedOrOwnedBy(
+    salaryComponents.branchId,
+    options.branchIds ?? null,
+  );
+  if (branchFilter !== undefined) conditions.push(branchFilter);
 
   return db
     .select({
@@ -465,10 +472,13 @@ export interface LeaveTypeRow {
 
 export async function listLeaveTypes(
   locationId: string,
-  options: { activeOnly?: boolean } = {},
+  options: { activeOnly?: boolean; branchIds?: string[] | null | undefined } = {},
 ): Promise<LeaveTypeRow[]> {
   const conditions: SQL[] = [eq(leaveTypes.locationId, locationId)];
   if (options.activeOnly === true) conditions.push(eq(leaveTypes.isActive, true));
+
+  const branchFilter = sharedOrOwnedBy(leaveTypes.branchId, options.branchIds ?? null);
+  if (branchFilter !== undefined) conditions.push(branchFilter);
 
   return db
     .select({

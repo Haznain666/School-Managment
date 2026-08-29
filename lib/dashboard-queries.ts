@@ -19,6 +19,9 @@ import {
   feeTypes,
   gradeLabel,
   grades,
+  ledgerAccounts,
+  ledgerEntries,
+  ledgerTransactions,
   principalAssignments,
   schoolUsers,
   schools,
@@ -40,6 +43,7 @@ import {
 } from './exam-queries';
 import { toDateOnly } from './fee-queries';
 import { percentageOf, resolveBand, toMark, type ResolvedBand } from './grading';
+import { toPaise } from './money';
 
 /**
  * The aggregate reads behind the dashboard charts.
@@ -1908,4 +1912,477 @@ async function countRows(
 ): Promise<number> {
   const rows = await statement;
   return rows[0]?.value ?? 0;
+}
+
+/* -----------------------------------------------------------------------------
+ * Across the campuses — Sprint 19a, item 4.
+ *
+ * Everything above this line answers "how is the school doing". A school group's
+ * owner is asking a different question, and it is the reason they opened the
+ * screen: **which campus is behind, and by how much.** A total cannot answer it,
+ * and neither can five separate visits to five filtered dashboards.
+ *
+ * ── One period, so the row tells one story ───────────────────────────────
+ * Billed, Collected, Outstanding and Over 90 days are all read from the
+ * **active academic year's** vouchers. Mixing periods across a row — this
+ * year's billing beside all-time arrears — produces a Rate column that does not
+ * divide and an Outstanding that is not the difference between the two figures
+ * beside it, which is exactly the kind of table a reader checks once, finds
+ * inconsistent, and never trusts again.
+ *
+ * ── The campus of a voucher is the campus of its student ─────────────────
+ * `fee_challans` carries no `branch_id`; it carries a student, and a student
+ * reaches a campus through their section's grade. `campusOfStudent` is that
+ * hop, as a subquery rather than a fetched list — the same reasoning
+ * `studentsInScope` gives above.
+ *
+ * Its branch column is aliased **`campus_id`**, not `branch_id`, and every
+ * reference to it is qualified. STATE.md §5av and §5bg are the two shipped
+ * defects that rule comes from; this statement joins `grades`, `sections` and
+ * `branches`, three tables that between them have a `branch_id`, and an
+ * ambiguous column reference here would 500 the whole dashboard.
+ * -------------------------------------------------------------------------- */
+
+/** One campus's line on the owner's scorecard. */
+export interface CampusScorecardRow {
+  branchId: string;
+  branchName: string;
+  /** Active enrolments in the current academic year. */
+  students: number;
+  /** Percent present over the last 30 days, or null where nothing was marked. */
+  attendanceRate: number | null;
+  /** PKR billed this academic year. */
+  billed: number;
+  /** PKR received against it. */
+  collected: number;
+  /** `collected / billed`, or null where nothing has been billed. */
+  collectionRate: number | null;
+  /** PKR still owed on this year's vouchers. */
+  outstanding: number;
+  /** The part of it more than 90 days past its due date. */
+  over90: number;
+}
+
+/** How far back the scorecard's attendance column looks. */
+const SCORECARD_ATTENDANCE_DAYS = 30;
+
+/**
+ * Every student's campus, as a subquery.
+ *
+ * Distinct on purpose: a student who transferred mid-year has two enrolment
+ * rows, and without `selectDistinct` their voucher would be counted once per
+ * campus they have been at. Only `active` enrolments are followed, so the
+ * campus a child is at *now* is the one their money is counted under — which is
+ * the campus that will be chasing it.
+ */
+function campusOfStudent(locationId: string, academicYearId: string) {
+  return db
+    .selectDistinct({
+      studentProfileId: studentEnrollments.studentProfileId,
+      // `campus_id`, never `branch_id`. See the section header.
+      campusId: grades.branchId,
+    })
+    .from(studentEnrollments)
+    .innerJoin(
+      sections,
+      and(eq(sections.id, studentEnrollments.sectionId), eq(sections.locationId, locationId)),
+    )
+    .innerJoin(
+      grades,
+      and(eq(grades.id, sections.gradeId), eq(grades.locationId, locationId)),
+    )
+    .where(
+      and(
+        eq(studentEnrollments.locationId, locationId),
+        eq(studentEnrollments.academicYearId, academicYearId),
+        eq(studentEnrollments.status, 'active'),
+      ),
+    )
+    .as('campus_of_student');
+}
+
+/**
+ * The owner's working artifact: one row per campus, sortable on every column.
+ *
+ * A `DataTable` rather than a chart, and that is a decision rather than a
+ * shortcut. Five money columns across eight campuses is forty grouped bars,
+ * which reads as a wall; the same figures in a table are still readable at
+ * twenty campuses and can be sorted by the column the reader is worried about.
+ *
+ * `branchIds` narrows it to what the caller may see. A campus with no students
+ * and no vouchers still gets a row of zeroes rather than vanishing — a
+ * scorecard that silently omits the campus nobody has set up is a scorecard
+ * that hides the thing most worth knowing.
+ */
+export async function getCampusScorecard(
+  locationId: string,
+  branchIds: string[] | null = null,
+): Promise<CampusScorecardRow[]> {
+  const campuses = await db
+    .select({ id: branches.id, name: branches.name })
+    .from(branches)
+    .where(
+      and(
+        eq(branches.locationId, locationId),
+        eq(branches.isActive, true),
+        branchIds === null ? undefined : inArray(branches.id, branchIds),
+      ),
+    )
+    .orderBy(asc(branches.name));
+
+  if (campuses.length === 0) return [];
+
+  const activeYear = await getActiveAcademicYear(locationId);
+  if (activeYear === null) {
+    return campuses.map((campus) => ({
+      branchId: campus.id,
+      branchName: campus.name,
+      students: 0,
+      attendanceRate: null,
+      billed: 0,
+      collected: 0,
+      collectionRate: null,
+      outstanding: 0,
+      over90: 0,
+    }));
+  }
+
+  const today = toDateOnly(new Date());
+  const since = toDateOnly(
+    new Date(Date.now() - SCORECARD_ATTENDANCE_DAYS * 24 * 60 * 60 * 1000),
+  );
+  const byCampus = campusOfStudent(locationId, activeYear.id);
+
+  const [enrolment, attendance, money] = await Promise.all([
+    db
+      .select({
+        campusId: grades.branchId,
+        value: sql<number>`count(*)`.mapWith(Number),
+      })
+      .from(studentEnrollments)
+      .innerJoin(
+        sections,
+        and(
+          eq(sections.id, studentEnrollments.sectionId),
+          eq(sections.locationId, locationId),
+        ),
+      )
+      .innerJoin(
+        grades,
+        and(eq(grades.id, sections.gradeId), eq(grades.locationId, locationId)),
+      )
+      .where(
+        and(
+          eq(studentEnrollments.locationId, locationId),
+          eq(studentEnrollments.academicYearId, activeYear.id),
+          eq(studentEnrollments.status, 'active'),
+        ),
+      )
+      .groupBy(grades.branchId),
+
+    db
+      .select({
+        campusId: grades.branchId,
+        considered: sql<number>`${CONSIDERED}`.mapWith(Number),
+        attended: sql<number>`${ATTENDED}`.mapWith(Number),
+      })
+      .from(attendanceRecords)
+      .innerJoin(
+        studentEnrollments,
+        and(
+          eq(studentEnrollments.id, attendanceRecords.enrollmentId),
+          eq(studentEnrollments.locationId, locationId),
+        ),
+      )
+      .innerJoin(
+        sections,
+        and(
+          eq(sections.id, studentEnrollments.sectionId),
+          eq(sections.locationId, locationId),
+        ),
+      )
+      .innerJoin(
+        grades,
+        and(eq(grades.id, sections.gradeId), eq(grades.locationId, locationId)),
+      )
+      .where(
+        and(eq(attendanceRecords.locationId, locationId), gte(attendanceRecords.date, since)),
+      )
+      .groupBy(grades.branchId),
+
+    db
+      .select({
+        campusId: byCampus.campusId,
+        billed: sql<string>`coalesce(sum(${feeChallans.totalAmount}), 0)`,
+        collected: sql<string>`coalesce(sum(${feeChallans.paidAmount}), 0)`,
+        outstanding: sql<string>`coalesce(sum(${feeChallans.totalAmount} - ${feeChallans.paidAmount}), 0)`,
+        over90: sql<string>`coalesce(sum(case when ${feeChallans.dueDate} < ${today}::date - 90 then ${feeChallans.totalAmount} - ${feeChallans.paidAmount} else 0 end), 0)`,
+      })
+      .from(feeChallans)
+      .innerJoin(byCampus, eq(byCampus.studentProfileId, feeChallans.studentProfileId))
+      .where(
+        and(
+          eq(feeChallans.locationId, locationId),
+          eq(feeChallans.academicYearId, activeYear.id),
+          // Cancelled and waived vouchers are not money anybody expects, so
+          // they are excluded rather than shown as permanently outstanding —
+          // the same three statuses `getFeeStatusSplit` counts.
+          inArray(feeChallans.status, ['unpaid', 'partial', 'paid']),
+        ),
+      )
+      .groupBy(byCampus.campusId),
+  ]);
+
+  const students = new Map(enrolment.map((row) => [row.campusId, row.value]));
+  const marked = new Map(
+    attendance.map((row) => [row.campusId, { considered: row.considered, attended: row.attended }]),
+  );
+  const billing = new Map(money.map((row) => [row.campusId, row]));
+
+  return campuses.map((campus) => {
+    const attendanceRow = marked.get(campus.id);
+    const billingRow = billing.get(campus.id);
+
+    const billed = Number(billingRow?.billed ?? '0');
+    const collected = Number(billingRow?.collected ?? '0');
+
+    return {
+      branchId: campus.id,
+      branchName: campus.name,
+      students: students.get(campus.id) ?? 0,
+      // Null, not zero. A campus whose register has not been taken and a campus
+      // where nobody came are opposite statements, and `0%` says the second.
+      attendanceRate:
+        attendanceRow === undefined || attendanceRow.considered === 0
+          ? null
+          : Math.round((1000 * attendanceRow.attended) / attendanceRow.considered) / 10,
+      billed,
+      collected,
+      collectionRate: billed === 0 ? null : Math.round((1000 * collected) / billed) / 10,
+      outstanding: Number(billingRow?.outstanding ?? '0'),
+      over90: Number(billingRow?.over90 ?? '0'),
+    };
+  });
+}
+
+/** One campus's twelve months of collections. */
+export interface CampusTrend {
+  branchId: string;
+  branchName: string;
+  points: MonthPoint[];
+}
+
+/**
+ * Collections per month, per campus, for the group trend line.
+ *
+ * ── Capped at six lines, and the cap is not arbitrary ────────────────────
+ * The chart ramp has six colours. A seventh line either repeats one — two
+ * campuses the reader cannot tell apart, on the chart whose whole purpose is
+ * telling campuses apart — or introduces a colour nothing else in the product
+ * uses. So the five largest campuses are drawn and the remainder are folded
+ * into one `Other campuses` line, which is *named as such* rather than quietly
+ * dropped: a line labelled "Other campuses (4)" is a fact, and four missing
+ * campuses is a lie of omission.
+ *
+ * "Largest" is by collections over the window, not by enrolment. The chart is
+ * about money, and a big campus that collects nothing is precisely the line an
+ * owner needs to see.
+ */
+export async function getCollectionTrendByCampus(
+  locationId: string,
+  branchIds: string[] | null = null,
+  maxLines = 6,
+): Promise<CampusTrend[]> {
+  const months = recentMonths(TREND_MONTHS);
+  const first = months[0]!.start;
+
+  const activeYear = await getActiveAcademicYear(locationId);
+  if (activeYear === null) return [];
+
+  const campuses = await db
+    .select({ id: branches.id, name: branches.name })
+    .from(branches)
+    .where(
+      and(
+        eq(branches.locationId, locationId),
+        eq(branches.isActive, true),
+        branchIds === null ? undefined : inArray(branches.id, branchIds),
+      ),
+    )
+    .orderBy(asc(branches.name));
+
+  if (campuses.length === 0) return [];
+
+  const byCampus = campusOfStudent(locationId, activeYear.id);
+
+  const rows = await db
+    .select({
+      campusId: byCampus.campusId,
+      month: sql<string>`to_char(${feePayments.paymentDate}, 'YYYY-MM')`,
+      value: sql<string>`coalesce(sum(${feePayments.amount}), 0)`,
+    })
+    .from(feePayments)
+    .innerJoin(feeChallans, eq(feeChallans.id, feePayments.challanId))
+    .innerJoin(byCampus, eq(byCampus.studentProfileId, feeChallans.studentProfileId))
+    .where(
+      and(
+        eq(feePayments.locationId, locationId),
+        eq(feeChallans.locationId, locationId),
+        gte(feePayments.paymentDate, first),
+      ),
+    )
+    .groupBy(byCampus.campusId, sql`to_char(${feePayments.paymentDate}, 'YYYY-MM')`);
+
+  const byId = new Map<string, Array<{ month: string; value: number }>>();
+  for (const row of rows) {
+    if (row.campusId === null) continue;
+    const list = byId.get(row.campusId) ?? [];
+    list.push({ month: row.month, value: Number(row.value) });
+    byId.set(row.campusId, list);
+  }
+
+  const full: CampusTrend[] = campuses.map((campus) => ({
+    branchId: campus.id,
+    branchName: campus.name,
+    points: alignToMonths(byId.get(campus.id) ?? [], months),
+  }));
+
+  if (full.length <= maxLines) return full;
+
+  const total = (trend: CampusTrend): number =>
+    trend.points.reduce((sum, point) => sum + point.value, 0);
+
+  const ranked = [...full].sort((left, right) => total(right) - total(left));
+  const kept = ranked.slice(0, maxLines - 1);
+  const folded = ranked.slice(maxLines - 1);
+
+  const other: CampusTrend = {
+    branchId: 'other',
+    branchName: `Other campuses (${folded.length})`,
+    points: months.map((entry, index) => ({
+      month: entry.month,
+      label: entry.label,
+      value: folded.reduce((sum, trend) => sum + (trend.points[index]?.value ?? 0), 0),
+    })),
+  };
+
+  // Back into the school's own order, so the legend reads the way the branch
+  // selector does rather than by size.
+  const keptIds = new Set(kept.map((trend) => trend.branchId));
+  return [...full.filter((trend) => keptIds.has(trend.branchId)), other];
+}
+
+/**
+ * Income and expense per campus, straight off the ledger.
+ *
+ * `ledger_transactions.branch_id` is the campus a posting was made against, so
+ * unlike the fee figures above this needs no hop through a student. A posting
+ * with **no** campus — a school-wide expense, an opening balance — is counted
+ * under `null` and reported separately by the caller rather than spread across
+ * the campuses, because spreading it would invent an allocation the school
+ * never made.
+ */
+export interface CampusLedgerRow {
+  /** Null for a school-wide posting. */
+  branchId: string | null;
+  branchName: string;
+  incomePaise: number;
+  expensePaise: number;
+}
+
+export async function getCampusLedgerTotals(
+  locationId: string,
+  window: { from: string; to: string },
+  branchIds: string[] | null = null,
+): Promise<CampusLedgerRow[]> {
+  const campuses = await db
+    .select({ id: branches.id, name: branches.name })
+    .from(branches)
+    .where(
+      and(
+        eq(branches.locationId, locationId),
+        eq(branches.isActive, true),
+        branchIds === null ? undefined : inArray(branches.id, branchIds),
+      ),
+    )
+    .orderBy(asc(branches.name));
+
+  if (campuses.length === 0) return [];
+
+  /*
+   * Income is a credit balance and expense a debit one, which is why the two
+   * expressions are mirror images rather than one `sum` with a sign flip. Both
+   * are read from `ledger_entries` — the only source of a balance in this
+   * product, per CLAUDE.md: there is no balance column and there never will be.
+   *
+   * `numeric` comes back from postgres-js as a string and is converted once,
+   * here, into integer paise. A balance sheet out by four rupees is a balance
+   * sheet nobody trusts again.
+   */
+  const rows = await db
+    .select({
+      campusId: ledgerTransactions.branchId,
+      income: sql<string>`coalesce(sum(case when ${ledgerAccounts.type} = 'income' then ${ledgerEntries.credit} - ${ledgerEntries.debit} else 0 end), 0)`,
+      expense: sql<string>`coalesce(sum(case when ${ledgerAccounts.type} = 'expense' then ${ledgerEntries.debit} - ${ledgerEntries.credit} else 0 end), 0)`,
+    })
+    .from(ledgerEntries)
+    .innerJoin(
+      ledgerTransactions,
+      and(
+        eq(ledgerTransactions.id, ledgerEntries.transactionId),
+        eq(ledgerTransactions.locationId, locationId),
+      ),
+    )
+    .innerJoin(
+      ledgerAccounts,
+      and(
+        eq(ledgerAccounts.id, ledgerEntries.accountId),
+        eq(ledgerAccounts.locationId, locationId),
+      ),
+    )
+    .where(
+      and(
+        eq(ledgerEntries.locationId, locationId),
+        // `gte`/`lte`, never sql`${col} <= ${value}`. The column is a `date` and
+        // the values are `YYYY-MM-DD` strings, so this one would have worked —
+        // which is exactly how the announcements sweeper came to pass a `Date`
+        // into the same shape and throw on every run for five days.
+        gte(ledgerTransactions.entryDate, window.from),
+        lte(ledgerTransactions.entryDate, window.to),
+      ),
+    )
+    .groupBy(ledgerTransactions.branchId);
+
+  const byCampus = new Map(rows.map((row) => [row.campusId, row]));
+
+  const named: CampusLedgerRow[] = campuses.map((campus) => ({
+    branchId: campus.id,
+    branchName: campus.name,
+    incomePaise: toPaise(byCampus.get(campus.id)?.income ?? '0'),
+    expensePaise: toPaise(byCampus.get(campus.id)?.expense ?? '0'),
+  }));
+
+  /*
+   * The school-wide postings, kept as their own row rather than spread across
+   * the campuses. An opening balance and a head-office expense belong to no
+   * campus, and apportioning them would invent an allocation the school never
+   * made — on the one chart an owner uses to decide which campus is carrying
+   * which. Only shown when the caller can see the whole school; a branch-bound
+   * reader has no business with the group's central costs.
+   */
+  const shared = byCampus.get(null);
+  if (branchIds === null && shared !== undefined) {
+    const incomePaise = toPaise(shared.income);
+    const expensePaise = toPaise(shared.expense);
+    if (incomePaise !== 0 || expensePaise !== 0) {
+      named.push({
+        branchId: null,
+        branchName: 'No campus (school-wide)',
+        incomePaise,
+        expensePaise,
+      });
+    }
+  }
+
+  return named;
 }

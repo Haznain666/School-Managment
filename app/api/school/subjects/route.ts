@@ -2,6 +2,12 @@ import { isHexColor, subjects } from '@/db/schema';
 import { withSchoolAuth } from '@/lib/api-auth';
 import { apiFailure, apiSuccess, handleApiError, readJsonBody } from '@/lib/api-response';
 import { listSubjects } from '@/lib/academics-queries';
+import {
+  branchForWrite,
+  effectiveBranchIds,
+  readBranchParam,
+  resolveBranchScope,
+} from '@/lib/branch-scope';
 import { db } from '@/lib/drizzle';
 import { readOptionalString, readString } from '@/lib/validation';
 
@@ -25,7 +31,16 @@ export const GET = withSchoolAuth(
       const url = new URL(request.url);
       const activeOnly = url.searchParams.get('activeOnly') === 'true';
 
-      return apiSuccess({ subjects: await listSubjects(auth.locationId, { activeOnly }) });
+      // Shared subjects plus the campuses this caller reaches. `?branch=`
+      // narrows further and is validated by the resolver, never here.
+      const scope = await resolveBranchScope(auth.locationId, auth, readBranchParam(url));
+
+      return apiSuccess({
+        subjects: await listSubjects(auth.locationId, {
+          activeOnly,
+          branchIds: effectiveBranchIds(scope),
+        }),
+      });
     } catch (error) {
       return handleApiError(error);
     }
@@ -37,6 +52,8 @@ interface CreateSubjectBody {
   name?: unknown;
   code?: unknown;
   color?: unknown;
+  /** Null or absent = shared by every campus. Item 2e validates it. */
+  branchId?: unknown;
 }
 
 export const POST = withSchoolAuth(
@@ -66,11 +83,20 @@ export const POST = withSchoolAuth(
         return apiFailure('invalid_body', 'Enter a colour as a six-digit hex code, for example #2563eb.', 400);
       }
 
+      // Item 2e. A campus in the body is checked against the caller's own
+      // scope before anything is written — a stale tab left open across a
+      // reassignment would otherwise post a row that satisfies every
+      // constraint and then appears in no listing.
+      const scope = await resolveBranchScope(auth.locationId, auth);
+      const campus = branchForWrite(scope, readOptionalString(body.branchId));
+      if (!campus.ok) return apiFailure('forbidden', campus.message, 403);
+
       const created = await db
         .insert(subjects)
         .values({
           // Tenant comes from the verified session, never from the body.
           locationId: auth.locationId,
+          branchId: campus.branchId,
           name,
           code,
           color,

@@ -157,19 +157,29 @@ export function AcademicPlacementForm({
       </p>
 
       <div className="grid gap-4 sm:grid-cols-2">
-        <Select
-          label="Branch"
-          required
-          placeholder="Select a branch"
-          options={branches.map((branch) => ({ value: branch.id, label: branch.name }))}
-          value={value.branchId}
-          disabled={disabled}
-          onChange={(event) => {
-            // Grade and section belong to the old branch; keeping them would
-            // submit a placement that does not go together.
-            set({ branchId: event.target.value, gradeId: '', sectionId: '' });
-          }}
-        />
+        {/*
+          Item 13 (Sprint 19a): a school with one campus is not asked which.
+          `StudentEnrollForm` has always pre-selected the only branch, so the
+          control was a dropdown with one option and one answer — and on an
+          admissions desk with a queue in front of it, a required field that can
+          only be answered one way is a step to be got past rather than a
+          decision. The campus is stated instead, a line below.
+        */}
+        {branches.length === 1 ? null : (
+          <Select
+            label="Branch"
+            required
+            placeholder="Select a branch"
+            options={branches.map((branch) => ({ value: branch.id, label: branch.name }))}
+            value={value.branchId}
+            disabled={disabled}
+            onChange={(event) => {
+              // Grade and section belong to the old branch; keeping them would
+              // submit a placement that does not go together.
+              set({ branchId: event.target.value, gradeId: '', sectionId: '' });
+            }}
+          />
+        )}
 
         <Select
           label="Grade"
@@ -244,6 +254,13 @@ export function AcademicPlacementForm({
       {error !== null ? (
         <p role="alert" className="rounded-lg bg-status-danger-subtle px-3 py-2 text-sm text-status-danger-ink">
           {error}
+        </p>
+      ) : null}
+
+      {branches.length === 1 ? (
+        <p className="text-sm text-ink-muted">
+          Enrolling at <strong className="text-ink">{branches[0]!.name}</strong>, the
+          school&rsquo;s only campus.
         </p>
       ) : null}
 

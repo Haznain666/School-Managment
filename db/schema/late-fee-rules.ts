@@ -3,6 +3,7 @@ import {
   boolean,
   check,
   date,
+  index,
   integer,
   numeric,
   pgTable,
@@ -11,6 +12,7 @@ import {
   uuid,
 } from 'drizzle-orm/pg-core';
 
+import { branches } from './branches';
 import { schools } from './schools';
 
 export const LATE_FEE_TYPES = ['fixed', 'daily'] as const;
@@ -45,6 +47,20 @@ export const lateFeeRules = pgTable(
       .notNull()
       .unique()
       .references(() => schools.locationId, { onDelete: 'cascade' }),
+    /**
+     * The campus that owns this policy, or null when the school shares it.
+     *
+     * ⚠ Inert today, and deliberately so. `location_id` above is `.unique()` —
+     * one policy per school — so no second row can exist to carry a campus, and
+     * every row is and stays null. The column ships now because it is
+     * expand-only and because relaxing that unique index is a *separate*
+     * decision: the moment two rows can exist, every reader of this table has
+     * to choose between them, and there is no code today that would. See
+     * `SPRINT-19A-DDL-NOTES.md`.
+     */
+    branchId: uuid('branch_id').references(() => branches.id, {
+      onDelete: 'set null',
+    }),
     /**
      * Day of the month a monthly challan falls due. The 10th unless the school
      * says otherwise; capped at 28 so every month has one.
@@ -90,6 +106,7 @@ export const lateFeeRules = pgTable(
       .defaultNow(),
   },
   (table) => [
+    index('late_fee_rules_location_branch_idx').on(table.locationId, table.branchId),
     check(
       'late_fee_rules_late_fee_type_check',
       sql`${table.lateFeeType} IN ('fixed', 'daily')`,

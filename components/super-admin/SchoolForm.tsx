@@ -375,13 +375,21 @@ export function SchoolForm({
 
           {/*
             4. The person the platform holds responsible for this school.
-            Titled "School Owner / School Administrator" rather than
-            "Principal": a principal runs a campus, is assigned per branch in
-            School Admin → Settings, and is a different fact about a different
-            person that this field was being read as.
+
+            "Head of School" — Sprint 19a, item 1, and the same caption the
+            school's own Settings screen now uses so the two cannot be read as
+            different fields. It is deliberately not "Principal": a principal
+            runs a *campus*, is assigned per branch on that branch's own page,
+            and is a different fact about a different person that this field was
+            being read as.
+
+            On create it is also the name the school's first administrator
+            account is opened under, which the hint below says. At a new school
+            those are the same person; where they are not, the account is
+            renamed from Users & Staff in one edit.
           */}
           <Input
-            label="School Owner / School Administrator"
+            label="Head of School"
             value={values.principalName}
             onChange={(event) => {
               setField('principalName', event.target.value);

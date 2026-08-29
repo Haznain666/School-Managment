@@ -5,9 +5,15 @@ import { withSchoolAuth } from '@/lib/api-auth';
 import { apiFailure, apiSuccess, handleApiError, readJsonBody } from '@/lib/api-response';
 import { academicYearBounds } from '@/lib/academics-queries';
 import { getAcademicYear } from '@/lib/admissions-queries';
+import {
+  branchForWrite,
+  effectiveBranchIds,
+  readBranchParam,
+  resolveBranchScope,
+} from '@/lib/branch-scope';
 import { db } from '@/lib/drizzle';
 import { getGradingScheme, listExamTerms } from '@/lib/exam-queries';
-import { isUuid, readOptionalDate, readString } from '@/lib/validation';
+import { isUuid, readOptionalDate, readOptionalString, readString } from '@/lib/validation';
 
 /**
  * /api/school/exam-terms
@@ -37,10 +43,13 @@ export const GET = withSchoolAuth(
       const url = new URL(request.url);
       const academicYearId = url.searchParams.get('academicYearId') ?? '';
 
+      const scope = await resolveBranchScope(auth.locationId, auth, readBranchParam(url));
+
       return apiSuccess({
         terms: await listExamTerms(auth.locationId, {
           academicYearId: academicYearId === '' ? undefined : academicYearId,
           includeArchived: url.searchParams.get('includeArchived') === 'true',
+          branchIds: effectiveBranchIds(scope),
         }),
       });
     } catch (error) {
@@ -56,6 +65,8 @@ interface CreateTermBody {
   startDate?: unknown;
   endDate?: unknown;
   gradingSchemeId?: unknown;
+  /** Null or absent = shared by every campus. Item 2e validates it. */
+  branchId?: unknown;
 }
 
 export const POST = withSchoolAuth(
@@ -166,11 +177,19 @@ export const POST = withSchoolAuth(
           ),
         );
 
+      // Item 2e. A branch administrator holds `exams.write` by default, so this
+      // is the first write in the product where the campus guard actually
+      // fires: an unanswered campus resolves to theirs rather than refusing.
+      const scope = await resolveBranchScope(auth.locationId, auth);
+      const campus = branchForWrite(scope, readOptionalString(body.branchId));
+      if (!campus.ok) return apiFailure('forbidden', campus.message, 403);
+
       const created = await db
         .insert(examTerms)
         .values({
           // Tenant from the verified session, never from the body.
           locationId: auth.locationId,
+          branchId: campus.branchId,
           academicYearId: body.academicYearId,
           name,
           startDate,

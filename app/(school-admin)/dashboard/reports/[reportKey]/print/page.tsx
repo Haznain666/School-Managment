@@ -5,6 +5,7 @@ import { ReportTable } from '@/components/reports/ReportTable';
 import { PrintNow } from '@/components/print/PrintNow';
 import { PrintDocument, PrintLetterhead, PrintSheet } from '@/components/print/PrintSheet';
 import { Card, CardTitle } from '@/components/ui/Card';
+import { resolveBranchScope } from '@/lib/branch-scope';
 import { permissionsForRole } from '@/lib/permission-queries';
 import {
   describeScope,
@@ -76,14 +77,26 @@ export default async function ReportPrintPage({
   }
 
   const search = flatten(await searchParams);
-  const reportParams = parseReportParams(definition, search);
+  const requested = parseReportParams(definition, search);
+
+  // Resolved exactly as the screen resolves it — same function, same fallback —
+  // so the sheet and the table it was printed from cannot be of two different
+  // campuses. See the note on the screen for why this is derived once.
+  const branchScope = await resolveBranchScope(locationId, claims, requested.branchId);
+
+  const appliedBranch =
+    branchScope.branchIds === null
+      ? requested.branchId
+      : (branchScope.selected ?? branchScope.branchIds[0]);
+
+  const reportParams = { ...requested, branchId: appliedBranch };
 
   const [branding, options, result] = await Promise.all([
     getSchoolBranding(locationId),
-    loadReportOptions(definition, locationId, claims.branchId),
+    loadReportOptions(definition, locationId, branchScope.branchIds),
     runReport(
       definition.key,
-      { locationId, sessionBranchId: claims.branchId },
+      { locationId, sessionBranchId: null, branchIds: branchScope.branchIds },
       reportParams,
     ),
   ]);
