@@ -9835,4 +9835,46 @@ database-backed ones — `check-reports`, `check-dashboard` (47 aggregates) and
 * Nine screens still render server-side catalogue lists without passing a scope
   (§5bh's own open item). Unchanged by 19b.
 
+### QA — driven in a browser at LGS, 2026-08-29
+
+**No defects.** `test-cases/TEST-CASES-SPRINT-19B.md`. Everything written during
+the run was removed: one promotion draft discarded, one uploaded document
+deleted and the list re-read empty.
+
+**The upload path was exercised against real Supabase Storage**, which nothing
+before this run had done. A real PNG: **201**. An `MZ` executable renamed
+`payload.png` and declared `image/png`: **415**, *"That file is not a PNG or JPG
+image."* The sniffing was separately exercised against ten inputs — including
+JPEG `E1`, which is what every phone camera emits and which a naive
+`FF D8 FF E0` check would refuse — **10 of 10 correct**.
+
+**Item 15b, the defect the product owner reported, reads correctly in place:**
+*"2027-2028 has no sections yet… Nothing is wrong with this screen — the school
+has not built next year's classes."* plus the copy button. The `Goes to` cell
+says *"No class to move into"* rather than sitting empty.
+
+Two minor findings, recorded and **not** fixed:
+
+1. **The academic-year run preview overstates.** It says *"This will create 3
+   years"* while two of them already exist. The run is right — it skips and
+   reports *"1 created, 2 already existed"* — but the screen promises three. The
+   form is a client component and has never been given the existing list; the
+   page one click away renders exactly that list.
+2. **Documents are stored under `_school`, not the student's campus.** Not a
+   security fault — nothing authorises on the path — but a school group that
+   later wants its campuses' scans separated cannot get that retrospectively.
+
+### ⚠ The fixture this project keeps asking for **used to exist**
+
+`test-cases/README.md` describes **Rehearsal Academy**: 409 students, 10 classes,
+**2 campuses**, 3 academic years, siblings sharing guardians, parents with no
+email, mid-term joiners, partial payments, concessions and a cross-branch
+transfer — built by Sprint 10 for exactly this purpose and deliberately untidy,
+"because a clean seed would hide exactly the defects a rehearsal exists to find."
+
+It was deleted in the 2026-08-19 cleanup. Every `⬜` in 19a's and 19b's test
+cases — the branch-bound reader, the cross-campus 422, the section copy, the
+enrolment wizard, the document ceilings, the year run — would be executable
+against it today. **Rebuilding it is worth more than the next feature.**
+
 ### Next free migration number is `0037`.
