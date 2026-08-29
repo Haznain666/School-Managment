@@ -37,12 +37,15 @@ import { db } from '../lib/drizzle';
 import {
   getAdmissionsFunnel,
   getAgingBuckets,
+  getCampusLedgerTotals,
+  getCampusScorecard,
   getAttendanceAverage,
   getAttendanceByClass,
   getAttendanceTrend,
   getClassStrength,
   getCollectionComparison,
   getCollectionTrend,
+  getCollectionTrendByCampus,
   getEnrolmentComparison,
   getSetupProgress,
   getExamPerformance,
@@ -177,6 +180,33 @@ const CHECKS: Array<[string, () => Promise<unknown>]> = [
   ['getOutstandingSummary scoped', () => getOutstandingSummary(NOBODY, SCOPED)],
   ['getAttendanceAverage scoped', () => getAttendanceAverage(NOBODY, SCOPED)],
   ['getEnrolmentComparison scoped', () => getEnrolmentComparison(NOBODY, SCOPED)],
+
+  /*
+   * Sprint 19a — the cross-campus aggregates behind the owner's dashboard.
+   *
+   * Registered here because these are the three statements in this file that
+   * carry a subquery alias into a raw `sql` template, and an ambiguous column
+   * reference is a **planning** error: Postgres raises 42702 before it looks at
+   * a single row, so running them against a school that does not exist proves
+   * exactly the thing that has shipped twice (§5av, §5bg) and that no static
+   * check in this repository can see.
+   *
+   * `getCampusLedgerTotals` is the one that matters most: it left-joins a
+   * derived `fee_payment_campus` and coalesces its `posting_campus_id` with
+   * `ledger_transactions.branch_id` in both the SELECT and the GROUP BY.
+   */
+  ['getCampusScorecard', () => getCampusScorecard(NOBODY)],
+  ['getCampusScorecard scoped', () => getCampusScorecard(NOBODY, [NO_PAPER])],
+  ['getCollectionTrendByCampus', () => getCollectionTrendByCampus(NOBODY)],
+  [
+    'getCampusLedgerTotals',
+    () => getCampusLedgerTotals(NOBODY, { from: '2026-01-01', to: '2026-12-31' }),
+  ],
+  [
+    'getCampusLedgerTotals scoped',
+    () =>
+      getCampusLedgerTotals(NOBODY, { from: '2026-01-01', to: '2026-12-31' }, [NO_PAPER]),
+  ],
 
   // Sprint 15 — the exceptions strip. Every gate on, so all five run.
   [

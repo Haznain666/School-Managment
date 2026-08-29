@@ -2,11 +2,13 @@ import { and, count, eq } from 'drizzle-orm';
 
 import {
   branches,
+  grades,
   isCurriculumLevel,
   ledgerTransactions,
   schoolUsers,
+  sections,
   staff,
-  students,
+  studentEnrollments,
 } from '@/db/schema';
 import { apiFailure, apiSuccess, handleApiError, readJsonBody } from '@/lib/api-response';
 import { withSchoolAuth } from '@/lib/api-auth';
@@ -280,13 +282,26 @@ export const PATCH = withSchoolAuth<RouteContext>(
  * DELETE — erase a campus, or refuse and say what is attached.
  *
  * ── Why a refusal and not a cascade ──────────────────────────────────────
- * Of the thirteen foreign keys pointing at `branches.id`, most are **`ON DELETE
- * SET NULL`** — `students`, `staff`, `school_users`, `school_invitations`,
- * `payroll_runs`, `payslips`. Postgres would happily delete a busy campus and
- * quietly detach four hundred children, their teachers and their payroll
- * history from any campus at all. Nothing would error. The rows would simply
- * become school-wide, appear in every campus filter, and there would be no
- * record anywhere of where they used to be.
+ * The foreign keys pointing at `branches.id` fall into two groups and both are
+ * dangerous, in opposite directions.
+ *
+ * Most are **`ON DELETE SET NULL`** — `staff`, `school_users`,
+ * `school_invitations`, `payroll_runs`, `payslips`, and the nine catalogue
+ * tables Sprint 19a added. Postgres would happily delete a busy campus and
+ * quietly detach its teachers and their payroll history from any campus at
+ * all. Nothing would error. The rows would simply become school-wide, appear
+ * in every campus filter, and there would be no record of where they were.
+ *
+ * `grades` is the other group: **`ON DELETE CASCADE`**, and `sections` and
+ * `fee_structures` cascade from `grades` in turn. So deleting a campus does
+ * not detach its classes — it destroys them, along with every section and the
+ * whole price list, silently and with nothing left to say they existed.
+ * `student_enrollments.section_id` has no cascade, which is the only reason a
+ * campus with a child enrolled in it is refused at all: Postgres raises a
+ * foreign-key violation, caught below. That is a backstop, not a design. A
+ * campus that is fully configured but not yet enrolled trips none of it, and
+ * `grades` is counted above precisely so that case is refused by this route
+ * with a sentence rather than by nothing at all.
  *
  * **A campus with a child enrolled in it is not a row anybody may drop.** So it
  * is a **409** naming the counts, with *deactivate instead* offered in the same
@@ -334,11 +349,41 @@ export const DELETE = withSchoolAuth<RouteContext>(
         );
       }
 
-      const [studentRows, staffRows, memberRows, ledgerRows] = await Promise.all([
+      /*
+       * ── Count what a campus actually holds, not what it used to ─────────
+       * This counted `students.branch_id`, and `students` is the minimal
+       * Sprint 1 table that **nothing in the product has ever inserted into**
+       * — enrolment writes `student_profiles` and `student_enrollments`. So
+       * the count was zero at every school, and the refusal below could never
+       * say "still has 12 students" however full the campus was.
+       *
+       * A child reaches a campus the way every other query reaches it: through
+       * their section's grade. `student_enrollments.section_id` has no cascade,
+       * so Postgres does block the delete once a child is enrolled — but it
+       * blocks it as a caught foreign-key error and a vague sentence about
+       * "classes, timetables or exams", when the true answer is twelve
+       * children. A refusal that cannot name what it is protecting reads as an
+       * obstacle rather than a reason.
+       *
+       * `grades` is counted for the case Postgres does **not** catch: a campus
+       * configured but not yet enrolled. `grades`, `sections` and
+       * `fee_structures` all cascade from a branch, so deleting one of those
+       * silently destroys the whole ladder and the price list with it, raises
+       * nothing, and leaves no record that any of it existed.
+       */
+      const [studentRows, staffRows, memberRows, ledgerRows, gradeRows] = await Promise.all([
         db
           .select({ value: count() })
-          .from(students)
-          .where(eq(students.branchId, branchId)),
+          .from(studentEnrollments)
+          .innerJoin(sections, eq(sections.id, studentEnrollments.sectionId))
+          .innerJoin(grades, eq(grades.id, sections.gradeId))
+          .where(
+            and(
+              eq(grades.branchId, branchId),
+              eq(studentEnrollments.locationId, auth.locationId),
+              eq(studentEnrollments.status, 'active'),
+            ),
+          ),
         db.select({ value: count() }).from(staff).where(eq(staff.branchId, branchId)),
         db
           .select({ value: count() })
@@ -348,10 +393,15 @@ export const DELETE = withSchoolAuth<RouteContext>(
           .select({ value: count() })
           .from(ledgerTransactions)
           .where(eq(ledgerTransactions.branchId, branchId)),
+        db
+          .select({ value: count() })
+          .from(grades)
+          .where(and(eq(grades.branchId, branchId), eq(grades.locationId, auth.locationId))),
       ]);
 
       const attached = [
-        { n: studentRows[0]?.value ?? 0, one: 'student', many: 'students' },
+        { n: studentRows[0]?.value ?? 0, one: 'enrolled student', many: 'enrolled students' },
+        { n: gradeRows[0]?.value ?? 0, one: 'class', many: 'classes' },
         { n: staffRows[0]?.value ?? 0, one: 'staff member', many: 'staff' },
         { n: memberRows[0]?.value ?? 0, one: 'portal member', many: 'portal members' },
         {

@@ -1401,3 +1401,74 @@ export async function countActiveStudents(locationId: string): Promise<number> {
 
   return rows[0]?.value ?? 0;
 }
+
+/**
+ * The campus a student is enrolled at, for a given academic year.
+ *
+ * ── Why this exists, and what it fixed (Sprint 19a, D1) ──────────────────
+ * `fee_challans` carries no campus; it carries a student, and a student reaches
+ * a campus through their section's grade. Everything on the fee side already
+ * made that hop — and the *ledger* did not. `postTransaction` was called for a
+ * fee payment with no `branchId`, so every fee-payment posting since Sprint
+ * 13.5 has `branch_id = NULL`.
+ *
+ * The result was two charts on the owner's dashboard disagreeing about the same
+ * PKR 20,000: **Collection by campus** attributed it to Defence Branch, because
+ * it resolves the campus through the student; **Income against expense by
+ * campus** attributed it to *No campus*, because it groups on the column
+ * nobody had filled in. The ledger was not wrong — it was never told.
+ *
+ * ── One definition, used on both sides ───────────────────────────────────
+ * This is the scalar form. `campusOfStudent` in `lib/dashboard-queries.ts` is
+ * the set-valued form of the same hop, and `feePaymentCampusFor` there is the
+ * same hop again as a repair for rows written before this existed. All three
+ * must answer the same question the same way or the charts drift apart again,
+ * which is the whole defect.
+ *
+ * ── The year is the *voucher's*, not today's ─────────────────────────────
+ * A payment taken this month against last year's voucher belongs to the campus
+ * the child was at *then*. Resolving it against the current year would move
+ * historical money to wherever the child has since transferred, and a ledger
+ * whose past changes when a student moves is not a ledger.
+ *
+ * Migration `0019` constrains a student to one active enrolment per year, so
+ * this is a single row rather than a pick among several — the same reading
+ * `searchStudents` relies on.
+ *
+ * ── Null is a legal answer and must not refuse anything ──────────────────
+ * A student with no active enrolment for that year — withdrawn, or paying an
+ * admission fee before placement — has no campus, and that is not a reason to
+ * refuse their money. The posting is made school-wide, exactly as every
+ * posting was before this.
+ */
+export async function campusForStudent(
+  locationId: string,
+  studentProfileId: string,
+  academicYearId: string,
+): Promise<string | null> {
+  const rows = await db
+    .select({ branchId: grades.branchId })
+    .from(studentEnrollments)
+    .innerJoin(
+      sections,
+      and(
+        eq(sections.id, studentEnrollments.sectionId),
+        eq(sections.locationId, locationId),
+      ),
+    )
+    .innerJoin(
+      grades,
+      and(eq(grades.id, sections.gradeId), eq(grades.locationId, locationId)),
+    )
+    .where(
+      and(
+        eq(studentEnrollments.locationId, locationId),
+        eq(studentEnrollments.studentProfileId, studentProfileId),
+        eq(studentEnrollments.academicYearId, academicYearId),
+        eq(studentEnrollments.status, 'active'),
+      ),
+    )
+    .limit(1);
+
+  return rows[0]?.branchId ?? null;
+}

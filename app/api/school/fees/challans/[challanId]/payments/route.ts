@@ -3,6 +3,7 @@ import { and, eq, sql } from 'drizzle-orm';
 import { feeChallans, feePayments, isPaymentMethod, ledgerTransactions } from '@/db/schema';
 import { landingAccountFor, twoSidedLines } from '@/lib/accounting';
 import { schoolUserIdForUid } from '@/lib/accounting-queries';
+import { campusForStudent } from '@/lib/admissions-queries';
 import { withSchoolAuth } from '@/lib/api-auth';
 import { apiFailure, apiSuccess, handleApiError, readJsonBody } from '@/lib/api-response';
 import { db, type Tx } from '@/lib/drizzle';
@@ -237,11 +238,36 @@ export const POST = withSchoolAuth<RouteContext>(
 
       const delta = paiseToNumeric(amountPaise);
 
-      // Resolved before the transaction opens: two indexed reads that do not
-      // need to be inside it, and keeping them out shortens the window the
-      // challan row is held for.
+      // Resolved before the transaction opens: indexed reads that do not need
+      // to be inside it, and keeping them out shortens the window the challan
+      // row is held for.
       const systemAccounts = await loadSystemAccounts(auth.locationId);
       const collector = await schoolUserIdForUid(auth.locationId, auth.uid);
+
+      /*
+       * The campus this money was taken at — Sprint 19a, D1.
+       *
+       * `ledger_transactions.branch_id` was never set here, so every fee
+       * payment since Sprint 13.5 posted school-wide. That is not visible
+       * anywhere in the fee module, which resolves a campus through the
+       * student, and it is glaringly visible on the owner's dashboard, where
+       * Collection by campus and Income against expense by campus attributed
+       * the same rupees to two different campuses.
+       *
+       * The voucher's own academic year, not today's: a payment taken this
+       * month against last year's voucher belongs to the campus the child was
+       * at then, and a ledger whose past moves when a student transfers is not
+       * a ledger.
+       *
+       * **Null still posts.** A student with no active enrolment for that year
+       * has no campus, and a missing campus is not a reason to refuse somebody
+       * standing at a counter with cash.
+       */
+      const postingBranchId = await campusForStudent(
+        auth.locationId,
+        challan.studentProfileId,
+        challan.academicYearId,
+      );
 
       const posting = await resolvePosting({
         locationId: auth.locationId,
@@ -287,6 +313,7 @@ export const POST = withSchoolAuth<RouteContext>(
             ? null
             : await postTransaction(tx, {
                 locationId: auth.locationId,
+                branchId: postingBranchId,
                 entryDate: paymentDate,
                 memo: `Fee received — ${challan.studentName} (${challan.challanNumber})`,
                 source: 'fee_payment',

@@ -1978,9 +1978,18 @@ const SCORECARD_ATTENDANCE_DAYS = 30;
 function campusOfStudent(locationId: string, academicYearId: string) {
   return db
     .selectDistinct({
-      studentProfileId: studentEnrollments.studentProfileId,
-      // `campus_id`, never `branch_id`. See the section header.
-      campusId: grades.branchId,
+      /*
+       * Explicitly aliased, for the reason `getCampusLedgerTotals` sets out at
+       * length: a Drizzle selection key is a TypeScript name and never reaches
+       * the SQL, so a bare `grades.branchId` would leave this derived table
+       * with a column called `branch_id`. Nothing joined to it here has one
+       * — so it works either way — but the next person to add a join to this
+       * statement should not have to discover that.
+       */
+      studentProfileId: sql<string>`${studentEnrollments.studentProfileId}`.as(
+        'campus_student_profile_id',
+      ),
+      campusId: sql<string | null>`${grades.branchId}`.as('student_campus_id'),
     })
     .from(studentEnrollments)
     .innerJoin(
@@ -2273,14 +2282,35 @@ export async function getCollectionTrendByCampus(
 }
 
 /**
- * Income and expense per campus, straight off the ledger.
+ * Income and expense per campus, from the ledger.
  *
- * `ledger_transactions.branch_id` is the campus a posting was made against, so
- * unlike the fee figures above this needs no hop through a student. A posting
- * with **no** campus — a school-wide expense, an opening balance — is counted
- * under `null` and reported separately by the caller rather than spread across
- * the campuses, because spreading it would invent an allocation the school
- * never made.
+ * `ledger_transactions.branch_id` is the campus a posting was made against. A
+ * posting with **no** campus — a school-wide expense, an opening balance — is
+ * counted under `null` and reported separately by the caller rather than spread
+ * across the campuses, because spreading it would invent an allocation the
+ * school never made.
+ *
+ * ── The repair this carries, and why it is a read and not an UPDATE ──────
+ * Every fee payment posted since Sprint 13.5 has `branch_id = NULL`: the
+ * payments route called `postTransaction` without one, and nothing in the fee
+ * module noticed because the fee module resolves a campus through the student.
+ * The owner's dashboard noticed immediately — **Collection by campus** put
+ * LGS's PKR 20,000 under Defence Branch and this chart put the same rupees
+ * under *No campus*, on the same screen. Two answers to one question is how a
+ * table stops being believed.
+ *
+ * The write side is fixed (`campusForStudent`, called from the payments route),
+ * but **existing rows cannot be repaired by a write**: `ledger_transactions` is
+ * append-only per CLAUDE.md, and a data migration rewriting `branch_id` would
+ * be an edit to the ledger dressed as a fix. A correction to the ledger is a
+ * reversing entry, and there is nothing here to reverse — the money is right,
+ * only the label was missing.
+ *
+ * So the campus is *derived on read*, for exactly the rows that lack one and
+ * can be traced: `source = 'fee_payment'` -> `source_id` -> `fee_payments` ->
+ * `fee_challans` -> the student's enrolment for that voucher's year -> their
+ * grade's campus. Old rows and new rows then group identically and the two
+ * charts reconcile. Nothing is written.
  */
 export interface CampusLedgerRow {
   /** Null for a school-wide posting. */
@@ -2310,6 +2340,90 @@ export async function getCampusLedgerTotals(
   if (campuses.length === 0) return [];
 
   /*
+   * The campus of a fee payment, for the postings that were never told one.
+   *
+   * Joined on the voucher's **own** academic year, not the school's current
+   * one: a payment taken this month against last year's voucher belongs to the
+   * campus the child was at then, and a ledger whose past moves when a student
+   * transfers is not a ledger. Migration `0019` constrains a student to one
+   * active enrolment per year, so this is one row per payment rather than a
+   * pick among several — the same reading `searchStudents` relies on, and the
+   * reason no `DISTINCT ON` is needed. Without that guarantee the left join
+   * below would duplicate ledger entries and double the money.
+   *
+   * ⚠ The campus column is aliased **`posting_campus_id`**, and the payment id
+   * **`fee_payment_id`**, on a subquery aliased `fee_payment_campus`. Neither
+   * name exists on any other table in the statement, and both are spelled with
+   * an explicit `.as()` because **a Drizzle selection key never reaches the
+   * SQL** — `{ postingCampusId: grades.branchId }` emits a bare
+   * `"grades"."branch_id"` with no `AS`, so the derived column would have been
+   * called `branch_id`: the one name this statement must not carry twice.
+   *
+   * That matters because the coalesce below is a raw `sql` template, and
+   * **Drizzle renders columns interpolated into those unqualified** under
+   * conditions this repository has now paid for twice (§5av, §5bg). Qualified
+   * or not, a name nothing else has cannot be ambiguous. Confirmed by printing
+   * `toSQL()` and reading it, not by assuming.
+   */
+  const feePaymentCampus = db
+    .select({
+      /*
+       * `.as()` on a wrapped expression, not a bare column reference.
+       *
+       * A bare `grades.branchId` here emits `select "grades"."branch_id"` with
+       * **no `AS` at all** — the selection key is a TypeScript name and never
+       * reaches the SQL — so the derived table's column would be called
+       * `branch_id`, the one name this statement must not have twice, and
+       * `fee_payment_campus.id` would collide with three joined `id` columns
+       * besides. Drizzle happens to qualify both today, which is precisely the
+       * behaviour §5av and §5bg record as unreliable. Verified by printing
+       * `toSQL()` rather than assumed.
+       */
+      paymentId: sql<string>`${feePayments.id}`.as('fee_payment_id'),
+      postingCampusId: sql<string | null>`${grades.branchId}`.as('posting_campus_id'),
+    })
+    .from(feePayments)
+    .innerJoin(
+      feeChallans,
+      and(
+        eq(feeChallans.id, feePayments.challanId),
+        eq(feeChallans.locationId, locationId),
+      ),
+    )
+    .innerJoin(
+      studentEnrollments,
+      and(
+        eq(studentEnrollments.studentProfileId, feeChallans.studentProfileId),
+        eq(studentEnrollments.academicYearId, feeChallans.academicYearId),
+        eq(studentEnrollments.locationId, locationId),
+        eq(studentEnrollments.status, 'active'),
+      ),
+    )
+    .innerJoin(
+      sections,
+      and(
+        eq(sections.id, studentEnrollments.sectionId),
+        eq(sections.locationId, locationId),
+      ),
+    )
+    .innerJoin(
+      grades,
+      and(eq(grades.id, sections.gradeId), eq(grades.locationId, locationId)),
+    )
+    .where(eq(feePayments.locationId, locationId))
+    .as('fee_payment_campus');
+
+  /*
+   * The posting's campus: the one it was written with, else the one derived
+   * above. Built once and used in **both** the SELECT and the GROUP BY, because
+   * two spellings of one expression is how a grouped query comes to disagree
+   * with itself.
+   */
+  const postingCampus = sql<
+    string | null
+  >`coalesce(${ledgerTransactions.branchId}, ${feePaymentCampus.postingCampusId})`;
+
+  /*
    * Income is a credit balance and expense a debit one, which is why the two
    * expressions are mirror images rather than one `sum` with a sign flip. Both
    * are read from `ledger_entries` — the only source of a balance in this
@@ -2321,7 +2435,7 @@ export async function getCampusLedgerTotals(
    */
   const rows = await db
     .select({
-      campusId: ledgerTransactions.branchId,
+      campusId: postingCampus,
       income: sql<string>`coalesce(sum(case when ${ledgerAccounts.type} = 'income' then ${ledgerEntries.credit} - ${ledgerEntries.debit} else 0 end), 0)`,
       expense: sql<string>`coalesce(sum(case when ${ledgerAccounts.type} = 'expense' then ${ledgerEntries.debit} - ${ledgerEntries.credit} else 0 end), 0)`,
     })
@@ -2340,18 +2454,33 @@ export async function getCampusLedgerTotals(
         eq(ledgerAccounts.locationId, locationId),
       ),
     )
+    /*
+     * Left, so a posting with no fee payment behind it keeps its own campus —
+     * or its own null. `source = 'fee_payment'` is part of the join condition
+     * rather than the WHERE for two reasons: `source_id` is untyped, so an
+     * expense's id must not be able to match a payment's however unlikely two
+     * uuids colliding is; and in the WHERE it would throw away every expense
+     * row, which is half of this chart.
+     */
+    .leftJoin(
+      feePaymentCampus,
+      and(
+        eq(ledgerTransactions.source, 'fee_payment'),
+        eq(feePaymentCampus.paymentId, ledgerTransactions.sourceId),
+      ),
+    )
     .where(
       and(
         eq(ledgerEntries.locationId, locationId),
         // `gte`/`lte`, never sql`${col} <= ${value}`. The column is a `date` and
         // the values are `YYYY-MM-DD` strings, so this one would have worked —
         // which is exactly how the announcements sweeper came to pass a `Date`
-        // into the same shape and throw on every run for five days.
+        // into the same shape and threw on every run for five days.
         gte(ledgerTransactions.entryDate, window.from),
         lte(ledgerTransactions.entryDate, window.to),
       ),
     )
-    .groupBy(ledgerTransactions.branchId);
+    .groupBy(postingCampus);
 
   const byCampus = new Map(rows.map((row) => [row.campusId, row]));
 

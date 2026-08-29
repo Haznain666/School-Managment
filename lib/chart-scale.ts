@@ -207,6 +207,38 @@ function round(value: number): number {
  * -------------------------------------------------------------------------- */
 
 /**
+ * The left gutter a vertical chart's y-axis needs for its widest tick.
+ *
+ * ── The defect this exists for ───────────────────────────────────────────
+ * `PADDING.left` was the constant `46` in both `BarChart` and `LineChart`, and
+ * 46 is the right number for `compactNumber` — `"20k"` is three glyphs. It is
+ * the wrong number for any chart that passes a money formatter: `"PKR 20,000"`
+ * measures ~56 units, is drawn at `x = left - 8` anchored `end`, and therefore
+ * starts at **-16** — sixteen units outside the viewBox, printed over whatever
+ * sits to the left of the card.
+ *
+ * Two charts shipped that way: *Ageing of receivables*, which has been drawing
+ * outside itself since Sprint 15, and *Collections by campus*, added in Sprint
+ * 19a. Sprint 19a item 5 fixed the **horizontal** category labels and did not
+ * look at the vertical axis, which is the same bug one axis over.
+ *
+ * So the gutter is measured rather than assumed. Callers keep passing whatever
+ * formatter suits their data, and a chart that needs more room takes it —
+ * which is the only version of this that a future money chart cannot regress.
+ *
+ * 5.6 units per glyph is the observed average for the 11px face at this
+ * viewBox, and the floor of 46 keeps every existing compact-formatted chart
+ * pixel-identical to what it drew before.
+ */
+export function axisGutter(
+  ticks: readonly number[],
+  format: (value: number) => string,
+): number {
+  const widest = ticks.reduce((max, tick) => Math.max(max, format(tick).length), 0);
+  return Math.max(46, Math.ceil(widest * 5.6) + 10);
+}
+
+/**
  * Compact axis labels in the units this market uses.
  *
  * Lakh and crore rather than K and M: a Pakistani school's accountant reads

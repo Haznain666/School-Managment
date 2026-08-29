@@ -1,5 +1,5 @@
 import { ChartEmpty, ChartFrame, ChartLegend } from '@/components/charts/ChartFrame';
-import { compactNumber, linearScale } from '@/lib/chart-scale';
+import { axisGutter, compactNumber, linearScale } from '@/lib/chart-scale';
 import { cn } from '@/lib/utils';
 
 /**
@@ -334,7 +334,12 @@ export function BarChart({
     );
   }
 
-  const plotWidth = WIDTH - PADDING.left - PADDING.right;
+  // The y-axis gutter is measured from the widest formatted tick rather
+  // than assumed — see `axisGutter`. A money formatter needs more room
+  // than `compactNumber`, and assuming otherwise drew outside the viewBox.
+  const padLeft = axisGutter(scale.ticks, format);
+
+  const plotWidth = WIDTH - padLeft - PADDING.right;
   const plotHeight = HEIGHT - PADDING.top - PADDING.bottom;
   const baseline = PADDING.top + plotHeight;
 
@@ -364,7 +369,7 @@ export function BarChart({
           return (
             <g key={tick}>
               <line
-                x1={PADDING.left}
+                x1={padLeft}
                 x2={WIDTH - PADDING.right}
                 y1={y}
                 y2={y}
@@ -372,7 +377,7 @@ export function BarChart({
                 strokeWidth={1}
               />
               <text
-                x={PADDING.left - 8}
+                x={padLeft - 8}
                 y={y}
                 textAnchor="end"
                 dominantBaseline="middle"
@@ -387,7 +392,7 @@ export function BarChart({
 
       <g>
         {categories.map((category, categoryIndex) => {
-          const groupX = PADDING.left + categoryIndex * groupWidth + (groupWidth - barsWidth) / 2;
+          const groupX = padLeft + categoryIndex * groupWidth + (groupWidth - barsWidth) / 2;
 
           return (
             <g key={category}>
@@ -417,7 +422,7 @@ export function BarChart({
               })}
 
               <text
-                x={PADDING.left + categoryIndex * groupWidth + groupWidth / 2}
+                x={padLeft + categoryIndex * groupWidth + groupWidth / 2}
                 y={baseline + 16}
                 textAnchor="middle"
                 className="fill-[rgb(var(--ink-muted))] text-[11px]"
@@ -431,7 +436,7 @@ export function BarChart({
 
       {/* The zero line, drawn last so bars do not sit on top of it. */}
       <line
-        x1={PADDING.left}
+        x1={padLeft}
         x2={WIDTH - PADDING.right}
         y1={baseline}
         y2={baseline}

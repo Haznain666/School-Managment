@@ -16,6 +16,7 @@ import { cache } from 'react';
 import { branches, schoolUserBranches, schoolUsers } from '@/db/schema';
 
 import { db } from './drizzle';
+import { isUuid } from './validation';
 
 /**
  * `lib/branch-scope.ts` — Sprint 19a. Which campuses may this person see, and
@@ -258,10 +259,25 @@ const resolveScopeFor = cache(
 
     // Rules 1, 3 and 4 land here: no campus on the membership row means the
     // whole school, and `resolvePrincipalScope` narrows a head afterwards.
+    //
+    // The owner's `allowed` list is this school's own campuses, never `null`.
+    // Passing `null` here meant "honour whatever was asked", and rule 4 says
+    // the opposite in two directions that both shipped as defects:
+    //   • `?branch=BOGUS` reached `grades.branch_id IN ($1)` and Postgres
+    //     refused the statement with 22P02 — a 500 on the school-admin
+    //     dashboard, from a query parameter anybody can type.
+    //   • a well-formed id belonging to *another tenant* was accepted, and
+    //     silently narrowed every tile and chart to a campus this school does
+    //     not have. An all-zero dashboard that reports no error is the worse
+    //     of the two, because nothing on it says it is wrong.
     return {
       branchIds: null,
       options,
-      selected: pick(requested, null, null),
+      selected: pick(
+        requested,
+        options.map((option) => option.id),
+        null,
+      ),
       pinned: false,
       allowsAll: true,
       bound: false,
@@ -294,6 +310,19 @@ function pick(
   fallback: string | null,
 ): string | null {
   if (requested === null || requested === undefined || requested === '') return fallback;
+
+  /*
+   * Shape first, and before any membership test.
+   *
+   * `branch_id` is `uuid`, so a value that is not one cannot match a row — it
+   * throws. Postgres rejects the whole statement with 22P02 rather than
+   * returning nothing, which turns a typo in a pasted link into a 500 on
+   * whichever screen read it. The membership test below happens to catch this
+   * for a branch-bound caller; it did not for the owner, whose `allowed` was
+   * null. Checking here means neither path can regress it again.
+   */
+  if (!isUuid(requested)) return fallback;
+
   if (allowed === null) return requested;
   return allowed.includes(requested) ? requested : fallback;
 }
