@@ -21,7 +21,7 @@ import { schoolErrorMessage, schoolFetch } from '@/lib/school-client';
  * ── What this used to be, and what that cost ─────────────────────────────
  * Until Sprint 17 this card was headed *Admission fee* and had no connection
  * whatsoever to the school's Admission Fee head. It asked one question — has
- * somebody ticked this enrolment as paid — and offered one button, *Confirm the
+ * somebody ticked this enrollment as paid — and offered one button, *Confirm the
  * fee was paid*, which sent the guardians their portal welcome.
  *
  * So the button was available on a student whose grade had **no admission fee
@@ -76,7 +76,7 @@ export function FeeClearancePanel({
 
       setNotice(
         [
-          'Enrolment confirmed.',
+          'Enrollment confirmed.',
           result.welcomesQueued === 0
             ? 'No parent portal welcome could be queued.'
             : `${result.welcomesQueued} parent portal welcome${
@@ -88,7 +88,7 @@ export function FeeClearancePanel({
 
       router.refresh();
     } catch (caught) {
-      setError(schoolErrorMessage(caught, 'Could not confirm the enrolment.'));
+      setError(schoolErrorMessage(caught, 'Could not confirm the enrollment.'));
     } finally {
       setBusy(null);
     }
@@ -120,7 +120,7 @@ export function FeeClearancePanel({
     }
   };
 
-  // A student with no active enrolment has no admission to charge for. The
+  // A student with no active enrollment has no admission to charge for. The
   // profile page already applies the same rule before rendering this at all;
   // the guard is repeated because the component must be safe to place anywhere.
   if (state.kind === 'not_enrolled') return null;
@@ -405,7 +405,7 @@ export function FeeClearancePanel({
      * The confirmation is still offered here, and only when `feeClearedAt` is
      * null. That is the narrow but real case of a voucher **waived** or
      * cancelled by the school: the fee is settled, but nothing ever moved the
-     * enrolment out of `outstanding`, so the guardians are still sitting
+     * enrollment out of `outstanding`, so the guardians are still sitting
      * without a portal login and no other screen would ever say why.
      */
     case 'settled':
@@ -414,7 +414,7 @@ export function FeeClearancePanel({
           <p className="text-sm text-ink-muted">
             {feeClearedAt === null
               ? 'Settled — nothing further is owed on this admission.'
-              : `Paid, so this enrolment is confirmed — recorded ${formatDateOnly(
+              : `Paid, so this enrollment is confirmed — recorded ${formatDateOnly(
                   feeClearedAt,
                 )}. Guardians with an email address have been sent their parent portal welcome.`}
           </p>

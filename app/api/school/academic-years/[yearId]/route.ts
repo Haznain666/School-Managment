@@ -18,7 +18,7 @@ import { isUuid } from '@/lib/validation';
  * PATCH  move its window
  * DELETE only while nothing has been filed against it
  *
- * A year with enrolments is refused rather than cascaded: the whole point of
+ * A year with enrollments is refused rather than cascaded: the whole point of
  * the table is that last year's placements stay answerable.
  */
 

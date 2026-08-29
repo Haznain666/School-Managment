@@ -49,7 +49,7 @@ export const PROMOTION_DECISION_LABELS: Record<PromotionDecision, string> = {
  * `student_enrollments` rows for the next year and leaves last year's alone,
  * closing them as `graduated` or leaving them `active` per decision. "Which
  * section was she in two years ago" has to stay answerable — that is what the
- * enrolment table is for.
+ * enrollment table is for.
  */
 export const promotionRuns = pgTable(
   'promotion_runs',
@@ -121,14 +121,14 @@ export const promotionDecisions = pgTable(
     studentProfileId: uuid('student_profile_id')
       .notNull()
       .references(() => studentProfiles.id, { onDelete: 'cascade' }),
-    /** The enrolment being rolled over — last year's row. */
+    /** The enrollment being rolled over — last year's row. */
     fromEnrollmentId: uuid('from_enrollment_id')
       .notNull()
       .references(() => studentEnrollments.id),
     decision: text('decision').notNull().default('promote').$type<PromotionDecision>(),
     /** Where a promoted student lands. Null for retain and graduate. */
     toSectionId: uuid('to_section_id').references(() => sections.id),
-    /** The enrolment this decision created, once applied. */
+    /** The enrollment this decision created, once applied. */
     createdEnrollmentId: uuid('created_enrollment_id').references(
       () => studentEnrollments.id,
       { onDelete: 'set null' },

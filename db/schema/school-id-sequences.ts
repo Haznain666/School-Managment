@@ -13,7 +13,7 @@ import { schools } from './schools';
  * per-tenant-per-year: a real sequence would need one object created per school
  * per session, and could not be scoped by `location_id`. `lib/student-id.ts`
  * increments it with a single `INSERT ... ON CONFLICT DO UPDATE ... RETURNING`,
- * which Postgres executes atomically — two concurrent enrolments take a row
+ * which Postgres executes atomically — two concurrent enrollments take a row
  * lock and come out with different numbers.
  */
 export const schoolIdSequences = pgTable(

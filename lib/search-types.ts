@@ -28,7 +28,7 @@ export interface SearchHit {
    * "Guardian on a student record" and "Staff record" is an answer.
    */
   page: string;
-  /** An optional status chip — enrolment status, challan status. */
+  /** An optional status chip — enrollment status, challan status. */
   badge?: string;
 }
 

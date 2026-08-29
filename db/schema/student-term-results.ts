@@ -42,11 +42,11 @@ export const OVERRIDE_REASON_MIN = 10;
  * student_term_results — the academic judgement on one child for one term.
  *
  * ── This is not `promotion_runs` ─────────────────────────────────────────
- * `promotion_runs` / `promotion_decisions` (Sprint 10) is *enrolment plumbing*:
+ * `promotion_runs` / `promotion_decisions` (Sprint 10) is *enrollment plumbing*:
  * which section this child sits in next September. This table is the *academic
  * judgement*: did this child pass. They are different facts, decided by
  * different people at different times, and this sprint deliberately does not
- * merge them. A school can promote a child who failed, and does; the enrolment
+ * merge them. A school can promote a child who failed, and does; the enrollment
  * row is not the place that gets recorded.
  *
  * ── `mechanism` is frozen on the row ─────────────────────────────────────

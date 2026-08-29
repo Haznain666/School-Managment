@@ -127,7 +127,7 @@ export function ApplicationReviewCard({
     return (
       <Card header={<CardTitle title="Review" />}>
         <p className="text-sm text-ink-muted">
-          This application has already been converted into an enrolment, so it can
+          This application has already been converted into an enrollment, so it can
           no longer be changed.
         </p>
       </Card>
@@ -202,13 +202,13 @@ export function ApplicationReviewCard({
         {status === 'accepted' ? (
           <div className="rounded-lg border border-line p-4">
             <h3 className="text-sm font-semibold text-ink">
-              Convert to enrolment
+              Convert to enrollment
             </h3>
 
             {!hasGrade ? (
               <p className="mt-2 text-sm text-status-warning-onSubtle">
                 This application does not name a grade, so there is nowhere to
-                place the student. Enrol them manually instead.
+                place the student. Enroll them manually instead.
               </p>
             ) : sections.length === 0 ? (
               <p className="mt-2 text-sm text-status-warning-onSubtle">
@@ -231,7 +231,7 @@ export function ApplicationReviewCard({
                 />
                 <p className="text-sm text-ink-muted">
                   This creates the student record, the placement and the guardian,
-                  and syncs both to GoHighLevel — the same as a direct enrolment.
+                  and syncs both to GoHighLevel — the same as a direct enrollment.
                 </p>
                 <Button
                   isLoading={busy === 'convert'}
@@ -240,7 +240,7 @@ export function ApplicationReviewCard({
                     void convert();
                   }}
                 >
-                  Convert to enrolment
+                  Convert to enrollment
                 </Button>
               </div>
             )}

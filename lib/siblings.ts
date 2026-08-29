@@ -53,7 +53,7 @@ async function activeYearId(locationId: string): Promise<string | null> {
  *
  * ── Why CNIC is first, and why phone is still there ──────────────────────
  * The CNIC is the honest key: issued once, to one person, for life. It is what
- * the enrolment form now asks for before it asks for anything else, precisely
+ * the enrollment form now asks for before it asks for anything else, precisely
  * so that the second child of an existing parent is recognised as they are
  * being admitted rather than discovered later at the fee counter.
  *
@@ -256,7 +256,7 @@ async function studentsMatching(
 }
 
 /**
- * What one CNIC already means at this school, for the enrolment form.
+ * What one CNIC already means at this school, for the enrollment form.
  *
  * ── Why the guardian's own details come back too ─────────────────────────
  * The second child of an existing parent is the case this whole feature is
@@ -281,7 +281,7 @@ export interface GuardianLookupResult {
      * How this person is related to the child they were most recently recorded
      * against.
      *
-     * The enrolment card adopts it when the relationship is still free for the
+     * The enrollment card adopts it when the relationship is still free for the
      * student being admitted. A mother enrolling her second child was being
      * offered Father — the form's default for the first guardian — and the
      * clerk who did not change it created a second father and split the family
@@ -393,7 +393,7 @@ export async function lookupGuardianByCnic(
  * worse mistake than a family voucher grouping two families together.
  *
  * `listChildrenForGuardian` in `lib/admissions-queries.ts` is the same query
- * with the enrolment attached; this is the cheap version the header needs on
+ * with the enrollment attached; this is the cheap version the header needs on
  * every request.
  */
 export async function listPortalChildren(

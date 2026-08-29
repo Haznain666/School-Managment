@@ -1,5 +1,7 @@
 'use client';
 
+import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { Badge } from '@/components/ui/Badge';
@@ -11,6 +13,9 @@ import { Select } from '@/components/ui/Select';
 export interface GradeOption {
   id: string;
   label: string;
+  /** The campus that owns this class. A promotion never leaves it. */
+  branchId: string;
+  branchName: string | null;
 }
 
 export interface YearOption {
@@ -29,6 +34,8 @@ export interface YearOption {
 export interface SectionOption {
   id: string;
   gradeId: string;
+  /** The campus of the grade this section belongs to — item 15c. */
+  branchId: string;
   /** Sections exist once per academic year — see `destinations`. */
   academicYearId: string;
   label: string;
@@ -38,8 +45,17 @@ export interface PromotionRunnerProps {
   grades: readonly GradeOption[];
   years: readonly YearOption[];
   activeYearId: string | null;
-  /** Every section in the school, so the destination list can be filtered. */
+  /** Every section in scope, so the destination list can be filtered. */
   sections: readonly SectionOption[];
+  /**
+   * The campus chosen in the selector above, or null for every one in scope.
+   *
+   * Passed only so the *Copy sections* button can tell the server which campus
+   * to build. The destination filter does not read it — that is decided by the
+   * sending grade's own campus, which is a fact about the class rather than
+   * about what the operator happens to be looking at.
+   */
+  selectedBranchId?: string | null;
 }
 
 type Decision = 'promote' | 'retain' | 'graduate';
@@ -72,7 +88,7 @@ const DECISION_LABELS: Record<Decision, string> = {
  *
  * ── Retain and graduate carry no destination, on purpose ─────────────────
  * A retained child stays in the section they are in — read from their
- * enrolment when the run is applied — and a graduate goes nowhere. Offering a
+ * enrollment when the run is applied — and a graduate goes nowhere. Offering a
  * class picker for either would create a second place the answer could be
  * wrong, and the picker is hidden rather than disabled so there is nothing to
  * misread.
@@ -82,10 +98,13 @@ export function PromotionRunner({
   years,
   activeYearId,
   sections,
+  selectedBranchId = null,
 }: PromotionRunnerProps) {
+  const router = useRouter();
   const [gradeId, setGradeId] = useState('');
   const [fromYear, setFromYear] = useState(activeYearId ?? '');
   const [toYear, setToYear] = useState('');
+  const [copying, setCopying] = useState(false);
 
   const [runId, setRunId] = useState<string | null>(null);
   const [rows, setRows] = useState<DecisionRow[]>([]);
@@ -112,13 +131,61 @@ export function PromotionRunner({
    * The grade being promoted *out of* is also excluded — promoting a class
    * into itself is a retain, which is its own decision.
    */
+  const sendingGrade = useMemo(
+    () => grades.find((grade) => grade.id === gradeId) ?? null,
+    [grades, gradeId],
+  );
+
   const destinations = useMemo(
     () =>
       sections.filter(
-        (section) => section.gradeId !== gradeId && section.academicYearId === toYear,
+        (section) =>
+          section.gradeId !== gradeId &&
+          section.academicYearId === toYear &&
+          /*
+           * Item 15c: a promotion never crosses a campus.
+           *
+           * Moving a child between campuses is a *transfer* — its own screen,
+           * its own fee split, its own record — so those sections are not
+           * offered here at all rather than offered and then refused. The apply
+           * route re-checks it with a 422; this is what stops the operator ever
+           * reaching that.
+           */
+          (sendingGrade === null || section.branchId === sendingGrade.branchId),
       ),
-    [sections, gradeId, toYear],
+    [sections, gradeId, toYear, sendingGrade],
   );
+
+  const receivingYearName = useMemo(
+    () => years.find((year) => year.id === toYear)?.name ?? null,
+    [years, toYear],
+  );
+
+  /**
+   * Why the destination list is empty, in the words the operator needs.
+   *
+   * ── This is the defect, not the dropdown ────────────────────────────────
+   * The filter above was always correct: a receiving year with no sections has
+   * no destinations. What was wrong is that the screen said *nothing*, so an
+   * empty `<select>` read as a broken control — and the operator's next move
+   * was to report a bug rather than to go and build next year's classes, which
+   * is what they had actually come here to do.
+   *
+   * Three distinguishable states, because the answer to each is different:
+   *   · `none` — the receiving year has no sections at all. Offer the copy.
+   *   · `other-campus` — it has sections, but none at this class's campus.
+   *     Copying would build the wrong campus's ladder, so it is not offered.
+   *   · `null` — there are destinations, or nothing has been chosen yet.
+   */
+  const emptyReason = useMemo((): 'none' | 'other-campus' | null => {
+    if (toYear === '' || destinations.length > 0) return null;
+
+    const inYear = sections.filter(
+      (section) => section.academicYearId === toYear && section.gradeId !== gradeId,
+    );
+
+    return inYear.length === 0 ? 'none' : 'other-campus';
+  }, [sections, destinations, gradeId, toYear]);
 
   const fromYearStartsAt = useMemo(
     () => years.find((year) => year.id === fromYear)?.startsAt ?? null,
@@ -191,6 +258,67 @@ export function PromotionRunner({
       setBusy(false);
     }
   }, [gradeId, fromYear, toYear, load]);
+
+  /**
+   * Build the receiving year's classes from this year's — item 15b.
+   *
+   * ── Why this button is on the promotion screen at all ───────────────────
+   * Because this is where the need is discovered. An operator finds out that
+   * next year has no sections at the moment they try to promote into it, and
+   * sending them to Grades & sections to create twelve classes by hand — then
+   * back here to start again — is how a screen earns the reputation of being
+   * broken. The link is still offered beside it, for the school that wants to
+   * build them deliberately.
+   *
+   * A full reload rather than a refetch: sections are server props on this
+   * page, and `router.refresh()` on a client component holding an open run
+   * would leave the new sections invisible until something else re-rendered.
+   * The copy is only ever pressed before a run is built, so there is nothing
+   * unsaved to lose.
+   */
+  const copySections = useCallback(async () => {
+    if (fromYear === '' || toYear === '') return;
+
+    setCopying(true);
+    setError(null);
+    setNotice(null);
+
+    try {
+      const response = await fetch('/api/school/sections/copy', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          fromAcademicYearId: fromYear,
+          toAcademicYearId: toYear,
+          branchId: selectedBranchId,
+        }),
+      });
+
+      const payload = (await response.json()) as {
+        ok: boolean;
+        data?: { created: number; skipped: number; toName: string };
+        error?: { message: string };
+      };
+
+      if (!response.ok || payload.ok !== true || payload.data === undefined) {
+        setError(payload.error?.message ?? 'Could not copy those sections.');
+        return;
+      }
+
+      const { created, skipped, toName } = payload.data;
+      setNotice(
+        `${created} ${created === 1 ? 'section' : 'sections'} created in ${toName}` +
+          (skipped === 0 ? '.' : `, ${skipped} already existed.`),
+      );
+
+      // The new sections are server props. See the docblock.
+      router.refresh();
+    } catch {
+      setError('Could not copy those sections.');
+    } finally {
+      setCopying(false);
+    }
+  }, [fromYear, toYear, selectedBranchId, router]);
 
   /** Local edit; the server is told when Apply is pressed, in one request. */
   const setRow = useCallback((id: string, patch: Partial<DecisionRow>) => {
@@ -273,6 +401,73 @@ export function PromotionRunner({
     (row) => row.decision === 'promote' && row.toSectionId === null,
   ).length;
 
+  /**
+   * The explanation that used to be missing — item 15b.
+   *
+   * Named rather than hinted: "Nursery 2027-28 has no sections yet" is
+   * something an operator can act on, and "no options" is not. The year is
+   * spelled out because the receiving year is two dropdowns away from where
+   * this appears, and the campus is spelled out in the other-campus case
+   * because that is the fact the operator has not realised.
+   */
+  const destinationNotice =
+    emptyReason === null ? null : (
+      <div className="rounded-lg bg-status-warning-subtle px-3 py-2.5 text-sm text-status-warning-onSubtle">
+        {emptyReason === 'none' ? (
+          <>
+            <p className="font-medium">
+              {receivingYearName ?? 'The receiving year'} has no sections yet.
+              Create them before promoting.
+            </p>
+            <p className="mt-1">
+              Nothing is wrong with this screen — the school has not built next
+              year&rsquo;s classes. Copy this year&rsquo;s across, or build them
+              by hand.
+            </p>
+            <div className="mt-2 flex flex-wrap items-center gap-3">
+              <Button
+                size="sm"
+                variant="secondary"
+                isLoading={copying}
+                disabled={fromYear === '' || toYear === ''}
+                onClick={() => {
+                  void copySections();
+                }}
+              >
+                Copy this year&rsquo;s sections into{' '}
+                {receivingYearName ?? 'that year'}
+              </Button>
+              <Link
+                href="/dashboard/admissions/grades"
+                className="text-sm font-medium underline"
+              >
+                Grades &amp; sections
+              </Link>
+            </div>
+          </>
+        ) : (
+          <>
+            <p className="font-medium">
+              {receivingYearName ?? 'The receiving year'} has no sections at{' '}
+              {sendingGrade?.branchName ?? 'this campus'}.
+            </p>
+            <p className="mt-1">
+              A promotion stays inside one campus — moving a student between
+              campuses is a transfer, which keeps its own record and splits the
+              fees. Build this campus&rsquo;s classes for that year on{' '}
+              <Link
+                href="/dashboard/admissions/grades"
+                className="font-medium underline"
+              >
+                Grades &amp; sections
+              </Link>
+              .
+            </p>
+          </>
+        )}
+      </div>
+    );
+
   const banner = (
     <>
       {error !== null ? (
@@ -302,7 +497,7 @@ export function PromotionRunner({
             ) : null}
           </div>
           <p className="mt-4 text-sm text-ink-muted">
-            Last year&rsquo;s enrolments are still there and still say which
+            Last year&rsquo;s enrollments are still there and still say which
             section each child was in — promotion adds rows, it does not edit
             them.
           </p>
@@ -387,6 +582,16 @@ export function PromotionRunner({
             />
           </div>
 
+          {/*
+            Said *before* the list is built, not after. An operator who reaches
+            the review table and finds every "Goes to" empty has already spent
+            the click; this is the same explanation, one step earlier, where it
+            is still cheap to act on.
+          */}
+          {destinationNotice === null ? null : (
+            <div className="mt-4">{destinationNotice}</div>
+          )}
+
           <div className="mt-4">
             <Button
               isLoading={busy}
@@ -453,7 +658,19 @@ export function PromotionRunner({
       id: 'to',
       header: 'Goes to',
       cell: (row) =>
-        row.decision === 'promote' ? (
+        row.decision === 'promote' && destinations.length === 0 ? (
+          /*
+            The empty dropdown, replaced by a sentence — item 15b.
+
+            A `<select>` with one disabled "Choose…" option is what shipped, and
+            it is indistinguishable from a control that has failed to load. The
+            panel above this table carries the explanation and the fix; this
+            cell only has to stop pretending there is a choice here.
+          */
+          <span className="text-xs text-status-warning-onSubtle">
+            No class to move into
+          </span>
+        ) : row.decision === 'promote' ? (
           <select
             aria-label={`Class for ${row.name}`}
             className="rounded-lg border border-line-strong px-2 py-1 text-sm"
@@ -488,6 +705,8 @@ export function PromotionRunner({
   return (
     <div className="space-y-4">
       {banner}
+
+      {destinationNotice}
 
       {/*
         Sorted, filtered and paged in the browser and nowhere else: the draft is

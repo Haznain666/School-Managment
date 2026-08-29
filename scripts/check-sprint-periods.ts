@@ -250,8 +250,8 @@ section('The admission fee gate');
 
 ok(isFeeClearanceStatus('outstanding'), '"outstanding" is a fee clearance status');
 ok(isFeeClearanceStatus('cleared'), '"cleared" is a fee clearance status');
-ok(!isFeeClearanceStatus('paid'), 'the challan vocabulary is not the enrolment vocabulary');
-ok(!isFeeClearanceStatus('active'), 'nor is the enrolment status vocabulary');
+ok(!isFeeClearanceStatus('paid'), 'the challan vocabulary is not the enrollment vocabulary');
+ok(!isFeeClearanceStatus('active'), 'nor is the enrollment status vocabulary');
 
 /*
  * The welcome names the children. Re-implemented here rather than imported,

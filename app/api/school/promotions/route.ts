@@ -19,7 +19,7 @@ import { isUuid } from '@/lib/validation';
  * POST open a draft run for one grade, with a decision per student
  *
  * ── The draft is built server-side, not assembled by the browser ─────────
- * Opening a run reads the grade's active enrolments and writes one decision
+ * Opening a run reads the grade's active enrollments and writes one decision
  * row per student, defaulted. The alternative — the browser posting a list of
  * students it believes are in the grade — would let a stale screen promote a
  * roster that has since changed, and a child enrolled that morning would
@@ -96,7 +96,7 @@ export const POST = withSchoolAuth(
        *
        * Without this, "promotion" would happily move a class *backwards* into
        * a year that has already happened — and since applying writes a new
-       * enrolment and closes the old one, it would rewrite a school's history
+       * enrollment and closes the old one, it would rewrite a school's history
        * rather than extend it. Found in the browser: the picker was offering
        * the previous year, because a check for "a different year" is not a
        * check for "a later year".

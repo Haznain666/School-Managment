@@ -46,7 +46,7 @@ import { welcomeStudentGuardians, type ProvisionResult } from './parent-portal-a
  */
 
 export interface FeeGateOutcome {
-  /** True when this call moved the enrolment from outstanding to cleared. */
+  /** True when this call moved the enrollment from outstanding to cleared. */
   cleared: boolean;
   /** What was sent, when it cleared. Empty otherwise. */
   welcomes: ProvisionResult[];
@@ -89,7 +89,7 @@ export async function settleEnrolmentIfFeePaid(input: {
 
     const enrolment = enrolments[0];
     if (enrolment === undefined) {
-      return { ...NOTHING, reason: 'No active enrolment.' };
+      return { ...NOTHING, reason: 'No active enrollment.' };
     }
     if (enrolment.feeStatus === 'cleared') return NOTHING;
 
@@ -123,7 +123,7 @@ export async function settleEnrolmentIfFeePaid(input: {
 }
 
 /**
- * Marks the active enrolment cleared and welcomes the guardians.
+ * Marks the active enrollment cleared and welcomes the guardians.
  *
  * The UPDATE is conditional on the row still being `outstanding`, so two
  * payments landing in the same instant produce one clearing and one no-op —
@@ -152,7 +152,7 @@ export async function clearEnrolmentFee(input: {
       .returning({ id: studentEnrollments.id });
 
     if (updated[0] === undefined) {
-      return { ...NOTHING, reason: 'Already cleared, or no active enrolment.' };
+      return { ...NOTHING, reason: 'Already cleared, or no active enrollment.' };
     }
 
     const welcomes = await welcomeStudentGuardians({
@@ -163,8 +163,8 @@ export async function clearEnrolmentFee(input: {
 
     return { cleared: true, welcomes, reason: null };
   } catch (error) {
-    console.error('[fee-gate] could not clear the enrolment:', error);
-    return { ...NOTHING, reason: 'The enrolment could not be cleared.' };
+    console.error('[fee-gate] could not clear the enrollment:', error);
+    return { ...NOTHING, reason: 'The enrollment could not be cleared.' };
   }
 }
 

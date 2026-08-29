@@ -19,7 +19,7 @@ import { schools } from './schools';
  * August–July school both exist, so the window is stored as month/year pairs
  * rather than inferred from a single year number (Sprint 4, Decision 2).
  *
- * `is_active` marks the year that new enrolments and dashboards default to.
+ * `is_active` marks the year that new enrollments and dashboards default to.
  * Exactly one row per school should carry it; the API enforces that on write
  * rather than a partial unique index, because activating a year has to
  * deactivate the incumbent — a constraint would reject that instead of

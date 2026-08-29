@@ -59,7 +59,7 @@ export const POST = withSchoolAuth<RouteContext>(
         return apiFailure(
           'not_applicable',
           outcome.reason ??
-            'This enrolment could not be confirmed. It may already be confirmed.',
+            'This enrollment could not be confirmed. It may already be confirmed.',
           409,
         );
       }

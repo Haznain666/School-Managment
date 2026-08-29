@@ -8,7 +8,7 @@ import { lookupGuardianByCnic } from '@/lib/siblings';
  *
  * "Does this school already know this person, and whose children are they?"
  *
- * ── Why the enrolment form asks this before it asks anything else ────────
+ * ── Why the enrollment form asks this before it asks anything else ────────
  * The second child of an existing parent is the case the whole sibling feature
  * is about, and it is decided in the first three seconds of the guardian step.
  * If the clerk types the father's name and number from scratch, any difference

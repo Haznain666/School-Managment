@@ -30,12 +30,12 @@ import { isUuid, readOptionalString, readString } from '@/lib/validation';
  * The application already carries the child's and guardian's details; all the
  * admin adds is the section — the one thing an applicant cannot choose for
  * themselves. Everything else runs through the same `enrollStudent` path as a
- * direct enrolment, so a converted student is indistinguishable from a typed-in
+ * direct enrollment, so a converted student is indistinguishable from a typed-in
  * one.
  *
  * Only accepted applications convert, and only once: the application row
  * records which student it became, which is both the audit trail and the guard
- * against a double enrolment.
+ * against a double enrollment.
  */
 
 export const runtime = 'nodejs';
@@ -71,7 +71,7 @@ export const POST = withSchoolAuth<RouteContext>(
       if (application.status !== 'accepted') {
         return apiFailure(
           'not_accepted',
-          'Only accepted applications can be converted into an enrolment.',
+          'Only accepted applications can be converted into an enrollment.',
           409,
         );
       }
@@ -79,7 +79,7 @@ export const POST = withSchoolAuth<RouteContext>(
       if (application.convertedToStudentProfileId !== null) {
         return apiFailure(
           'already_converted',
-          'This application has already been converted into an enrolment.',
+          'This application has already been converted into an enrollment.',
           409,
         );
       }
@@ -107,7 +107,7 @@ export const POST = withSchoolAuth<RouteContext>(
         enrollmentDate !== null &&
         (!ISO_DATE.test(enrollmentDate) || Number.isNaN(Date.parse(enrollmentDate)))
       ) {
-        return apiFailure('invalid_body', 'Enrolment date must be a valid date.', 400);
+        return apiFailure('invalid_body', 'Enrollment date must be a valid date.', 400);
       }
 
       // The application names a grade but not a branch on a single-campus
@@ -187,6 +187,13 @@ export const POST = withSchoolAuth<RouteContext>(
         // admissions clerk would have produced.
         cnic: normalizeCnic(application.guardianCnic),
         occupation: null,
+        // The public application form does not ask for an address, and
+        // inventing one from the child's would put words in the applicant's
+        // mouth. It is asked for on the guardian panel when somebody next opens
+        // the profile — Sprint 19b, item 18.
+        address: null,
+        latitude: null,
+        longitude: null,
         isPrimaryContact: true,
       };
 
@@ -217,7 +224,7 @@ export const POST = withSchoolAuth<RouteContext>(
         },
       });
 
-      // Written after the enrolment lands: an application marked converted with
+      // Written after the enrollment lands: an application marked converted with
       // no student behind it would be unrecoverable, whereas an enrolled student
       // whose application is not yet marked can simply be marked again.
       await db

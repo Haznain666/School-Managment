@@ -247,7 +247,7 @@ export interface CommitSummary {
  *
  * ── Per row, deliberately ────────────────────────────────────────────────
  * Each student goes in through `enrollStudent`, which is the same function the
- * enrolment form calls and which wraps its own four inserts in one transaction.
+ * enrollment form calls and which wraps its own four inserts in one transaction.
  * So a single student is all-or-nothing, and the *batch* is not.
  *
  * Wrapping the whole batch would mean one unexpected failure on row 380
@@ -341,6 +341,11 @@ export async function commitBatch(
             email: candidate.guardianEmail,
             cnic: null,
             occupation: null,
+            // No column for an address either, and the same reasoning: a
+            // migrated roll must not gain facts the spreadsheet never carried.
+            address: null,
+            latitude: null,
+            longitude: null,
             // The only guardian on the row, so they are the contact. A school
             // adding a mother afterwards decides then which of them it is.
             isPrimaryContact: true,

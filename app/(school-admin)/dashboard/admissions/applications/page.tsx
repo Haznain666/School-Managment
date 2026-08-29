@@ -22,7 +22,7 @@ export default async function ApplicationsPage() {
           <span className="font-mono">
             {claims.schoolSlug === '' ? '/apply' : `${claims.schoolSlug}…/apply`}
           </span>
-          . Accepted applications can be converted into a full enrolment.
+          . Accepted applications can be converted into a full enrollment.
         </p>
       </div>
 

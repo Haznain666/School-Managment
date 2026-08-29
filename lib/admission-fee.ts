@@ -25,7 +25,7 @@ import { listActiveConcessions, toDateOnly } from './fee-queries';
  * ── Why this file exists ─────────────────────────────────────────────────
  * `FeeClearancePanel` has been headed *Admission fee* since Sprint 10 and had
  * no connection whatsoever to the school's Admission Fee head. It asked one
- * question — has somebody ticked this enrolment as paid — and offered one
+ * question — has somebody ticked this enrollment as paid — and offered one
  * button, which sent the parents their portal welcome. A school that had never
  * priced its admission fee for a grade saw exactly the same panel as one that
  * had, and could confirm a payment against a price that did not exist.
@@ -81,7 +81,7 @@ export interface AdmissionPlacement {
  * price it had never set.
  */
 export type AdmissionFeeState =
-  /** No active enrolment. The panel does not render at all. */
+  /** No active enrollment. The panel does not render at all. */
   | { kind: 'not_enrolled' }
   /** The school has no one-time fee head to bill an admission under. */
   | { kind: 'no_fee_head'; placement: AdmissionPlacement }
@@ -106,7 +106,7 @@ export type AdmissionFeeState =
       head: AdmissionFeeHead;
       challan: AdmissionChallanRef;
     }
-  /** Paid, waived, cancelled — or the enrolment was cleared by hand. */
+  /** Paid, waived, cancelled — or the enrollment was cleared by hand. */
   | {
       kind: 'settled';
       placement: AdmissionPlacement;
@@ -135,7 +135,7 @@ export type AdmissionFeeState =
 const CLOSED_CHALLAN_STATUSES: readonly string[] = ['paid', 'waived'];
 
 /**
- * The student's active enrolment, with the grade and year that price it.
+ * The student's active enrollment, with the grade and year that price it.
  *
  * Active specifically. A student who has left, or whose placement has not been
  * made, has no admission to charge for, and pricing one against their last
@@ -356,7 +356,7 @@ export async function resolveAdmissionFee(
   }
 
   /*
-   * A hand-cleared enrolment is settled even with no challan behind it.
+   * A hand-cleared enrollment is settled even with no challan behind it.
    *
    * `clearEnrolmentFee` exists for the school that takes cash across a desk and
    * never raises a voucher, and that decision has already sent the guardians

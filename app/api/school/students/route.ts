@@ -19,7 +19,7 @@ import { StudentIdError } from '@/lib/student-id';
  * /api/school/students
  *
  * GET  the enrolled-student directory, filtered and paginated
- * POST enrol a student directly
+ * POST enroll a student directly
  *
  * ── On the shape of POST ─────────────────────────────────────────────────
  * One request creates four rows across four tables: the directory entry, the
@@ -111,7 +111,7 @@ export const POST = withSchoolAuth(
       if (auth.branchId !== null && auth.branchId !== placement.branchId) {
         return apiFailure(
           'forbidden',
-          'You can only enrol students into your own branch.',
+          'You can only enroll students into your own branch.',
           403,
         );
       }

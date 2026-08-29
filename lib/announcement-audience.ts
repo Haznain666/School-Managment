@@ -184,7 +184,7 @@ export async function resolveAudience(
  * The families of a set of classes: the enrolled students, and their guardians.
  *
  * Two queries rather than one `or` across two join paths, because a guardian
- * reaches the enrolment through a different table than a student does and a
+ * reaches the enrollment through a different table than a student does and a
  * single query would need an outer join whose null rows mean two different
  * things. Two reads and one merge is the cheaper thing to be sure of.
  */

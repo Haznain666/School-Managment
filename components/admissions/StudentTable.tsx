@@ -492,7 +492,7 @@ export function StudentTable({
         }}
         itemNoun={{ singular: 'student', plural: 'students' }}
         emptyTitle="No students enrolled yet"
-        emptyDescription="Enrol a student, or import a roll, and the directory fills in."
+        emptyDescription="Enroll a student, or import a roll, and the directory fills in."
         noResultTitle="No students match those filters"
         noResultDescription="Widen the year, class or status and they will come back."
       />

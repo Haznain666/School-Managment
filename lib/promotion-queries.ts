@@ -4,6 +4,7 @@ import { and, asc, eq, inArray, sql } from 'drizzle-orm';
 
 import {
   academicYears,
+  branches,
   grades,
   promotionDecisions,
   promotionRuns,
@@ -21,7 +22,7 @@ import { db } from './drizzle';
  * Rolling a school over to the next academic year.
  *
  * ── The rule the whole module exists to keep ─────────────────────────────
- * **Promotion never edits an enrolment.** Applying a run writes *new*
+ * **Promotion never edits an enrollment.** Applying a run writes *new*
  * `student_enrollments` rows for the receiving year and closes the old ones by
  * status. "Which section was she in two years ago" is a question schools are
  * asked constantly — for a transfer certificate, a character certificate, a
@@ -30,7 +31,7 @@ import { db } from './drizzle';
  *
  * ── Draft, review, apply ────────────────────────────────────────────────
  * A run is built as a draft holding one decision per student, defaulted to
- * promote. Nothing is written to the enrolment table until it is applied, and
+ * promote. Nothing is written to the enrollment table until it is applied, and
  * an applied run is frozen. The middle step is not ceremony: promoting is the
  * one action in this application that touches every child at once, and the
  * person who should check it is the class teacher looking at names.
@@ -62,6 +63,8 @@ export interface DecisionRow {
   note: string | null;
   name: string;
   studentId: string;
+  /** The section they are leaving — what decides which campus they are at. */
+  fromSectionId: string;
   fromSectionName: string;
 }
 
@@ -70,7 +73,7 @@ export interface DecisionRow {
  *
  * `alreadyRolled` is the guard against a second run for the same students by a
  * different route — a grade split across two runs, or a run rebuilt after
- * being deleted. The database would accept the duplicate enrolment only up to
+ * being deleted. The database would accept the duplicate enrollment only up to
  * its unique key on (student, year); this reports it before the operator gets
  * that far, and by name.
  */
@@ -195,6 +198,7 @@ export async function listRunDecisions(runId: string): Promise<DecisionRow[]> {
       note: promotionDecisions.note,
       name: schoolUsers.name,
       studentId: studentProfiles.studentId,
+      fromSectionId: sections.id,
       fromSectionName: sections.name,
     })
     .from(promotionDecisions)
@@ -215,20 +219,72 @@ export interface ApplyResult {
   graduated: number;
   /** Decisions that could not be carried out, with the reason. */
   refused: Array<{ name: string; reason: string }>;
+  /**
+   * Promotions whose destination is at another campus — Sprint 19b, item 15c.
+   *
+   * Kept apart from `refused` because it is a different answer with a different
+   * status code: `refused` means "fix these rows and re-run", and this means
+   * "you are trying to do something that is not a promotion". A cross-campus
+   * move is a **transfer**, which has its own screen, its own fee split and its
+   * own record in `student_transfers`. Carrying it out here would move a child
+   * between campuses leaving no transfer row, and every question a school later
+   * asks about that move — when, why, who authorised it, what happened to the
+   * fees — would have no answer anywhere.
+   */
+  crossCampus: Array<{ name: string; from: string; to: string }>;
+}
+
+/**
+ * The campus each of these sections belongs to, by section id.
+ *
+ * Sections reach a campus through their grade, which is the only row in the
+ * schema that carries one. Read for the whole run in a single statement: a
+ * class of 128 resolved one at a time is 128 round trips to Supabase before a
+ * single row is written, which is the shape of defect the set-based rewrite of
+ * `applyPromotionRun` below exists to avoid.
+ */
+async function campusBySection(
+  locationId: string,
+  sectionIds: readonly string[],
+): Promise<Map<string, { branchId: string; branchName: string | null }>> {
+  if (sectionIds.length === 0) return new Map();
+
+  const rows = await db
+    .select({
+      sectionId: sections.id,
+      branchId: grades.branchId,
+      branchName: branches.name,
+    })
+    .from(sections)
+    .innerJoin(
+      grades,
+      and(eq(grades.id, sections.gradeId), eq(grades.locationId, locationId)),
+    )
+    .leftJoin(branches, eq(branches.id, grades.branchId))
+    .where(
+      and(eq(sections.locationId, locationId), inArray(sections.id, [...sectionIds])),
+    );
+
+  return new Map(
+    rows.map((row) => [
+      row.sectionId,
+      { branchId: row.branchId, branchName: row.branchName },
+    ]),
+  );
 }
 
 /**
  * Carries out an applied run.
  *
  * ── What each decision writes ───────────────────────────────────────────
- *   promote  — old enrolment closed as `transferred`, new `active` row in the
+ *   promote  — old enrollment closed as `transferred`, new `active` row in the
  *              receiving year and chosen section.
- *   retain   — old enrolment closed as `transferred`, new `active` row in the
+ *   retain   — old enrollment closed as `transferred`, new `active` row in the
  *              receiving year, **same section**. A retained child is still in
  *              the new school year; they are just in the same class again, and
- *              leaving them on last year's enrolment would hide them from
+ *              leaving them on last year's enrollment would hide them from
  *              every roster the new year draws.
- *   graduate — old enrolment closed as `graduated`. No new row: there is
+ *   graduate — old enrollment closed as `graduated`. No new row: there is
  *              nowhere to go, and inventing one would put a leaver on a
  *              register.
  *
@@ -246,7 +302,7 @@ export async function applyPromotionRun(
 ): Promise<ApplyResult> {
   const decisions = await listRunDecisions(run.id);
 
-  // Students who already hold an enrolment in the receiving year. Writing a
+  // Students who already hold an enrollment in the receiving year. Writing a
   // second would violate the unique key; naming them is more use than the
   // constraint's error.
   const existing = await db
@@ -268,7 +324,24 @@ export async function applyPromotionRun(
 
   const alreadyRolled = new Set(existing.map((row) => row.studentProfileId));
 
+  /*
+   * The campus on both ends of every promotion in this run — item 15c.
+   *
+   * Read here rather than trusted from the browser. The picker already narrows
+   * the destination list to the sending grade's campus, and that is a
+   * courtesy: a stale tab left open across a grade reassignment, a request
+   * built by hand, and a run whose decisions were saved before the campus moved
+   * all arrive looking exactly like a valid promotion.
+   */
+  const campuses = await campusBySection(run.locationId, [
+    ...decisions.map((decision) => decision.fromSectionId),
+    ...decisions.flatMap((decision) =>
+      decision.toSectionId === null ? [] : [decision.toSectionId],
+    ),
+  ]);
+
   const refused: ApplyResult['refused'] = [];
+  const crossCampus: ApplyResult['crossCampus'] = [];
   const actionable: DecisionRow[] = [];
 
   for (const decision of decisions) {
@@ -283,13 +356,43 @@ export async function applyPromotionRun(
       refused.push({ name: decision.name, reason: 'No section chosen.' });
       continue;
     }
+
+    if (decision.decision === 'promote' && decision.toSectionId !== null) {
+      const from = campuses.get(decision.fromSectionId);
+      const to = campuses.get(decision.toSectionId);
+
+      /*
+       * A promotion stays inside one campus. Moving between them is a
+       * *transfer* — its own screen, its own fee split, its own record — and
+       * doing it here would leave a child at another campus with nothing
+       * anywhere saying when or why.
+       *
+       * An unresolvable campus is not treated as a mismatch. A section the
+       * lookup could not find is already about to fail on its foreign key, and
+       * reporting it as a cross-campus move would name a campus that does not
+       * exist.
+       */
+      if (
+        from !== undefined &&
+        to !== undefined &&
+        from.branchId !== to.branchId
+      ) {
+        crossCampus.push({
+          name: decision.name,
+          from: from.branchName ?? 'their campus',
+          to: to.branchName ?? 'another campus',
+        });
+        continue;
+      }
+    }
+
     actionable.push(decision);
   }
 
-  if (refused.length > 0) {
+  if (refused.length > 0 || crossCampus.length > 0) {
     // Nothing is written. A promotion the operator has to reconcile by hand
     // afterwards is worse than one they have to fix and re-run.
-    return { promoted: 0, retained: 0, graduated: 0, refused };
+    return { promoted: 0, retained: 0, graduated: 0, refused, crossCampus };
   }
 
   const result: ApplyResult = {
@@ -297,6 +400,7 @@ export async function applyPromotionRun(
     retained: actionable.filter((entry) => entry.decision === 'retain').length,
     graduated: actionable.filter((entry) => entry.decision === 'graduate').length,
     refused: [],
+    crossCampus: [],
   };
 
   const enrollmentDate = new Date().toISOString().slice(0, 10);
@@ -331,7 +435,7 @@ export async function applyPromotionRun(
       WHERE d.run_id = ${run.id} AND d.decision <> 'graduate'
     `);
 
-    // Link each decision to the enrolment it produced, so the run can be read
+    // Link each decision to the enrollment it produced, so the run can be read
     // back afterwards and believed rather than merely counted.
     await tx.execute(sql`
       UPDATE promotion_decisions AS d

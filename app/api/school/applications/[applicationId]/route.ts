@@ -25,7 +25,7 @@ import { isUuid, readBoolean, readOptionalString } from '@/lib/validation';
  * `pending -> reviewing -> accepted | rejected | waitlisted`, and a decision can
  * be revisited — a waitlisted applicant who is later offered a place is a
  * normal outcome, so the statuses are not a one-way door. What is refused is
- * changing an application that has already become a student: the enrolment is
+ * changing an application that has already become a student: the enrollment is
  * the record from that point on.
  */
 
@@ -108,7 +108,7 @@ export const PATCH = withSchoolAuth<RouteContext>(
       if (existing.convertedToStudentProfileId !== null) {
         return apiFailure(
           'already_converted',
-          'This application has already been converted into an enrolment.',
+          'This application has already been converted into an enrollment.',
           409,
         );
       }

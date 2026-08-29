@@ -19,9 +19,9 @@ import { staff } from './staff';
  *
  * Sections are per-year rather than permanent because their shape changes:
  * a school that ran Class 5 A and B last year may need A, B and C this year,
- * and last year's enrolments must keep pointing at last year's sections.
+ * and last year's enrollments must keep pointing at last year's sections.
  *
- * `capacity` is advisory — the enrolment API warns when a section is full but
+ * `capacity` is advisory — the enrollment API warns when a section is full but
  * does not refuse, because a real school does over-admit and would otherwise
  * be locked out of recording it.
  *

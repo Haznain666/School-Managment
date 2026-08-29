@@ -145,9 +145,9 @@ export const PERMISSION_LABELS: Record<Permission, string> = {
   'users.read': 'See the staff and user list',
   'users.write': 'Invite, edit and deactivate users',
   'admissions.read': 'See students, grades and applications',
-  'admissions.write': 'Enrol students and decide applications',
+  'admissions.write': 'Enroll students and decide applications',
   'students.read': 'Open a student’s record',
-  'students.create': 'Enrol a student',
+  'students.create': 'Enroll a student',
   'students.update': 'Edit a student’s record',
   'students.delete': 'Delete a student record',
   'students.import': 'Bulk-import students from a spreadsheet',
@@ -205,8 +205,8 @@ export const PERMISSION_DESCRIPTIONS: Partial<Record<Permission, string>> = {
   'exams.publish':
     'Publishing a term issues its report cards. Separate from exams.write on purpose.',
   'students.delete':
-    'Removes the child, their guardians, their enrolment history and their ' +
-    'whole fee record. It is not an undo for a wrong enrolment — withdrawing ' +
+    'Removes the child, their guardians, their enrollment history and their ' +
+    'whole fee record. It is not an undo for a wrong enrollment — withdrawing ' +
     'is, and it keeps the history. Refused outright once any money has been ' +
     'received against the student, because a receipt is a fact the school is ' +
     'not allowed to erase.',
@@ -316,7 +316,7 @@ export const UNREVOKABLE: { role: UserRole; permission: Permission } = {
  *
  * `students.delete` is the exception and goes to `school_admin` alone. It is
  * the only key here that destroys history rather than writing it, and there is
- * no role for which "may enrol a child" should have implied "may make one
+ * no role for which "may enroll a child" should have implied "may make one
  * disappear".
  *
  * Sprint 19a added `branches.manage` and gave it to `school_admin` alone —

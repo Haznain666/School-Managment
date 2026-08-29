@@ -46,7 +46,7 @@ import { readOptionalString, readString, isUuid } from './validation';
  *
  * ── On atomicity ─────────────────────────────────────────────────────────
  * A half-enrolled child — a directory row with no profile, or a profile with no
- * placement — is worse than a failed enrolment, so the four inserts go out
+ * placement — is worse than a failed enrollment, so the four inserts go out
  * through `batch()`, which runs them in one Postgres transaction.
  *
  * `batch()` builds every statement in one expression, so none of them can be
@@ -56,7 +56,7 @@ import { readOptionalString, readString, isUuid } from './validation';
  *
  * The student ID is issued just before that transaction and is therefore not
  * covered by it: if the inserts fail, that number is spent and the next
- * enrolment skips it. Gaps in the sequence are harmless; duplicate IDs would not
+ * enrollment skips it. Gaps in the sequence are harmless; duplicate IDs would not
  * be, and the counter's own atomicity is what prevents those.
  */
 
@@ -72,7 +72,7 @@ export class EnrollmentError extends Error {
   }
 }
 
-/** Most a single enrolment may record. Matches the enrolment form's limit. */
+/** Most a single enrollment may record. Matches the enrollment form's limit. */
 export const MAX_GUARDIANS = 3;
 
 export interface GuardianInput {
@@ -86,6 +86,17 @@ export interface GuardianInput {
   /** Canonical `42101-1234567-1`, or null. See `normalizeCnic`. */
   cnic: string | null;
   occupation: string | null;
+  /**
+   * Where the guardian lives — Sprint 19b, item 18. Never required.
+   *
+   * Coordinates only when the address was chosen from a Mapbox suggestion, and
+   * only when there is an address to attach them to: a latitude with no address
+   * is a pin nobody can read, and it would print as a blank on every letter the
+   * school sends.
+   */
+  address: string | null;
+  latitude: number | null;
+  longitude: number | null;
   isPrimaryContact: boolean;
 }
 
@@ -135,7 +146,7 @@ export interface EnrollStudentParams {
    * Whether this admission is already paid for.
    *
    * Defaults to `outstanding`, which is the rule for a new admission: the child
-   * is enrolled, but the enrolment is unconfirmed and the guardians' portal
+   * is enrolled, but the enrollment is unconfirmed and the guardians' portal
    * welcome waits on the money. See `lib/enrolment-fee-gate.ts`.
    *
    * The bulk import passes `cleared`, and that is not an exception to the rule
@@ -168,7 +179,7 @@ export interface EnrollStudentResult {
 }
 
 // -----------------------------------------------------------------------------
-// Request parsing — shared by the enrolment route and the enrolment form
+// Request parsing — shared by the enrollment route and the enrollment form
 // -----------------------------------------------------------------------------
 
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
@@ -260,7 +271,7 @@ export function parseStudentInput(body: Record<string, unknown>): StudentInput {
  *
  * ── The three relationship rules are enforced here, not only on the form ──
  * The first guardian may not be `other`; `father` and `mother` may each be
- * claimed once; and `other` must carry a relation in words. The enrolment form
+ * claimed once; and `other` must carry a relation in words. The enrollment form
  * removes the impossible options from its dropdown, which is a courtesy to the
  * clerk and no protection at all — this function is what a script, a stale tab
  * or a second entry point has to get past.
@@ -338,6 +349,22 @@ export function parseGuardians(value: unknown): GuardianInput[] {
       throw error;
     }
 
+    /*
+     * Item 18. The address is free text and always optional, and the
+     * coordinates only exist where it does.
+     *
+     * A pin with no address is unreadable on every letter the school sends and
+     * on every screen that shows one, so clearing the address clears them —
+     * rather than leaving a latitude behind that quietly refers to an address
+     * nobody typed.
+     */
+    const address = readOptionalString(guardian['address']);
+    const coordinate = (value: unknown): number | null => {
+      if (address === null) return null;
+      const parsed = typeof value === 'number' ? value : Number.NaN;
+      return Number.isFinite(parsed) ? parsed : null;
+    };
+
     return {
       name,
       relationship,
@@ -348,6 +375,9 @@ export function parseGuardians(value: unknown): GuardianInput[] {
       email: readOptionalString(guardian['email']),
       cnic: normalizeCnic(readOptionalString(guardian['cnic'])),
       occupation: readOptionalString(guardian['occupation']),
+      address,
+      latitude: coordinate(guardian['latitude']),
+      longitude: coordinate(guardian['longitude']),
       isPrimaryContact: guardian['isPrimaryContact'] === true,
     };
   });
@@ -410,7 +440,7 @@ export function parsePlacement(body: Record<string, unknown>): PlacementInput {
     sectionId,
     academicYearId,
     rollNumber: readOptionalString(body['rollNumber']),
-    enrollmentDate: readDate(body['enrollmentDate'], 'Enrolment date'),
+    enrollmentDate: readDate(body['enrollmentDate'], 'Enrollment date'),
   };
 }
 
@@ -567,7 +597,7 @@ function todayIso(): string {
 }
 
 /**
- * Creates the directory row, profile, enrolment and guardians for one student.
+ * Creates the directory row, profile, enrollment and guardians for one student.
  *
  * Does not touch GHL — the caller runs the sync afterwards, so a CRM outage
  * cannot roll back an admission.
@@ -662,6 +692,9 @@ export async function enrollStudent(
     cnic: guardian.cnic,
     relationshipOther: guardian.relationshipOther,
     occupation: guardian.occupation,
+    address: guardian.address,
+    latitude: guardian.latitude,
+    longitude: guardian.longitude,
     isPrimaryContact: guardian.isPrimaryContact,
   }));
 
@@ -714,10 +747,10 @@ export async function enrollStudent(
       tx.insert(studentGuardians).values([firstGuardianRow, ...restGuardianRows]),
     ]);
   } catch (error) {
-    console.error('[enrollment] enrolment write failed:', error);
+    console.error('[enrollment] enrollment write failed:', error);
     throw new EnrollmentError(
       'enrollment_failed',
-      'Could not complete the enrolment. Please check the details and try again.',
+      'Could not complete the enrollment. Please check the details and try again.',
       409,
     );
   }
@@ -740,7 +773,7 @@ export async function enrollStudent(
 }
 
 // -----------------------------------------------------------------------------
-// Post-enrolment CRM sync
+// Post-enrollment CRM sync
 // -----------------------------------------------------------------------------
 
 export interface EnrollmentSyncResult {
@@ -749,7 +782,7 @@ export interface EnrollmentSyncResult {
 }
 
 /**
- * Mirrors a finished enrolment into GHL and stores the contact ids.
+ * Mirrors a finished enrollment into GHL and stores the contact ids.
  *
  * Runs *after* `enrollStudent` has committed, and never throws: the child is
  * already admitted, and a CRM that is down must not turn that into an error the

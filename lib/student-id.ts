@@ -13,7 +13,7 @@ import { formatStudentId, normalizeSchoolCode } from './school-code';
  * ── On atomicity ─────────────────────────────────────────────────────────
  * Two admissions clerks enrolling at the same moment must not be handed the
  * same number, and the unique index on (location_id, student_id) would turn
- * that race into a failed enrolment rather than a duplicate.
+ * that race into a failed enrollment rather than a duplicate.
  *
  * The increment is therefore a single `INSERT ... ON CONFLICT DO UPDATE ...
  * RETURNING` statement. Postgres runs every statement in its own transaction
@@ -28,7 +28,7 @@ import { formatStudentId, normalizeSchoolCode } from './school-code';
  * increment and the year lookup can travel together.
  */
 
-/** Raised when a student ID cannot be issued. Blocks enrolment — it must. */
+/** Raised when a student ID cannot be issued. Blocks enrollment — it must. */
 export class StudentIdError extends Error {
   constructor(message: string) {
     super(message);
@@ -105,18 +105,18 @@ export async function generateStudentId(
  * renumbering a migrated roll is destructive. That is fine as long as the two
  * sequences never meet. They meet whenever the imported numbers are in *our*
  * shape: a school migrating 409 children numbered `RHA-2026-0001`…`0409`
- * leaves the counter at zero, so the next direct enrolment mints
+ * leaves the counter at zero, so the next direct enrollment mints
  * `RHA-2026-0001`, hits `student_profiles_location_id_student_id_idx`, and
- * fails with "Could not complete the enrolment. Please check the details" —
+ * fails with "Could not complete the enrollment. Please check the details" —
  * a message about details, for a problem that has nothing to do with them.
  * Worse, it fails *again* on the next attempt, and the next: each try burns
  * one number, so the school must fail once per imported child before an
- * enrolment can land.
+ * enrollment can land.
  *
  * ── What this does ───────────────────────────────────────────────────────
  * Reads the highest sequence actually in use for this school and year, and
  * pushes the counter past it in one atomic upsert — `GREATEST`, so a
- * concurrent enrolment that has already advanced it further is never wound
+ * concurrent enrollment that has already advanced it further is never wound
  * back. The scan is `LIKE 'RHA-2026-%'`, so it costs nothing on schools that
  * never imported and runs once on the school that did: after this, the counter
  * is ahead of the roll and the ordinary path takes over.
@@ -173,12 +173,12 @@ async function reconcileWithRoll(
   const candidate = formatStudentId(code, startYear, sequence);
 
   // One reconciliation is enough for the migrated-roll case. Anything still
-  // taken here is a genuine race with another enrolment, and the unique index
+  // taken here is a genuine race with another enrollment, and the unique index
   // is the correct place for that to be settled — not a retry loop that would
   // burn a number per turn.
   if (await isTaken(db, locationId, candidate)) {
     throw new StudentIdError(
-      'Another enrolment took that student ID. Please try again.',
+      'Another enrollment took that student ID. Please try again.',
     );
   }
 
@@ -208,8 +208,8 @@ async function isTaken(
 /**
  * What the *next* ID would look like, without consuming a number.
  *
- * Used by the enrolment form's review step. It is a preview and nothing more —
- * a concurrent enrolment can take the number between the preview and the
+ * Used by the enrollment form's review step. It is a preview and nothing more —
+ * a concurrent enrollment can take the number between the preview and the
  * submit, so the ID that is actually stored comes from `generateStudentId`.
  */
 export async function previewNextStudentId(

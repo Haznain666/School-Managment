@@ -30,7 +30,7 @@ export interface ImportField {
 /**
  * The importable fields.
  *
- * Deliberately smaller than the enrolment form. An import gets a school's roll
+ * Deliberately smaller than the enrollment form. An import gets a school's roll
  * *in*; the details a school fills in over the first term — blood group,
  * medical notes, previous school, photo — are not what a migration spreadsheet
  * carries, and offering thirty columns to map is how the mapping screen becomes

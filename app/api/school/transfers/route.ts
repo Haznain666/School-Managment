@@ -44,7 +44,7 @@ export const GET = withSchoolAuth(
       if (current === null) {
         return apiFailure(
           'not_found',
-          'That student has no active enrolment to transfer.',
+          'That student has no active enrollment to transfer.',
           404,
         );
       }
@@ -105,7 +105,7 @@ export const POST = withSchoolAuth(
       if (current === null) {
         return apiFailure(
           'not_found',
-          'That student has no active enrolment to transfer.',
+          'That student has no active enrollment to transfer.',
           404,
         );
       }

@@ -16,10 +16,10 @@ import { findOrCreateContact, ghlFetch, GhlAgencyError } from './ghl-client';
  * primary guardian, because they are who the school actually corresponds with.
  *
  * ── On failure ───────────────────────────────────────────────────────────
- * None of this may block an enrolment. A school whose GHL connection has
+ * None of this may block an enrollment. A school whose GHL connection has
  * lapsed must still be able to admit a child; the sync is a mirror, not the
  * record. Every function here therefore either returns null on failure or
- * swallows it after logging, and the enrolment endpoints run them *after* the
+ * swallows it after logging, and the enrollment endpoints run them *after* the
  * database writes have already landed. `POST /api/school/students/[studentId]/sync-ghl`
  * exists to replay whatever did not make it.
  */
@@ -137,7 +137,7 @@ export async function createGuardianGHLContact(
  *
  * Optional by design: `GHL_ADMISSION_WORKFLOW_ID` is not set on every
  * deployment, and a school that has not built the workflow should simply not
- * get one rather than see enrolments fail. Never throws.
+ * get one rather than see enrollments fail. Never throws.
  *
  * ── This is a trigger, not a send ────────────────────────────────────────
  * It does not deliver a message. It hands a contact to an automation the
@@ -184,7 +184,7 @@ export interface AdmissionSyncResult {
 }
 
 /**
- * Runs the whole post-enrolment sync and reports what succeeded.
+ * Runs the whole post-enrollment sync and reports what succeeded.
  *
  * Each half is attempted independently: a guardian who fails to sync must not
  * take the student's contact down with them, because the manual re-sync route

@@ -26,14 +26,14 @@ import { isUuid, readOptionalString, readString } from '@/lib/validation';
  * admission number — the number is the school's identifier for a person, the
  * UUID is the platform's identifier for a row.
  *
- * GET    the full profile, with guardians and enrolment history
+ * GET    the full profile, with guardians and enrollment history
  * PATCH  the personal details
  * DELETE the whole record, when the school has never taken money for it
  *
  * The admission number and the link to the directory row are not updatable:
  * one is referenced by everything the school prints, the other is the record's
- * identity. Changing which class the student is in is an enrolment change, and
- * belongs to the enrolment tables rather than here.
+ * identity. Changing which class the student is in is an enrollment change, and
+ * belongs to the enrollment tables rather than here.
  */
 
 export const runtime = 'nodejs';
@@ -141,7 +141,7 @@ export const PATCH = withSchoolAuth<RouteContext>(
        * B-Form number is a CNIC: a clerk corrects the digits, the stale type
        * stays, and nothing on screen says so. So a request that touches either
        * has to carry both, and both are re-validated as `parseStudentInput`
-       * does on enrolment.
+       * does on enrollment.
        */
       if (body.bFormCnic !== undefined || body.idDocumentType !== undefined) {
         const number = readOptionalString(body.bFormCnic);
@@ -217,7 +217,7 @@ export const PATCH = withSchoolAuth<RouteContext>(
  *
  * ── What it takes with it, and what it refuses to ────────────────────────
  * The delete lands on `student_profiles` and on the directory row that owns it,
- * and the foreign keys do the rest: guardians, enrolment history, concessions,
+ * and the foreign keys do the rest: guardians, enrollment history, concessions,
  * credits and vouchers all cascade from the profile. Two statements rather than
  * one because the cascade only runs *downhill* — `student_profiles` references
  * `school_users`, not the other way about, so deleting the profile on its own
@@ -233,7 +233,7 @@ export const PATCH = withSchoolAuth<RouteContext>(
  * an admissions screen should be able to make it stop having happened.
  *
  * That refusal is also the answer to the case this endpoint gets reached for
- * most often. Deleting is not an undo for a wrong enrolment — **withdrawing
+ * most often. Deleting is not an undo for a wrong enrollment — **withdrawing
  * is**, and it keeps the history that a transfer certificate is written from.
  * The message says so rather than only saying no.
  */
