@@ -353,7 +353,7 @@ export const DELETE = withSchoolAuth<RouteContext>(
        * ── Count what a campus actually holds, not what it used to ─────────
        * This counted `students.branch_id`, and `students` is the minimal
        * Sprint 1 table that **nothing in the product has ever inserted into**
-       * — enrolment writes `student_profiles` and `student_enrollments`. So
+       * — enrollment writes `student_profiles` and `student_enrollments`. So
        * the count was zero at every school, and the refusal below could never
        * say "still has 12 students" however full the campus was.
        *
@@ -429,7 +429,7 @@ export const DELETE = withSchoolAuth<RouteContext>(
 
       /*
        * `grades` cascades from a branch, and grades are referenced by sections,
-       * enrolments and exams which do not. So a campus with a grade ladder but
+       * enrollments and exams which do not. So a campus with a grade ladder but
        * no people can still be refused by Postgres itself. That refusal is
        * caught and reported rather than surfacing as a 500 — the same treatment
        * `deleteSchoolMember` gives a referenced member.

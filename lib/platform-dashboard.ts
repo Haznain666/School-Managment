@@ -107,7 +107,7 @@ export interface TenantProblem {
  *     never requested, `unmanaged` was attempted with no hosting token. The
  *     spec also names `throttled`; there is no such value in
  *     `lib/subdomain-status.ts` and none is invented here.
- *   - **no branch.** A school with no campus can enrol nobody: the enrolment
+ *   - **no branch.** A school with no campus can enroll nobody: the enrollment
  *     form has no branch to offer and the wizard's last step was never
  *     finished.
  *   - **no administrator.** Nobody can sign in. This is the state a school

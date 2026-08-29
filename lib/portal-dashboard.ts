@@ -257,7 +257,7 @@ export async function sectionsMarkedOn(
   return new Set(rows.map((row) => row.sectionId));
 }
 
-/** Active enrolment per section, and the last date each had a register. */
+/** Active enrollment per section, and the last date each had a register. */
 export async function sectionRegisterFacts(
   locationId: string,
   academicYearId: string,

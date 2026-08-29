@@ -6,16 +6,19 @@ import {
   count,
   desc,
   eq,
+  exists,
   gte,
   ilike,
   inArray,
   isNull,
+  notExists,
   or,
   sql,
   type SQL,
 } from 'drizzle-orm';
 
 import {
+  academicYearBranches,
   academicYears,
   admissionApplications,
   branches,
@@ -23,6 +26,7 @@ import {
   grades,
   schoolUsers,
   sections,
+  studentDocuments,
   studentEnrollments,
   studentGuardians,
   studentProfiles,
@@ -39,6 +43,7 @@ import {
   type GuardianRelationship,
 } from '@/db/schema';
 
+import { ownedBy, type BranchOption } from './branch-scope';
 import { db } from './drizzle';
 import {
   isStudentFeeStatus,
@@ -66,12 +71,78 @@ export interface AcademicYearRow {
   endMonth: number;
   endYear: number;
   isActive: boolean;
-  /** Enrolments filed against this year — what blocks deletion. */
+  /** Enrollments filed against this year — what blocks deletion. */
   studentCount: number;
+  /**
+   * The campuses this session runs at. **Empty means every campus.**
+   *
+   * That is every academic year at every school on the day `0036` lands, and it
+   * is the reading the whole feature rests on — see `academic_year_branches`.
+   * A screen showing this must say "All campuses" for an empty array rather
+   * than an empty cell, which would read as a year nobody runs.
+   */
+  campuses: BranchOption[];
 }
 
+/**
+ * The predicate for a year against a campus scope.
+ *
+ * ── Never an INNER JOIN, for the reason `sharedOrOwnedBy` exists ─────────
+ * A year with no rows in `academic_year_branches` is school-wide, which today
+ * is every year at every school. Joining the table and filtering on
+ * `branch_id` would return **nothing at all** for a branch-bound reader, and an
+ * empty academic-year list does not read as "the filter is wrong" — it reads as
+ * a school whose calendar was never set up, on the screen a clerk goes to when
+ * they cannot enroll anybody. That is `sharedOrOwnedBy`'s trap one table over,
+ * and it costs a school its whole calendar rather than one subject list.
+ *
+ * `undefined` — no condition at all — when the scope reaches every campus, so
+ * the unscoped query keeps exactly the shape it had before this sprint.
+ */
+function yearRunsAt(branchIds: string[] | null): SQL | undefined {
+  if (branchIds === null) return undefined;
+
+  const attached = notExists(
+    db
+      .select({ one: sql`1` })
+      .from(academicYearBranches)
+      .where(eq(academicYearBranches.academicYearId, academicYears.id)),
+  );
+
+  // An empty scope reaches no campus, so only the school-wide years remain.
+  // Widening it to "everything" here is the direction that leaks, and it looks
+  // entirely normal on screen — see `ownedBy` in `lib/branch-scope.ts`.
+  if (branchIds.length === 0) return attached;
+
+  return or(
+    attached,
+    exists(
+      db
+        .select({ one: sql`1` })
+        .from(academicYearBranches)
+        .where(
+          and(
+            eq(academicYearBranches.academicYearId, academicYears.id),
+            inArray(academicYearBranches.branchId, branchIds),
+          ),
+        ),
+    ),
+  );
+}
+
+/**
+ * The school's academic years, newest first, with the campuses each runs at.
+ *
+ * The campuses come back in a **second statement** rather than a third join.
+ * The first already fans out across `student_enrollments` to count them, and
+ * adding another one-to-many to that would multiply the count by the number of
+ * campuses — a two-campus year reporting twice its enrollments, on the figure
+ * that decides whether the year can be deleted. Two statements over at most a
+ * few dozen rows is not the place to save a round trip.
+ */
 export async function listAcademicYears(
   locationId: string,
+  branchIds: string[] | null = null,
 ): Promise<AcademicYearRow[]> {
   const rows = await db
     .select({
@@ -89,11 +160,55 @@ export async function listAcademicYears(
       studentEnrollments,
       eq(studentEnrollments.academicYearId, academicYears.id),
     )
-    .where(eq(academicYears.locationId, locationId))
+    .where(and(eq(academicYears.locationId, locationId), yearRunsAt(branchIds)))
     .groupBy(academicYears.id)
     .orderBy(desc(academicYears.startYear), desc(academicYears.startMonth));
 
-  return rows;
+  const campuses = await listCampusesByYear(locationId);
+
+  return rows.map((row) => ({ ...row, campuses: campuses.get(row.id) ?? [] }));
+}
+
+/**
+ * Every year-to-campus attachment at this school, keyed by year.
+ *
+ * Deliberately unfiltered by scope: this answers "which campuses does this year
+ * run at", and a branch-bound reader looking at a year that runs at three
+ * campuses should see all three named. The scope decides which *years* they
+ * see — `yearRunsAt` — not which facts about a year they are told. Hiding the
+ * other two campuses would produce a Campus column that quietly disagrees with
+ * the same year seen from the group view.
+ */
+async function listCampusesByYear(
+  locationId: string,
+): Promise<Map<string, BranchOption[]>> {
+  const rows = await db
+    .select({
+      academicYearId: academicYearBranches.academicYearId,
+      branchId: academicYearBranches.branchId,
+      branchName: branches.name,
+    })
+    .from(academicYearBranches)
+    .innerJoin(branches, eq(branches.id, academicYearBranches.branchId))
+    .where(eq(academicYearBranches.locationId, locationId))
+    .orderBy(asc(branches.name));
+
+  const byYear = new Map<string, BranchOption[]>();
+  for (const row of rows) {
+    const list = byYear.get(row.academicYearId) ?? [];
+    list.push({ id: row.branchId, name: row.branchName });
+    byYear.set(row.academicYearId, list);
+  }
+
+  return byYear;
+}
+
+/** The campuses one year runs at. Empty means school-wide. */
+export async function listAcademicYearCampuses(
+  locationId: string,
+  academicYearId: string,
+): Promise<BranchOption[]> {
+  return (await listCampusesByYear(locationId)).get(academicYearId) ?? [];
 }
 
 export async function getAcademicYear(
@@ -109,7 +224,79 @@ export async function getAcademicYear(
   return rows[0] ?? null;
 }
 
+/**
+ * The span a session covers, as a condition Postgres evaluates.
+ *
+ * `make_date(start_year, start_month, 1) <= current_date` and strictly before
+ * the first day of the month *after* the end month, so a session ending in July
+ * is still current on the 31st of July. There is no operator for `make_date`,
+ * which is what the ``sql`` template is reserved for — and no JavaScript value
+ * reaches the driver through it, which is what CLAUDE.md's rule about raw
+ * templates is actually about.
+ *
+ * ── One clock, and it is the database's ─────────────────────────────────
+ * `current_date`, not `new Date()`. A Node process on a Hostinger box in one
+ * timezone, a Supabase instance in another and a clerk's laptop in a third are
+ * three clocks, and "which session are we in" answered differently by two of
+ * them is an enrollment filed under the wrong year on the first of the month.
+ * The database is the only one of the three that every reader shares.
+ */
+const YEAR_CONTAINS_TODAY = sql`make_date(${academicYears.startYear}, ${academicYears.startMonth}, 1) <= current_date
+    AND current_date < (make_date(${academicYears.endYear}, ${academicYears.endMonth}, 1) + interval '1 month')`;
+
+/**
+ * The year everything defaults to — Sprint 19b, item 14c.
+ *
+ * ── A marked year always wins ───────────────────────────────────────────
+ * The flag is a decision somebody made, and the calendar is a guess about what
+ * they would have decided. A school that has deliberately kept last year active
+ * while it finishes its results must not have that quietly overturned on the
+ * 1st of August by a query — so `is_active` sorts first and the calendar only
+ * ever answers when nothing is marked at all.
+ *
+ * Before this, "nothing is marked" resolved to `null`, and null closed the
+ * public application form, emptied the dashboard counts and refused every
+ * enrollment with "no active academic year". A school that has just created its
+ * calendar in a run and not yet pressed *Set as active* is in exactly that
+ * state, which is the state item 14b's run form leaves them in most often.
+ *
+ * `limit(1)` over a deterministic order rather than a filter, because two years
+ * can overlap — an April–March session and an August–July one at two campuses
+ * of the same group both contain today in May. The earlier-starting one wins,
+ * which is arbitrary but stable; a campus-specific answer is what
+ * `academic_year_branches` is for and what the year picker offers.
+ */
 export async function getActiveAcademicYear(
+  locationId: string,
+): Promise<AcademicYear | null> {
+  const rows = await db
+    .select()
+    .from(academicYears)
+    .where(
+      and(
+        eq(academicYears.locationId, locationId),
+        or(eq(academicYears.isActive, true), YEAR_CONTAINS_TODAY),
+      ),
+    )
+    .orderBy(
+      desc(academicYears.isActive),
+      asc(academicYears.startYear),
+      asc(academicYears.startMonth),
+    )
+    .limit(1);
+
+  return rows[0] ?? null;
+}
+
+/**
+ * Whether a year is active *because somebody said so*, rather than by calendar.
+ *
+ * The academic-year screen needs the difference: a year that is current only
+ * because today falls inside it is offered a *Set as active* button, and one
+ * carrying the flag is not. Collapsing the two would hide the button on a year
+ * nobody has ever confirmed.
+ */
+export async function getMarkedActiveAcademicYear(
   locationId: string,
 ): Promise<AcademicYear | null> {
   const rows = await db
@@ -123,7 +310,7 @@ export async function getActiveAcademicYear(
   return rows[0] ?? null;
 }
 
-/** True when any enrolment still points at this year. */
+/** True when any enrollment still points at this year. */
 export async function academicYearHasEnrollments(
   locationId: string,
   yearId: string,
@@ -183,7 +370,7 @@ export interface SectionRow {
   name: string;
   capacity: number | null;
   isActive: boolean;
-  /** Active enrolments in this section. */
+  /** Active enrollments in this section. */
   studentCount: number;
   /** The staff record who owns this class. Decides who may set its promotions. */
   classTeacherId: string | null;
@@ -209,14 +396,33 @@ export interface GradeRow {
   branchName: string | null;
 }
 
+/**
+ * The class ladder, optionally narrowed to a campus scope.
+ *
+ * ── `branchIds`, not `branchId` ─────────────────────────────────────────
+ * Sprint 19a: a person can hold several campuses, and `claims.branchId` answers
+ * for exactly one of them. `ownedBy` is the right helper here and
+ * `sharedOrOwnedBy` is not — `grades.branch_id` is NOT NULL and names the
+ * campus that owns the row outright, so a null would be a data fault rather
+ * than "shared", and admitting one would put another campus's classes into a
+ * branch-bound reader's list. The two helpers are one identifier apart and give
+ * opposite answers; see `lib/branch-scope.ts`.
+ *
+ * The single-campus form is kept for the callers that genuinely have one id in
+ * hand — a grade picker inside one campus's own setup screen — and it is a
+ * convenience over the same predicate, not a second rule.
+ */
 export async function listGrades(
   locationId: string,
   branchId?: string | undefined,
+  branchIds?: string[] | null | undefined,
 ): Promise<GradeRow[]> {
   const conditions: SQL[] = [eq(grades.locationId, locationId)];
   if (branchId !== undefined && branchId !== '') {
     conditions.push(eq(grades.branchId, branchId));
   }
+  const scoped = ownedBy(grades.branchId, branchIds ?? null);
+  if (scoped !== undefined) conditions.push(scoped);
 
   const rows = await db
     .select({
@@ -258,7 +464,7 @@ export async function listSections(
       capacity: sections.capacity,
       isActive: sections.isActive,
       classTeacherId: sections.classTeacherId,
-      // Only active enrolments count against capacity: a withdrawn student is
+      // Only active enrollments count against capacity: a withdrawn student is
       // not occupying a seat.
       studentCount: sql<number>`count(${studentEnrollments.id}) filter (where ${studentEnrollments.status} = 'active')`.mapWith(
         Number,
@@ -304,7 +510,92 @@ async function listSectionsWhere(where: SQL | undefined): Promise<SectionRow[]> 
     .orderBy(asc(sections.name));
 }
 
-/** True when any enrolment still points at this section. */
+export interface CopySectionsResult {
+  created: number;
+  /** Sections the receiving year already had. Skipped, never an error. */
+  skipped: number;
+}
+
+/**
+ * Clone one year's classes into the next — Sprint 19b, item 15b.
+ *
+ * ── The task the promotion screen was actually asking for ───────────────
+ * "Goes to" on `/dashboard/admissions/promote` reads every section of the
+ * *receiving* year, and a school that has not built next year's classes yet has
+ * none — so the dropdown was empty and said nothing about why. The honest fix
+ * is not a better empty message; it is this button, because building twelve
+ * grades' worth of sections by hand before you can promote anybody is the work
+ * the operator had actually sat down to avoid.
+ *
+ * ── Active sections only ────────────────────────────────────────────────
+ * A section deactivated this year is a class the school has stopped running,
+ * and carrying it forward would quietly restart it in a year where nobody
+ * decided to.
+ *
+ * ── The class teacher is not copied, and that is deliberate ─────────────
+ * `class_teacher_id` decides who may enter that class's marks and set its
+ * promotions. Who teaches 5-A *next* year is a decision the school has not made
+ * in June, and copying this year's answer would hand next year's marks entry to
+ * whoever happened to hold it — silently, on a screen nobody revisits. Capacity
+ * *is* copied: a room holds what it holds.
+ *
+ * ── Idempotent by the unique index, not by a pre-check ──────────────────
+ * `(grade_id, academic_year_id, name)` already refuses a duplicate, so pressing
+ * the button twice creates nothing the second time and reports it as skipped.
+ * Checking first would be a check two clerks could both pass.
+ */
+export async function copySectionsIntoYear(
+  locationId: string,
+  params: {
+    fromAcademicYearId: string;
+    toAcademicYearId: string;
+    /** The campus scope this caller may write into. Null = every campus. */
+    branchIds: string[] | null;
+  },
+): Promise<CopySectionsResult> {
+  const source = await db
+    .select({
+      gradeId: sections.gradeId,
+      name: sections.name,
+      capacity: sections.capacity,
+    })
+    .from(sections)
+    .innerJoin(
+      grades,
+      and(eq(grades.id, sections.gradeId), eq(grades.locationId, locationId)),
+    )
+    .where(
+      and(
+        eq(sections.locationId, locationId),
+        eq(sections.academicYearId, params.fromAcademicYearId),
+        eq(sections.isActive, true),
+        // `ownedBy`, not `sharedOrOwnedBy`: `grades.branch_id` is NOT NULL and
+        // names the campus that owns the class outright.
+        ownedBy(grades.branchId, params.branchIds),
+      ),
+    );
+
+  if (source.length === 0) return { created: 0, skipped: 0 };
+
+  const inserted = await db
+    .insert(sections)
+    .values(
+      source.map((row) => ({
+        // Tenant from the verified session, never from the body.
+        locationId,
+        gradeId: row.gradeId,
+        academicYearId: params.toAcademicYearId,
+        name: row.name,
+        capacity: row.capacity,
+      })),
+    )
+    .onConflictDoNothing()
+    .returning({ id: sections.id });
+
+  return { created: inserted.length, skipped: source.length - inserted.length };
+}
+
+/** True when any enrollment still points at this section. */
 export async function sectionHasEnrollments(
   locationId: string,
   sectionId: string,
@@ -320,6 +611,105 @@ export async function sectionHasEnrollments(
     );
 
   return (rows[0]?.value ?? 0) > 0;
+}
+
+// -----------------------------------------------------------------------------
+// Student documents — Sprint 19b, item 16
+// -----------------------------------------------------------------------------
+
+export interface StudentDocumentRow {
+  id: string;
+  title: string;
+  downloadUrl: string;
+  contentType: string;
+  sizeBytes: number;
+  createdAt: Date;
+}
+
+/**
+ * The paperwork held against one child, oldest first.
+ *
+ * Oldest first, unlike almost every other list in this product, and it is a
+ * decision rather than an oversight: these are chips in a row on a profile
+ * card, and a card whose chips *reorder* every time somebody adds one is a card
+ * an operator has to re-read from scratch. Newest-first is right for a feed and
+ * wrong for a stable set.
+ *
+ * `storage_path` is deliberately not returned. Nothing on a screen needs it,
+ * and the delete route re-reads the row by id anyway — a path shipped to a
+ * browser is a path a browser can be persuaded to send back.
+ */
+export async function listStudentDocuments(
+  locationId: string,
+  studentProfileId: string,
+): Promise<StudentDocumentRow[]> {
+  return db
+    .select({
+      id: studentDocuments.id,
+      title: studentDocuments.title,
+      downloadUrl: studentDocuments.downloadUrl,
+      contentType: studentDocuments.contentType,
+      sizeBytes: studentDocuments.sizeBytes,
+      createdAt: studentDocuments.createdAt,
+    })
+    .from(studentDocuments)
+    .where(
+      and(
+        eq(studentDocuments.locationId, locationId),
+        eq(studentDocuments.studentProfileId, studentProfileId),
+      ),
+    )
+    .orderBy(asc(studentDocuments.createdAt));
+}
+
+/**
+ * How many documents this child already has — the ten-per-student ceiling.
+ *
+ * A count rather than the length of the list above, because the upload route
+ * needs the number and not the rows, and a route that fetches ten titles and
+ * ten URLs to compare one integer is a route that gets slower as the feature is
+ * used.
+ */
+export async function countStudentDocuments(
+  locationId: string,
+  studentProfileId: string,
+): Promise<number> {
+  const rows = await db
+    .select({ value: count() })
+    .from(studentDocuments)
+    .where(
+      and(
+        eq(studentDocuments.locationId, locationId),
+        eq(studentDocuments.studentProfileId, studentProfileId),
+      ),
+    );
+
+  return rows[0]?.value ?? 0;
+}
+
+/** One document, read back by id and re-checked against its tenant and child. */
+export async function getStudentDocument(
+  locationId: string,
+  studentProfileId: string,
+  documentId: string,
+): Promise<{ id: string; title: string; storagePath: string } | null> {
+  const rows = await db
+    .select({
+      id: studentDocuments.id,
+      title: studentDocuments.title,
+      storagePath: studentDocuments.storagePath,
+    })
+    .from(studentDocuments)
+    .where(
+      and(
+        eq(studentDocuments.locationId, locationId),
+        eq(studentDocuments.studentProfileId, studentProfileId),
+        eq(studentDocuments.id, documentId),
+      ),
+    )
+    .limit(1);
+
+  return rows[0] ?? null;
 }
 
 // -----------------------------------------------------------------------------
@@ -423,7 +813,7 @@ export interface ListStudentsResult {
  * The enrolled-student directory.
  *
  * Driven from `student_enrollments` rather than `student_profiles`: the list is
- * "who is in which class this year", and a student with no enrolment for the
+ * "who is in which class this year", and a student with no enrollment for the
  * selected year genuinely does not belong on it.
  */
 export async function listStudents(
@@ -1383,7 +1773,7 @@ export async function getAdmissionsOverview(
   };
 }
 
-/** Active enrolments in the school's active year — the dashboard headline. */
+/** Active enrollments in the school's active year — the dashboard headline. */
 export async function countActiveStudents(locationId: string): Promise<number> {
   const activeYear = await getActiveAcademicYear(locationId);
   if (activeYear === null) return 0;
@@ -1431,12 +1821,12 @@ export async function countActiveStudents(locationId: string): Promise<number> {
  * historical money to wherever the child has since transferred, and a ledger
  * whose past changes when a student moves is not a ledger.
  *
- * Migration `0019` constrains a student to one active enrolment per year, so
+ * Migration `0019` constrains a student to one active enrollment per year, so
  * this is a single row rather than a pick among several — the same reading
  * `searchStudents` relies on.
  *
  * ── Null is a legal answer and must not refuse anything ──────────────────
- * A student with no active enrolment for that year — withdrawn, or paying an
+ * A student with no active enrollment for that year — withdrawn, or paying an
  * admission fee before placement — has no campus, and that is not a reason to
  * refuse their money. The posting is made school-wide, exactly as every
  * posting was before this.

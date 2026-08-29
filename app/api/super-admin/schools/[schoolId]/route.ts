@@ -224,7 +224,7 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
  * ── What "permanent" actually removes ────────────────────────────────────
  * Every one of the 61 foreign keys pointing at `schools.location_id` is
  * `ON DELETE CASCADE`, so a single DELETE takes the branches, students, staff,
- * enrolments, fee challans, payments, exams, results, payroll, announcements
+ * enrollments, fee challans, payments, exams, results, payroll, announcements
  * and everything else with it. That was verified against the schema, not
  * assumed. There is no soft-delete residue and no orphan.
  *

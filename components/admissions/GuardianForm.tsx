@@ -2,6 +2,10 @@
 
 import { useEffect, useRef, useState } from 'react';
 
+import {
+  AddressAutocomplete,
+  type LocationValue,
+} from '@/components/ui/AddressAutocomplete';
 import { Button } from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
 import { CnicField } from '@/components/ui/CnicField';
@@ -22,7 +26,7 @@ import { isValidPhone } from '@/lib/phone';
 import { schoolFetch } from '@/lib/school-client';
 
 /**
- * The guardian step of an enrolment — and the point at which a family is
+ * The guardian step of an enrollment — and the point at which a family is
  * recognised.
  *
  * ── The CNIC is the first field on the card, and that is the feature ─────
@@ -35,7 +39,7 @@ import { schoolFetch } from '@/lib/school-client';
  * guardian already at this school; when it matches, the card fills itself in
  * from the record the school already holds and says, by name and admission
  * number, which children this person is already the guardian of. Those children
- * become the new student's siblings the moment the enrolment lands — not
+ * become the new student's siblings the moment the enrollment lands — not
  * because anything is written to link them, but because they now share a
  * guardian identity. See `lib/siblings.ts`.
  *
@@ -59,7 +63,7 @@ import { schoolFetch } from '@/lib/school-client';
  * ── And when it matches, the person is not editable here ─────────────────
  * A matched guardian already exists at this school. Their **name, email and
  * phone** render `disabled`, pointing at the guardian panel on the sibling's
- * profile. Correcting a father's number *during another child's enrolment* is
+ * profile. Correcting a father's number *during another child's enrollment* is
  * precisely how one person becomes two records with two different numbers —
  * which is what splits a family, silently, on a screen that was doing the right
  * thing. Relationship, occupation and primary contact stay editable: they are
@@ -94,6 +98,16 @@ export interface GuardianDraft {
   email: string;
   cnic: string;
   occupation: string;
+  /**
+   * Where this guardian lives — Sprint 19b, item 18.
+   *
+   * A `LocationValue`, which is what `AddressAutocomplete` speaks, so the field
+   * that fills it and the column that stores it agree without a translation
+   * step in between. Both coordinates stay null whenever the operator typed the
+   * address rather than choosing a suggestion, which in Pakistan is most of
+   * them and is a supported outcome rather than a degraded one.
+   */
+  location: LocationValue;
   isPrimaryContact: boolean;
 }
 
@@ -115,6 +129,7 @@ export function emptyGuardian(isPrimaryContact: boolean): GuardianDraft {
     email: '',
     cnic: '',
     occupation: '',
+    location: { address: '', latitude: null, longitude: null },
     isPrimaryContact,
   };
 }
@@ -163,7 +178,7 @@ export function availableRelationships(
 /**
  * What is wrong with the guardian step, or null.
  *
- * Lives here rather than in the enrolment form so that the rules and the fields
+ * Lives here rather than in the enrollment form so that the rules and the fields
  * that break them cannot drift apart.
  */
 export function guardiansProblem(guardians: readonly GuardianDraft[]): string | null {
@@ -355,7 +370,7 @@ export function GuardianForm({
       // A lookup that fails leaves the clerk typing the guardian by hand, which
       // is exactly what they did before this existed. It is never worth an
       // error box on a form that is otherwise working — and it must unlock the
-      // card, or a network blip becomes an enrolment nobody can complete.
+      // card, or a network blip becomes an enrollment nobody can complete.
       setKnown((current) => ({ ...current, [index]: [] }));
       setMatched((current) => ({ ...current, [index]: null }));
       setUnlocked((current) => ({ ...current, [index]: true }));
@@ -382,7 +397,7 @@ export function GuardianForm({
       /*
        * A card that arrives carrying somebody's details is not a fresh card.
        *
-       * The lock is for the guardian step of a new enrolment, where the CNIC is
+       * The lock is for the guardian step of a new enrollment, where the CNIC is
        * the first question. A converted application has already been filled in
        * from what the parent typed on the public form weeks ago — often with no
        * CNIC at all — and locking that would leave the clerk staring at a name
@@ -648,6 +663,36 @@ export function GuardianForm({
                   update(index, { occupation: event.target.value });
                 }}
               />
+
+              {/*
+                Item 18. `AddressAutocomplete` rather than an `Input`, which is
+                the standing rule — `npm run check-address-phone` enforces it —
+                and which here also means Mapbox's absence degrades to a plain
+                text box exactly as it does on the school and branch forms.
+
+                Editable on a match, unlike name, phone and email. Where a
+                guardian lives is a fact about *this* enrollment as much as about
+                the person: a family that has moved since an older child was
+                enrolled will say so at the desk, and refusing the correction is
+                how the school keeps posting to the old house.
+
+                Never required. CLAUDE.md's "blank is always allowed" is written
+                about the CNIC and the reasoning transfers whole — a clerk who
+                cannot get past a required field invents an answer, and an
+                invented address on a fee notice is worse than an absent one.
+              */}
+              <div className="sm:col-span-2">
+                <AddressAutocomplete
+                  label="Home address"
+                  value={guardian.location}
+                  disabled={fieldsDisabled}
+                  multiline
+                  hint="Optional. Where the school would post a letter."
+                  onChange={(next) => {
+                    update(index, { location: next });
+                  }}
+                />
+              </div>
 
               <label className="flex items-center gap-2 text-sm text-ink sm:col-span-2">
                 <input

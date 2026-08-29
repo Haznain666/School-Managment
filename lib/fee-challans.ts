@@ -284,7 +284,7 @@ export async function previewChallan(
   if (placement === null) {
     throw new ChallanGenerationError(
       'not_enrolled',
-      'This student has no enrolment in the selected academic year, so there is no class to price their fees from.',
+      'This student has no enrollment in the selected academic year, so there is no class to price their fees from.',
       409,
     );
   }
@@ -541,7 +541,7 @@ export async function generateAdmissionChallan(
     case 'not_enrolled':
       throw new ChallanGenerationError(
         'not_enrolled',
-        'This student has no active enrolment, so there is no class to price their admission fee from.',
+        'This student has no active enrollment, so there is no class to price their admission fee from.',
         409,
       );
     case 'no_fee_head':

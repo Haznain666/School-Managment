@@ -43,6 +43,31 @@ export const POST = withSchoolAuth<RouteContext>(
 
       const result = await applyPromotionRun(run, auth.uid);
 
+      /*
+       * A cross-campus destination is not a promotion — Sprint 19b, item 15c.
+       *
+       * **422, not 409**, and the difference is the whole point. A 409 says
+       * "these rows clash, fix them and re-run", which is what the refusals
+       * below mean. This says "what you have described is a different
+       * operation": moving a child between campuses is a *transfer*, with its
+       * own screen, its own fee split and its own row in `student_transfers`.
+       * Carrying it out here would move the child and leave nothing anywhere
+       * recording that it happened.
+       *
+       * Both campuses are named because "cross-campus move" tells an operator
+       * looking at forty rows nothing about which one they got wrong.
+       */
+      if (result.crossCampus.length > 0) {
+        return apiFailure(
+          'cross_campus_promotion',
+          `Nothing was changed. A promotion stays inside one campus; moving a student between campuses is a transfer, which keeps its own record and splits the fees. ` +
+            result.crossCampus
+              .map((entry) => `${entry.name} — ${entry.from} → ${entry.to}`)
+              .join('; '),
+          422,
+        );
+      }
+
       if (result.refused.length > 0) {
         return apiFailure(
           'conflict',

@@ -333,7 +333,7 @@ export const REPORTS: readonly ReportDefinition[] = [
     ],
     caveat:
       'Enrolled means the application was converted into a student record. A ' +
-      'school that enrols a child without an application — a sibling, a ' +
+      'school that enrolls a child without an application — a sibling, a ' +
       'walk-in, an imported roll — has students who are in no funnel, and this ' +
       'report is about the funnel rather than about the roll. "Still open" is ' +
       'pending and under review together: both mean nobody has decided yet.',

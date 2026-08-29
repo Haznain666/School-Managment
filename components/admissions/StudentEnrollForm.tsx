@@ -21,6 +21,11 @@ import {
   nationalIdProblem,
   type NationalIdValue,
 } from '@/components/admissions/NationalIdField';
+import {
+  StudentDocumentsForm,
+  uploadableDocuments,
+  type DocumentDraft,
+} from '@/components/admissions/StudentDocumentsForm';
 import { Button } from '@/components/ui/Button';
 import { Card, CardTitle } from '@/components/ui/Card';
 import { Input } from '@/components/ui/Input';
@@ -45,19 +50,29 @@ import {
 } from '@/lib/student-reference-data';
 
 /**
- * Direct enrolment, in four steps: student, guardians, placement, review.
+ * Direct enrollment, in five steps: student, guardians, placement, documents,
+ * review.
  *
  * Split into steps because the form is long and half of it is optional — an
  * admissions clerk with a paper form in front of them should not be scrolling
  * past twenty fields to find the two that are required. Each step validates
  * before the next opens, so a mistake surfaces next to the field that caused
  * it rather than at submit.
+ *
+ * ── Documents sits between placement and review — Sprint 19b, item 16b ──
+ * There and not earlier, because it is the one step with nothing to validate
+ * and the operator should reach it having already done everything that can
+ * fail. It is **entirely skippable**: an admissions desk with a queue in front
+ * of it must never be held up by a birth certificate that is at home, and a
+ * required upload there produces a photograph of a blank sheet rather than a
+ * document. See `StudentDocumentsForm`.
  */
 
 const STEPS = [
   'Student information',
   'Guardian information',
   'Academic placement',
+  'Documents',
   'Review and confirm',
 ] as const;
 
@@ -154,7 +169,7 @@ export function StudentEnrollForm({
         name: prefill.guardianName ?? '',
         /*
          * An application carries whatever relationship the parent chose on the
-         * public form, and the first guardian on an enrolment may only be
+         * public form, and the first guardian on an enrollment may only be
          * father, mother or sibling. Anything else lands on `father` rather
          * than being carried through into a value the step would then refuse —
          * the clerk is looking at the person and corrects it in one click.
@@ -183,6 +198,7 @@ export function StudentEnrollForm({
   }));
 
   const [photo, setPhoto] = useState<File | null>(null);
+  const [documents, setDocuments] = useState<DocumentDraft[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -265,7 +281,9 @@ export function StudentEnrollForm({
   };
 
   const submit = async (): Promise<void> => {
-    for (let index = 0; index < 3; index += 1) {
+    // Every step before the review, re-checked. The documents step is in that
+    // range and returns null by design — it has nothing that can fail.
+    for (let index = 0; index < STEPS.length - 1; index += 1) {
       const problem = stepProblem(index);
       if (problem !== null) {
         setError(problem);
@@ -305,6 +323,12 @@ export function StudentEnrollForm({
             email: guardian.email,
             cnic: guardian.cnic,
             occupation: guardian.occupation,
+            // Item 18. Sent as three fields rather than the `LocationValue`
+            // shape, because that is what the columns are and the parser is
+            // the one place the two vocabularies meet.
+            address: guardian.location.address,
+            latitude: guardian.location.latitude,
+            longitude: guardian.location.longitude,
             isPrimaryContact: guardian.isPrimaryContact,
           })),
           branchId: placement.branchId,
@@ -318,7 +342,7 @@ export function StudentEnrollForm({
 
       /*
        * The photo needs the student's id for its storage path, so it goes up
-       * second. A failed upload must not undo an enrolment that has landed —
+       * second. A failed upload must not undo an enrollment that has landed —
        * the photo can be added again from the profile page, and that judgement
        * is still correct.
        *
@@ -365,15 +389,78 @@ export function StudentEnrollForm({
         }
       }
 
+      /*
+       * The documents, for the same reason and with the same rule.
+       *
+       * They need the student's id for their storage path, so they go up after
+       * the enrollment, and a failure must not undo an enrollment that has
+       * landed — the profile page's *Add document* is where a missed one gets
+       * added, and it is one click from where this redirect lands.
+       *
+       * Sequentially rather than in parallel. Ten 5 MB uploads at once from an
+       * admissions desk on a school's connection is how the last one times out;
+       * and the count check on the server is a read-then-write that ten
+       * simultaneous requests could all pass, which would put eleven documents
+       * on a child with a limit of ten.
+       */
+      const documentProblems: string[] = [];
+
+      for (const document of uploadableDocuments(documents)) {
+        try {
+          const form = new FormData();
+          form.append('title', document.title);
+          form.append('file', document.file);
+
+          const response = await fetch(
+            withSchoolParam(
+              `/api/school/students/${created.student.studentProfileId}/documents`,
+            ),
+            { method: 'POST', body: form },
+          );
+
+          if (!response.ok) {
+            const payload = (await response.json().catch(() => null)) as {
+              error?: { message?: string };
+            } | null;
+
+            documentProblems.push(
+              `${document.title}: ${
+                payload?.error?.message ??
+                `could not be uploaded (HTTP ${response.status})`
+              }`,
+            );
+          }
+        } catch (caught) {
+          documentProblems.push(
+            `${document.title}: ${schoolErrorMessage(caught, 'could not be uploaded')}`,
+          );
+        }
+      }
+
+      /*
+       * Two flags, not one, because the profile answers them in two places.
+       *
+       * `photo=failed` puts its message on the profile card, beside the avatar
+       * and its re-upload control. A document failure belongs on the documents
+       * card, next to *Add document*. Folding both into one parameter would
+       * print "the photo could not be uploaded" over a photo that is fine.
+       */
+      const query = new URLSearchParams();
+      if (photoProblem !== null) {
+        query.set('photo', 'failed');
+        query.set('reason', photoProblem);
+      }
+      if (documentProblems.length > 0) {
+        query.set('documents', 'failed');
+        query.set('documentsReason', documentProblems.join(' · '));
+      }
+
       const destination = `/dashboard/admissions/students/${created.student.studentProfileId}`;
-      router.push(
-        photoProblem === null
-          ? destination
-          : `${destination}?photo=failed&reason=${encodeURIComponent(photoProblem)}`,
-      );
+      const search = query.toString();
+      router.push(search === '' ? destination : `${destination}?${search}`);
       router.refresh();
     } catch (caught) {
-      setError(schoolErrorMessage(caught, 'Could not enrol the student. Please try again.'));
+      setError(schoolErrorMessage(caught, 'Could not enroll the student. Please try again.'));
       setIsSubmitting(false);
     }
   };
@@ -383,7 +470,7 @@ export function StudentEnrollForm({
 
   return (
     <div className="space-y-6">
-      <ol className="flex flex-wrap gap-2" aria-label="Enrolment steps">
+      <ol className="flex flex-wrap gap-2" aria-label="Enrollment steps">
         {STEPS.map((label, index) => (
           <li key={label}>
             <button
@@ -604,10 +691,18 @@ export function StudentEnrollForm({
       ) : null}
 
       {step === 3 ? (
+        <StudentDocumentsForm
+          documents={documents}
+          onChange={setDocuments}
+          disabled={isSubmitting}
+        />
+      ) : null}
+
+      {step === 4 ? (
         <Card header={<CardTitle title="Review and confirm" />}>
           <dl className="grid gap-x-6 gap-y-3 sm:grid-cols-2">
             <ReviewItem label="Student" value={student.name} />
-            <ReviewItem label="Student ID" value={studentIdPreview ?? 'Assigned on enrolment'} />
+            <ReviewItem label="Student ID" value={studentIdPreview ?? 'Assigned on enrollment'} />
             <ReviewItem
               label="Date of birth"
               value={
@@ -635,8 +730,22 @@ export function StudentEnrollForm({
             <ReviewItem label="Branch" value={branchName} />
             <ReviewItem label="Academic year" value={academicYearName} />
             <ReviewItem label="Roll number" value={placement.rollNumber} />
-            <ReviewItem label="Enrolment date" value={placement.enrollmentDate} />
+            <ReviewItem label="Enrollment date" value={placement.enrollmentDate} />
             <ReviewItem label="Photo" value={photo === null ? '' : photo.name} />
+            {/*
+              Titles, not file names. The title is what the school will see on
+              the profile and is the thing worth checking here; a file called
+              `IMG_20260829_113402.jpg` says nothing about what it is a picture
+              of. Only the ones that will actually be sent are listed — a row
+              with a file and no title is not uploaded, and showing it would
+              promise a document that never arrives.
+            */}
+            <ReviewItem
+              label="Documents"
+              value={uploadableDocuments(documents)
+                .map((document) => document.title)
+                .join(', ')}
+            />
           </dl>
 
           <div className="mt-5 border-t border-line pt-4">
@@ -665,13 +774,13 @@ export function StudentEnrollForm({
               ? 'the primary guardian'
               : primaryGuardian.name}
             , and the admission welcome workflow will be triggered. If your GHL
-            connection is unavailable the enrolment still completes, and you can
+            connection is unavailable the enrollment still completes, and you can
             re-run the sync from the student’s profile.
           </p>
 
           <p className="mt-2 text-xs text-ink-muted">
             The student ID shown above is a preview. The final number is issued
-            when you submit, so it may differ if someone else enrols a student
+            when you submit, so it may differ if someone else enrolls a student
             first.
           </p>
         </Card>
@@ -707,7 +816,7 @@ export function StudentEnrollForm({
               void submit();
             }}
           >
-            Enrol student
+            Enroll student
           </Button>
         )}
       </div>

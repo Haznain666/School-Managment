@@ -319,7 +319,7 @@ export function ApplyForm({ branches, grades }: ApplyFormProps) {
               Optional, and worth asking for anyway: if this family already has
               a child at the school, this number is what the admissions desk
               will recognise them by when the application is converted. Same
-              field, same mask and same reveal as the enrolment screen.
+              field, same mask and same reveal as the enrollment screen.
             */}
             <CnicField
               value={guardianCnic}

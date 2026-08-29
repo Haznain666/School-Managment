@@ -92,7 +92,7 @@ ok(isValidCnic('42101-1234567-1'), 'the canonical form passes');
 ok(!isValidCnic('4210112345671'), 'thirteen correct digits in the wrong shape are refused — the format is the spec');
 ok(!isValidCnic('42101-123456-1'), 'twelve digits is not a CNIC');
 ok(!isValidCnic('42101-1234567-12'), 'fourteen digits is not a CNIC');
-ok(cnicProblem('') === null, 'blank is acceptable everywhere — a school must be able to enrol a child whose parent left the card at home');
+ok(cnicProblem('') === null, 'blank is acceptable everywhere — a school must be able to enroll a child whose parent left the card at home');
 ok(cnicProblem('42101-1234567-1') === null, 'a whole number earns no message');
 ok(cnicProblem('42101-12') !== null, 'a half-typed number does earn one');
 ok(CNIC_PATTERN.test('42101-1234567-1'), 'the exported pattern matches the canonical form');
@@ -283,7 +283,7 @@ for (const root of ROOTS) {
 
 ok(
   usages >= 3,
-  `CnicField is used on at least three screens (found ${String(usages)}) — guardians on enrolment, guardians on a profile, and staff`,
+  `CnicField is used on at least three screens (found ${String(usages)}) — guardians on enrollment, guardians on a profile, and staff`,
 );
 
 /* -------------------------------------------------------------------------- */

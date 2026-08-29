@@ -7,7 +7,7 @@ import { cnicProblem, formatCnic, isValidCnic } from '@/lib/national-id';
  * The CNIC / Smart Card field, defined once for the whole product.
  *
  * ── Why this is a component and not a `<Input label="CNIC">` ─────────────
- * It was four `<Input>`s — on the enrolment guardian step, the guardian panel,
+ * It was four `<Input>`s — on the enrollment guardian step, the guardian panel,
  * the public application form and the staff record — and only the student's
  * own document had the mask, the reveal and the validation, because that one
  * went through `NationalIdField`. So the same number was refused on one screen
@@ -22,7 +22,7 @@ import { cnicProblem, formatCnic, isValidCnic } from '@/lib/national-id';
  * ── What it inherits from the student's field ────────────────────────────
  * Everything visible: `SecretInput`'s dots and eye toggle, `formatCnic`'s
  * as-you-type 5-7-1 grouping, the same hint and the same refusal message. A
- * clerk who has learned the field on the enrolment screen has learned it
+ * clerk who has learned the field on the enrollment screen has learned it
  * everywhere. `scripts/check-cnic.ts` is what keeps that true for screens
  * nobody has written yet.
  *
@@ -45,7 +45,7 @@ export interface CnicFieldProps {
   /**
    * Called once, on each transition into a complete and well-formed number.
    *
-   * This is what the enrolment form hangs its family lookup on. It fires on
+   * This is what the enrollment form hangs its family lookup on. It fires on
    * completion rather than on blur because the clerk's next action after the
    * thirteenth digit is to type the guardian's name — which is precisely the
    * field the lookup is about to fill in for them.

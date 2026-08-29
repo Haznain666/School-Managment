@@ -34,7 +34,7 @@ import { db } from './drizzle';
  * Under Supabase Auth the address *is* the identity: it keys the account and it
  * is where the code goes. A guardian with no address cannot be given an account
  * at all, so they are skipped and reported, never failed. Most guardians on a
- * Pakistani school roll have a phone and no email, and an enrolment that
+ * Pakistani school roll have a phone and no email, and an enrollment that
  * refused to complete without one would be worse than the defect it fixed.
  *
  * ── One account, however many children ───────────────────────────────────
@@ -107,7 +107,7 @@ async function childNamesFor(
  *
  * Idempotent in both halves. An existing `school_users` row on the same phone
  * is reused rather than duplicated — it may already be there because the
- * enrolment linked it, or because the same person is a teacher at the school —
+ * enrollment linked it, or because the same person is a teacher at the school —
  * and a guardian whose `welcome_email_sent_at` is already stamped is linked but
  * not mailed again.
  *
@@ -336,7 +336,7 @@ export async function welcomeStudentGuardians(input: {
 }
 
 /**
- * Which enrolments a set of students hold, and whether each has cleared.
+ * Which enrollments a set of students hold, and whether each has cleared.
  *
  * Used by the profile screens to show one badge. Exported from here rather than
  * from `admissions-queries` because the fee gate owns the meaning of the

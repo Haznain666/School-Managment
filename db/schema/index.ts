@@ -26,9 +26,16 @@ export * from './staff';
 
 // Sprint 4 — Admissions.
 export * from './academic-years';
+// Sprint 19b — which campuses run a session. After `academic-years` and after
+// `branches` above, because it references both. A year with no rows here is
+// school-wide, which is every year that existed before it.
+export * from './academic-year-branches';
 export * from './grades';
 export * from './sections';
 export * from './student-profiles';
+// Sprint 19b — the paperwork a school keeps against a child. After
+// `student-profiles`, which owns it.
+export * from './student-documents';
 export * from './student-enrollments';
 export * from './student-guardians';
 export * from './admission-applications';

@@ -15,7 +15,7 @@ import { formatCnic, isValidCnic } from '@/lib/national-id';
  * One field in two halves rather than two fields, because neither half means
  * anything alone — a number with no document is what the old single "B-Form /
  * CNIC" box recorded, and a document with no number records nothing at all.
- * Both the enrolment form and the student profile use this, so the mask, the
+ * Both the enrollment form and the student profile use this, so the mask, the
  * validation and the reveal behave identically wherever a number is entered.
  *
  * The two documents are deliberately not validated alike. A CNIC has one
@@ -43,7 +43,7 @@ export function emptyNationalId(): NationalIdValue {
  * pair, or null when nothing is.
  *
  * A blank number is not an error — neither document is compulsory to admit a
- * child, and a school chasing paperwork must still be able to enrol them.
+ * child, and a school chasing paperwork must still be able to enroll them.
  */
 export function nationalIdProblem(value: NationalIdValue): string | null {
   if (value.number.trim() === '') return null;

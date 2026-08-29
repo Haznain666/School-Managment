@@ -100,7 +100,7 @@ export default async function StudentDashboardPage() {
   const [enrollment, fees, snapshot, day, notices] = await Promise.all([
     student === null || activeYear === null
       ? Promise.resolve(null)
-      : settle('enrolment', locationId, () =>
+      : settle('enrollment', locationId, () =>
           getCurrentEnrollment(locationId, student.studentProfileId, activeYear.id),
         ),
     student === null
@@ -154,7 +154,7 @@ export default async function StudentDashboardPage() {
             </h2>
             <p className="mt-1 text-sm text-ink-muted">
               {student === null
-                ? 'Your student record is still being set up. Your class details will appear here once your school completes your enrolment.'
+                ? 'Your student record is still being set up. Your class details will appear here once your school completes your enrollment.'
                 : enrollment === null
                   ? activeYear === null
                     ? 'Your school has not opened an academic year yet.'

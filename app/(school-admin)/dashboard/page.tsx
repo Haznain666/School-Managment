@@ -73,7 +73,7 @@ const MODULE_HOMES: Partial<Record<string, string>> = {
 };
 
 const MODULE_DESCRIPTIONS: Partial<Record<string, string>> = {
-  admissions: 'Enrol students, review applications and set up your academic year.',
+  admissions: 'Enroll students, review applications and set up your academic year.',
   fee_management: 'Generate vouchers, record payments and chase what is overdue.',
 };
 
@@ -273,7 +273,7 @@ export default async function SchoolDashboardPage({
           getAttendanceAverage(locationId, aggregateScope),
         )
       : null,
-    settle('enrolment comparison', locationId, () =>
+    settle('enrollment comparison', locationId, () =>
       getEnrolmentComparison(locationId, aggregateScope),
     ),
     /*
@@ -443,7 +443,7 @@ export default async function SchoolDashboardPage({
     ...(showEnrolment
       ? [
           {
-            label: 'Enrol a student',
+            label: 'Enroll a student',
             href: '/dashboard/admissions/enroll',
             icon: 'enroll' as const,
             description: 'Add one child to the roll.',
@@ -838,7 +838,7 @@ export default async function SchoolDashboardPage({
              total", which nobody asked.
          (b) Income against expense by campus — the same, and never a dual y
              axis: both series are PKR, so one axis is the honest one.
-         (c) Enrolment share — a donut at five campuses or fewer, a horizontal
+         (c) Enrollment share — a donut at five campuses or fewer, a horizontal
              bar above that. Part-of-whole is a donut's one job and a donut
              stops working past five slices. The switch is here, in the page,
              because only the page knows how many campuses there are.
@@ -878,7 +878,7 @@ export default async function SchoolDashboardPage({
             <Card
               header={
                 <CardTitle
-                  title="Enrolment share"
+                  title="Enrollment share"
                   description={`${scorecard.reduce((sum, row) => sum + row.students, 0).toLocaleString()} students across ${scorecard.length} campuses`}
                 />
               }
@@ -1410,7 +1410,7 @@ function campusMoneySummary(rows: readonly CampusScorecardRow[]): string {
 
 function campusEnrolmentSummary(rows: readonly CampusScorecardRow[]): string {
   const total = rows.reduce((sum, row) => sum + row.students, 0);
-  if (total === 0) return 'No campus has an active enrolment yet.';
+  if (total === 0) return 'No campus has an active enrollment yet.';
 
   const largest = rows.reduce((best, row) => (row.students > best.students ? row : best), rows[0]!);
   const smallest = rows.reduce((low, row) => (row.students < low.students ? row : low), rows[0]!);

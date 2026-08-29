@@ -157,7 +157,7 @@ export async function POST(request: NextRequest) {
 
     // The code prefixes every student ID this school ever issues, so it is
     // derived from the name rather than left null when nobody supplies one —
-    // a school with no code cannot enrol anyone.
+    // a school with no code cannot enroll anyone.
     const schoolCodeInput = readString(body.schoolCode).toUpperCase();
     const codeProblem = schoolCodeRejectionReason(schoolCodeInput);
     if (codeProblem !== null) {

@@ -568,7 +568,7 @@ export function BranchForm({
               <BranchLeadFields
                 title="Branch Administrator"
                 hat="campus administrator"
-                description="Runs this campus day to day: invites its staff, enrols its students and raises its vouchers."
+                description="Runs this campus day to day: invites its staff, enrolls its students and raises its vouchers."
                 value={values.branchAdmin}
                 disabled={isSubmitting}
                 onChange={(next) => {

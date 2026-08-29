@@ -29,7 +29,7 @@ export default async function StudentsPage() {
     resolvePrincipalScope(locationId, claims.role, me?.id ?? null),
   ]);
 
-  // The permission the enrolment route itself now checks, rather than a
+  // The permission the enrollment route itself now checks, rather than a
   // hand-kept list of roles beside it. Sprint 18.
   const canEnroll = permissions.includes('students.create');
 
@@ -52,7 +52,7 @@ export default async function StudentsPage() {
 
             {canEnroll ? (
               <Link href="/dashboard/admissions/enroll">
-                <Button>Enrol student</Button>
+                <Button>Enroll student</Button>
               </Link>
             ) : null}
           </div>

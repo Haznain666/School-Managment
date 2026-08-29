@@ -31,8 +31,8 @@ import {
  * deliberately does, marked as a preview, for the person checking before they
  * publish.
  *
- * ── The section comes from the enrolment, per term ───────────────────────
- * A child who changed section mid-year has two enrolment rows, and their
+ * ── The section comes from the enrollment, per term ───────────────────────
+ * A child who changed section mid-year has two enrollment rows, and their
  * Term 1 card belongs to the class they were in for Term 1. The lookup is
  * therefore against the term's academic year and not against "where are they
  * now" — the same reasoning that makes Sprint 11's delivery log the thing the

@@ -80,7 +80,7 @@ export default async function TransferStudentPage({
           { label: 'Transfer' },
         ]}
         title={`Transfer ${student.name}`}
-        description="Moving a student between campuses closes their enrolment at one and opens it at the other, and splits the month’s fees on the date they move."
+        description="Moving a student between campuses closes their enrollment at one and opens it at the other, and splits the month’s fees on the date they move."
       />
 
       {sections.length < 2 ? (

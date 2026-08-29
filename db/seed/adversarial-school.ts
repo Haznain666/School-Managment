@@ -16,7 +16,7 @@
  * | Siblings sharing one guardian phone | The family voucher's grouping key. Without them the feature is untested. |
  * | Guardians with **no email** | Sprint 4's `canReachGuardian` and the unreachable count. Common in this market. |
  * | Guardians with no phone **and** no email | The aged-debt report's "nobody to chase" column. |
- * | Mid-term joiners | Enrolment dates that are not the 1st of the year, which proration and attendance percentages both trip over. |
+ * | Mid-term joiners | Enrollment dates that are not the 1st of the year, which proration and attendance percentages both trip over. |
  * | Partial payments | `paid_amount` between zero and the total — the state most fee code forgets. |
  * | Concessions | A challan whose total is not the sum of the price list. |
  * | Two branches | Every tenancy and branch-scope check. One campus proves nothing. |
@@ -275,7 +275,7 @@ async function seedBranches({ db, locationId }: Ctx) {
  * the screen correctly offers nothing. The third year is the one being
  * prepared, which is the state a school is actually in when it rolls over.
  *
- * The past year exists so enrolment history is not empty on day one.
+ * The past year exists so enrollment history is not empty on day one.
  */
 async function seedYears({ db, locationId }: Ctx) {
   const rows = await db
@@ -487,7 +487,7 @@ async function seedStudents(
 
   for (const section of current) {
     // Deliberately straddles the 40-seat capacity. `capacity` is advisory —
-    // the enrolment API warns rather than refuses — and a seed where every
+    // the enrollment API warns rather than refuses — and a seed where every
     // section fits comfortably never exercises the warning or the "(41/40)"
     // the section pickers render.
     const size = 38 + Math.floor(random() * 7);
@@ -533,7 +533,7 @@ async function seedStudents(
       });
 
       // A tenth join mid-term rather than on the first day of the year. Their
-      // enrolment date is not the year's start, which is what attendance
+      // enrollment date is not the year's start, which is what attendance
       // percentages and proration both get wrong.
       const joined = chance(0.1)
         ? `2026-${String(6 + Math.floor(random() * 4)).padStart(2, '0')}-${String(1 + Math.floor(random() * 28)).padStart(2, '0')}`

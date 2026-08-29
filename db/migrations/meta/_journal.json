@@ -253,6 +253,13 @@
       "when": 1788004800000,
       "tag": "0035_sprint19a_branch_boundary",
       "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "7",
+      "when": 1788091200000,
+      "tag": "0036_sprint19b_admissions",
+      "breakpoints": true
     }
   ]
 }

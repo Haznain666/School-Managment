@@ -53,7 +53,7 @@ export function todayIso(): string {
  * Branch -> grade -> section, each list fetched once the one above it is chosen.
  *
  * Grades are loaded rather than derived from the predefined list because only
- * the seeded rows have ids to enrol against — a branch whose ladder has not
+ * the seeded rows have ids to enroll against — a branch whose ladder has not
  * been initialised genuinely has nowhere to put a student, and saying so here
  * is more use than offering grades that cannot be selected.
  */
@@ -224,7 +224,7 @@ export function AcademicPlacementForm({
         />
 
         <Input
-          label="Enrolment date"
+          label="Enrollment date"
           type="date"
           value={value.enrollmentDate}
           disabled={disabled}

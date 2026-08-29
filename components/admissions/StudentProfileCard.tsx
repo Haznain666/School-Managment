@@ -41,7 +41,7 @@ import {
  *
  * The admission number and the class placement are shown but not editable
  * here: the number is what the school prints on everything, and moving a child
- * between sections is an enrolment change rather than a profile edit.
+ * between sections is an enrollment change rather than a profile edit.
  */
 
 export interface StudentProfileValues {
@@ -72,7 +72,7 @@ export interface StudentProfileCardProps {
    */
   canDelete?: boolean;
   /**
-   * What went wrong with the photo the enrolment wizard tried to upload.
+   * What went wrong with the photo the enrollment wizard tried to upload.
    *
    * Carried here on `?photo=failed&reason=…` because the wizard is gone by the
    * time this page renders. Before Sprint 17 the wizard swallowed the failure
@@ -234,7 +234,7 @@ export function StudentProfileCard({
    * ── Why this had to exist ────────────────────────────────────────────
    * The card rendered `photoUrl` and had an Edit mode for every text field and
    * nothing at all that touched the image. So a photo that failed to upload
-   * during enrolment, or one taken on the wrong day, could not be changed from
+   * during enrollment, or one taken on the wrong day, could not be changed from
    * anywhere in this product.
    *
    * The endpoint is the one the wizard already calls, and it appends
@@ -361,8 +361,8 @@ export function StudentProfileCard({
         <div className="space-y-4">
           <p className="text-sm text-ink">
             Deleting <span className="font-medium">{student.name}</span> removes
-            their guardians, their enrolment history, their concessions and their
-            whole fee record. If this is a wrong enrolment rather than a record
+            their guardians, their enrollment history, their concessions and their
+            whole fee record. If this is a wrong enrollment rather than a record
             that should never have existed, <span className="font-medium">withdraw
             the student instead</span> — the history stays, and a transfer
             certificate can still be written from it.
@@ -456,7 +456,7 @@ export function StudentProfileCard({
           <h3 className="text-lg font-semibold text-ink">{student.name}</h3>
 
           {/*
-            The enrolment wizard's upload failure, named. Shown until the photo
+            The enrollment wizard's upload failure, named. Shown until the photo
             is replaced — it is not a toast, because the person who needs to see
             it may open this page hours after the admission.
           */}
@@ -465,7 +465,7 @@ export function StudentProfileCard({
               role="alert"
               className="mt-2 rounded-lg bg-status-danger-subtle px-3 py-2 text-sm text-status-danger-ink"
             >
-              The photo chosen during enrolment was not saved. {photoUploadProblem}{' '}
+              The photo chosen during enrollment was not saved. {photoUploadProblem}{' '}
               {canEdit ? 'Use “Add photo” to upload it again.' : null}
             </p>
           )}
