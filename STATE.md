@@ -6,12 +6,16 @@ step, before the session ends.
 
 **Last updated:** 2026-08-29 (**Sprint 19b — the campus calendar, student
 documents, academic history and Enrol→Enroll — §5bi. Items 14–19 of
-`SPRINT-19-SPEC.md`. `0036_sprint19b_admissions.sql` is **WRITTEN AND NOT
-APPLIED**; journal `idx: 36`. `SPRINT-19B-DDL-NOTES.md` says what breaks
-without it.
+`SPRINT-19-SPEC.md`. **`0036` APPLIED and verified, 36 rows -> 37 — 21 of 21
+constraint assertions, each expected refusal in its own `SAVEPOINT`, rolled
+back, nothing left behind. DEPLOYED AND LIVE as `697a0f8d724b`**, PR
+[#42](https://github.com/Haznain666/School-Managment/pull/42) merged 13:59:28Z,
+live 14:03:23Z — 3m55s. Fourteen gates green including `npm run build`, which is
+the one that mattered: three new modules are free of `server-only` and are
+value-imported by client components.
 
-⚠ **`0036` goes in before this code, and one consequence is worse than the
-rest.** Three screens 500 without it — academic years, promote, and a student
+⚠ **`0036` went in before the code, and one consequence would have been worse
+than the rest.** Three screens 500 without it — academic years, promote, and a student
 profile — which is loud and harmless. The fourth is not: the enrolment wizard
 now sends `address`, `latitude` and `longitude` on every guardian, and that
 insert is inside the enrolment transaction, so **enrolling a child stops working
@@ -9459,7 +9463,7 @@ for. All four of these were found by a person opening a screen, and three of the
 four were invisible to all thirteen gates — D1 is the only one that gained a
 gate it would have failed.
 
-### Next free migration number is `0036`.
+### ~~Next free migration number is `0036`.~~ **`0036` is taken — Sprint 19b. The next free number is `0037`.**
 
 ---
 
@@ -9469,7 +9473,18 @@ Spec: `SPRINT-19-SPEC.md`, **items 14 to 19 only**. Items 1–13 are phase 19a,
 merged and live as `821443b781df` with `0035` applied; nothing here re-does any
 of it.
 
-Migration: **`0036_sprint19b_admissions.sql` is WRITTEN AND NOT APPLIED.**
+Migration: **`0036_sprint19b_admissions.sql` is APPLIED and verified —
+2026-08-29.** The bookkeeping table held 36 rows before and **37** after.
+Verified against the real schema rather than the success message: two new
+tables with their columns, foreign keys and indexes (`academic_year_branches`
+5 columns / 3 FKs / 4 indexes including the UNIQUE on (year, branch);
+`student_documents` 10 columns / 2 FKs / 3 CHECKs), and three new nullable
+columns on `student_guardians`. Then every constraint was made to **fire**
+inside a transaction that was rolled back — each expected refusal in its own
+`SAVEPOINT` per §5be — and **21 of 21 passed** with nothing left behind.
+
+**DEPLOYED AND LIVE as `697a0f8d724b`**, PR #42.
+
 Journal entry `idx: 36`, stamped `1788091200000`. `SPRINT-19B-DDL-NOTES.md` at
 the repo root records what it does, how to verify it, how to undo it and — the
 part that matters — what breaks if the code deploys ahead of it.
