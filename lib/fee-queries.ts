@@ -50,6 +50,7 @@ import {
   type PaymentMethod,
 } from '@/db/schema';
 
+import { sharedOrOwnedBy } from './branch-scope';
 import { db, type Database, type Tx } from './drizzle';
 import { daysOverdue, remainingBalance } from './fee-calculator';
 import { toPaise } from './money';
@@ -78,10 +79,16 @@ export interface FeeTypeRow {
 
 export async function listFeeTypes(
   locationId: string,
-  options: { activeOnly?: boolean } = {},
+  options: { activeOnly?: boolean; branchIds?: string[] | null | undefined } = {},
 ): Promise<FeeTypeRow[]> {
   const conditions: SQL[] = [eq(feeTypes.locationId, locationId)];
   if (options.activeOnly === true) conditions.push(eq(feeTypes.isActive, true));
+
+  // Shared heads plus this campus's own. Never `eq` — see `lib/branch-scope.ts`;
+  // a bare equality here would empty the price-list matrix at every school,
+  // because every fee head in production today is shared.
+  const branchFilter = sharedOrOwnedBy(feeTypes.branchId, options.branchIds ?? null);
+  if (branchFilter !== undefined) conditions.push(branchFilter);
 
   return db
     .select({

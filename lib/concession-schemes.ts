@@ -12,6 +12,7 @@ import {
   studentProfiles,
 } from '@/db/schema';
 
+import { sharedOrOwnedBy } from './branch-scope';
 import { batch, db } from './drizzle';
 import { repriceOpenChallans } from './fee-challans';
 
@@ -70,6 +71,7 @@ export class ConcessionSchemeError extends Error {
 /** Every scheme this school has, with its heads and how many hold it. */
 export async function listConcessionSchemes(
   locationId: string,
+  branchIds: string[] | null = null,
 ): Promise<ConcessionSchemeRow[]> {
   const schemes = await db
     .select({
@@ -105,7 +107,15 @@ export async function listConcessionSchemes(
       )`.mapWith(Number),
     })
     .from(concessionSchemes)
-    .where(eq(concessionSchemes.locationId, locationId))
+    .where(
+      and(
+        eq(concessionSchemes.locationId, locationId),
+        // Shared schemes plus this campus's own. Grants already made are
+        // untouched either way: `student_concessions` freezes the name, the
+        // rate and the dates at grant time and `scheme_id` is provenance.
+        sharedOrOwnedBy(concessionSchemes.branchId, branchIds),
+      ),
+    )
     .orderBy(asc(concessionSchemes.name));
 
   if (schemes.length === 0) return [];

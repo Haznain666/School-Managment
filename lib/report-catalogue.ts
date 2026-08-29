@@ -241,7 +241,10 @@ export const REPORTS: readonly ReportDefinition[] = [
     blurb: 'Pass rate and averages for every exam in a term.',
     group: 'Academics',
     permission: 'exams.read',
-    filters: ['term'],
+    // `branch` added in Sprint 19a, item 9. It was one of four reports that
+    // could not be narrowed to a campus, on a screen that already prints a
+    // Campus column — so the column named a campus the filter could not select.
+    filters: ['term', 'branch'],
     columns: [
       { key: 'examTitle', label: 'Exam', kind: 'text' },
       ...CLASS_COLUMNS,
@@ -444,7 +447,7 @@ export const REPORTS: readonly ReportDefinition[] = [
     blurb: 'One account’s movements, a line per day, with a running balance.',
     group: 'Accounting',
     permission: 'accounting.read',
-    filters: ['dateRange'],
+    filters: ['dateRange', 'branch'],
     columns: [
       { key: 'entryDate', label: 'Date', kind: 'date' },
       { key: 'account', label: 'Account', kind: 'text' },
@@ -466,7 +469,7 @@ export const REPORTS: readonly ReportDefinition[] = [
     blurb: 'Income, expenses and profit for each month of a year.',
     group: 'Accounting',
     permission: 'accounting.read',
-    filters: ['year'],
+    filters: ['year', 'branch'],
     columns: [
       { key: 'period', label: 'Month', kind: 'text' },
       { key: 'income', label: 'Income', kind: 'money' },
@@ -512,7 +515,7 @@ export const REPORTS: readonly ReportDefinition[] = [
     blurb: 'One line per head, for the year, in the shape a tax return wants.',
     group: 'Accounting',
     permission: 'accounting.read',
-    filters: ['dateRange'],
+    filters: ['dateRange', 'branch'],
     columns: [
       { key: 'section', label: 'Section', kind: 'text' },
       { key: 'code', label: 'Code', kind: 'text' },

@@ -3,6 +3,12 @@ import { and, eq, ne } from 'drizzle-orm';
 import { isComponentCalculation, isComponentKind, salaryComponents } from '@/db/schema';
 import { withSchoolAuth } from '@/lib/api-auth';
 import { apiFailure, apiSuccess, handleApiError, readJsonBody } from '@/lib/api-response';
+import {
+  branchForWrite,
+  effectiveBranchIds,
+  readBranchParam,
+  resolveBranchScope,
+} from '@/lib/branch-scope';
 import { db } from '@/lib/drizzle';
 import { listSalaryComponents } from '@/lib/hr-queries';
 import { readBoolean, readOptionalString, readString } from '@/lib/validation';
@@ -32,8 +38,13 @@ export const GET = withSchoolAuth(
       const url = new URL(request.url);
       const activeOnly = url.searchParams.get('activeOnly') === 'true';
 
+      const scope = await resolveBranchScope(auth.locationId, auth, readBranchParam(url));
+
       return apiSuccess({
-        components: await listSalaryComponents(auth.locationId, { activeOnly }),
+        components: await listSalaryComponents(auth.locationId, {
+          activeOnly,
+          branchIds: effectiveBranchIds(scope),
+        }),
       });
     } catch (error) {
       return handleApiError(error);
@@ -51,6 +62,8 @@ interface CreateComponentBody {
   isBasic?: unknown;
   proratedByAttendance?: unknown;
   sortOrder?: unknown;
+  /** Null or absent = shared by every campus. Item 2e validates it. */
+  branchId?: unknown;
 }
 
 export const POST = withSchoolAuth(
@@ -100,6 +113,10 @@ export const POST = withSchoolAuth(
 
       const isBasic = readBoolean(body.isBasic, false);
 
+      const scope = await resolveBranchScope(auth.locationId, auth);
+      const campus = branchForWrite(scope, readOptionalString(body.branchId));
+      if (!campus.ok) return apiFailure('forbidden', campus.message, 403);
+
       // A deduction cannot be the basic salary; that would make every
       // percentage head a share of a subtraction.
       if (isBasic && body.kind === 'deduction') {
@@ -121,6 +138,7 @@ export const POST = withSchoolAuth(
         .values({
           // Tenant comes from the verified session, never from the body.
           locationId: auth.locationId,
+          branchId: campus.branchId,
           name,
           description: readOptionalString(body.description),
           kind: body.kind,

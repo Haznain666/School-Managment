@@ -11,6 +11,7 @@ import {
   uuid,
 } from 'drizzle-orm/pg-core';
 
+import { branches } from './branches';
 import { schools } from './schools';
 
 export const FEE_CATEGORIES = ['monthly', 'one_time', 'annual'] as const;
@@ -42,6 +43,14 @@ export const feeTypes = pgTable(
     locationId: text('location_id')
       .notNull()
       .references(() => schools.locationId, { onDelete: 'cascade' }),
+    /**
+     * The campus that owns this fee head, or null when the school shares it.
+     * See `lib/branch-scope.ts` for the read rule and `db/schema/subjects.ts`
+     * for why it is nullable rather than backfilled.
+     */
+    branchId: uuid('branch_id').references(() => branches.id, {
+      onDelete: 'set null',
+    }),
     name: text('name').notNull(),
     description: text('description'),
     feeCategory: text('fee_category').notNull().$type<FeeCategory>(),
@@ -54,6 +63,7 @@ export const feeTypes = pgTable(
   },
   (table) => [
     index('fee_types_location_id_idx').on(table.locationId),
+    index('fee_types_location_branch_idx').on(table.locationId, table.branchId),
     // Seeding upserts on this, so re-running it cannot duplicate a head.
     uniqueIndex('fee_types_location_id_name_idx').on(table.locationId, table.name),
     check(

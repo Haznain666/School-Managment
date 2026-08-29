@@ -3,6 +3,12 @@ import { and, eq } from 'drizzle-orm';
 import { branches, schoolUsers } from '@/db/schema';
 import { apiFailure, apiSuccess, handleApiError, readJsonBody } from '@/lib/api-response';
 import { withSchoolAuth } from '@/lib/api-auth';
+import {
+  effectiveBranchIds,
+  readBranchParam,
+  resolveBranchScope,
+  scopeAdmitsWrite,
+} from '@/lib/branch-scope';
 import { db } from '@/lib/drizzle';
 import { readListQuery } from '@/lib/list-query';
 import {
@@ -19,8 +25,14 @@ import { BRANCH_REQUIRED_ROLES, isUserRole } from '@/types/school-auth';
  * GET  list, filtered and paginated
  * POST create a member directly, without an invitation
  *
- * A branch_admin sees only their own branch: their `branchId` claim overrides
- * whatever they ask for, so the filter cannot be widened from the client.
+ * A branch-bound member sees only the campuses `resolveBranchScope` gives them
+ * — their own, plus anything granted in `school_user_branches`. The boundary is
+ * applied inside `listSchoolUsers`, to the page query, the total **and** all
+ * three facet counts, so the dropdown can never offer a campus whose rows the
+ * list would refuse to show.
+ *
+ * Before Sprint 19a this read `auth.branchId` directly and pinned the filter to
+ * it. That was correct as far as it went and had no way to express a grant.
  */
 
 export const runtime = 'nodejs';
@@ -37,19 +49,32 @@ export const GET = withSchoolAuth(
       const statusParam = url.searchParams.get('status');
       const status = isUserStatus(statusParam) ? statusParam : undefined;
 
-      // A branch-scoped admin is confined to their branch regardless of input.
-      const branchId =
-        auth.branchId ?? (url.searchParams.get('branchId') ?? undefined);
+      const scope = await resolveBranchScope(auth.locationId, auth, readBranchParam(url));
+
+      /*
+       * The dropdown's own choice, honoured only inside the boundary below. A
+       * value naming a campus outside it narrows to nothing rather than
+       * widening — `and(inArray(scope), eq(other))` is empty, which is the safe
+       * direction and the reason this can be taken from the client at all.
+       */
+      const branchId = url.searchParams.get('branchId') ?? undefined;
 
       const list = readListQuery(url.searchParams, {
         sortable: SCHOOL_USER_SORT_COLUMNS,
         defaultSort: 'name',
         defaultDirection: 'asc',
+        // Stated rather than inherited (Sprint 19a, item 7). It is already
+        // `readListQuery`'s default and `DataTable`'s, and writing it here is
+        // what makes those three the same number on purpose rather than by
+        // coincidence — a page size that drifted between the server's cap and
+        // the browser's is how a reader pages off the end of a list.
+        defaultLimit: 50,
       });
 
       const result = await listSchoolUsers(auth.locationId, {
         role: url.searchParams.get('role') ?? undefined,
-        branchId: branchId === null ? undefined : branchId,
+        branchId,
+        branchIds: effectiveBranchIds(scope),
         status,
         search: url.searchParams.get('search') ?? undefined,
         page: list.page,
@@ -115,6 +140,22 @@ export const POST = withSchoolAuth(
         if (owned[0] === undefined) {
           return apiFailure('invalid_body', 'That branch does not exist.', 400);
         }
+      }
+
+      /*
+       * Item 2e. A campus administrator may add somebody to their own campus
+       * and not to another's — nor to no campus at all, which would mint a
+       * school-wide member from inside one branch.
+       */
+      const scope = await resolveBranchScope(auth.locationId, auth);
+      if (!scopeAdmitsWrite(scope, branchId)) {
+        return apiFailure(
+          'forbidden',
+          branchId === null
+            ? 'Only a school-wide administrator can add a member with no campus.'
+            : 'You do not have access to that campus.',
+          403,
+        );
       }
 
       const inserted = await db

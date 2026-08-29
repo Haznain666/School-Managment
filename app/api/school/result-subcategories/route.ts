@@ -3,6 +3,12 @@ import { and, eq, isNull, sql } from 'drizzle-orm';
 import { resultSubcategories } from '@/db/schema';
 import { withSchoolAuth } from '@/lib/api-auth';
 import { apiFailure, apiSuccess, handleApiError, readJsonBody } from '@/lib/api-response';
+import {
+  branchForWrite,
+  effectiveBranchIds,
+  readBranchParam,
+  resolveBranchScope,
+} from '@/lib/branch-scope';
 import { db } from '@/lib/drizzle';
 import { getExamSettings, listResultSubcategories } from '@/lib/exam-queries';
 import { normalizeHex, subcategoryProblem } from '@/lib/result-subcategories';
@@ -28,8 +34,13 @@ export const GET = withSchoolAuth(
       const url = new URL(request.url);
       const includeArchived = url.searchParams.get('includeArchived') === 'true';
 
+      const scope = await resolveBranchScope(auth.locationId, auth, readBranchParam(url));
+
       const [subcategories, settings] = await Promise.all([
-        listResultSubcategories(auth.locationId, { includeArchived }),
+        listResultSubcategories(auth.locationId, {
+          includeArchived,
+          branchIds: effectiveBranchIds(scope),
+        }),
         getExamSettings(auth.locationId),
       ]);
 
@@ -44,6 +55,8 @@ export const GET = withSchoolAuth(
 interface CreateBody {
   label?: unknown;
   colorHex?: unknown;
+  /** Null or absent = shared by every campus. Item 2e validates it. */
+  branchId?: unknown;
 }
 
 export const POST = withSchoolAuth(
@@ -79,11 +92,19 @@ export const POST = withSchoolAuth(
           ),
         );
 
+      const scope = await resolveBranchScope(auth.locationId, auth);
+      const campus = branchForWrite(
+        scope,
+        typeof body.branchId === 'string' && body.branchId !== '' ? body.branchId : null,
+      );
+      if (!campus.ok) return apiFailure('forbidden', campus.message, 403);
+
       const created = await db
         .insert(resultSubcategories)
         .values({
           // Tenant from the verified session, never from the body.
           locationId: auth.locationId,
+          branchId: campus.branchId,
           label: label.trim(),
           colorHex,
           sortOrder: (last[0]?.highest ?? -1) + 1,

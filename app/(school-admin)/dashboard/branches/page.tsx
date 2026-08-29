@@ -32,9 +32,17 @@ export const runtime = 'nodejs';
  * has somewhere to go, and the empty state here is the same one Invite Staff
  * redirects past: a school with no campus is one screen away from having one.
  *
- * Read-and-create only. Editing and deactivating stay in the Super Admin panel
- * — see the note on the Active toggle in `components/super-admin/BranchForm.tsx`
- * for why a school hiding its own campus is a trap rather than a feature.
+ * ── Read, create, and — from Sprint 19a — open (item 8) ──────────────────
+ * Every row is now a link to the campus's own page, where the record can be
+ * edited, its principal appointed and, while nothing is attached to it, the
+ * campus deleted. Editing is `branches.manage`; the list itself stays on
+ * `settings.read`, which every administrative role holds.
+ *
+ * **Deactivating still stays in the Super Admin panel**, and that has not
+ * changed — see the note on the Active toggle in
+ * `components/super-admin/BranchForm.tsx`. Inside the portal an inactive campus
+ * is invisible everywhere, so a school administrator who switched one off would
+ * have hidden a campus with no screen left that shows it again.
  */
 export default async function BranchesPage() {
   const { locationId, permissions } = await requireSchoolPermission('settings.read');
@@ -80,7 +88,19 @@ export default async function BranchesPage() {
           <TableBody>
             {branches.map((branch) => (
               <TableRow key={branch.id}>
-                <TableCell className="font-medium text-ink">{branch.name}</TableCell>
+                {/*
+                  The name is the link, not the whole row. A row-wide click
+                  target is unreachable from a keyboard without an anchor in it
+                  anyway, and the name is what a reader aims at.
+                */}
+                <TableCell className="font-medium text-ink">
+                  <Link
+                    href={`/dashboard/branches/${branch.id}`}
+                    className="text-brand-primary hover:underline"
+                  >
+                    {branch.name}
+                  </Link>
+                </TableCell>
                 <TableCell>{branch.code}</TableCell>
                 <TableCell>{branch.city}</TableCell>
               </TableRow>

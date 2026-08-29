@@ -2,10 +2,14 @@ import { asc, eq } from 'drizzle-orm';
 import type { NextRequest } from 'next/server';
 
 import { branches, isCurriculumLevel, schools } from '@/db/schema';
-import { queueAccessEmail } from '@/lib/access-email';
 import { demoteOtherMainBranches } from '@/lib/branches';
 import { apiFailure, apiSuccess, handleApiError, readJsonBody } from '@/lib/api-response';
 import { sanitiseClassLevels } from '@/lib/branch-classes';
+import {
+  applyBranchLead,
+  describeBranchLead,
+  readBranchLead,
+} from '@/lib/branch-leads';
 import { isPakistaniCity } from '@/lib/cities';
 import { db } from '@/lib/drizzle';
 import {
@@ -14,7 +18,6 @@ import {
   readLandlineField,
   readMobileField,
 } from '@/lib/profile-fields';
-import { createFirstSchoolAdmin } from '@/lib/school-bootstrap';
 import { resolveLocationId } from '@/lib/schools';
 import { requireSuperAdmin } from '@/lib/super-admin-guard';
 import { isUuid, readOptionalString, readString } from '@/lib/validation';
@@ -75,8 +78,17 @@ interface CreateBranchBody {
   classLevels?: unknown;
   isMainBranch?: unknown;
   isActive?: unknown;
-  /** Invite the branch email as this campus's administrator. */
-  inviteAsBranchAdmin?: unknown;
+  /**
+   * Who runs this campus. Both optional, both validated by
+   * `lib/branch-leads.ts` — the *same module* the school-portal route uses, so
+   * the two cannot disagree about what a usable answer is.
+   *
+   * Replaces `inviteAsBranchAdmin`, which could only ever offer the campus's
+   * own email address and produced an account called "Johar Town Campus
+   * administrator" — a role rather than a person.
+   */
+  branchAdmin?: unknown;
+  branchPrincipal?: unknown;
 }
 
 export async function POST(request: NextRequest, context: RouteContext) {
@@ -110,6 +122,18 @@ export async function POST(request: NextRequest, context: RouteContext) {
     const body = await readJsonBody<CreateBranchBody>(request);
     if (body === null) {
       return apiFailure('invalid_body', 'Expected a JSON body.', 400);
+    }
+
+    // Read before the branch is written, so an unusable answer is a 400 rather
+    // than a created campus with a half-applied administrator behind it.
+    const branchAdmin = readBranchLead(body.branchAdmin);
+    if (typeof branchAdmin === 'string') {
+      return apiFailure('invalid_body', branchAdmin, 400);
+    }
+
+    const branchPrincipal = readBranchLead(body.branchPrincipal);
+    if (typeof branchPrincipal === 'string') {
+      return apiFailure('invalid_body', branchPrincipal, 400);
     }
 
     const name = readString(body.name);
@@ -193,86 +217,42 @@ export async function POST(request: NextRequest, context: RouteContext) {
       await demoteOtherMainBranches(locationId, branch.id);
     }
 
-    /**
-     * Optionally turn the branch's email into that campus's administrator.
+    /*
+     * Who runs this campus — Sprint 19a, item 3.
      *
-     * ── Why this is offered at all ───────────────────────────────────────
-     * An operator who types an email address into a form reasonably expects
-     * somebody to hear about it. Until now the branch email was a *contact*
-     * field — printed on a challan, never mailed — so entering one and waiting
-     * for an invitation was a silent no-op, and it was reported as exactly
-     * that: "I create a Branch and enter email ID, the email is not being sent
-     * to the user."
+     * Applied *after* the branch is committed and never allowed to fail it.
+     * The campus is the thing the operator asked for; a mail server that is
+     * down or a phone number already in use must not come back as a 500 that
+     * says nothing was created, because the operator would create it again.
+     * `applyBranchLead` returns a reason instead, and the two sentences below
+     * are what the panel prints.
      *
-     * ── Why it is a choice rather than automatic ─────────────────────────
-     * Because it creates a *person* with access to the school, and some
-     * branches genuinely have only a front-desk address that nobody should be
-     * signing in with. The form asks; it does not assume.
-     *
-     * ── Why it needs the mobile too ──────────────────────────────────────
-     * `school_users.phone` is NOT NULL and unique per school — it is how a
-     * member is identified within a tenant. There is no way to write the row
-     * without one, so the invitation is skipped and said to be skipped, rather
-     * than failing the branch creation that already succeeded.
+     * `schoolRow` is read above rather than here so a school that vanished
+     * between the two is a 404 and not a half-created branch.
      */
-    let invite: {
-      created: boolean;
-      emailQueued: boolean;
-      reason: string | null;
-    } = { created: false, emailQueued: false, reason: null };
+    const leads = [
+      await applyBranchLead('admin', branchAdmin, {
+        locationId,
+        branchId: branch.id,
+        branchName: name,
+        actor: session.email,
+      }),
+      await applyBranchLead('principal', branchPrincipal, {
+        locationId,
+        branchId: branch.id,
+        branchName: name,
+        actor: session.email,
+      }),
+    ].filter((outcome) => outcome !== null);
 
-    if (body.inviteAsBranchAdmin === true) {
-      if (email.value === null) {
-        invite = { created: false, emailQueued: false, reason: 'No email address was given for this branch.' };
-      } else if (phone.value === null) {
-        invite = {
-          created: false,
-          emailQueued: false,
-          reason:
-            'A mobile number is needed as well as an email — it is how a member is identified within a school. Add one and invite them from the Users tab.',
-        };
-      } else {
-        const member = await createFirstSchoolAdmin(db, {
-          locationId,
-          name: `${name} administrator`,
-          phone: phone.value,
-          email: email.value,
-          role: 'branch_admin',
-          branchId: branch.id,
-        });
-
-        if (member.status === 'created') {
-          const access = await queueAccessEmail({
-            locationId,
-            school: { name: schoolRow.name, slug: schoolRow.slug },
-            member: {
-              id: member.userId,
-              name: `${name} administrator`,
-              email: email.value,
-              authUserId: null,
-            },
-            createdBy: session.email,
-          });
-
-          invite = {
-            created: true,
-            emailQueued: access.queued,
-            reason: access.queued ? null : access.reason,
-          };
-        } else {
-          invite = {
-            created: false,
-            emailQueued: false,
-            reason:
-              member.status === 'exists'
-                ? 'Somebody at this school already uses that mobile number, so no new administrator was created.'
-                : member.reason,
-          };
-        }
-      }
-    }
-
-    return apiSuccess({ branch, invite }, 201);
+    return apiSuccess(
+      {
+        branch,
+        leads,
+        notes: leads.map((outcome) => describeBranchLead(outcome)),
+      },
+      201,
+    );
   } catch (error) {
     return handleApiError(error);
   }

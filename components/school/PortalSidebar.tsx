@@ -1,7 +1,9 @@
 'use client';
 
+import { ChevronDown } from 'lucide-react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
+import { useCallback, useEffect, useState } from 'react';
 
 import { NAV_ICONS, type NavIconName } from '@/components/school/nav-icons';
 import { Icon } from '@/components/ui/Icon';
@@ -53,6 +55,26 @@ export interface PortalNavSection {
  * `PortalFrame` renders this inline on desktop and inside a drawer on mobile.
  * Keeping one definition is the point: the sidebar used to vanish entirely
  * below 768px, and the cure for that must not be a second list that drifts.
+ *
+ * ── The sections collapse, and start closed (Sprint 19a, item 6) ─────────
+ * A school administrator's sidebar runs to nine groups and forty-odd links,
+ * which is a wall rather than a menu: everything below Fees is off the bottom
+ * of a laptop screen, and the reader scrolls a list to find a heading rather
+ * than reading headings to find a list.
+ *
+ * Three rules, and each of them is answering a way this could have gone wrong:
+ *
+ *  · **Closed by default, but never the section you are in.** A collapsed
+ *    sidebar that hides the current page has taken away the one thing a
+ *    sidebar is for — saying where you are. The current section is opened
+ *    before anything is read from storage, so it is open on the very first
+ *    paint and cannot flicker shut.
+ *  · **Stored per section, in `localStorage`, inside `try`/`catch`.** A private
+ *    window and a browser with storage disabled both throw on the *read*, and
+ *    a sidebar is not a feature worth failing a whole portal for.
+ *  · **No disclosure in icon-only mode.** Collapsed, the heading is already
+ *    replaced by a rule (see below) — there is nothing left to click, and the
+ *    items must stay visible or the rail becomes a column of blank space.
  */
 export function PortalNavList({
   items,
@@ -65,6 +87,49 @@ export function PortalNavList({
   collapsed?: boolean;
 }) {
   const pathname = usePathname();
+
+  /**
+   * Which disclosures the reader has opened, by section label.
+   *
+   * Absent from the map means "not answered", which is closed — except for the
+   * section holding the current route, which `sectionIsOpen` opens regardless.
+   * Seeding this from `localStorage` in an initialiser would read storage
+   * during the server render, so it starts empty and is filled after mount:
+   * the first paint is the same on both sides, and the restore is one frame
+   * later on a control nobody is looking at yet.
+   */
+  const [opened, setOpened] = useState<Record<string, boolean>>({});
+
+  useEffect(() => {
+    try {
+      const stored = window.localStorage.getItem(SECTION_STORAGE_KEY);
+      if (stored === null) return;
+
+      const parsed: unknown = JSON.parse(stored);
+      if (typeof parsed !== 'object' || parsed === null) return;
+
+      const restored: Record<string, boolean> = {};
+      for (const [label, value] of Object.entries(parsed as Record<string, unknown>)) {
+        if (typeof value === 'boolean') restored[label] = value;
+      }
+      setOpened(restored);
+    } catch {
+      // A private window, a disabled storage quota, or a value somebody edited
+      // by hand. All three mean "no preference", which is the default anyway.
+    }
+  }, []);
+
+  const toggleSection = useCallback((label: string, next: boolean) => {
+    setOpened((current) => {
+      const updated = { ...current, [label]: next };
+      try {
+        window.localStorage.setItem(SECTION_STORAGE_KEY, JSON.stringify(updated));
+      } catch {
+        // The preference is lost at the end of the session and nothing else is.
+      }
+      return updated;
+    });
+  }, []);
 
   /**
    * Prefix matching, except for the exact link.
@@ -167,37 +232,100 @@ export function PortalNavList({
 
   return (
     <>
+      {/*
+        The flat items — Dashboard, Users, Branches, Communications, Reports,
+        Settings, Feedback — are not in a section and do not collapse. They are
+        seven links with no heading between them, so there is nothing to
+        disclose and hiding them would cost the reader the shortcuts they use
+        most.
+      */}
       <ul className="space-y-0.5">{items.map(renderItem)}</ul>
 
-      {(sections ?? []).map((section) => (
-        <div key={section.label} className="mt-5">
-          {collapsed ? (
-            /*
-              Collapsed, the heading has nowhere to go — so the group is marked
-              by a rule instead, and the section name survives only for screen
-              readers. A truncated three-letter heading would be noise.
-            */
-            <>
-              <span className="sr-only">{section.label}</span>
-              <div
-                aria-hidden="true"
-                className="mx-auto mb-2 h-px w-6 bg-[rgb(var(--brand-on-secondary)/0.20)]"
-              />
-            </>
-          ) : (
-            // 70%, not the 50% this carried before Sprint 10.5. At 50% these
-            // measured 3.47:1 against the default secondary — and unlike a
-            // placeholder these are live, readable labels ("Admissions",
-            // "Fees") that a reader scans to find a section, so nothing exempts
-            // them from the full 4.5. 11px uppercase is the *hardest* text in
-            // the sidebar to read, not the easiest.
-            <h2 className="px-2.5 pb-1 text-2xs font-semibold uppercase tracking-wide text-brand-onSecondary/70">
-              {section.label}
-            </h2>
-          )}
-          <ul className="space-y-0.5">{section.items.map(renderItem)}</ul>
-        </div>
-      ))}
+      {(sections ?? []).map((section) => {
+        const holdsCurrent = section.items.some((item) => isCurrent(item.href));
+        // The current section wins over the stored preference, always. See the
+        // docblock: a sidebar that hides the page you are on has stopped doing
+        // the one job it has.
+        const isOpen = collapsed || holdsCurrent || opened[section.label] === true;
+        const panelId = `nav-section-${slugifySection(section.label)}`;
+
+        return (
+          <div key={section.label} className="mt-5">
+            {collapsed ? (
+              /*
+                Collapsed, the heading has nowhere to go — so the group is marked
+                by a rule instead, and the section name survives only for screen
+                readers. A truncated three-letter heading would be noise, and
+                with no heading there is no disclosure control either.
+              */
+              <>
+                <span className="sr-only">{section.label}</span>
+                <div
+                  aria-hidden="true"
+                  className="mx-auto mb-2 h-px w-6 bg-[rgb(var(--brand-on-secondary)/0.20)]"
+                />
+              </>
+            ) : (
+              // 70%, not the 50% this carried before Sprint 10.5. At 50% these
+              // measured 3.47:1 against the default secondary — and unlike a
+              // placeholder these are live, readable labels ("Admissions",
+              // "Fees") that a reader scans to find a section, so nothing exempts
+              // them from the full 4.5. 11px uppercase is the *hardest* text in
+              // the sidebar to read, not the easiest.
+              <h2>
+                <button
+                  type="button"
+                  aria-expanded={isOpen}
+                  aria-controls={panelId}
+                  // Disabled rather than hidden on the section holding the
+                  // current page: the chevron still says "this one is open",
+                  // and a control that would close the page out from under the
+                  // reader is better refused than offered.
+                  disabled={holdsCurrent}
+                  onClick={() => {
+                    toggleSection(section.label, !isOpen);
+                  }}
+                  className={cn(
+                    'flex w-full items-center gap-1.5 rounded-control px-2.5 pb-1 pt-1',
+                    'text-2xs font-semibold uppercase tracking-wide',
+                    'text-brand-onSecondary/70 transition-colors duration-fast',
+                    holdsCurrent
+                      ? 'cursor-default'
+                      : 'hover:bg-[rgb(var(--brand-on-secondary)/0.10)] hover:text-brand-onSecondary',
+                  )}
+                >
+                  <Icon
+                    as={ChevronDown}
+                    size="xs"
+                    className={cn(
+                      'shrink-0 transition-transform duration-fast',
+                      isOpen ? undefined : '-rotate-90',
+                    )}
+                  />
+                  <span className="truncate">{section.label}</span>
+                </button>
+              </h2>
+            )}
+
+            {/*
+              `hidden`, not unmounted. The links stay in the accessibility tree
+              as a collapsed region rather than disappearing from the document,
+              and a browser's own in-page find still reaches them.
+            */}
+            <ul id={panelId} hidden={!isOpen} className="space-y-0.5">
+              {section.items.map(renderItem)}
+            </ul>
+          </div>
+        );
+      })}
     </>
   );
+}
+
+/** Where the open/closed answers are kept. One key, one object. */
+const SECTION_STORAGE_KEY = 'sms.portal.nav-sections';
+
+/** A section label as an `id` fragment, for `aria-controls`. */
+function slugifySection(label: string): string {
+  return label.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
 }

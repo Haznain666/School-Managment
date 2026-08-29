@@ -41,7 +41,10 @@ export default async function SearchPage({
   const query = q ?? '';
 
   const results = await searchForSession(
-    { locationId, uid: claims.uid, role: claims.role },
+    // `branchId` is passed rather than applied: `resolveBranchScope` turns it
+    // into the campus set, which is more than this one field says once
+    // `school_user_branches` has a row in it.
+    { locationId, uid: claims.uid, role: claims.role, branchId: claims.branchId },
     query,
   );
 

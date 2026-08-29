@@ -8,6 +8,7 @@ import {
   uuid,
 } from 'drizzle-orm/pg-core';
 
+import { branches } from './branches';
 import { schools } from './schools';
 
 /**
@@ -34,6 +35,22 @@ export const subjects = pgTable(
     locationId: text('location_id')
       .notNull()
       .references(() => schools.locationId, { onDelete: 'cascade' }),
+    /**
+     * The campus that owns this subject, or null when the whole school shares
+     * it — Sprint 19a, decision D1.
+     *
+     * Every existing row is null and null is what a write naming no campus
+     * produces, so nothing changes for any school on the day this deploys.
+     * Read it through `lib/branch-scope.ts`, never with a bare `eq`: that hides
+     * every shared row, which at most schools is all of them.
+     *
+     * `ON DELETE SET NULL`, never cascade. Closing a campus must not delete the
+     * school's subject list; a row whose campus is gone becomes shared, which
+     * is the safe direction.
+     */
+    branchId: uuid('branch_id').references(() => branches.id, {
+      onDelete: 'set null',
+    }),
     name: text('name').notNull(),
     /** Short code shown in the timetable grid, e.g. `MATH`. Null = use `name`. */
     code: text('code'),
@@ -49,6 +66,7 @@ export const subjects = pgTable(
   },
   (table) => [
     index('subjects_location_id_idx').on(table.locationId),
+    index('subjects_location_branch_idx').on(table.locationId, table.branchId),
     // Two subjects called "Physics" in one school would make every timetable
     // ambiguous. The name is unique per school, not globally.
     uniqueIndex('subjects_location_id_name_idx').on(table.locationId, table.name),

@@ -10,6 +10,7 @@ import {
   staff,
 } from '@/db/schema';
 
+import { sharedOrOwnedBy } from './branch-scope';
 import { db } from './drizzle';
 
 /**
@@ -144,13 +145,31 @@ export async function listOwnLeave(
     .orderBy(desc(leaveRequests.startDate));
 }
 
-/** Leave types this school offers, for the request form. */
+/**
+ * Leave types this school offers, for the request form.
+ *
+ * `branchIds` is the campus this member belongs to, so a school group that has
+ * given one campus its own leave head does not offer it to the rest. Shared
+ * heads — a null `branch_id`, which is every head in production today — are
+ * offered to everybody, which is what `sharedOrOwnedBy` is for and why an `eq`
+ * here would empty the dropdown at every school.
+ *
+ * `null` reads every campus and is what a caller with no campus gets, which is
+ * the behaviour this had before Sprint 19a.
+ */
 export async function listLeaveTypeOptions(
   locationId: string,
+  branchIds: string[] | null = null,
 ): Promise<{ id: string; name: string; isPaid: boolean }[]> {
   return db
     .select({ id: leaveTypes.id, name: leaveTypes.name, isPaid: leaveTypes.isPaid })
     .from(leaveTypes)
-    .where(and(eq(leaveTypes.locationId, locationId), eq(leaveTypes.isActive, true)))
+    .where(
+      and(
+        eq(leaveTypes.locationId, locationId),
+        eq(leaveTypes.isActive, true),
+        sharedOrOwnedBy(leaveTypes.branchId, branchIds),
+      ),
+    )
     .orderBy(asc(leaveTypes.name));
 }

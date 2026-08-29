@@ -246,16 +246,29 @@ export function FeeStructureMatrix({
             }}
           />
 
-          <Select
-            label="Branch"
-            options={branches.map((branch) => ({ value: branch.id, label: branch.name }))}
-            value={branchId}
-            disabled={lockedBranchId !== null}
-            hint={lockedBranchId === null ? undefined : 'Fixed to your own branch.'}
-            onChange={(event) => {
-              setBranchId(event.target.value);
-            }}
-          />
+          {/*
+            Item 13 (Sprint 19a): hidden outright at a school with one campus,
+            rather than shown disabled. `branchId` already defaults to the only
+            branch, so the control could never do anything — and a greyed-out
+            dropdown invites the question "what am I missing?", which is the
+            same argument `PrincipalAssignments` makes about not rendering a
+            disabled assignment list.
+          */}
+          {branches.length < 2 ? null : (
+            <Select
+              label="Branch"
+              options={branches.map((branch) => ({
+                value: branch.id,
+                label: branch.name,
+              }))}
+              value={branchId}
+              disabled={lockedBranchId !== null}
+              hint={lockedBranchId === null ? undefined : 'Fixed to your own branch.'}
+              onChange={(event) => {
+                setBranchId(event.target.value);
+              }}
+            />
+          )}
 
           {canEdit ? (
             <div className="sm:col-span-2 flex flex-wrap items-end gap-3">

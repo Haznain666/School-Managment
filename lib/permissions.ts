@@ -55,6 +55,7 @@ export const PERMISSIONS = [
   'comms.send',
   'settings.read',
   'settings.write',
+  'branches.manage',
   'principals.manage',
   'permissions.manage',
   'accounting.read',
@@ -133,6 +134,7 @@ export const PERMISSION_GROUPS: readonly PermissionGroup[] = [
     permissions: [
       'settings.read',
       'settings.write',
+      'branches.manage',
       'principals.manage',
       'permissions.manage',
     ],
@@ -171,6 +173,7 @@ export const PERMISSION_LABELS: Record<Permission, string> = {
   'payroll.write': 'Run, approve and pay payroll',
   'settings.read': 'See the school profile and branding',
   'settings.write': 'Edit the school profile, logo and colours',
+  'branches.manage': 'Add, edit and delete a campus',
   'principals.manage': 'Decide which principal runs which campus or division',
   'permissions.manage': 'Change what every role may do',
   'accounting.read': 'See the ledger, expenses and the financial statements',
@@ -217,6 +220,13 @@ export const PERMISSION_DESCRIPTIONS: Partial<Record<Permission, string>> = {
   'students.transfer':
     'Moving a student between branches also moves their fees. A branch ' +
     'administrator does not hold this — the receiving branch has to agree.',
+  'branches.manage':
+    'A campus is the boundary every other list in this product is drawn ' +
+    'inside — students, staff, grades, vouchers and the ledger all belong to ' +
+    'one. Editing a campus renames it everywhere it appears; deleting one is ' +
+    'refused outright while anybody is enrolled at it. Separate from ' +
+    'settings.write because a school group hands its campuses to somebody ' +
+    'more senior than whoever maintains the logo.',
   'principals.manage':
     'An assignment decides which students, staff and results a head can see. ' +
     'Whoever holds this can widen their own principal’s view of the school.',
@@ -308,6 +318,15 @@ export const UNREVOKABLE: { role: UserRole; permission: Permission } = {
  * the only key here that destroys history rather than writing it, and there is
  * no role for which "may enrol a child" should have implied "may make one
  * disappear".
+ *
+ * Sprint 19a added `branches.manage` and gave it to `school_admin` alone —
+ * which, because that role holds `[...PERMISSIONS]`, needs no entry below. It
+ * is deliberately **not** granted to `branch_admin`: a campus administrator
+ * editing the campus record is editing the boundary they are confined by, and
+ * `resolveBranchScope` reads that boundary on every request. Creating a branch
+ * stays on `settings.write` where it has always been, so a school that has
+ * never opened the permissions screen can still make its first campus exactly
+ * as it could yesterday; only editing and deleting an existing one are new.
  */
 export const DEFAULT_ROLE_PERMISSIONS: Record<UserRole, readonly Permission[]> = {
   school_admin: [...PERMISSIONS],

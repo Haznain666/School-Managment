@@ -94,8 +94,26 @@ import {
 /** What every runner is given. */
 export interface ReportScope {
   locationId: string;
-  /** Set when the caller is branch-bound and may not widen. */
+  /**
+   * Set when the caller is branch-bound and may not widen.
+   *
+   * @deprecated Sprint 19a. The screens now resolve the campus through
+   * `lib/branch-scope.ts` and pass the applied value in `params.branchId`,
+   * because a person granted extra campuses has a real choice that a single
+   * session field cannot express. It stays for `scripts/check-reports.ts`,
+   * which drives the runners directly with bare parameters and has no session.
+   */
   sessionBranchId: string | null;
+  /**
+   * The campuses the caller may read at all, from `resolveBranchScope`.
+   *
+   * `null` is the whole school. It is the backstop rather than the filter: the
+   * *selection* arrives in `params.branchId`, already validated against this
+   * list by the resolver, and this is here so a runner can refuse a value that
+   * somehow reached it from outside — which is the difference between a filter
+   * and a boundary.
+   */
+  branchIds?: string[] | null | undefined;
 }
 
 export interface ReportResult {
@@ -104,10 +122,29 @@ export interface ReportResult {
   totals: ReportRow | null;
 }
 
-/** The branch actually applied, session first. See the docblock. */
+/**
+ * The campus actually applied.
+ *
+ * The order is: the caller's session pin (the pre-Sprint-19a path, still used
+ * by `check-reports`), then the selection — but **only when it is inside the
+ * caller's own scope**. A value from outside it falls back to the first campus
+ * the resolver listed, which is the caller's own; it never falls back to
+ * `undefined`, because `undefined` here means "no campus filter" and would
+ * widen a branch-bound reader to the whole group.
+ *
+ * That is the one place in this module where getting the fallback wrong is a
+ * leak rather than a wrong number, which is why it is written out rather than
+ * expressed as a `??` chain.
+ */
 function effectiveBranch(scope: ReportScope, params: ReportParams): string | undefined {
   if (scope.sessionBranchId !== null) return scope.sessionBranchId;
-  return params.branchId === '' ? undefined : params.branchId;
+
+  const requested = params.branchId === '' ? undefined : params.branchId;
+  const allowed = scope.branchIds ?? null;
+
+  if (allowed === null) return requested;
+  if (requested !== undefined && allowed.includes(requested)) return requested;
+  return allowed[0];
 }
 
 /**
@@ -606,6 +643,8 @@ async function academicResults(
   const termId = params.termId === '' ? undefined : params.termId;
   if (termId === undefined) return { rows: [], totals: null };
 
+  const branchId = effectiveBranch(scope, params);
+
   const examRows = await db
     .select({
       id: exams.id,
@@ -629,9 +668,11 @@ async function academicResults(
       and(
         eq(exams.locationId, scope.locationId),
         eq(exams.termId, termId),
-        scope.sessionBranchId === null
-          ? undefined
-          : eq(grades.branchId, scope.sessionBranchId),
+        // Item 9. This report grew a campus filter this sprint, so the
+        // selection is honoured here the way every other campus-scoped runner
+        // honours it — through `effectiveBranch`, which still lets a
+        // branch-bound caller's own scope override whatever the URL says.
+        branchId === undefined ? undefined : eq(grades.branchId, branchId),
       ),
     )
     .orderBy(asc(branches.name), asc(grades.sortOrder), asc(exams.examDate));
@@ -1574,6 +1615,7 @@ async function accountSummary(
   params: ReportParams,
 ): Promise<ReportResult> {
   const { from, to } = range(params);
+  const branchId = effectiveBranch(scope, params);
 
   const rows = await db
     .select({
@@ -1593,6 +1635,12 @@ async function accountSummary(
         eq(ledgerTransactions.locationId, scope.locationId),
         gte(ledgerTransactions.entryDate, from),
         lte(ledgerTransactions.entryDate, to),
+        // Item 9. A posting with **no** campus is excluded when one is chosen,
+        // rather than folded into every campus: an opening balance or a
+        // head-office cost belongs to no campus, and apportioning it here would
+        // invent an allocation the school never made and make the four campus
+        // sheets add up to more than the group's.
+        branchId === undefined ? undefined : eq(ledgerTransactions.branchId, branchId),
       ),
     )
     .groupBy(
@@ -1655,6 +1703,7 @@ async function monthlyAccounts(
   const year = params.year ?? new Date().getFullYear();
   const from = `${year}-01-01`;
   const to = `${year}-12-31`;
+  const branchId = effectiveBranch(scope, params);
 
   const rows = await db
     .select({
@@ -1673,6 +1722,9 @@ async function monthlyAccounts(
         gte(ledgerTransactions.entryDate, from),
         lte(ledgerTransactions.entryDate, to),
         inArray(ledgerAccounts.type, ['income', 'expense']),
+        // Item 9. Same rule as the account summary above: a school-wide posting
+        // is excluded rather than spread.
+        branchId === undefined ? undefined : eq(ledgerTransactions.branchId, branchId),
       ),
     )
     .groupBy(sql`to_char(${ledgerTransactions.entryDate}, 'YYYY-MM')`, ledgerAccounts.type);
@@ -1814,7 +1866,14 @@ async function incomeExpenseSummary(
   params: ReportParams,
 ): Promise<ReportResult> {
   const { from, to } = range(params);
-  const totals = await ledgerTotals(scope, { from, to });
+  // Item 9. `ledgerTotals` has always taken a campus; this report simply never
+  // offered one, so its figures were the group's under a heading that did not
+  // say so.
+  const totals = await ledgerTotals(scope, {
+    from,
+    to,
+    branchId: effectiveBranch(scope, params),
+  });
 
   const income = totalOfType(totals, 'income');
   const expense = totalOfType(totals, 'expense');

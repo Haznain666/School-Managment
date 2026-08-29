@@ -99,7 +99,8 @@ export default async function SchoolOverviewPage({
         <dl className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           <Field label="Name" value={school.name} />
           <Field label="City" value={school.city} />
-          <Field label="Principal" value={school.principalName} />
+          {/* The group's head, not a campus principal — Sprint 19a, item 1. */}
+          <Field label="Head of School" value={school.principalName} />
           <Field label="Phone" value={school.phone} />
           <Field label="Email" value={school.email} />
           <Field label="Address" value={school.address} />

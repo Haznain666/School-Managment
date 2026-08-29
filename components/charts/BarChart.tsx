@@ -106,6 +106,44 @@ const H_PADDING = { top: 8, right: 40, bottom: 26, left: 172 };
 /** One category's vertical budget, whatever the series count. */
 const ROW_HEIGHT = 26;
 
+/**
+ * How many characters of a category name fit in the label column.
+ *
+ * ── The defect this exists for (Sprint 19a, item 5) ──────────────────────
+ * The label is drawn at `axisX - 10` with `textAnchor="end"`, so it runs
+ * *leftwards* from the axis into a 162-unit budget — and nothing clipped or
+ * truncated it. `"Mid-Term Examination · Grade 5 - A"` on the dashboard's exam
+ * outcomes chart ran off the left edge of the viewBox and printed over the
+ * card beside it. SVG has no `text-overflow`, and a `clipPath` would cut a
+ * word mid-letter with nothing to say it had; so the string is shortened here,
+ * where a `…` can be added and the full text kept.
+ *
+ * 26 at 11px in 162 units. The ramp's glyphs average a little under 6 units
+ * wide, so this is deliberately a character or two short of the arithmetic:
+ * a label that just fits is a label that overlaps on the one school whose
+ * campus is called "Muhammad Ali Jinnah Road".
+ */
+const H_LABEL_CHARS = 26;
+
+/**
+ * The category as the axis draws it, and the full string when it differs.
+ *
+ * **The chart may abbreviate; the accessible copy may not.** The hidden data
+ * table and the `summary` both keep the untruncated name, and an `<title>` on
+ * the truncated `<text>` answers a hover. A reader who cannot see the chart
+ * still gets every name in full, which is the rule `ChartFrame` exists to
+ * enforce and the one an abbreviation is most likely to break.
+ */
+function fitCategory(category: string): { shown: string; full: string | null } {
+  if (category.length <= H_LABEL_CHARS) return { shown: category, full: null };
+  // `- 1` for the ellipsis itself, and trailing space trimmed so the mark does
+  // not float away from the word it belongs to.
+  return {
+    shown: `${category.slice(0, H_LABEL_CHARS - 1).trimEnd()}…`,
+    full: category,
+  };
+}
+
 export function BarChart({
   categories,
   series,
@@ -215,13 +253,17 @@ export function BarChart({
           {categories.map((category, categoryIndex) => {
             const rowTop = H_PADDING.top + categoryIndex * ROW_HEIGHT;
             const barsTop = rowTop + (ROW_HEIGHT - barsHeight) / 2;
+            const label = fitCategory(category);
 
             return (
               <g key={category}>
                 {/*
                   Anchored to the end so labels run back from the axis. That
                   keeps every label's right edge aligned against the bars, which
-                  is what makes the column scannable however long the names get.
+                  is what makes the column scannable however long the names get
+                  — and shortened to what the column holds, because "however
+                  long" used to mean over the edge of the card. See
+                  `fitCategory`.
                 */}
                 <text
                   x={axisX - 10}
@@ -230,7 +272,8 @@ export function BarChart({
                   dominantBaseline="middle"
                   className="fill-[rgb(var(--ink-muted))] text-[11px]"
                 >
-                  {category}
+                  {label.full === null ? null : <title>{label.full}</title>}
+                  {label.shown}
                 </text>
 
                 {series.map((entry, seriesIndex) => {

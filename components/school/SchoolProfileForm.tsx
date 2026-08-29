@@ -136,11 +136,24 @@ export function SchoolProfileForm({ readOnly, initial, canEdit }: SchoolProfileF
             setEmail(event.target.value);
           }}
         />
+        {/*
+          "Head of School", not "Principal name" — Sprint 19a, item 1.
+
+          A school group has one head and several campus principals, and this
+          field was being read as the second. The per-campus principal is a
+          `principal_assignments` row and is now set on the branch itself, which
+          is why the Settings page lost its principal card in the same sprint
+          and this field survived it.
+
+          The column stays `schools.principal_name`. A column rename is 1,200
+          lines of unreviewable diff for a caption, and `lib/global-search.ts`
+          searches it by name.
+        */}
         <Input
-          label="Principal name"
+          label="Head of School"
           value={principalName}
           disabled={!canEdit}
-          hint="Printed as the head of school on vouchers and payslips."
+          hint="The whole school's head. Printed on vouchers, payslips and letterheads. Each campus's own principal is set on that campus."
           onChange={(event) => {
             setPrincipalName(event.target.value);
           }}

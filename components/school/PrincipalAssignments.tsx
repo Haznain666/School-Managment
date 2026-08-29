@@ -26,6 +26,18 @@ import { schoolErrorMessage, schoolFetch } from '@/lib/school-client';
  * what a division looks like the moment it is named — and the row says
  * "no classes yet" in words rather than showing a blank cell, because the head
  * assigned to it will otherwise see an empty school with no explanation.
+ *
+ * ── It lives on the campus now, not in Settings (Sprint 19a, item 10) ────
+ * The question this screen answers is "who runs *this* campus", and it was
+ * being asked on a page about the school's logo and address. Settings lost the
+ * card; the component did not move house so much as find the room it belonged
+ * in. `onlyBranchId` is what makes that work: the campus page passes its own
+ * id, the list shows that campus's heads and nobody else's, and the new-
+ * assignment form has its campus answered already.
+ *
+ * With no `onlyBranchId` it behaves exactly as it always has — school-wide,
+ * every campus — which is what the Super Admin surface and any future
+ * whole-school screen still want.
  */
 
 interface AssignmentRow {
@@ -78,9 +90,19 @@ function isCurrent(row: AssignmentRow): boolean {
 export function PrincipalAssignments({
   branches,
   canEdit,
+  onlyBranchId,
 }: {
   branches: readonly BranchOption[];
   canEdit: boolean;
+  /**
+   * Narrow the whole card to one campus.
+   *
+   * A school-wide assignment — `branch_id IS NULL`, the head who runs
+   * everything — is **included**, and that is deliberate: it is in force at
+   * this campus, and a screen that omitted it would answer "who runs this
+   * campus" with a name that is not the whole answer.
+   */
+  onlyBranchId?: string;
 }) {
   const [payload, setPayload] = useState<Payload | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -215,8 +237,15 @@ export function PrincipalAssignments({
     );
   }
 
-  const current = payload.assignments.filter(isCurrent);
-  const ended = payload.assignments.filter((row) => !isCurrent(row));
+  const visible =
+    onlyBranchId === undefined
+      ? payload.assignments
+      : payload.assignments.filter(
+          (row) => row.branchId === onlyBranchId || row.branchId === null,
+        );
+
+  const current = visible.filter(isCurrent);
+  const ended = visible.filter((row) => !isCurrent(row));
   const multiple = payload.principalModel === 'multiple';
 
   return (

@@ -11,6 +11,7 @@ import {
   uuid,
 } from 'drizzle-orm/pg-core';
 
+import { branches } from './branches';
 import { schools } from './schools';
 
 /**
@@ -29,6 +30,14 @@ export const leaveTypes = pgTable(
     locationId: text('location_id')
       .notNull()
       .references(() => schools.locationId, { onDelete: 'cascade' }),
+    /**
+     * The campus that owns this leave type, or null when the school shares it.
+     * See `lib/branch-scope.ts` for the read rule and `db/schema/subjects.ts`
+     * for why it is nullable rather than backfilled.
+     */
+    branchId: uuid('branch_id').references(() => branches.id, {
+      onDelete: 'set null',
+    }),
     name: text('name').notNull(),
     description: text('description'),
     /** Days granted per academic year. 0 = uncapped, checked by hand. */
@@ -41,6 +50,7 @@ export const leaveTypes = pgTable(
   },
   (table) => [
     index('leave_types_location_id_idx').on(table.locationId),
+    index('leave_types_location_branch_idx').on(table.locationId, table.branchId),
     uniqueIndex('leave_types_location_id_name_idx').on(table.locationId, table.name),
     check(
       'leave_types_annual_quota_days_check',

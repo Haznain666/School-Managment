@@ -31,6 +31,7 @@ import {
 import type { UserRole } from '@/types/school-auth';
 
 import { getActiveAcademicYear } from './admissions-queries';
+import { ownedBy } from './branch-scope';
 import { db } from './drizzle';
 import { deleteAuthUser, findAuthUserByEmail, normaliseEmail } from './supabase-auth';
 
@@ -113,7 +114,20 @@ export type SchoolUserSortColumn = (typeof SCHOOL_USER_SORT_COLUMNS)[number];
 
 export interface ListUsersFilters {
   role?: string | undefined;
+  /** The dropdown's choice. A *filter*, which the reader may clear. */
   branchId?: string | undefined;
+  /**
+   * The campuses this reader may see at all, from `resolveBranchScope`.
+   *
+   * Distinct from `branchId` above, and the distinction matters: this is a
+   * **boundary**, not a filter. It is applied to the page query, the total and
+   * all three facet counts — including the branch facet, which omits its own
+   * *filter* so the dropdown can be changed but must not omit the boundary, or
+   * the counts would offer campuses the reader cannot open.
+   *
+   * `null` = every campus, which is what every caller before Sprint 19a got.
+   */
+  branchIds?: string[] | null | undefined;
   status?: UserStatus | undefined;
   search?: string | undefined;
   page?: number | undefined;
@@ -170,6 +184,22 @@ function userConditions(
   omit?: 'role' | 'branch' | 'status',
 ): SQL[] {
   const conditions: SQL[] = [eq(schoolUsers.locationId, locationId)];
+
+  /*
+   * The branch boundary, applied to every condition set including the ones a
+   * facet omits its own dimension from.
+   *
+   * `ownedBy` rather than `sharedOrOwnedBy`: a member with a null `branch_id`
+   * is a *school-wide* role — the owner, an accountant — and a campus
+   * administrator has never been shown them. That is what "My Branch Staff"
+   * means on the heading above this table, and widening it here would put the
+   * school's owner into a campus's staff list.
+   *
+   * §5bf: the count carries the same filters as the page, or a total that
+   * counts rows the page cannot show pages the reader off the end of the list.
+   */
+  const boundary = ownedBy(schoolUsers.branchId, filters.branchIds ?? null);
+  if (boundary !== undefined) conditions.push(boundary);
 
   if (omit !== 'role' && filters.role !== undefined && filters.role !== '') {
     conditions.push(eq(schoolUsers.role, filters.role));

@@ -3,10 +3,16 @@ import { and, eq, ne } from 'drizzle-orm';
 import { gradingBands, gradingSchemes } from '@/db/schema';
 import { withSchoolAuth } from '@/lib/api-auth';
 import { apiFailure, apiSuccess, handleApiError, readJsonBody } from '@/lib/api-response';
+import {
+  branchForWrite,
+  effectiveBranchIds,
+  readBranchParam,
+  resolveBranchScope,
+} from '@/lib/branch-scope';
 import { batch, db } from '@/lib/drizzle';
 import { listGradingSchemes } from '@/lib/exam-queries';
 import { bandsProblem, markToNumeric, parseBandsInput } from '@/lib/grading';
-import { readBoolean, readString } from '@/lib/validation';
+import { readBoolean, readOptionalString, readString } from '@/lib/validation';
 
 /**
  * /api/school/grading-schemes
@@ -39,9 +45,17 @@ export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 export const GET = withSchoolAuth(
-  async (_request, auth) => {
+  async (request, auth) => {
     try {
-      return apiSuccess({ schemes: await listGradingSchemes(auth.locationId) });
+      const scope = await resolveBranchScope(
+        auth.locationId,
+        auth,
+        readBranchParam(new URL(request.url)),
+      );
+
+      return apiSuccess({
+        schemes: await listGradingSchemes(auth.locationId, effectiveBranchIds(scope)),
+      });
     } catch (error) {
       return handleApiError(error);
     }
@@ -53,6 +67,8 @@ interface SchemeBody {
   name?: unknown;
   isDefault?: unknown;
   bands?: unknown;
+  /** Null or absent = shared by every campus. Item 2e validates it. */
+  branchId?: unknown;
 }
 
 export const POST = withSchoolAuth(
@@ -91,9 +107,15 @@ export const POST = withSchoolAuth(
       // says — see the docblock. After that, promotion is deliberate.
       const isDefault = existing.length === 0 || readBoolean(body.isDefault, false);
 
+      // Item 2e. `exams.write` is a branch administrator's by default, so this
+      // guard fires in practice: an unanswered campus resolves to theirs.
+      const scope = await resolveBranchScope(auth.locationId, auth);
+      const campus = branchForWrite(scope, readOptionalString(body.branchId));
+      if (!campus.ok) return apiFailure('forbidden', campus.message, 403);
+
       const created = await db
         .insert(gradingSchemes)
-        .values({ locationId: auth.locationId, name, isDefault })
+        .values({ locationId: auth.locationId, branchId: campus.branchId, name, isDefault })
         .returning({ id: gradingSchemes.id });
 
       const schemeId = created[0]?.id;

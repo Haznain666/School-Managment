@@ -65,7 +65,8 @@ export default async function NewSchoolBranchPage({
             You were inviting somebody.
           </strong>{' '}
           Create the branch and you will be taken straight back to the invite
-          form. Nobody is invited on this screen — that happens on the next one.
+          form. This screen can invite the campus&rsquo;s own administrator and
+          principal, and nobody else.
         </p>
       ) : null}
 

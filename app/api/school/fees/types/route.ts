@@ -1,6 +1,12 @@
 import { feeTypes, isFeeCategory } from '@/db/schema';
 import { withSchoolAuth } from '@/lib/api-auth';
 import { apiFailure, apiSuccess, handleApiError, readJsonBody } from '@/lib/api-response';
+import {
+  branchForWrite,
+  effectiveBranchIds,
+  readBranchParam,
+  resolveBranchScope,
+} from '@/lib/branch-scope';
 import { db } from '@/lib/drizzle';
 import { listFeeTypes } from '@/lib/fee-queries';
 import { readOptionalString, readString } from '@/lib/validation';
@@ -25,8 +31,13 @@ export const GET = withSchoolAuth(
       const url = new URL(request.url);
       const activeOnly = url.searchParams.get('activeOnly') === 'true';
 
+      const scope = await resolveBranchScope(auth.locationId, auth, readBranchParam(url));
+
       return apiSuccess({
-        feeTypes: await listFeeTypes(auth.locationId, { activeOnly }),
+        feeTypes: await listFeeTypes(auth.locationId, {
+          activeOnly,
+          branchIds: effectiveBranchIds(scope),
+        }),
       });
     } catch (error) {
       return handleApiError(error);
@@ -40,6 +51,8 @@ interface CreateFeeTypeBody {
   description?: unknown;
   feeCategory?: unknown;
   sortOrder?: unknown;
+  /** Null or absent = shared by every campus. Item 2e validates it. */
+  branchId?: unknown;
 }
 
 export const POST = withSchoolAuth(
@@ -73,11 +86,16 @@ export const POST = withSchoolAuth(
           ? sortOrderRaw
           : 0;
 
+      const scope = await resolveBranchScope(auth.locationId, auth);
+      const campus = branchForWrite(scope, readOptionalString(body.branchId));
+      if (!campus.ok) return apiFailure('forbidden', campus.message, 403);
+
       const created = await db
         .insert(feeTypes)
         .values({
           // Tenant comes from the verified session, never from the body.
           locationId: auth.locationId,
+          branchId: campus.branchId,
           name,
           description: readOptionalString(body.description),
           feeCategory: body.feeCategory,

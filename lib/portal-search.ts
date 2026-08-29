@@ -11,6 +11,7 @@ import { ADMIN_PORTAL_ROLES, type UserRole } from '@/types/school-auth';
 
 import { listTeacherSections } from './academics-queries';
 import { getActiveAcademicYear } from './admissions-queries';
+import { effectiveBranchIds, resolveBranchScope } from './branch-scope';
 import { db } from './drizzle';
 import { listClassTeacherSections } from './exam-queries';
 import {
@@ -52,6 +53,15 @@ export interface SearchSession {
   locationId: string;
   uid: string;
   role: UserRole;
+  /**
+   * The campus on the caller's membership row, or null for a school-wide one.
+   *
+   * Passed straight to `resolveBranchScope`, which is the only thing that reads
+   * it — the boundary is decided there, not here. Optional so the two callers
+   * could be migrated one at a time; both pass it now, and a caller that omits
+   * it is treated as school-wide, which is what search did before Sprint 19a.
+   */
+  branchId?: string | null;
 }
 
 export async function searchForSession(
@@ -89,7 +99,30 @@ export async function searchForSession(
       session.role,
       me?.id ?? null,
     );
-    const scope = await resolveDashboardScope(session.locationId, principalScope);
+    /*
+     * The campus boundary — Sprint 19a, item 2d.
+     *
+     * Search is the widest read in the product: it crosses nine modules in one
+     * request and every hit links straight into the record. So this is where a
+     * campus that leaks costs the most, and it is resolved through exactly the
+     * function the dashboard and the reports use.
+     *
+     * No `?branch=` is honoured here. The search box has no campus control and
+     * should not grow one — somebody typing a name wants it found, and a
+     * selector that could hide the answer would be a filter on a search.
+     * `effectiveBranchIds` therefore returns the caller's whole scope.
+     */
+    const branchScope = await resolveBranchScope(session.locationId, {
+      uid: session.uid,
+      branchId: session.branchId ?? null,
+    });
+    const branchIds = effectiveBranchIds(branchScope);
+
+    const scope = await resolveDashboardScope(
+      session.locationId,
+      principalScope,
+      branchIds,
+    );
 
     const nav = schoolNav({
       role: session.role,
@@ -102,6 +135,7 @@ export async function searchForSession(
       query,
       permissions,
       scope: { gradeIds: scope.gradeIds },
+      branchIds,
     });
     pages = searchPages(query, nav.items, nav.sections);
   } else if (session.role === 'teacher') {

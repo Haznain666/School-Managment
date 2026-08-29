@@ -1,6 +1,11 @@
 import { withSchoolAuth } from '@/lib/api-auth';
 import { apiFailure, apiSuccess, handleApiError, readJsonBody } from '@/lib/api-response';
 import {
+  effectiveBranchIds,
+  readBranchParam,
+  resolveBranchScope,
+} from '@/lib/branch-scope';
+import {
   createConcessionScheme,
   listConcessionSchemes,
   ConcessionSchemeError,
@@ -25,9 +30,20 @@ export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 export const GET = withSchoolAuth(
-  async (_request, auth) => {
+  async (request, auth) => {
     try {
-      return apiSuccess({ schemes: await listConcessionSchemes(auth.locationId) });
+      const scope = await resolveBranchScope(
+        auth.locationId,
+        auth,
+        readBranchParam(new URL(request.url)),
+      );
+
+      return apiSuccess({
+        schemes: await listConcessionSchemes(
+          auth.locationId,
+          effectiveBranchIds(scope),
+        ),
+      });
     } catch (error) {
       return handleApiError(error);
     }

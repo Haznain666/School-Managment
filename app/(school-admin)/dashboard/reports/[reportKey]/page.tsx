@@ -6,6 +6,7 @@ import { ReportFilterBar } from '@/components/reports/ReportFilterBar';
 import { ReportTable } from '@/components/reports/ReportTable';
 import { Card } from '@/components/ui/Card';
 import { PageHeader } from '@/components/ui/PageHeader';
+import { resolveBranchScope } from '@/lib/branch-scope';
 import { permissionsForRole } from '@/lib/permission-queries';
 import {
   isReportKey,
@@ -69,13 +70,37 @@ export default async function ReportPage({
   }
 
   const search = flatten(await searchParams);
-  const reportParams = parseReportParams(definition, search);
+  const requested = parseReportParams(definition, search);
+
+  /*
+   * The campus, resolved once and then used by everything (Sprint 19a, item 9).
+   *
+   * `appliedBranch` is what the runner filters on, what the filter bar shows
+   * selected, what Print and Export carry in their query strings, and what the
+   * printed sheet is captioned with. Deriving it once is the point: a sheet
+   * whose header names a different campus from its figures is worse than one
+   * with no header, and four separate derivations is four chances at that.
+   *
+   * For a caller who may read the whole school it is whatever the URL asked
+   * for, or nothing. For a branch-bound one it is their selection when they
+   * have several campuses and made one, and otherwise their own campus —
+   * which is `branchIds[0]`, because `resolveBranchScope` builds that list with
+   * the caller's own membership first.
+   */
+  const branchScope = await resolveBranchScope(locationId, claims, requested.branchId);
+
+  const appliedBranch =
+    branchScope.branchIds === null
+      ? requested.branchId
+      : (branchScope.selected ?? branchScope.branchIds[0]);
+
+  const reportParams = { ...requested, branchId: appliedBranch };
 
   const [options, result] = await Promise.all([
-    loadReportOptions(definition, locationId, claims.branchId),
+    loadReportOptions(definition, locationId, branchScope.branchIds),
     runReport(
       definition.key,
-      { locationId, sessionBranchId: claims.branchId },
+      { locationId, sessionBranchId: null, branchIds: branchScope.branchIds },
       reportParams,
     ),
   ]);

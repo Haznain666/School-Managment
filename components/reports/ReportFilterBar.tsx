@@ -12,10 +12,16 @@ import type { ReportOptions } from '@/lib/report-options';
  * reimplement that with a router push and would be the third place that knows
  * the parameter names.
  *
- * The campus control is absent for a branch-bound administrator on purpose:
- * `lib/report-options.ts` returns no branches for them, because the runner pins
- * their scope regardless of what the URL says. An offered control that is
- * silently overridden is worse than no control.
+ * The campus control is drawn only above **one** option, which covers two cases
+ * with one rule (Sprint 19a, items 9 and 13): a school with a single campus,
+ * and a reader confined to a single campus. In both a dropdown would be a
+ * question with one answer, and in the second the runner would pin the scope
+ * regardless of what the URL said — an offered control that is silently
+ * overridden is worse than no control.
+ *
+ * `lib/report-options.ts` still returns that one campus rather than an empty
+ * list, because the printed sheet's header line is captioned from the same
+ * list and has to be able to name it.
  */
 export function ReportFilterBar({
   definition,
@@ -56,7 +62,7 @@ export function ReportFilterBar({
         </>
       ) : null}
 
-      {has('branch') && options.branches.length > 0 ? (
+      {has('branch') && options.branches.length > 1 ? (
         <label className={labelClass}>
           Campus
           <select name="branch" defaultValue={params.branchId ?? ''} className={fieldClass}>

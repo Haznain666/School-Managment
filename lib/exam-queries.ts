@@ -50,6 +50,7 @@ import {
 } from '@/db/schema';
 
 import { academicYearBounds } from './academics-queries';
+import { sharedOrOwnedBy } from './branch-scope';
 import { db, type Database, type Tx } from './drizzle';
 import {
   assignPositions,
@@ -133,6 +134,7 @@ function toBandRow(row: {
 
 export async function listGradingSchemes(
   locationId: string,
+  branchIds: string[] | null = null,
 ): Promise<GradingSchemeRow[]> {
   const schemes = await db
     .select({
@@ -142,7 +144,16 @@ export async function listGradingSchemes(
       isActive: gradingSchemes.isActive,
     })
     .from(gradingSchemes)
-    .where(eq(gradingSchemes.locationId, locationId))
+    .where(
+      and(
+        eq(gradingSchemes.locationId, locationId),
+        // Shared schemes plus this campus's own. A report card already issued
+        // points at whichever scheme graded it; narrowing the *list* never
+        // touches that, which is why the bands below are fetched by scheme id
+        // rather than re-filtered.
+        sharedOrOwnedBy(gradingSchemes.branchId, branchIds),
+      ),
+    )
     .orderBy(asc(gradingSchemes.name));
 
   if (schemes.length === 0) return [];
@@ -330,6 +341,7 @@ export async function listExamTerms(
   filters: {
     academicYearId?: string | undefined;
     includeArchived?: boolean | undefined;
+    branchIds?: string[] | null | undefined;
   } = {},
 ): Promise<ExamTermRow[]> {
   const conditions: SQL[] = [eq(examTerms.locationId, locationId)];
@@ -339,6 +351,9 @@ export async function listExamTerms(
   if (filters.includeArchived !== true) {
     conditions.push(isNull(examTerms.archivedAt));
   }
+
+  const branchFilter = sharedOrOwnedBy(examTerms.branchId, filters.branchIds ?? null);
+  if (branchFilter !== undefined) conditions.push(branchFilter);
 
   const rows = await db
     .select(TERM_SELECTION)
@@ -1696,9 +1711,19 @@ export interface ResultSubcategoryRow {
  */
 export async function listResultSubcategories(
   locationId: string,
-  options: { includeArchived?: boolean | undefined } = {},
+  options: {
+    includeArchived?: boolean | undefined;
+    branchIds?: string[] | null | undefined;
+  } = {},
 ): Promise<ResultSubcategoryRow[]> {
   const conditions: SQL[] = [eq(resultSubcategories.locationId, locationId)];
+
+  const branchFilter = sharedOrOwnedBy(
+    resultSubcategories.branchId,
+    options.branchIds ?? null,
+  );
+  if (branchFilter !== undefined) conditions.push(branchFilter);
+
   if (options.includeArchived !== true) {
     conditions.push(isNull(resultSubcategories.archivedAt));
   }

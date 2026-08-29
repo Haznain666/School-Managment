@@ -13,6 +13,7 @@ import {
 } from 'drizzle-orm/pg-core';
 
 import { academicYears } from './academic-years';
+import { branches } from './branches';
 import { gradingSchemes } from './grading-schemes';
 import { schoolUsers } from './school-users';
 import { schools } from './schools';
@@ -60,6 +61,14 @@ export const examTerms = pgTable(
     locationId: text('location_id')
       .notNull()
       .references(() => schools.locationId, { onDelete: 'cascade' }),
+    /**
+     * The campus that owns this term, or null when the school shares it.
+     * See `lib/branch-scope.ts` for the read rule and `db/schema/subjects.ts`
+     * for why it is nullable rather than backfilled.
+     */
+    branchId: uuid('branch_id').references(() => branches.id, {
+      onDelete: 'set null',
+    }),
     academicYearId: uuid('academic_year_id')
       .notNull()
       .references(() => academicYears.id),
@@ -85,6 +94,7 @@ export const examTerms = pgTable(
   },
   (table) => [
     index('exam_terms_location_id_idx').on(table.locationId),
+    index('exam_terms_location_branch_idx').on(table.locationId, table.branchId),
     index('exam_terms_location_id_academic_year_idx').on(
       table.locationId,
       table.academicYearId,

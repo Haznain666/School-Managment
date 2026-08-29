@@ -1,6 +1,6 @@
 import 'server-only';
 
-import { and, asc, desc, eq } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray } from 'drizzle-orm';
 
 import { branches, examTerms, gradeLabel, grades, payrollRuns } from '@/db/schema';
 
@@ -18,6 +18,19 @@ import type { ReportDefinition, ReportParams } from './report-catalogue';
  *
  * Only the lists a report actually declares are read. A payroll report asks for
  * years and campuses and pays nothing for the grade list it does not offer.
+ *
+ * ── The campus list is a scope, not a session field (Sprint 19a, item 9) ─
+ * This module used to take `sessionBranchId` and offer **no** campus control at
+ * all when it was set, on the reasoning that a branch-bound caller is pinned to
+ * their own campus and a dropdown offering others would be a control that
+ * silently does nothing.
+ *
+ * That reasoning survives; the input does not. A principal granted two extra
+ * campuses in `school_user_branches` has a real choice to make and was being
+ * shown no control at all — so the parameter is now the resolved list from
+ * `lib/branch-scope.ts`, and the rule becomes: **offer exactly the campuses
+ * this person may read.** One campus still means no control, which is item 13's
+ * rule and the same behaviour the old code produced for the common case.
  */
 
 export interface ReportOption {
@@ -44,20 +57,32 @@ const EMPTY: ReportOptions = {
 export async function loadReportOptions(
   definition: ReportDefinition,
   locationId: string,
-  sessionBranchId: string | null,
+  /**
+   * The campuses this caller may read, from `resolveBranchScope`. `null` is
+   * every campus, which is what a school-wide administrator gets.
+   */
+  branchIds: string[] | null,
 ): Promise<ReportOptions> {
   const wants = (filter: ReportDefinition['filters'][number]): boolean =>
     definition.filters.includes(filter);
 
   const [branchRows, gradeRows, termRows, yearRows, payrollYears] = await Promise.all([
-    // A branch-bound administrator gets no campus control at all — the runner
-    // pins the scope to their own campus, so a dropdown offering others would
-    // be a control that silently does nothing.
-    wants('branch') && sessionBranchId === null
+    // Exactly the campuses this caller may read. A person confined to one gets
+    // an empty list and therefore no control — the runner would pin the scope
+    // to their campus regardless, and an offered control that is silently
+    // overridden is worse than no control. The filter bar's own condition
+    // (`options.branches.length > 0`) is what turns that into a hidden field.
+    wants('branch')
       ? db
           .select({ id: branches.id, name: branches.name })
           .from(branches)
-          .where(and(eq(branches.locationId, locationId), eq(branches.isActive, true)))
+          .where(
+            and(
+              eq(branches.locationId, locationId),
+              eq(branches.isActive, true),
+              branchIds === null ? undefined : inArray(branches.id, branchIds),
+            ),
+          )
           .orderBy(asc(branches.name))
       : Promise.resolve([]),
 
@@ -74,9 +99,9 @@ export async function loadReportOptions(
             and(
               eq(grades.locationId, locationId),
               eq(grades.isActive, true),
-              sessionBranchId === null
-                ? undefined
-                : eq(grades.branchId, sessionBranchId),
+              // The class list narrows with the campus list, so a reader is
+              // never offered a class that belongs to a campus they cannot see.
+              branchIds === null ? undefined : inArray(grades.branchId, branchIds),
             ),
           )
           .orderBy(asc(grades.sortOrder))
@@ -113,6 +138,17 @@ export async function loadReportOptions(
 
   return {
     ...EMPTY,
+    /*
+     * Every campus the caller may read, including when that is exactly one.
+     *
+     * Item 13 — one campus is not a question — is applied by `ReportFilterBar`,
+     * which draws the control only above one option. It is **not** applied here,
+     * and that distinction is load-bearing: `selectedNames` reads this list to
+     * caption the printed sheet, and a list emptied for being short would leave
+     * a one-campus printout captioned "All campuses" while its figures are one
+     * campus's. `lib/report-catalogue.ts` says at length why a sheet captioned
+     * with the wrong scope is worse than one with no caption at all.
+     */
     branches: branchRows.map((row) => ({ value: row.id, label: row.name })),
     grades: gradeRows.map((row) => ({
       value: row.id,

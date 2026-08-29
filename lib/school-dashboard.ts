@@ -67,14 +67,32 @@ export interface DashboardScope extends AggregateScope {
  * dangerous bug here is the opposite one: treating "no assignment" as "no
  * filter" hands a head the whole school's finances, and the screen that results
  * looks entirely normal.
+ *
+ * ── Two boundaries, intersected here (Sprint 19a) ────────────────────────
+ * `campusIds` is the *branch* scope — who this person is, plus what the campus
+ * selector at the top of the screen is currently set to — and it composes with
+ * the principal scope rather than replacing it. A head assigned the O-Levels
+ * division, viewing the Karachi campus, sees O-Levels at Karachi.
+ *
+ * The two are narrowed differently on purpose. A principal's branch list admits
+ * a grade with **no** campus (`isNull`), because a single-campus school that
+ * never created a branch record has every grade null and excluding them would
+ * show every head an empty school. The campus selector's does not: `branch_id`
+ * on `grades` is `NOT NULL`, so there is no shared-grade case to admit, and
+ * admitting one would count the same grade under every campus on the scorecard.
  */
 export async function resolveDashboardScope(
   locationId: string,
   scope: PrincipalScope,
+  campusIds: string[] | null = null,
 ): Promise<DashboardScope> {
-  if (!scope.scoped) return { ...EVERY_GRADE, unassigned: false };
-  if (scope.unassigned) return { gradeIds: [], unassigned: true };
-  if (scope.branchIds === null && scope.gradeIds === null) {
+  if (!scope.scoped && campusIds === null) return { ...EVERY_GRADE, unassigned: false };
+  if (scope.scoped && scope.unassigned) return { gradeIds: [], unassigned: true };
+  if (
+    campusIds === null &&
+    scope.branchIds === null &&
+    scope.gradeIds === null
+  ) {
     return { ...EVERY_GRADE, unassigned: false };
   }
 
@@ -84,12 +102,17 @@ export async function resolveDashboardScope(
     .where(
       and(
         eq(grades.locationId, locationId),
-        scope.branchIds === null
+        campusIds === null
+          ? undefined
+          : campusIds.length === 0
+            ? sql`false`
+            : inArray(grades.branchId, campusIds),
+        !scope.scoped || scope.branchIds === null
           ? undefined
           : scope.branchIds.length === 0
             ? isNull(grades.branchId)
             : or(isNull(grades.branchId), inArray(grades.branchId, scope.branchIds)),
-        scope.gradeIds === null
+        !scope.scoped || scope.gradeIds === null
           ? undefined
           : scope.gradeIds.length === 0
             ? sql`false`
