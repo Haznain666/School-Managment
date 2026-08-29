@@ -239,6 +239,17 @@ falls back, a valid foreign campus falls back (see D3), a real campus narrows.
 `check-branch-scope` passes 1,296 assertions across the catalogue, the resolver
 and the listings.
 
+**✅ Item 2e — a write naming an out-of-scope campus is refused.** `POST
+/api/school/subjects` with a well-formed UUID that is not a campus of LGS:
+
+```
+403  {"ok":false,"error":{"code":"forbidden",
+      "message":"That campus is not one you have access to."}}
+```
+
+The subject list was re-read afterwards — five subjects, unchanged, no probe row
+left behind. The refusal happens before the write, not after it.
+
 **The branch-bound half is ⬜ — see item 12.**
 
 ### ⬜ Item 3 — the Branch Admin / Branch Principal toggles
@@ -325,10 +336,23 @@ No principal card, no "Principals & divisions" copy on `/dashboard/settings`.
 The component is not deleted — it renders on the branch detail page, where the
 question "who runs this campus" is actually asked.
 
-### ⬜ Item 11 — Admissions Overview takes a campus
+### ✅ Item 11 — Admissions Overview takes a campus
 
-Not executed. `/dashboard/admissions?branch=…` renders without error, but that
-the funnel's numbers actually narrow was not confirmed.
+`/dashboard/admissions?school=lgs` renders a **Campus** control above the funnel
+offering `All campuses · Defence Branch · Karachi Branch`.
+
+It narrows, which is the part worth testing rather than the part worth looking
+at:
+
+| Scope | Students this year | Sections with space |
+| --- | --- | --- |
+| All campuses | **12** | **15** |
+| `?branch=<Karachi>` | **0** | **0** |
+
+Karachi Branch is genuinely empty, so nought is the right answer and not a
+failed read. The `<select>` reflects the requested campus rather than resetting
+to *All campuses*, which is what makes the number on screen and the control
+above it agree.
 
 ### ⬜ Item 12 — branch-bound users see one campus
 
