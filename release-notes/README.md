@@ -6,7 +6,10 @@ what is not there yet. They are not the engineering handover — that is
 
 | Sprint | Theme | Migration | Notes |
 | --- | --- | --- | --- |
-| **17** | Onboarding by password link, the admission fee voucher, the discount that never applied, per-KPI setup progress | `0033` **NOT YET APPLIED** | [read](RELEASE-NOTES-SPRINT-17.md) |
+| **19b** | Campus calendars created in runs, the promotion that could not name its year, student documents, academic history, Enrol → Enroll | `0036` **APPLIED** | [read](RELEASE-NOTES-SPRINT-19B.md) |
+| **19a** | A campus is a boundary; the owner's cross-campus dashboard, branch CRUD, a campus on every report | `0035` **APPLIED** | [read](RELEASE-NOTES-SPRINT-19A.md) |
+| **18** | A challan is a Voucher, concession schemes the school owns, student CRUD as four permissions | `0034` **APPLIED** | [read](RELEASE-NOTES-SPRINT-18.md) |
+| **17** | Onboarding by password link, the admission fee voucher, the discount that never applied, per-KPI setup progress | `0033` **APPLIED** | [read](RELEASE-NOTES-SPRINT-17.md) |
 | **16** | School feedback, global search on five portals, dashboard progress and layout fixes | `0032` **APPLIED** | [read](RELEASE-NOTES-SPRINT-16.md) |
 | **15** | The school creation wizard, dashboards on five portals, one table primitive | `0031` **APPLIED** | [read](RELEASE-NOTES-SPRINT-15.md) |
 | — | School creation wizard, the 429 status, the clipped address list — **folded into Sprint 15**, kept for its detail | `0031` (see Sprint 15) | [read](RELEASE-NOTES-SCHOOL-WIZARD-AND-PROVISIONING.md) |

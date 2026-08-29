@@ -1,16 +1,23 @@
 # Sprint 19b — Your calendar belongs to a campus, and a child's paperwork belongs to their record
 
-**Migration `0036` — written, not yet applied.** Two new tables
+**Migration `0036` — applied and verified, 2026-08-29. Live.** Two new tables
 (`academic_year_branches`, `student_documents`) and three new optional columns
-on guardians. Nothing existing is changed and no row is rewritten: every
+on guardians. Nothing existing was changed and no row was rewritten: every
 academic year your school already has stays exactly as it is, running at every
 campus, until somebody says otherwise.
 
-**The schema goes in before this build does, and it is not optional.** Three
-screens fail without it — Academic years, Promote students and a student's
-profile — and, more seriously, **enrolling a child stops working entirely**,
-because the enrolment form now records the guardian's address and the column has
-to exist first. `SPRINT-19B-DDL-NOTES.md` has the order and the checks.
+**The schema went in before this build did, and it was not optional.** Three
+screens would have failed without it — Academic years, Promote students and a
+student's profile — and, more seriously, **enrolling a child would have stopped
+working entirely**, because the enrolment form now records the guardian's
+address and the column has to exist first. It was applied while the previous
+build was still serving, which cost nothing: that build knew none of these
+tables existed.
+
+**Not yet driven at a school.** Everything below is built, deployed and passing
+fourteen automated checks, but no screen in this release has been opened by a
+person against real data. The document upload in particular has never sent a
+file to storage. Read the last section before relying on any of it.
 
 ---
 
@@ -165,3 +172,29 @@ and every stored value is exactly what it was.
 No permission was added or moved. No existing screen lost a control. Every
 academic year, every guardian and every student record is exactly what it was
 before this build, and the two new tables start empty at every school.
+
+---
+
+## What has not been checked, and by whom
+
+This release is deployed and every automated gate passes. That is a smaller
+claim than it sounds, and the last two sprints are the reason it is written
+down: Sprint 19a passed thirteen of them and still shipped a server error that
+anybody could trigger by mistyping a web address. **No check in this project
+opens a screen or sends a file.**
+
+So, plainly:
+
+- **No screen in this release has been opened by a person.** Not the academic
+  year run, not the promotion, not the documents step, not the history page.
+- **No document has ever been uploaded.** The file-type check that refuses a
+  renamed program has been tested on its own against ten sample files and is
+  correct; the *upload* around it has not sent anything to storage.
+- **The one thing proved against real data** is that the new queries are
+  accepted by the database, including the seven-table history query. That
+  proves they are valid, not that they answer correctly.
+
+What would close this is the thing the last three sprints have each asked for:
+**a throwaway school to test against.** These features are about campuses,
+calendars and children's files, and none of that can be exercised against a
+school with real children in it.
