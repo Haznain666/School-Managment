@@ -4,7 +4,30 @@
 resume without re-deriving context. Updated at the end of every development
 step, before the session ends.
 
-**Last updated:** 2026-08-29 (**Sprint 19b — the campus calendar, student
+**Last updated:** 2026-08-30 (**Sprint 20 — the voucher, the discount, and the
+bank — §5bj. All eleven items of `SPRINT-20-SPEC.md`, nothing descoped.
+**`0037_sprint20_vouchers_discounts_banks.sql` is WRITTEN and NOT APPLIED** —
+journal `idx: 37`, stamped `1788177600000`; `SPRINT-20-DDL-NOTES.md` is beside
+it. Twelve gates green **including `npm run build`**.
+
+⚠ **`0037` goes in before the code, and the row to read twice is `POST
+…/challans/[id]/payments` — the fee counter stops being able to take money**,
+because `getChallanDetail` now selects three new `schools` columns and is the
+first thing that route does. It reads before it writes, so there is no partial
+state and no ledger entry without its payment. Five screens 500 alongside it,
+which is loud and harmless.
+
+**Enrolling a child still works**, and that is a deliberate departure from the
+spec's own hazard note: the sibling auto-grant runs *after* `enrollStudent` has
+committed and swallows its own failures, because a child admitted is a fact and
+a discount that did not apply is one click from the profile the wizard redirects
+to.
+
+⚠ **Nothing here has been driven in a browser, and the repainted voucher has
+never been on paper.** What *was* proved is that all six new or widened
+statements compile to the SQL they are supposed to — `toSQL()` printed and read
+by eye, and the script kept at `scripts/print-sprint20-sql.ts`.**);
+2026-08-29 (**Sprint 19b — the campus calendar, student
 documents, academic history and Enrol→Enroll — §5bi. Items 14–19 of
 `SPRINT-19-SPEC.md`. **`0036` APPLIED and verified, 36 rows -> 37 — 21 of 21
 constraint assertions, each expected refusal in its own `SAVEPOINT`, rolled
@@ -9878,3 +9901,371 @@ enrolment wizard, the document ceilings, the year run — would be executable
 against it today. **Rebuilding it is worth more than the next feature.**
 
 ### Next free migration number is `0037`.
+
+---
+
+## 5bj. Sprint 20 — the voucher, the discount, and the bank — 2026-08-30
+
+Spec: `SPRINT-20-SPEC.md`, all eleven items. Nothing was descoped.
+
+Migration: **`0037_sprint20_vouchers_discounts_banks.sql` is WRITTEN and NOT
+APPLIED.** Journal entry `idx: 37`, stamped `1788177600000` — one day after
+`0036`. `0037` was confirmed free by **listing `db/migrations/`**, not by
+trusting prose. `SPRINT-20-DDL-NOTES.md` at the repo root records what it does,
+how to verify it, how to undo it and what breaks if the code deploys ahead of
+it. Applying it is DevOps's step.
+
+### ⚠ `0037` first, and the row to read twice is **payments**
+
+| Surface | Without `0037` |
+| --- | --- |
+| `/dashboard/settings/banks` | 500 — `bank_accounts` does not exist |
+| Any voucher detail page, `…/record-payment`, `…/print`, `/parent/fees?challan=` | 500 — `getChallanDetail` now selects `schools.ntn`, `.website`, `.finance_email` |
+| **`POST …/challans/[id]/payments`** | **500 — the fee counter cannot take money.** It calls `getChallanDetail` first |
+| `PATCH …/challans/[id]` (waive, cancel, late fee) | 500, same read |
+| `/dashboard/fees/concessions` | 500 — `listConcessionSchemes` selects `scheme_type` |
+| `/dashboard/fees/settings` | 500 — the two new booleans, plus the sibling-scheme count |
+| `/dashboard/settings` | 500 — the profile selects the three new columns |
+| `GET /api/school/fees/student-discounts` | 500 — the discount panel shows its error state |
+| **Enrolling a child** | **works** |
+
+That last row is a **deliberate departure from the spec's own hazard note.** The
+spec predicted the §5bi failure — a grant inside the enrolment transaction
+taking admissions down at every school — and it is built the other way.
+`applyEnrollmentDiscounts` runs *after* `enrollStudent` has committed, in
+`POST /api/school/students`, and swallows its own failures. **A child admitted
+is a fact**, and a discount that did not apply is one click from the profile the
+wizard redirects to, on a card that *says so* in words. It could not have been
+inside the transaction in any case: `batch()` builds every statement before any
+of them runs, and the sibling question is answered from the guardian rows that
+batch is writing.
+
+What replaced the hazard is a **write path that reads**: the payments route
+calls `getChallanDetail` before it writes anything. There is no partial state
+and no ledger entry without its payment — the read fails first — but a fee
+counter that cannot take money with a parent standing at it is the most
+expensive half-hour this deployment can have.
+
+### The users list stopped printing `student:LGS-2026-0009` (item 1)
+
+`school_users.phone` is `NOT NULL`, a seven-year-old has no telephone, and
+`studentDirectoryPhone` therefore writes the admission number into the column.
+§5bf fixed the same thing on the all-students list; the users list was never
+given the treatment and printed the sentinel on four rows of the live tenant.
+
+`listSchoolUsers` now left-joins an ordered aggregate of the primary guardian's
+number, and the row carries `contactPhone` — the guardian's for a student, the
+column's for everybody else, **null for a student with no guardian on file**,
+which prints `—`. Printing the sentinel is not acceptable in any case.
+
+The alias is `student_guardian_phone` on a subquery aliased `student_contact`,
+and **the outer reference is written out qualified**. `school_users.phone` is on
+the same statement, which is the exact 42702 that shipped in §5bg. `toSQL()` was
+printed and read — see below.
+
+**Deliberately not widened:** the free-text search still reads `school_users`'s
+own columns. Adding the guardian phone to it would mean adding the join to the
+count query too, and a total that counts rows the page cannot show pages the
+reader off the end of a list. Sorting by Phone likewise still sorts the stored
+column, so a student sorts by their sentinel while displaying a dash. Both are
+narrow and both are written down here rather than half-fixed.
+
+### `toSQL()` was printed and read, and the script was kept
+
+`scripts/print-sprint20-sql.ts` compiles the six statements this sprint added or
+widened and prints them. It **connects to nothing** — `postgres()` is lazy and
+nothing is awaited — so it runs anywhere. All six came out fully qualified:
+`listSchoolUsers`, `enrolledFamily`, `openSiblingGrants`,
+`listVoucherBankAccounts`, `listSiblings` with its new campus join, and
+`getChallanDetail`'s header, which is now **eight tables** and the widest
+statement the fee module has.
+
+It is kept in the repository rather than run once and deleted, because the next
+person to add a join to one of these needs the same evidence and should not have
+to rebuild the harness. CLAUDE.md asks for the print; this is where it lives.
+
+### The two campus charts (item 2)
+
+**A zero prints `—`** on a bar's value label, in `ink-faint`. The **axis ticks
+keep `PKR 0`** — an axis is a scale and a scale with a dash on it is broken —
+and so do the hidden accessible table and the `summary`, because a screen reader
+must not be told a school collected a dash.
+
+**The right gutter is measured.** `H_PADDING.right` was the constant `40`;
+`PKR 20,000` at 10px measures ~52 and was drawn six units past the bar's end, so
+the live screenshot reads `PKR 20,00` with the last glyph outside the viewBox.
+`valueGutter` in `lib/chart-scale.ts` is `axisGutter` one axis over, and it
+measures **the widest value that will actually be drawn, not the ticks** — a
+rounded scale is routinely narrower than the figures under it.
+
+**One period selector, rendered twice.** `?period=month|year`, read once on the
+server and passed to both cards, because two selectors that can disagree produce
+a screen whose halves are about different periods with nothing saying so. The
+default is `year` and is expressed as the *absence* of the parameter, so one
+view has one URL. Each card's description states the period **in words**, for
+the dashboard that gets screenshotted.
+
+`getCampusScorecard` gained an optional window that narrows **only the money**.
+Enrolment is a count of who is on the roll now and has no window; attendance is
+its own fixed 30 days, which is what the column heading says. A selector that
+silently changed the attendance column while the heading went on saying "last 30
+days" is how a table stops being believed.
+
+### The voucher, repainted (item 11) — and it is **two** copies now
+
+Decision D1. `STUDENT COPY` and `SCHOOL COPY`. The bank copy had a job only
+while the bank's details were *not* on the slip; now that the account title,
+number and IBAN are printed on it, the teller reads them off the paper in front
+of them and keeps nothing. Two copies also give each one half a sheet instead of
+a third, which is what the bank block and the notes need.
+
+`buildVoucherPrintData` in `lib/voucher-print-data.ts` is the one assembler, and
+**all three printing screens use it** — the detail page, the bulk run and the
+parent portal. Before this each spread `ChallanDetail` in by hand, which would
+have printed a parent's copy with no bank details while the school's had them.
+
+* `VALID UPTO` is the due date plus grace where late fees are configured, and
+  the due date otherwise;
+* `TOTAL AMOUNT PAYABLE AFTER DUE DATE` is priced by `calculateLateFee` at the
+  first chargeable day, so the slip and the *Apply late fee* button cannot
+  disagree — and the row is **omitted entirely** when the school has no policy.
+  A row saying the two totals are equal teaches a parent that paying late costs
+  nothing;
+* `VERSION` is always `1`. The product has no voucher versioning and **no scheme
+  was invented to fill the field**;
+* discounts are their own rows, in parentheses, named from the `concession_detail`
+  frozen on the line;
+* **the amount in words stays.** The reference omits it; that is not a reason to
+  drop the thing that stops a 1,000 becoming a 10,000 between the school gate
+  and the cashier's window.
+
+**No hex literal anywhere.** The header band and the table rules take
+`rgb(var(--brand-primary))`; the body text is `text-black` on purpose, because
+`globals.css` forces white paper under `@media print` and a dark-palette
+school's `--ink` on white would be unreadable. `check-theme` is green.
+
+### A closed voucher has nothing to print (item 3a)
+
+Three places, because any one alone leaves a hole:
+
+1. `ChallanActions` renders **Print** only when the voucher is `unpaid` or
+   `partial`;
+2. the detail page does not render `ChallanPrintView` at all for a closed one —
+   the sheet is `display:none` on screen and revealed by `@media print`, so
+   leaving it in the tree would still put a demand for settled money on the
+   paper of anybody pressing Ctrl+P;
+3. the register's checkbox is **disabled with a reason** on a closed row rather
+   than silently dropped, and the bulk print page filters again because the
+   client is not a gate.
+
+A **paid** voucher still needs a receipt. That is a different document this
+sprint does not build, and repurposing the voucher print for it would print
+"payable" over a settled bill.
+
+### The guardian's phone stopped losing digits (item 4a)
+
+`lib/defaulters.ts` masked the **storage** form — `+92321****5555` — and
+`AgedDebtTable` handed that to `formatPhoneForDisplay`, which stripped every
+non-digit including the asterisks and re-grouped the nine survivors as
+`(0321) 555-5`: a number that is not the parent's and is not a length any
+Pakistani number has. It looked entirely deliberate, which is why it survived.
+
+Both halves are fixed, because either alone leaves the trap loaded:
+`formatPhoneForDisplay` now returns a value containing `*` untouched, exactly as
+it already did for a letter; and `maskDisplayPhone` masks **after** formatting,
+giving `(0321) ***-4567`. `maskPhone` in `lib/phone.ts` is left alone — it has a
+different job. Ten assertions in `check-address-phone`, which is in CI.
+
+**The masking itself stays and is not a defect.** The report exists to decide
+*who* to chase and rendering four hundred parents' full numbers into one page is
+handing out a contact list. `reachable` is still computed from the unmasked
+value.
+
+`/api/school/fees/reports/defaulters` was switched to the same masker, which the
+spec did not name: it feeds `FeeReports`, which puts the value through the same
+formatter, so it carried the identical defect.
+
+### Scheme types, and the guess that was refused (item 5)
+
+`concession_schemes.scheme_type`, `NOT NULL`, CHECK on three values,
+**backfilled to `other`**. A scheme called "Sibling Discount" almost certainly
+is one and inferring that from a string is the drift this table was created to
+end — the same school also holds "Sibling disc." and "sibling discount (2
+kids)".
+
+The consequence of guessing is not cosmetic: a scheme wrongly marked `sibling`
+is one **the last-child sweep will one day remove from a child**, with a note
+saying it did so because the family had no siblings left. True, and the wrong
+discount to take away.
+
+`readSchemeInput` reads it, so create and edit cannot disagree. The type decides
+which slot a scheme occupies in the discount modal and, for `sibling`, which
+scheme the auto-apply and the sweep mean. **It does not change what a scheme is
+worth.**
+
+### The sibling discount (items 6, 7, 9)
+
+**`lib/sibling-discounts.ts`** holds all of it. Three decisions worth not
+re-litigating:
+
+**Granting is ranked; removal is not.** A child qualifies when their enrolled
+family is two or more and they are not the eldest *enrolment* — by enrolment
+date, then admission number, both facts that do not move when somebody corrects
+a name. Removal fires **only** on the last-one-standing case. It would be
+arithmetically consistent to re-run the ranking on every change and close the
+grant of whoever is now first, and that is deliberately not done: when the
+eldest of three leaves it would take the discount off the middle child, a fee
+*rise* on a family that still has two children here, which no requirement asks
+for.
+
+**The claim is on the grant row, not on a per-school day flag.** A conditional
+`UPDATE … WHERE the grant is still open … RETURNING` — Postgres decides it under
+one lock, so of seven scheduler processes exactly one closes each grant and
+writes one note. That needed **no new column**, and it is finer than
+`auto_send_last_run_on`'s claim. `reopenGrant` hands it back when the repricing
+that follows throws: claim first, revert on failure.
+
+**The sweep is a backstop and ticks every fifteen minutes, not every sixty
+seconds.** The two synchronous hooks do the real-time work — a student deletion
+and a promotion-run graduation — and unlike the auto-send sweep, whose claim
+makes 1,439 of its 1,440 daily ticks free, the cost here is the candidate query
+itself.
+
+**Removal is a `valid_until`, never a `DELETE`.** The close date is *yesterday*,
+clamped so it never precedes `valid_from`. A consequence that looks like a bug
+and is not: **a voucher already issued keeps its discount**, because
+`listActiveConcessions` matches a grant against the voucher's own billing date.
+That is right — the slip was raised for a month in which the family did have two
+children here.
+
+Only grants whose `scheme_id` points at a `sibling` scheme are ever touched. A
+concession typed in by hand and called "Sibling discount" is not: the product
+cannot know what a school meant by a string.
+
+**Two active sibling schemes is refused, not resolved.** The auto-apply grants
+nothing and says why on the settings screen. Choosing one at random files half a
+school's families under a rate nobody picked, and the difference only surfaces
+when two parents compare vouchers.
+
+### Siblings across campuses were already right (item 8)
+
+`lib/siblings.ts` matches on `student_guardians.location_id` and joins no
+`branches` in any predicate. The job was to prove it and not break it, and
+`check-branch-scope` now asserts — for both `lib/siblings.ts` and
+`lib/sibling-discounts.ts` — that neither **imports** `lib/branch-scope`, calls
+`sharedOrOwnedBy(`, `ownedBy(` or `effectiveBranchIds(`, compares any
+`branchId` with `eq` or `inArray`, or reads `claims.branchId`.
+
+Written as an **import** test rather than a mention test on purpose: both files
+talk about the resolver at length in their comments, saying why it must not be
+applied here, and a check that failed on the prose explaining the rule would be
+a check that punished writing it down.
+
+The campus is now *named* on screen: `SiblingCard` takes `contextBranchId` and
+badges a sibling at any other campus. A clerk at Defence reading a discount
+granted because of a child at Karachi could previously see a name with no class
+beside it and no reason for the grant.
+
+### Bank accounts (item 10)
+
+`bank_accounts`, at `/dashboard/settings/banks`, on `settings.read` /
+`settings.write` — **no new permission key**, so the `role_permissions` CHECK is
+untouched (§5o).
+
+Under Settings and not under Fees because two modules read it and neither owns
+it: Fees prints the student-facing accounts on a voucher, Payroll pays salaries
+from the staff-facing ones. Filing it under Fees would put the payroll bank
+under Fees.
+
+`purpose` is a three-way radio. Two checkboxes admit a fourth state — neither
+ticked — which is an account that exists and is for nothing.
+
+**Deleting is allowed and the confirmation is the safeguard.** The obvious rule
+— refuse once the account has been printed on a voucher — cannot be enforced,
+because nothing records that a voucher was printed and a voucher snapshots none
+of these details. The dialog says in words that slips already in parents' hands
+carry these numbers and will not change, and points at the toggle as the safer
+act.
+
+Only `is_active = true` **and** `purpose IN ('student','both')` **and**
+`sharedOrOwnedBy` reach a voucher. An unresolvable campus falls back to the
+school's shared accounts rather than to "every campus", which would print
+another campus's account on this slip.
+
+### `challan` → `voucher`, strings only (item 3b)
+
+Error messages, help text, empty states, two buttons, the parent portal's *See
+every voucher*, the notification-preference labels, the ledger account
+description and the parent role's description. **No table, column, route, file,
+type name or API response key changed.** The icon-registry key `'challans'` and
+the CSS class `challan-copy` stay — §5bg records both as identifiers inside
+strings.
+
+Found with a lexer that classifies every character as code, comment or string,
+plus a JSX-text pass by hand. Comments and docblocks were **not** touched: they
+are for developers and rewriting them loses the history that explains the
+tables.
+
+### Deviations from the spec, and why
+
+* **The sibling auto-grant is outside the enrolment transaction.** The spec's
+  hazard table predicts an enrolment rollback; this refuses to create one. See
+  the banner above.
+* **`/dashboard/fees/defaulters` gained `PageHeader`.** The spec says the title
+  "is rendered through `PageHeader`" — it was not. It wrote its own `<h2>` at
+  `text-xl` while every other screen renders `PageHeader`'s `<h1>` at
+  `text-2xl`, so the outlier was here and it was corrected rather than the
+  majority.
+* **`getChallanDetail` grew nine columns.** The voucher needs the student's
+  email, the guardian's, the school's NTN/website/finance email and the campus's
+  own address, phone and email. That widened the fee module's widest statement
+  to eight tables, which is why it is in the `toSQL()` script.
+* **The scorecard's `window` narrows only the money.** Stated above.
+* **`item 4b` reversed the flex direction rather than the caret's position.**
+  `justify-end` on a full-width button, plus a fixed 12-unit footprint for the
+  caret so a sorted and an unsorted header are the same width — the three glyphs
+  are not.
+* **No `student_concessions` schema change.** Removal writes `valid_until` and
+  appends to `notes`; both columns already existed.
+
+### What was NOT verified, honestly
+
+* **Nothing here has been driven in a browser.** No screen, no modal, no
+  refusal, no print. §5bg, §5bh and §5bi all conclude that this is the gate that
+  matters and the one thirteen green checks cannot stand in for.
+* **`0037` has not been applied**, so no query touching `bank_accounts`,
+  `scheme_type` or the two new booleans has ever returned a row. What *was*
+  proved is that all six statements **compile to the SQL they are supposed to**,
+  read by eye from `toSQL()`. An ambiguous column reference is a planning error,
+  so a compiled statement is evidence about names and nothing else.
+* **The repainted voucher has never been on paper.** Two copies on landscape A4
+  with a bank block and a notes box is a *layout* claim, and a layout claim
+  cannot be judged from the DOM — §5bg says exactly that about item 10 of Sprint
+  18. The one thing to check first is whether a voucher with six fee heads, two
+  discounts and three bank accounts still fits half a sheet.
+* **The sibling sweep has never run.** No timer has ticked against a real
+  family, no grant has been claimed, and `reopenGrant` has never been reached.
+  The claim is the same shape as `voucher-auto-send`'s, which is live and works.
+* **Cross-campus siblings remain unfixtured.** The assertions say the query
+  carries no branch predicate; nothing has returned two children at two
+  campuses, because there is still no two-campus tenant.
+* **The `after due date` figure is unchecked against a daily rule.** It is
+  priced at grace + one day, which for a `daily` policy is one day's charge.
+  That is defensible and it is a choice; a school charging 100/day would want to
+  know it says 100 and not 3,000.
+
+### Gates run and green
+
+`typecheck`, `lint`, `check-loaders` (279), `check-forms` (60),
+`check-address-phone` (50), `check-cnic` (36), `check-currency` (7),
+`check-sprint-periods` (107), `check-accounting` (121), `check-theme` (7
+palettes), `check-branch-scope` (1,379) and **`npm run build`**. The three
+database-backed checks — `check-reports`, `check-dashboard`, `check-portals` —
+were **not** run: they need credentials this worktree does not hold.
+
+⚠ **The §5f stub bit again.** The first `next build` in this worktree passed and
+wrote `.claude/worktrees/node_modules` holding only `next` and `styled-jsx`; the
+second failed on `Can't resolve '../shared/lib/utils'`. Deleting it and
+rebuilding was green. Four sessions have now rediscovered this.
+
+### Next free migration number is `0038`.

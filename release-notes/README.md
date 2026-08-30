@@ -6,6 +6,7 @@ what is not there yet. They are not the engineering handover — that is
 
 | Sprint | Theme | Migration | Notes |
 | --- | --- | --- | --- |
+| **20** | The fee voucher redrawn, bank accounts, discounts at the enrolment desk, the sibling discount that removes itself | `0037` **written, NOT applied** | [read](RELEASE-NOTES-SPRINT-20.md) |
 | **19b** | Campus calendars created in runs, the promotion that could not name its year, student documents, academic history, Enrol → Enroll | `0036` **APPLIED** | [read](RELEASE-NOTES-SPRINT-19B.md) |
 | **19a** | A campus is a boundary; the owner's cross-campus dashboard, branch CRUD, a campus on every report | `0035` **APPLIED** | [read](RELEASE-NOTES-SPRINT-19A.md) |
 | **18** | A challan is a Voucher, concession schemes the school owns, student CRUD as four permissions | `0034` **APPLIED** | [read](RELEASE-NOTES-SPRINT-18.md) |
