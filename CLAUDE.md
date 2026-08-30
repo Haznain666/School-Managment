@@ -364,7 +364,32 @@ npm run build
 
 Plus whichever of the other `check-*` scripts covers the area you touched —
 `check-reports`, `check-dashboard`, `check-portals`, `check-provisioning`,
-`check-smtp`.
+`check-smtp`, `check-sprint20`.
+
+### And if your sprint adds or widens a query, execute it
+
+`npm run check-sprint20` is the pattern, and the reason it exists is the rule
+three sections up. **Printing `toSQL()` proves the names; only a server proves
+the statement.** An ambiguous column reference is a *planning* error — Postgres
+raises 42702 when it resolves the query, not when it returns rows — so a
+statement that has been read and not run is evidence about spelling and nothing
+else. That is precisely how 42702 shipped three times.
+
+Run every new or widened statement against the real schema with a tenant id that
+matches no row: nothing is read, nothing is written, and Postgres still parses,
+resolves every column and plans. Split them in two — the ones needing your
+migration must fail with exactly `42P01` / `42703`, and **any other error is a
+real defect wearing a predicted failure's clothes**. Have the script read
+whether the migration is applied rather than being told, so one command works on
+both sides of it.
+
+Two traps, both paid for the first time it was written: the SQLSTATE is on the
+error's `cause` and not on the error, so reading `.code` reports every failure
+as unpredicted; and a read that short-circuits before it reaches the new column
+must be reported as *not exercised* rather than passed, or a broken statement
+hides behind an early return.
+
+Copy the script, rename it, and point it at your sprint's statements.
 
 `.github/workflows/ci.yml` runs the eight that need no database —
 `check-loaders`, `check-forms`, `check-address-phone`, `check-cnic`,
