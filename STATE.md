@@ -11,7 +11,10 @@ bookkeeping rows → 38**, entry `id=38` stamped `1788177600000` to match the
 journal. 18 of 18 catalogue assertions and **39 of 39 constraint-firing tests**,
 each expected refusal in its own `SAVEPOINT`, whole transaction rolled back,
 row counts identical before and after. `SPRINT-20-DDL-NOTES.md` is beside it.
-Twelve gates green **including `npm run build`**.
+Twelve gates green **including `npm run build`**. **DEPLOYED AND LIVE as
+`9b0d5462ea70`**, PR [#44](https://github.com/Haznain666/School-Managment/pull/44)
+merged 16:06:54Z, live 16:09:50Z — **2m56s**; cache purged and verified, smoke
+test `DEPLOYMENT HEALTHY` including a real sign-in.
 
 ✅ **`0037` went in before the code, which is the order that mattered.** The
 row to read twice was `POST …/challans/[id]/payments` — **the fee counter
@@ -9963,6 +9966,24 @@ concession scheme on the live database is named *"Siblings Discount"* and it
 came out `other`. That is the point: nothing is inferred from a name, and a
 scheme wrongly marked `sibling` is one the last-child sweep would one day remove
 from a child.
+
+### The deploy, and the probe that no longer works from a workstation
+
+PR #44 merged at **16:06:54Z**, `9b0d5462ea70`. The first verification run at
+**16:08:22Z** — 1m28s after the merge — read `92ac842db161` and reported the
+deploy stale. It was not stale, it was **early**: the second run at **16:09:50Z**
+read `9b0d5462ea70`. §5bd's warning holds exactly, and the number to keep is
+**under three minutes from merge to live**, not the ten a first failed probe
+suggests.
+
+⚠ **The origin now answers a bare `curl` with a 403 JavaScript challenge.**
+`curl https://schoolhub.codexmill.com/api/internal/build` from this workstation
+returns Hostinger's "Checking your browser" interstitial, with or without a
+browser user agent — so **the local probe DEPLOYMENT.md documents cannot be run
+from here any more.** The GitHub Actions runner is not challenged and got a
+clean `200`, which makes `gh workflow run deploy.yml` the *only* way to read the
+live build id from this environment. Dispatch it rather than concluding the site
+is down: a 403 here and a 200 there is the challenge, not the deploy.
 
 ### `check-sprint20` before and after, which is the cheapest proof there is
 
