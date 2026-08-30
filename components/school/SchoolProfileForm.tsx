@@ -32,6 +32,14 @@ export interface SchoolProfileFormProps {
     email: string | null;
     address: string | null;
     principalName: string | null;
+    /**
+     * The three fields the printed fee voucher asks for — Sprint 20, decision
+     * D4. All optional, and every one is printed **only when set**: a blank
+     * `NTN #` on a fee slip is a question a parent asks at the counter.
+     */
+    ntn: string | null;
+    website: string | null;
+    financeEmail: string | null;
   };
   canEdit: boolean;
 }
@@ -41,6 +49,9 @@ export function SchoolProfileForm({ readOnly, initial, canEdit }: SchoolProfileF
   const [email, setEmail] = useState(initial.email ?? '');
   const [address, setAddress] = useState(initial.address ?? '');
   const [principalName, setPrincipalName] = useState(initial.principalName ?? '');
+  const [ntn, setNtn] = useState(initial.ntn ?? '');
+  const [website, setWebsite] = useState(initial.website ?? '');
+  const [financeEmail, setFinanceEmail] = useState(initial.financeEmail ?? '');
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -58,6 +69,9 @@ export function SchoolProfileForm({ readOnly, initial, canEdit }: SchoolProfileF
           email: email.trim(),
           address: address.trim(),
           principalName: principalName.trim(),
+          ntn: ntn.trim(),
+          website: website.trim(),
+          financeEmail: financeEmail.trim(),
         }),
       });
       setNotice('School details saved.');
@@ -115,7 +129,7 @@ export function SchoolProfileForm({ readOnly, initial, canEdit }: SchoolProfileF
 
         <p className="text-xs text-ink-muted sm:col-span-2 lg:col-span-4">
           These are set by the platform administrator. The school code prefixes
-          every student ID, challan and payslip number already issued, so
+          every student ID, voucher and payslip number already issued, so
           changing it is not something a school does to itself.
         </p>
       </dl>
@@ -158,6 +172,48 @@ export function SchoolProfileForm({ readOnly, initial, canEdit }: SchoolProfileF
             setPrincipalName(event.target.value);
           }}
         />
+        {/*
+          The three fields the fee voucher prints — Sprint 20, decision D4.
+
+          Each is printed **only when set**, so a school that leaves all three
+          blank gets exactly the voucher it got before this sprint: no empty
+          label, no "N/A". `finance_email` is deliberately not the office
+          address above — the desk that reconciles a bank transfer and the
+          school office are two different inboxes at every school large enough
+          to have a finance office, and the note under the bank block on the
+          voucher names the second.
+        */}
+        <Input
+          label="NTN"
+          value={ntn}
+          disabled={!canEdit}
+          hint="National Tax Number. Printed on every fee voucher when set."
+          onChange={(event) => {
+            setNtn(event.target.value);
+          }}
+        />
+        <Input
+          label="Website"
+          value={website}
+          disabled={!canEdit}
+          hint="Printed in the voucher footer, e.g. https://yourschool.edu.pk"
+          onChange={(event) => {
+            setWebsite(event.target.value);
+          }}
+        />
+        <div className="sm:col-span-2">
+          <Input
+            label="Finance email"
+            type="email"
+            value={financeEmail}
+            disabled={!canEdit}
+            hint="Where parents send proof of a bank transfer. The voucher prints that instruction only when this is set."
+            onChange={(event) => {
+              setFinanceEmail(event.target.value);
+            }}
+          />
+        </div>
+
         <div className="sm:col-span-2">
           <AddressAutocomplete
             label="Address"
