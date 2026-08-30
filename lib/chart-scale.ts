@@ -239,6 +239,49 @@ export function axisGutter(
 }
 
 /**
+ * The right gutter a horizontal bar chart needs for the figure printed past the
+ * end of its longest bar.
+ *
+ * ── The defect this exists for (Sprint 20, item 2b) ──────────────────────
+ * `H_PADDING.right` was the constant `40`, which is the right number for
+ * `compactNumber` — `"20k"` is three glyphs. It is the wrong number for a money
+ * formatter: `PKR 20,000` measures ~52 units at 10px and is drawn six units
+ * past the bar's end, so on *Collection by campus* the label started at the
+ * viewBox's right edge and ran off it. The screenshot from the live tenant
+ * reads `PKR 20,00`, with the final glyph outside the SVG and clipped away.
+ *
+ * This is `axisGutter` one axis over, and it makes the same argument: the
+ * gutter is **measured**, not assumed, so a chart topping out at `PKR 1,250,000`
+ * takes the room it needs and one topping out at `PKR 900` does not waste it.
+ *
+ * ── Measured against the values, not against the ticks ───────────────────
+ * The ticks are the *axis*, and the axis is a rounded scale that stops at or
+ * above the data. What is drawn at the end of a bar is the value itself, and
+ * `PKR 1,247,318` is four glyphs wider than the `PKR 1,250,000` tick it sits
+ * under. Passing the ticks here would under-reserve on exactly the charts that
+ * need it most.
+ *
+ * 5.2 units per glyph is the observed average for the 10px face at this
+ * viewBox — a shade under `axisGutter`'s 5.6, which measures an 11px one — plus
+ * the 6-unit offset the label is drawn at and 4 units of breathing room.
+ *
+ * `floor` is the caller's existing constant, so a chart whose labels are short
+ * draws exactly what it drew before this function existed. Passed in rather
+ * than hard-coded here because the geometry belongs to the chart.
+ */
+export function valueGutter(
+  values: readonly number[],
+  format: (value: number) => string,
+  floor: number,
+): number {
+  const widest = values.reduce(
+    (max, value) => (Number.isFinite(value) ? Math.max(max, format(value).length) : max),
+    0,
+  );
+  return Math.max(floor, Math.ceil(widest * 5.2) + 10);
+}
+
+/**
  * Compact axis labels in the units this market uses.
  *
  * Lakh and crore rather than K and M: a Pakistani school's accountant reads

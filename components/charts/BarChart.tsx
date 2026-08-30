@@ -1,5 +1,5 @@
 import { ChartEmpty, ChartFrame, ChartLegend } from '@/components/charts/ChartFrame';
-import { axisGutter, compactNumber, linearScale } from '@/lib/chart-scale';
+import { axisGutter, compactNumber, linearScale, valueGutter } from '@/lib/chart-scale';
 import { cn } from '@/lib/utils';
 
 /**
@@ -101,8 +101,27 @@ const PADDING = { top: 12, right: 8, bottom: 30, left: 46 };
  * Horizontal geometry. The height is computed from the row count rather than
  * fixed, so twenty categories produce a taller chart instead of twenty bars two
  * units thick. `left` is the label column and is the whole point of this mode.
+ *
+ * `right` is **measured** rather than taken from here — see `valueGutter` and
+ * item 2b. The constant survives only as the floor that keeps every
+ * compact-formatted chart drawing exactly what it drew before.
  */
 const H_PADDING = { top: 8, right: 40, bottom: 26, left: 172 };
+
+/**
+ * What a bar's value label reads when the value is exactly zero.
+ *
+ * ── Item 2a, and it is about the campus charts specifically ──────────────
+ * `PKR 0` printed twice, stacked, against a campus with no activity is four
+ * characters of noise in the place a reader is scanning for a figure. A dash is
+ * the conventional accounting nil and takes a quarter of the width.
+ *
+ * Two things deliberately keep the real number. The **axis ticks** do, because
+ * an axis is a scale and a scale with a dash on it is broken. And the hidden
+ * accessible table and the `summary` do, because a screen reader must not be
+ * told a school collected a dash — it collected nothing, which is a figure.
+ */
+const ZERO_LABEL = '—';
 /** One category's vertical budget, whatever the series count. */
 const ROW_HEIGHT = 26;
 
@@ -204,7 +223,23 @@ export function BarChart({
   );
 
   if (orientation === 'horizontal') {
-    const plotWidth = WIDTH - H_PADDING.left - H_PADDING.right;
+    /*
+     * The right gutter, measured against the **widest value that will actually
+     * be drawn** — not against the ticks, which are a rounded scale and are
+     * routinely narrower than the figures under them. Item 2b: this was a
+     * hard-coded 40, and `PKR 20,000` at 10px needs ~52, so the last glyph of
+     * every long label was drawn outside the viewBox and clipped.
+     *
+     * A zero draws `ZERO_LABEL`, which is one glyph, so it cannot widen the
+     * gutter — but a series of nothing but zeroes still gets the floor.
+     */
+    const padRight = valueGutter(
+      series.flatMap((entry) => [...entry.values]).filter((value) => value !== 0),
+      format,
+      H_PADDING.right,
+    );
+
+    const plotWidth = WIDTH - H_PADDING.left - padRight;
     const chartHeight = H_PADDING.top + categories.length * ROW_HEIGHT + H_PADDING.bottom;
     const axisX = H_PADDING.left;
     const axisBottom = H_PADDING.top + categories.length * ROW_HEIGHT;
@@ -236,11 +271,16 @@ export function BarChart({
                   className="stroke-[rgb(var(--ink)/0.10)]"
                   strokeWidth={1}
                 />
+                {/*
+                  The tick keeps the real figure, `PKR 0` included. An axis is
+                  a scale; a scale with a dash on it is broken. Item 2a is about
+                  the per-bar figure and only that.
+                */}
                 <text
                   x={x}
                   y={axisBottom + 14}
                   textAnchor="middle"
-                  className="fill-[rgb(var(--ink-muted))] text-[11px] tabular-nums"
+                  className="fill-[rgb(var(--ink-muted))] text-[10px] tabular-nums"
                 >
                   {format(tick)}
                 </text>
@@ -265,12 +305,19 @@ export function BarChart({
                   long" used to mean over the edge of the card. See
                   `fitCategory`.
                 */}
+                {/*
+                  Item 2c. The category is the *row's name* — the thing a reader
+                  scans down the edge to find the campus they are worried about
+                  — and it was set in the same muted grey at the same weight as
+                  the axis ticks, which are a scale. It takes full ink; the
+                  ticks keep the muted tone.
+                */}
                 <text
                   x={axisX - 10}
                   y={rowTop + ROW_HEIGHT / 2}
                   textAnchor="end"
                   dominantBaseline="middle"
-                  className="fill-[rgb(var(--ink-muted))] text-[11px]"
+                  className="fill-[rgb(var(--ink))] text-[11px]"
                 >
                   {label.full === null ? null : <title>{label.full}</title>}
                   {label.shown}
@@ -303,15 +350,27 @@ export function BarChart({
                         The value printed past the end of its bar. A vertical
                         chart is read against its y axis; a horizontal one is
                         read row by row, and the figure is what the reader came
-                        for. `H_PADDING.right` reserves the room for it.
+                        for. `padRight` — measured, not assumed — reserves the
+                        room for it.
+
+                        A zero prints a dash in the faint ink instead (item 2a).
+                        The bar is already absent, so the figure adds nothing
+                        but four characters of noise against a campus that has
+                        had no activity; the accessible table two elements down
+                        still carries the real `PKR 0`.
                       */}
                       <text
                         x={axisX + width + 6}
                         y={barsTop + seriesIndex * barHeight + barHeight / 2}
                         dominantBaseline="middle"
-                        className="fill-[rgb(var(--ink))] text-[11px] tabular-nums"
+                        className={cn(
+                          'text-[10px] font-semibold tabular-nums',
+                          value === 0
+                            ? 'fill-[rgb(var(--ink-faint))]'
+                            : 'fill-[rgb(var(--ink))]',
+                        )}
                       >
-                        {format(value)}
+                        {value === 0 ? ZERO_LABEL : format(value)}
                       </text>
                     </g>
                   );
