@@ -112,9 +112,30 @@ admission fee is paid — `LGS-2026-08-0006`, PKR 35,000 — and the profile off
 money the school has already taken is how a fee gets paid twice, and the second
 payment lands as an unexplained credit nobody reconciles.
 
-Fixed: removed from the `settled` case, which covers paid, waived and cancelled
-alike. The voucher number above it is still a link, so the record is one click
-away. Re-verified: no Print control anywhere on the profile.
+Fixed — **and the first fix was wrong, which the browser also caught.** Removing
+Print from the `settled` case took it away from a voucher that is still a live
+demand. `resolveAdmissionFee` returns `settled` by **two** routes: a paid or
+waived voucher, *and* an enrolment **cleared by hand** at a desk, which is what
+a school does when it takes cash. In that second case the voucher behind it can
+still be `unpaid`. Student 18 is exactly that — the panel reads *Paid* while
+`LGS-2026-08-0011` is unpaid for PKR 50,000 and the family appears on the
+aged-debt screen owing it.
+
+So the test is the **voucher's** status, not the panel's case: `openVoucher` is
+the same `unpaid | partial` test `ChallanActions`, the voucher list and the bulk
+print route apply, so all four screens now agree about what is printable. Both
+ends re-verified:
+
+| Student | Voucher | Print |
+| --- | --- | --- |
+| Student 11 | `LGS-2026-08-0006` **paid** | absent ✅ |
+| Student 18 | `LGS-2026-08-0011` **unpaid**, enrolment hand-cleared | present ✅ |
+
+⚠ **A pre-existing contradiction surfaced while doing this and is not Sprint
+20's**: Student 18's profile says *"Paid, so this enrollment is confirmed"* while
+the same school's aged-debt screen lists them owing 50,000. `feeStatus` on the
+enrolment and the voucher's own status are two different facts and the panel
+reports only the first. Left alone; worth a look in the next fee sprint.
 
 **And the sentence under it.** *"Print a copy only if the family asked for one"*
 survived the button it referred to. An instruction pointing at a control that is

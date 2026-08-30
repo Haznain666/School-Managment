@@ -10375,8 +10375,27 @@ now two different sentences, in all three places that made the claim.
 `ChallanActions`, the voucher list and the bulk print route, but not
 `FeeClearancePanel` — the panel that *raises* the voucher. Handing a parent a
 slip that says *pay this* for money already taken is how a fee gets paid twice,
-and the second payment lands as an unexplained credit nobody reconciles. Removed
-from the `settled` case, which covers paid, waived and cancelled alike.
+and the second payment lands as an unexplained credit nobody reconciles.
+
+⚠ **The first fix was wrong and the browser caught that too.** Removing Print
+from the `settled` case took it away from a voucher that is still a live demand:
+`resolveAdmissionFee` returns `settled` by **two** routes — a paid or waived
+voucher, *and* an enrolment **cleared by hand**, which is what a school does when
+it takes cash across a desk. In the second the voucher can still be `unpaid`.
+Student 18 is exactly that: the panel reads *Paid* while `LGS-2026-08-0011` is
+unpaid for PKR 50,000 and the family is on the aged-debt screen owing it.
+
+The test is therefore the **voucher's** status and never the panel's case.
+`openVoucher` is the same `unpaid | partial` test `ChallanActions`, the list and
+the bulk route apply, so all four screens agree about what is printable. Both
+ends re-verified in the browser — paid hides it, hand-cleared-but-unpaid shows
+it.
+
+⚠ **A pre-existing contradiction surfaced doing this, and it is not Sprint
+20's.** Student 18's profile says *"Paid, so this enrollment is confirmed"* while
+the aged-debt screen lists them owing 50,000. `student_enrollments.fee_status`
+and the voucher's own status are two different facts, and the panel reports only
+the first. Left alone; worth settling alongside the repricing asymmetry below.
 
 **🐛 D4 — and the sentence under it.** *"Print a copy only if the family asked
 for one"* survived the button it referred to. An instruction pointing at a

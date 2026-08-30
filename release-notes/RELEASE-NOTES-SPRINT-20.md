@@ -213,7 +213,9 @@ something the software did not do.
 * **A paid admission voucher still offered *Print voucher*.** Handing a parent a
   slip that says *pay this* for money already taken is how a fee gets paid
   twice. It is gone; the voucher number beside it is still a link for anyone who
-  needs the record.
+  needs the record. Printing is decided by the voucher's own status, so a
+  voucher that is still unpaid — including one where your office took the cash
+  and confirmed the enrolment by hand — can still be printed.
 * **And the line under that button** — *"Print a copy only if the family asked
   for one"* — outlived it, pointing at a control that was no longer there.
 
