@@ -26,6 +26,7 @@ import {
   uploadableDocuments,
   type DocumentDraft,
 } from '@/components/admissions/StudentDocumentsForm';
+import { StudentDiscountPanel } from '@/components/fees/StudentDiscountPanel';
 import { Button } from '@/components/ui/Button';
 import { Card, CardTitle } from '@/components/ui/Card';
 import { Input } from '@/components/ui/Input';
@@ -50,8 +51,8 @@ import {
 } from '@/lib/student-reference-data';
 
 /**
- * Direct enrollment, in five steps: student, guardians, placement, documents,
- * review.
+ * Direct enrollment, in six steps: student, guardians, placement, documents,
+ * discounts, review.
  *
  * Split into steps because the form is long and half of it is optional — an
  * admissions clerk with a paper form in front of them should not be scrolling
@@ -66,6 +67,17 @@ import {
  * of it must never be held up by a birth certificate that is at home, and a
  * required upload there produces a photograph of a blank sheet rather than a
  * document. See `StudentDocumentsForm`.
+ *
+ * ── Discounts sits between documents and review — Sprint 20, item 7a ─────
+ * And it is skippable for exactly the same reason, stated in the requirement
+ * itself: an admissions desk with a queue in front of it must never be blocked
+ * by a discount decision. There is nothing here that can fail validation, and
+ * anything not chosen now is one click from the profile the wizard redirects
+ * to.
+ *
+ * It is *after* the guardians rather than beside them because the sibling
+ * question is answered from the guardian rows — a family is resolved by CNIC or
+ * phone — so the panel has nothing to say until step 2 is done.
  */
 
 const STEPS = [
@@ -73,6 +85,7 @@ const STEPS = [
   'Guardian information',
   'Academic placement',
   'Documents',
+  'Discounts',
   'Review and confirm',
 ] as const;
 
@@ -199,6 +212,17 @@ export function StudentEnrollForm({
 
   const [photo, setPhoto] = useState<File | null>(null);
   const [documents, setDocuments] = useState<DocumentDraft[]>([]);
+  /*
+   * The discounts chosen on step 5, held here rather than written.
+   *
+   * There is no student to grant against until the enrolment commits, so the
+   * ids travel in the POST body and the server applies them the moment the
+   * child exists. That is a *different* choice from the photo and the
+   * documents, which go up afterwards in their own requests: a scheme id is
+   * eight bytes and needs no upload, and applying it inside the same request
+   * means the profile the wizard lands on already shows the chip.
+   */
+  const [schemeIds, setSchemeIds] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -337,6 +361,17 @@ export function StudentEnrollForm({
           academicYearId,
           rollNumber: placement.rollNumber,
           enrollmentDate: placement.enrollmentDate,
+          /*
+           * Item 7a. Applied server-side the moment the child exists, so the
+           * profile this redirects to already carries the chips.
+           *
+           * A failure here does **not** undo the enrolment — see the route —
+           * for the same reason a failed photo upload does not: a child
+           * admitted is a fact, and a discount that did not apply is one click
+           * away on the screen the clerk is about to be looking at, which says
+           * so in words.
+           */
+          concessionSchemeIds: schemeIds,
         }),
       });
 
@@ -699,6 +734,22 @@ export function StudentEnrollForm({
       ) : null}
 
       {step === 4 ? (
+        <StudentDiscountPanel
+          // No student yet, so the family is resolved from the guardian rows
+          // the clerk has just typed — the same CNIC-or-phone rule the profile
+          // uses, asked of the same endpoint.
+          draftGuardians={guardians.map((guardian) => ({
+            cnic: guardian.cnic,
+            phone: guardian.phone,
+          }))}
+          studentName={student.name.trim() === '' ? 'This student' : student.name.trim()}
+          canEdit={!isSubmitting}
+          selectedSchemeIds={schemeIds}
+          onSelectionChange={setSchemeIds}
+        />
+      ) : null}
+
+      {step === 5 ? (
         <Card header={<CardTitle title="Review and confirm" />}>
           <dl className="grid gap-x-6 gap-y-3 sm:grid-cols-2">
             <ReviewItem label="Student" value={student.name} />
@@ -745,6 +796,20 @@ export function StudentEnrollForm({
               value={uploadableDocuments(documents)
                 .map((document) => document.title)
                 .join(', ')}
+            />
+            {/*
+              Counted rather than named. The step above holds the names and the
+              rates, and repeating them here would be a second place for the
+              same figures to be read — while "2 discounts" is the fact worth
+              checking at the desk: whether one was chosen by accident.
+            */}
+            <ReviewItem
+              label="Discounts"
+              value={
+                schemeIds.length === 0
+                  ? ''
+                  : `${String(schemeIds.length)} selected — granted when this enrolment completes`
+              }
             />
           </dl>
 

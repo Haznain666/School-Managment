@@ -7,6 +7,7 @@ import { GuardianPanel } from '@/components/admissions/GuardianPanel';
 import { SiblingCard } from '@/components/admissions/SiblingCard';
 import { StudentDocumentsCard } from '@/components/admissions/StudentDocumentsCard';
 import { StudentProfileCard } from '@/components/admissions/StudentProfileCard';
+import { StudentDiscountPanel } from '@/components/fees/StudentDiscountPanel';
 import { Badge } from '@/components/ui/Badge';
 import { Card, CardTitle } from '@/components/ui/Card';
 import {
@@ -278,6 +279,25 @@ export default async function StudentProfilePage({
         )}
       </Card>
 
+      {/*
+        Sprint 20, item 7a. Immediately **above** `FeeClearancePanel`, which is
+        the voucher-generation section the requirement names: a discount is a
+        decision about what the next voucher says, so it belongs in front of the
+        control that raises one rather than after it.
+
+        Gated on `fees.read` to see and `fees.write` to change — the pair the
+        rest of the fee module runs on. A school administrator without the fee
+        module still gets a profile page; they simply do not get this card.
+      */}
+      {permissions.includes('fees.read') ? (
+        <StudentDiscountPanel
+          studentProfileId={student.studentProfileId}
+          studentName={student.name}
+          canEdit={permissions.includes('fees.write')}
+          contextBranchId={student.branchId}
+        />
+      ) : null}
+
       {activeEnrolment === undefined ? null : (
         <FeeClearancePanel
           studentProfileId={student.studentProfileId}
@@ -313,6 +333,9 @@ export default async function StudentProfilePage({
       */}
       <SiblingCard
         siblings={siblings}
+        // Item 8. A sibling at another campus is badged with theirs; at a
+        // one-campus school this changes nothing at all.
+        contextBranchId={student.branchId}
         hrefFor={(sibling) =>
           `/dashboard/admissions/students/${sibling.studentProfileId}`
         }

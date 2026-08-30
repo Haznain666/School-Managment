@@ -17,6 +17,7 @@ import {
 } from '@/db/schema';
 
 import { db } from './drizzle';
+import { reconcileFamilyAfterDeparture } from './sibling-discounts';
 
 /**
  * Rolling a school over to the next academic year.
@@ -480,6 +481,31 @@ export async function applyPromotionRun(
       })
       .where(eq(promotionRuns.id, run.id));
   });
+
+  /*
+   * Sprint 20, item 9b. A graduating child leaves the school, and a family that
+   * is down to one child here loses its sibling discount.
+   *
+   * **After the transaction, never inside it.** The promotion is all-or-nothing
+   * by design — see this function's own docblock — and a discount that would
+   * not close must not roll a whole class back into last year. The reconcile
+   * swallows its own failures and the fifteen-minute sweep is the backstop.
+   *
+   * Only graduates. A promote or a retain writes a fresh `active` row in the
+   * receiving year, so the family is exactly the size it was a moment ago and
+   * there is nothing to reconsider.
+   */
+  const graduates = actionable
+    .filter((entry) => entry.decision === 'graduate')
+    .map((entry) => entry.studentProfileId);
+
+  for (const studentProfileId of graduates) {
+    await reconcileFamilyAfterDeparture({
+      locationId: run.locationId,
+      studentProfileId,
+      actorUid,
+    });
+  }
 
   return result;
 }

@@ -17,6 +17,10 @@ import {
 import { batch, db } from '@/lib/drizzle';
 import { countPaymentsForStudent } from '@/lib/fee-queries';
 import { isValidCnic } from '@/lib/national-id';
+import {
+  familyIdsBeforeDeparture,
+  reconcileSiblingGrantsFor,
+} from '@/lib/sibling-discounts';
 import { isUuid, readOptionalString, readString } from '@/lib/validation';
 
 /**
@@ -266,6 +270,19 @@ export const DELETE = withSchoolAuth<RouteContext>(
         );
       }
 
+      /*
+       * Sprint 20, item 9b. Who this child was family with, read **before**
+       * they go.
+       *
+       * `student_guardians` cascades with the profile, so the moment the delete
+       * commits there is nothing left to match a family on and the siblings are
+       * unrecoverable. Reading first and reconciling after is the only order
+       * that works, and the sweep would otherwise take up to fifteen minutes to
+       * notice — during which a parent could be told a figure that is about to
+       * change.
+       */
+      const family = await familyIdsBeforeDeparture(auth.locationId, studentId);
+
       await batch(db, (tx) => [
         tx
           .delete(studentProfiles)
@@ -285,7 +302,23 @@ export const DELETE = withSchoolAuth<RouteContext>(
           ),
       ]);
 
-      return apiSuccess({ deleted: true, studentId: existing.studentId });
+      /*
+       * Awaited but never fatal — `reconcileSiblingGrantsFor` swallows its own
+       * failures. The student is already gone; a sibling discount that did not
+       * close is picked up by the sweep, and refusing the response over it
+       * would tell the operator the deletion failed when it did not.
+       */
+      const closed = await reconcileSiblingGrantsFor({
+        locationId: auth.locationId,
+        studentProfileIds: family,
+        actorUid: auth.uid,
+      });
+
+      return apiSuccess({
+        deleted: true,
+        studentId: existing.studentId,
+        siblingDiscountsClosed: closed,
+      });
     } catch (error) {
       return handleApiError(error);
     }

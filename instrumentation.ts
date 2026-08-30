@@ -3,12 +3,12 @@
  * anything. It is the only place this application can start background work.
  *
  * ── What runs here, and what must not ────────────────────────────────────
- * The email outbox drainer, the announcement scheduler (Sprint 11) and the
- * monthly voucher auto-send (Sprint 18).
+ * The email outbox drainer, the announcement scheduler (Sprint 11), the monthly
+ * voucher auto-send (Sprint 18) and the sibling-discount sweep (Sprint 20).
  * Anything started here runs forever in a process that also serves every
  * request, so the bar is high: it must be idempotent, it must not hold the
- * process open, and it must never throw into the runtime. Both of these meet
- * it, and both are here for the same reason — Hostinger's shared plan has no
+ * process open, and it must never throw into the runtime. All of these meet
+ * it, and all are here for the same reason — Hostinger's shared plan has no
  * cron this application can rely on.
  *
  * ── Why the guard is written exactly this way ────────────────────────────
@@ -47,6 +47,15 @@ export async function register(): Promise<void> {
     // same reason: the import must not be recorded in the Edge compilation.
     const { startVoucherAutoSend } = await import('./lib/voucher-auto-send');
     startVoucherAutoSend();
+
+    // Sprint 20, item 9b. The backstop that closes a sibling discount once a
+    // family is down to one child here — the two synchronous hooks do the work
+    // when somebody is watching, and this catches the paths nobody thought of.
+    // Each grant is claimed with a conditional UPDATE, so seven processes close
+    // each one exactly once. Same positive `=== 'nodejs'` block, for the same
+    // reason: the import must not be recorded in the Edge compilation.
+    const { startSiblingDiscountSweep } = await import('./lib/sibling-discounts');
+    startSiblingDiscountSweep();
   }
 }
 

@@ -297,6 +297,127 @@ for (const file of libFiles) {
 ok(scanned >= 8, `every one of the nine catalogue listings was found and scanned (found ${scanned})`);
 
 /* -----------------------------------------------------------------------------
+ * 6. The sibling rule is school-wide, and nothing may narrow it — Sprint 20,
+ *    item 8.
+ *
+ * ── Why this needs asserting at all ──────────────────────────────────────
+ * `lib/siblings.ts` is already correct and always was: it matches on
+ * `student_guardians.location_id` — the *school* — and joins no `branches` and
+ * no `grades` in its predicate, so two children at two campuses of one school
+ * have read as siblings since the file was written.
+ *
+ * The job is to keep it that way. `resolveBranchScope` is applied to nine
+ * catalogue reads and a tenth is the obvious next thing for a scoping pass to
+ * do, and applying it *here* would split one family into two on the day a
+ * school opened its second campus. The consequences are all silent: the sibling
+ * card empties, the family voucher splits in two, the sibling discount stops
+ * being granted and stops being taken away, and **nothing anywhere reports an
+ * error**. A school's own administrator would report it as data loss.
+ *
+ * So the two family-resolving modules are asserted to carry no branch predicate
+ * at all. A `leftJoin(branches, …)` is allowed — Sprint 20 prints the campus
+ * name beside a sibling at another one — because a join that only supplies a
+ * column narrows nothing. What is refused is `branchId` appearing inside a
+ * `where`, and any use of the scope helpers.
+ * -------------------------------------------------------------------------- */
+
+section('The sibling rule is school-wide');
+
+const FAMILY_MODULES = ['lib/siblings.ts', 'lib/sibling-discounts.ts'] as const;
+
+for (const path of FAMILY_MODULES) {
+  const source = readFileSync(path);
+
+  ok(
+    /eq\(\s*studentGuardians\.locationId|eq\(\s*studentEnrollments\.locationId|eq\(\s*studentConcessions\.locationId|eq\(\s*concessionSchemes\.locationId/.test(
+      source,
+    ),
+    `${path} is tenant-scoped — every read filters on location_id`,
+  );
+
+  /*
+   * The resolver is not imported at all, which is the assertion that cannot be
+   * argued with — a module that never pulls `lib/branch-scope.ts` in cannot
+   * narrow anything by campus.
+   *
+   * Written as an import test rather than a mention test on purpose: both of
+   * these files *talk about* the resolver at length in their comments, saying
+   * why it must not be applied here, and a check that failed on the prose
+   * explaining the rule would be a check that punished writing it down.
+   */
+  ok(
+    !/from ['"](\.\/branch-scope|@\/lib\/branch-scope)['"]/.test(source),
+    `${path} does not import lib/branch-scope — a family crosses campuses, and narrowing it splits one family into two with nothing reporting an error`,
+  );
+
+  /*
+   * The scope helpers, by name. Neither may be *called*: `sharedOrOwnedBy` and
+   * `ownedBy` both narrow by campus, and `effectiveBranchIds` exists only to
+   * feed them. Matched with the opening bracket so a mention in prose does not
+   * fire.
+   */
+  for (const marker of ['sharedOrOwnedBy(', 'ownedBy(', 'effectiveBranchIds(']) {
+    ok(
+      !source.includes(marker),
+      `${path} does not call ${marker} — a family is a family across campuses`,
+    );
+  }
+
+  /*
+   * And no campus column in a predicate. `eq(x.branchId, …)`,
+   * `inArray(x.branchId, …)` and a bare `claims.branchId` are the three shapes
+   * this could arrive in; a `leftJoin` naming `branches.id` is fine and is what
+   * Sprint 20's campus badge reads.
+   */
+  ok(
+    !/\beq\(\s*\w+\.branchId\b/.test(source),
+    `${path} compares no branch_id with eq`,
+  );
+  ok(
+    !/\binArray\(\s*\w+\.branchId\b/.test(source),
+    `${path} filters no branch_id with inArray`,
+  );
+  ok(
+    !/claims\.branchId|auth\.branchId/.test(source),
+    `${path} never reads a caller's own campus — the one legitimate reader of that is lib/branch-scope.ts`,
+  );
+}
+
+/*
+ * The qualification read specifically. It ranks a family by enrolment date and
+ * admission number, and it must see **every** campus's enrolments or the second
+ * child of a two-campus family is ranked as an only child and granted nothing.
+ */
+const SIBLING_DISCOUNTS = readFileSync('lib/sibling-discounts.ts');
+
+ok(
+  /async function enrolledFamily/.test(SIBLING_DISCOUNTS),
+  'lib/sibling-discounts.ts resolves the enrolled family in one place',
+);
+
+ok(
+  /asc\(studentEnrollments\.enrollmentDate\)[\s\S]{0,80}asc\(studentProfiles\.studentId\)/.test(
+    SIBLING_DISCOUNTS,
+  ),
+  'the family is ranked by enrolment date then admission number (rule 9a) — any other ordering moves the discount between children when a name is corrected',
+);
+
+/*
+ * And the sweep is claimed, not checked. CLAUDE.md's rule: production runs
+ * seven scheduler processes, and a read followed by an `if` lets all seven
+ * close the same grant and write seven notes on it.
+ */
+ok(
+  /\.update\(studentConcessions\)[\s\S]{0,700}\.returning\(/.test(SIBLING_DISCOUNTS),
+  'the sweep claims each grant with a conditional UPDATE … RETURNING rather than reading and then deciding',
+);
+
+ok(
+  /async function reopenGrant/.test(SIBLING_DISCOUNTS),
+  'and hands the claim back on a throw — claim first, revert on failure',
+);
+
+/* -----------------------------------------------------------------------------
  * 5. The migration.
  * -------------------------------------------------------------------------- */
 
