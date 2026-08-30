@@ -10,6 +10,7 @@ import {
   studentConcessionFeeTypes,
   studentConcessions,
   studentProfiles,
+  type SchemeType,
 } from '@/db/schema';
 
 import { sharedOrOwnedBy } from './branch-scope';
@@ -43,6 +44,15 @@ import { repriceOpenChallans } from './fee-challans';
 export interface ConcessionSchemeRow {
   id: string;
   name: string;
+  /**
+   * Which of the three kinds this is (Sprint 20, item 5).
+   *
+   * It decides which section of the apply-discount modal the scheme appears
+   * in, and — for `sibling` — which scheme the auto-apply and the last-child
+   * sweep mean. It does **not** decide what the scheme is worth: the rate, the
+   * heads and the dates still do that.
+   */
+  schemeType: SchemeType;
   discountType: 'percentage' | 'fixed';
   discountValue: string;
   validFrom: string;
@@ -77,6 +87,7 @@ export async function listConcessionSchemes(
     .select({
       id: concessionSchemes.id,
       name: concessionSchemes.name,
+      schemeType: concessionSchemes.schemeType,
       discountType: concessionSchemes.discountType,
       discountValue: concessionSchemes.discountValue,
       validFrom: concessionSchemes.validFrom,
@@ -170,6 +181,8 @@ async function checkFeeTypes(
 
 export interface SchemeInput {
   name: string;
+  /** `sibling`, `scholarship` or `other`. Never inferred from `name`. */
+  schemeType: SchemeType;
   discountType: 'percentage' | 'fixed';
   /** A percentage (0–100) or a flat PKR amount, already validated. */
   discountValue: string;
@@ -196,6 +209,7 @@ export async function createConcessionScheme(
         id: schemeId,
         locationId,
         name: input.name,
+        schemeType: input.schemeType,
         discountType: input.discountType,
         discountValue: input.discountValue,
         validFrom: input.validFrom,
@@ -246,6 +260,18 @@ export async function updateConcessionScheme(
         .update(concessionSchemes)
         .set({
           name: input.name,
+          /*
+           * Editable, and it changes nothing about a grant already made.
+           *
+           * A school that mis-classified its staff discount as `sibling` must
+           * be able to correct it — and correcting it is the *only* thing that
+           * happens: `student_concessions` froze the name, the rate and the
+           * dates at grant time, so no child's discount moves and no voucher
+           * is repriced. What does change is which section of the apply modal
+           * the scheme appears in next time, and whether the last-child sweep
+           * considers it.
+           */
+          schemeType: input.schemeType,
           discountType: input.discountType,
           discountValue: input.discountValue,
           validFrom: input.validFrom,

@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import { useState } from 'react';
 
 import { Button } from '@/components/ui/Button';
@@ -11,12 +12,18 @@ import { formatPkr } from '@/lib/money';
 import { schoolErrorMessage, schoolFetch } from '@/lib/school-client';
 
 /**
- * The school's late fee policy.
+ * The school's fee settings: when vouchers fall due, what happens to a family's
+ * sibling discount, and the late fee policy.
  *
  * Off by default and deliberately hard to switch on by accident: a policy here
  * decides what every parent in the school is charged for being a day late, so
  * the form refuses to enable itself without an amount and explains in plain
  * words what the current settings would actually charge.
+ *
+ * Sprint 20 added the sibling-discount card in the middle, and the same rule
+ * governs it: both toggles default off, both say what they will do in words,
+ * and the auto-apply one warns when it would do nothing because the school has
+ * no sibling scheme to grant.
  */
 
 export interface LateFeeSettingsFormProps {
@@ -29,14 +36,38 @@ export interface LateFeeSettingsFormProps {
     lateFeeType: LateFeeType;
     lateFeeAmount: string;
     maxLateFee: string | null;
+    autoApplySiblingDiscount: boolean;
+    siblingDiscountForLastChild: boolean;
   };
   canEdit: boolean;
+  /**
+   * How many **active** schemes of type `sibling` this school has.
+   *
+   * Read on the server, because the toggle below is only meaningful if there is
+   * exactly one scheme for the auto-apply to grant. Nought is a setting that
+   * does nothing, silently, on the one screen where "nothing happened" and "it
+   * worked" look identical. More than one is worse: the grant would have to
+   * pick, and picking would file half a school's families under a rate nobody
+   * chose — so it grants nothing, and the form says so here rather than leaving
+   * the reason in a server log.
+   */
+  siblingSchemeCount: number;
 }
 
-export function LateFeeSettingsForm({ initial, canEdit }: LateFeeSettingsFormProps) {
+export function LateFeeSettingsForm({
+  initial,
+  canEdit,
+  siblingSchemeCount,
+}: LateFeeSettingsFormProps) {
   const [dueDay, setDueDay] = useState(String(initial.dueDay));
   const [autoSendVouchers, setAutoSendVouchers] = useState(initial.autoSendVouchers);
   const [autoSendDay, setAutoSendDay] = useState(String(initial.autoSendDay));
+  const [autoApplySibling, setAutoApplySibling] = useState(
+    initial.autoApplySiblingDiscount,
+  );
+  const [siblingForLastChild, setSiblingForLastChild] = useState(
+    initial.siblingDiscountForLastChild,
+  );
   const [isEnabled, setIsEnabled] = useState(initial.isEnabled);
   const [graceDays, setGraceDays] = useState(String(initial.graceDays));
   const [lateFeeType, setLateFeeType] = useState<LateFeeType>(initial.lateFeeType);
@@ -66,12 +97,14 @@ export function LateFeeSettingsForm({ initial, canEdit }: LateFeeSettingsFormPro
           lateFeeType,
           lateFeeAmount: Number(amount) || 0,
           maxLateFee: maxLateFee.trim() === '' ? null : Number(maxLateFee),
+          autoApplySiblingDiscount: autoApplySibling,
+          siblingDiscountForLastChild: siblingForLastChild,
         }),
       });
 
-      setNotice('Late fee settings saved.');
+      setNotice('Fee settings saved.');
     } catch (caught) {
-      setError(schoolErrorMessage(caught, 'Could not save the late fee settings.'));
+      setError(schoolErrorMessage(caught, 'Could not save the fee settings.'));
     } finally {
       setSaving(false);
     }
@@ -151,6 +184,80 @@ export function LateFeeSettingsForm({ initial, canEdit }: LateFeeSettingsFormPro
               />
             </div>
           ) : null}
+        </div>
+      </Card>
+
+      {/*
+        Sprint 20, item 6. Two settings about the **sibling discount**, on the
+        table that is already "the school's fee settings".
+
+        Its own card rather than a third block on Billing, because the two
+        questions have nothing to do with when a voucher falls due and one of
+        them changes what a family is charged.
+      */}
+      <Card
+        header={
+          <CardTitle
+            title="Sibling discount"
+            description="What happens to a family's discount when a child joins, and when the last one is left."
+          />
+        }
+      >
+        <div className="space-y-5">
+          {/*
+            Off by default, and it must stay off until a school turns it on.
+
+            This is the fee module's `autoSendVouchers`, and it is worse in one
+            respect: an email cannot be recalled, and neither can a discount
+            once the voucher carrying it has been printed and paid. Switching
+            it back off next month does not undo anything already priced.
+          */}
+          <Toggle
+            checked={autoApplySibling}
+            onChange={setAutoApplySibling}
+            disabled={!canEdit}
+            label="Apply the sibling discount automatically"
+            description="When a child is enrolled and the school already teaches a brother or sister, grant the sibling discount without being asked."
+          />
+
+          {autoApplySibling && siblingSchemeCount !== 1 ? (
+            <p
+              role="status"
+              className="rounded-lg bg-status-warning-subtle px-3 py-2 text-sm text-status-warning-onSubtle"
+            >
+              {siblingSchemeCount === 0 ? (
+                <>
+                  This school has no active <strong>Sibling Discount</strong>{' '}
+                  scheme, so nothing will be granted.
+                </>
+              ) : (
+                <>
+                  This school has {siblingSchemeCount} active{' '}
+                  <strong>Sibling Discount</strong> schemes, so nothing will be
+                  granted automatically — there is no way to tell which rate you
+                  mean. Switch all but one off.
+                </>
+              )}{' '}
+              <Link href="/dashboard/fees/concessions" className="font-medium underline">
+                Fees → Concessions
+              </Link>{' '}
+              is where a scheme&apos;s kind is set.
+            </p>
+          ) : null}
+
+          <Toggle
+            checked={siblingForLastChild}
+            onChange={setSiblingForLastChild}
+            disabled={!canEdit}
+            label="Keep the discount when only one child is left"
+            description="By default the sibling discount is removed once a family has only one child still at the school. Switch this on to keep it."
+          />
+
+          <p className="rounded-lg bg-surface-sunken px-3 py-2 text-sm text-ink-muted">
+            {siblingForLastChild
+              ? 'A child whose brothers and sisters have all left keeps their sibling discount.'
+              : 'When a family is down to one child at this school, that child’s sibling discount is closed automatically and a note is written on the grant saying why. Vouchers already raised are not changed.'}
+          </p>
         </div>
       </Card>
 

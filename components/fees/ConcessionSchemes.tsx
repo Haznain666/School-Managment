@@ -13,6 +13,11 @@ import { Select } from '@/components/ui/Select';
 import { Textarea } from '@/components/ui/Textarea';
 import { Toggle } from '@/components/ui/Toggle';
 import {
+  SCHEME_TYPES,
+  SCHEME_TYPE_LABELS,
+  type SchemeType,
+} from '@/db/schema/concession-schemes';
+import {
   DISCOUNT_TYPES,
   DISCOUNT_TYPE_LABELS,
   type DiscountType,
@@ -54,6 +59,7 @@ export interface SchemeFeeTypeOption {
 interface SchemeRow {
   id: string;
   name: string;
+  schemeType: SchemeType;
   discountType: DiscountType;
   discountValue: string;
   validFrom: string;
@@ -81,6 +87,7 @@ export interface ConcessionSchemesProps {
 interface SchemeDraft {
   id: string | null;
   name: string;
+  schemeType: SchemeType;
   discountType: DiscountType;
   discountValue: string;
   feeTypeIds: string[];
@@ -98,6 +105,13 @@ function emptyDraft(): SchemeDraft {
   return {
     id: null,
     name: '',
+    /*
+     * `other` is the default the *form* offers, matching the migration's
+     * backfill. A new scheme is not assumed to be a sibling discount because
+     * the operator has not answered yet, and the dropdown sits above the name
+     * so the question is asked before the name suggests an answer.
+     */
+    schemeType: 'other',
     discountType: 'percentage',
     discountValue: '',
     feeTypeIds: [],
@@ -155,6 +169,7 @@ export function ConcessionSchemes({ feeTypes, canEdit }: ConcessionSchemesProps)
 
     const body = JSON.stringify({
       name: draft.name.trim(),
+      schemeType: draft.schemeType,
       discountType: draft.discountType,
       discountValue: Number(draft.discountValue),
       feeTypeIds: draft.feeTypeIds,
@@ -225,6 +240,20 @@ export function ConcessionSchemes({ feeTypes, canEdit }: ConcessionSchemesProps)
       ),
     },
     {
+      /*
+       * Item 5. A column and not a badge on the name: the type is the thing a
+       * school scans this list for once it has more than three schemes — "which
+       * one is our sibling discount" — and a word inside a cell is easier to
+       * scan down than a chip beside a longer string.
+       */
+      id: 'schemeType',
+      header: 'Type',
+      muted: true,
+      sortValue: (row) => SCHEME_TYPE_LABELS[row.schemeType],
+      searchValue: (row) => SCHEME_TYPE_LABELS[row.schemeType],
+      cell: (row) => SCHEME_TYPE_LABELS[row.schemeType],
+    },
+    {
       id: 'window',
       header: 'In force',
       muted: true,
@@ -282,6 +311,7 @@ export function ConcessionSchemes({ feeTypes, canEdit }: ConcessionSchemesProps)
               setDraft({
                 id: row.id,
                 name: row.name,
+                schemeType: row.schemeType,
                 discountType: row.discountType,
                 discountValue: String(Number(row.discountValue)),
                 feeTypeIds: row.feeTypeIds,
@@ -358,6 +388,18 @@ export function ConcessionSchemes({ feeTypes, canEdit }: ConcessionSchemesProps)
           rows={schemes ?? []}
           getRowKey={(row) => row.id}
           pending={schemes === null}
+          filters={[
+            {
+              id: 'schemeType',
+              label: 'Type',
+              allLabel: 'Every kind',
+              options: SCHEME_TYPES.map((value) => ({
+                value,
+                label: SCHEME_TYPE_LABELS[value],
+              })),
+              rowValue: (row) => row.schemeType,
+            },
+          ]}
           search={{ placeholder: 'Scheme or fee head' }}
           itemNoun={{ singular: 'scheme', plural: 'schemes' }}
           emptyTitle="No schemes yet"
@@ -404,6 +446,31 @@ export function ConcessionSchemes({ feeTypes, canEdit }: ConcessionSchemesProps)
       >
         {draft === null ? null : (
           <div className="grid gap-4 sm:grid-cols-2">
+            {/*
+              Above the name, deliberately (item 5).
+
+              The question "what kind of discount is this" has to be answered
+              before the name is typed, or the answer becomes a reading of the
+              name — which is exactly the drift `concession_schemes` exists to
+              end, and exactly what the migration refuses to do when it
+              backfills every existing row to `other` rather than guessing.
+            */}
+            <div className="sm:col-span-2">
+              <Select
+                label="Kind of discount"
+                options={SCHEME_TYPES.map((value) => ({
+                  value,
+                  label: SCHEME_TYPE_LABELS[value],
+                }))}
+                value={draft.schemeType}
+                disabled={busy}
+                hint="Decides where this appears when somebody applies a discount to a student. It does not change what the discount is worth."
+                onChange={(event) => {
+                  setDraft({ ...draft, schemeType: event.target.value as SchemeType });
+                }}
+              />
+            </div>
+
             <Input
               label="Name"
               required
