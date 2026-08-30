@@ -234,6 +234,29 @@ export function StudentDiscountPanel({
     return (state?.schemes ?? []).some((scheme) => scheme.schemeType === type);
   });
 
+  /*
+   * Why the school having no schemes and this child being offered none are two
+   * different sentences.
+   *
+   * `sections` is what may be offered *here*, and it drops the sibling section
+   * for a child who does not qualify — an only child, or the eldest, who keeps
+   * the undiscounted fee by rule. At a school whose only scheme is a sibling
+   * one, that leaves `sections` empty while `state.schemes` holds a live,
+   * active scheme.
+   *
+   * Every empty state below used to read `sections.length === 0` and say "this
+   * school has no active discount schemes". At LGS, whose one scheme is exactly
+   * that, the eldest of a four-child family produced that sentence — and it is
+   * false. An administrator who believes it goes to Fees → Concessions and
+   * creates a **second** sibling scheme, which is precisely the duplication
+   * `concession_schemes_location_name_idx` and the whole scheme table exist to
+   * prevent.
+   *
+   * So the two are separated: `schoolHasNoSchemes` is a fact about the school,
+   * and an empty `sections` with schemes present is a fact about this child.
+   */
+  const schoolHasNoSchemes = (state?.schemes ?? []).length === 0;
+
   const selectionIds = Object.values(draft).filter(
     (value): value is string => value !== undefined,
   );
@@ -327,7 +350,9 @@ export function StudentDiscountPanel({
                 disabled={busy || sections.length === 0}
                 title={
                   sections.length === 0
-                    ? 'This school has no active discount schemes to apply.'
+                    ? schoolHasNoSchemes
+                      ? 'This school has no active discount schemes to apply.'
+                      : 'No discount scheme can be applied to this student.'
                     : undefined
                 }
                 onClick={() => {
@@ -467,9 +492,18 @@ export function StudentDiscountPanel({
           {/* State 3. */}
           {openGrants.length === 0 && chosen.length === 0 && !state.sibling.qualifies ? (
             <p className="text-sm text-ink-muted">
-              {sections.length === 0
-                ? 'This school has no active discount schemes yet. They are defined under Fees → Concessions.'
-                : `No discount is applied to ${state.studentName}. They are billed at the full rate for their grade.`}
+              {sections.length > 0
+                ? `No discount is applied to ${state.studentName}. They are billed at the full rate for their grade.`
+                : schoolHasNoSchemes
+                  ? 'This school has no active discount schemes yet. They are defined under Fees → Concessions.'
+                  : /*
+                     * Schemes exist; none of them can reach this child. Today
+                     * that is always the sibling rule — an only child, or the
+                     * eldest, who keeps the full fee — so the sentence names
+                     * the reason rather than leaving the reader to guess at a
+                     * misconfiguration that is not there.
+                     */
+                    `${state.studentName} is billed at the full rate. The only schemes this school has are sibling discounts, and they are granted from the second child onwards.`}
             </p>
           ) : null}
         </div>
@@ -512,8 +546,9 @@ export function StudentDiscountPanel({
           <div className="space-y-5">
             {sections.length === 0 ? (
               <p className="text-sm text-ink-muted">
-                This school has no active discount schemes. They are defined under
-                Fees → Concessions.
+                {schoolHasNoSchemes
+                  ? 'This school has no active discount schemes. They are defined under Fees → Concessions.'
+                  : 'Nothing can be applied to this student. The only schemes this school has are sibling discounts, which are granted from the second child onwards.'}
               </p>
             ) : null}
 

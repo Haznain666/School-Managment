@@ -168,17 +168,27 @@ export function FeeClearancePanel({
     );
 
   /**
-   * Said once, under the buttons, in both states that have a voucher.
+   * Said once, under the buttons, in both states that have a voucher — and the
+   * print half only where a Print button is actually offered.
    *
    * The admission voucher is emailed to the primary contact the moment it is
    * raised — `generateAdmissionChallan` queues it through the outbox. Without
    * this line a clerk sends it again by hand, and the parent gets the same
    * demand twice from a school that looks disorganised.
+   *
+   * The second sentence used to be unconditional, and item 3a made it a lie in
+   * the `settled` state: the button it refers to is gone there, because a paid
+   * voucher is not a payment instrument. An instruction pointing at a control
+   * that is not on the screen sends the reader hunting for it, and the ones who
+   * find nothing conclude their permissions are wrong.
+   *
+   * So the print half is passed in. The email half is true in both states and
+   * is what stops a clerk sending the same demand twice.
    */
-  const emailedNote = (
+  const emailedNote = (withPrint: boolean) => (
     <p className="mt-2 text-xs text-ink-muted">
-      This voucher was emailed to the primary contact when it was raised. Print
-      a copy only if the family asked for one.
+      This voucher was emailed to the primary contact when it was raised.
+      {withPrint ? ' Print a copy only if the family asked for one.' : ''}
     </p>
   );
 
@@ -394,7 +404,7 @@ export function FeeClearancePanel({
             {printVoucherButton(challanPrintHref([state.challan.id]))}
             {confirmButton}
           </div>
-          {emailedNote}
+          {emailedNote(true)}
           {messages}
         </Card>
       );
@@ -432,13 +442,27 @@ export function FeeClearancePanel({
             </p>
           )}
 
-          <div className="flex flex-wrap items-start gap-3">
-            {printVoucherButton(
-              state.challan === null ? null : challanPrintHref([state.challan.id]),
-            )}
-            {feeClearedAt === null ? confirmButton : null}
-          </div>
-          {state.challan === null ? null : emailedNote}
+          {/*
+            No Print here, and that is item 3a rather than an omission.
+
+            Every state that reaches `settled` has a closed voucher behind it —
+            paid, waived or cancelled — and a closed voucher is not a payment
+            instrument. Handing a parent a slip that says *pay this* for money
+            the school has already taken is how a fee gets paid twice, and the
+            second payment lands as an unexplained credit nobody reconciles.
+
+            The voucher number above is still a link, so the record is one click
+            away for anybody who needs to look at it; what is gone is the
+            invitation to put it on paper.
+
+            A paid admission genuinely does need a **receipt**, and this sprint
+            does not build one. That is a gap worth naming rather than papering
+            over with the wrong document — see STATE.md §5bj.
+          */}
+          {feeClearedAt === null ? (
+            <div className="flex flex-wrap items-start gap-3">{confirmButton}</div>
+          ) : null}
+          {state.challan === null ? null : emailedNote(false)}
           {messages}
         </Card>
       );

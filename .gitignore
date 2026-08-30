@@ -46,3 +46,4 @@ Thumbs.db
 # nest a checkout inside its own repository.
 .claude/worktrees/
 .claude/settings.local.json
+.playwright-mcp/
