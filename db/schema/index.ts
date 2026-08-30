@@ -159,3 +159,9 @@ export * from './notifications';
 // spent it. It is a fee-module artefact and not the double-entry ledger — see
 // the docstring, which says so at length so nobody tries to balance it.
 export * from './student-credits';
+
+// Sprint 20 — the accounts a school prints on a fee voucher and pays salaries
+// from. School-wide reference data read by two modules and owned by neither,
+// which is why it sits here rather than under Fees. After `branches`, which it
+// references with a nullable `branch_id` meaning *shared*.
+export * from './bank-accounts';

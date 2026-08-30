@@ -24,9 +24,11 @@ import { USER_ROLES } from '@/types/school-auth';
  * name for anyone whose role lost `settings.read`.
  *
  * ── What a school may and may not change about itself ────────────────────
- * Editable: phone, email, address, principal name. Those are contact details
- * the school is the authority on, and making them wait on a support ticket was
- * the complaint that produced this route.
+ * Editable: phone, email, address, principal name, and — since Sprint 20 —
+ * NTN, website and finance email. Those are all contact or identity details the
+ * school is the authority on, and making them wait on a support ticket was the
+ * complaint that produced this route. The last three are printed on the fee
+ * voucher and only when set.
  *
  * Not editable here, at any permission: `name`, `slug`, `school_code`, `city`
  * and `is_active`. The slug is the hostname the tenant resolves on, the school
@@ -84,10 +86,27 @@ interface UpdateSettingsBody {
   email?: unknown;
   address?: unknown;
   principalName?: unknown;
+  ntn?: unknown;
+  website?: unknown;
+  financeEmail?: unknown;
 }
 
-/** The four fields a school owns about itself. See the note at the top. */
-const EDITABLE_FIELDS = ['phone', 'email', 'address', 'principalName'] as const;
+/**
+ * The seven fields a school owns about itself. See the note at the top.
+ *
+ * `ntn`, `website` and `financeEmail` joined the list in Sprint 20 (decision
+ * D4): all three are printed on the fee voucher and all three are facts the
+ * school is the authority on, which is the same test the first four pass.
+ */
+const EDITABLE_FIELDS = [
+  'phone',
+  'email',
+  'address',
+  'principalName',
+  'ntn',
+  'website',
+  'financeEmail',
+] as const;
 
 export const PATCH = withSchoolAuth(
   async (request, auth) => {
@@ -134,6 +153,9 @@ export const PATCH = withSchoolAuth(
           phone: schools.phone,
           email: schools.email,
           principalName: schools.principalName,
+          ntn: schools.ntn,
+          website: schools.website,
+          financeEmail: schools.financeEmail,
         })
         .from(schools)
         .where(eq(schools.locationId, auth.locationId))

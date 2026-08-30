@@ -16,6 +16,7 @@ import { LineChart } from '@/components/charts/LineChart';
 import { Sparkline } from '@/components/charts/Sparkline';
 import { BranchSelector } from '@/components/school/BranchSelector';
 import { CampusScorecard } from '@/components/school/CampusScorecard';
+import { DashboardPeriodSelector } from '@/components/school/DashboardPeriodSelector';
 import { SetupProgressCard } from '@/components/school/SetupProgressCard';
 import { Card, CardTitle } from '@/components/ui/Card';
 import { PageHeader } from '@/components/ui/PageHeader';
@@ -49,8 +50,13 @@ import {
   type DashboardException,
 } from '@/lib/school-dashboard';
 import { getAccountingOverview } from '@/lib/accounting-queries';
+import { academicYearBounds } from '@/lib/academics-queries';
 import { getActiveAcademicYear } from '@/lib/admissions-queries';
 import { effectiveBranchIds, resolveBranchScope } from '@/lib/branch-scope';
+import {
+  DASHBOARD_PERIOD_PHRASES,
+  readDashboardPeriod,
+} from '@/lib/dashboard-period';
 import { formatPkr } from '@/lib/money';
 import { PLATFORM_MODULES } from '@/lib/platform-modules';
 import { describeScope, resolvePrincipalScope } from '@/lib/principal-resolver';
@@ -149,15 +155,29 @@ function monthOf(at: Date): { from: string; to: string } {
 export default async function SchoolDashboardPage({
   searchParams,
 }: {
-  searchParams: Promise<{ branch?: string | string[] }>;
+  searchParams: Promise<{ branch?: string | string[]; period?: string | string[] }>;
 }) {
   const { claims, locationId } = await requireSchoolRole(ADMIN_PORTAL_ROLES);
 
-  const requestedBranch = (await searchParams).branch;
+  const query = await searchParams;
+  const requestedBranch = query.branch;
   const branchScope = await resolveBranchScope(
     locationId,
     claims,
     Array.isArray(requestedBranch) ? requestedBranch[0] : requestedBranch,
+  );
+
+  /*
+   * Item 2d. **One** parameter, read once, driving both campus money charts —
+   * two selectors that can disagree produce a screen whose two halves are about
+   * different periods with nothing saying so.
+   *
+   * This is the page's second search parameter and it costs nothing: the page
+   * has been `force-dynamic` since it was written, so CLAUDE.md's rule about
+   * not making a static page dynamic by accident has nothing to bite on here.
+   */
+  const period = readDashboardPeriod(
+    Array.isArray(query.period) ? query.period[0] : query.period,
   );
 
   // Not wrapped, deliberately: without the counts, the module flags, the
@@ -212,6 +232,28 @@ export default async function SchoolDashboardPage({
 
   const now = new Date();
   const lastMonth = new Date(now.getUTCFullYear(), now.getUTCMonth() - 1, 1);
+
+  /*
+   * The window both campus money charts are read through.
+   *
+   * `year` resolves to the active academic year's own span rather than to a
+   * calendar year — a school running April to March would otherwise see "this
+   * academic year" narrowed to January onwards. With no active year there is no
+   * span to name, so it falls back to the whole of the school's history, which
+   * is what `getCampusScorecard` did before this sprint and is the honest
+   * answer to "this year" at a school that has not said which year it is in.
+   */
+  const periodWindow =
+    period === 'month'
+      ? monthOf(now)
+      : activeYear === null
+        ? undefined
+        : (() => {
+            const bounds = academicYearBounds(activeYear);
+            return { from: bounds.start, to: bounds.end };
+          })();
+
+  const periodPhrase = DASHBOARD_PERIOD_PHRASES[period];
 
   const [
     today,
@@ -325,7 +367,7 @@ export default async function SchoolDashboardPage({
      */
     showGroupView && showFees
       ? settle('campus scorecard', locationId, () =>
-          getCampusScorecard(locationId, branchScope.branchIds),
+          getCampusScorecard(locationId, branchScope.branchIds, periodWindow),
         )
       : null,
     showGroupView && showFees
@@ -335,7 +377,25 @@ export default async function SchoolDashboardPage({
       : null,
     showGroupView && showAccounting
       ? settle('campus ledger totals', locationId, () =>
-          getCampusLedgerTotals(locationId, monthOf(now), branchScope.branchIds),
+          /*
+           * The same window as the scorecard above. `getCampusLedgerTotals`
+           * has always taken one and was always handed `monthOf(now)`, which
+           * is why the two cards sitting side by side described a year and a
+           * month with nothing on the screen distinguishing them.
+           *
+           * A missing window means "the whole year" to the scorecard and
+           * cannot mean anything to a ledger read, which has no year to fall
+           * back on — so the academic year's span is passed and the calendar
+           * year is the last resort.
+           */
+          getCampusLedgerTotals(
+            locationId,
+            periodWindow ?? {
+              from: `${String(now.getUTCFullYear())}-01-01`,
+              to: `${String(now.getUTCFullYear())}-12-31`,
+            },
+            branchScope.branchIds,
+          ),
         )
       : null,
   ]);
@@ -854,11 +914,19 @@ export default async function SchoolDashboardPage({
       {showGroupView && scorecard !== null && scorecard.length > 0 ? (
         <div className="space-y-5">
           <div className="grid gap-5 lg:grid-cols-2">
+            {/*
+              Item 2d. The selector sits in the card header and the description
+              states the period in **words** — so a dashboard that has been
+              screenshotted, printed or pasted into an email still says what it
+              is about. A chart captioned only by a control that did not travel
+              with it is a chart nobody can date afterwards.
+            */}
             <Card
               header={
                 <CardTitle
                   title="Collection by campus"
-                  description="Billed against collected, this academic year"
+                  description={`Billed against collected, ${periodPhrase}`}
+                  action={<DashboardPeriodSelector selected={period} />}
                 />
               }
             >
@@ -916,7 +984,8 @@ export default async function SchoolDashboardPage({
                 header={
                   <CardTitle
                     title="Income against expense by campus"
-                    description="This month, from the ledger"
+                    description={`From the ledger, ${periodPhrase}`}
+                    action={<DashboardPeriodSelector selected={period} />}
                   />
                 }
               >
@@ -967,7 +1036,7 @@ export default async function SchoolDashboardPage({
             header={
               <CardTitle
                 title="Per-campus scorecard"
-                description="This academic year. Sort on any column, or open a campus to see only its numbers."
+                description={`Money ${periodPhrase}; attendance over the last 30 days. Sort on any column, or open a campus to see only its numbers.`}
               />
             }
             className="p-0"

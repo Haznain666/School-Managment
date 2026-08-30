@@ -4,6 +4,7 @@ import { and, asc, desc, eq, inArray, isNotNull, ne, or } from 'drizzle-orm';
 
 import {
   academicYears,
+  branches,
   grades,
   schoolUsers,
   sections,
@@ -93,6 +94,20 @@ export interface SiblingRow {
   /** Null when the sibling has no placement in the active year. */
   gradeName: string | null;
   sectionName: string | null;
+  /**
+   * The campus this sibling attends, when they have a placement (Sprint 20,
+   * item 8).
+   *
+   * Carried because **the sibling rule is school-wide and always was** — it
+   * matches on `student_guardians.location_id` and joins no `branches` — so two
+   * children at two campuses of one school already read as siblings and always
+   * have. That is right, and it is invisible: a clerk at Defence looking at a
+   * discount granted because of a child at Karachi sees a name with no class
+   * beside it and no reason for the grant. Naming the campus is what turns a
+   * correct answer into a legible one.
+   */
+  branchId: string | null;
+  branchName: string | null;
   /** Which guardian they are shared through, for the "via" line. */
   sharedGuardianName: string;
   /** True when they are on the roll in the active academic year. */
@@ -205,6 +220,8 @@ async function studentsMatching(
       gradeName: grades.name,
       gradeDisplayName: grades.displayName,
       sectionName: sections.name,
+      branchId: grades.branchId,
+      branchName: branches.name,
       enrollmentStatus: studentEnrollments.status,
     })
     .from(studentGuardians)
@@ -229,6 +246,19 @@ async function studentsMatching(
     )
     .leftJoin(sections, eq(sections.id, studentEnrollments.sectionId))
     .leftJoin(grades, eq(grades.id, sections.gradeId))
+    /*
+     * The campus, for display only — Sprint 20, item 8.
+     *
+     * ⚠ A LEFT JOIN and **never** a predicate. There is no branch condition
+     * anywhere in this statement and none is ever coming: a family is a family
+     * across campuses, and `resolveBranchScope` applied here would split one
+     * into two on the day a school opened its second campus. `scripts/
+     * check-branch-scope.ts` asserts that in so many words, because narrowing
+     * this by campus is the natural mistake for the next scoping pass to make
+     * and it is invisible — the sibling card simply empties, the family voucher
+     * splits, and nothing reports an error.
+     */
+    .leftJoin(branches, eq(branches.id, grades.branchId))
     .where(
       and(
         eq(studentGuardians.locationId, locationId),
@@ -250,6 +280,8 @@ async function studentsMatching(
         ? null
         : gradeLabel({ name: row.gradeName, displayName: row.gradeDisplayName }),
     sectionName: row.sectionName,
+    branchId: row.branchId,
+    branchName: row.branchName,
     sharedGuardianName: row.sharedGuardianName,
     isCurrentlyEnrolled: row.enrollmentStatus === 'active',
   }));

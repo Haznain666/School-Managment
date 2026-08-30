@@ -117,7 +117,7 @@ export const ROLE_DESCRIPTIONS: Record<UserRole, string> = {
   coordinator: 'Runs the timetable and the register for their section.',
   teacher: 'Teaches classes and takes the register.',
   student: 'Sees their own timetable, attendance and fees.',
-  parent: 'Sees their children’s attendance and fee challans.',
+  parent: 'Sees their children’s attendance and fee vouchers.',
   accountant: 'Handles fee collection and reconciles the salary bill.',
   hr_manager: 'Handles staff records, leave and payroll.',
   marketing: 'Handles admission enquiries and applications.',

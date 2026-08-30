@@ -260,6 +260,13 @@
       "when": 1788091200000,
       "tag": "0036_sprint19b_admissions",
       "breakpoints": true
+    },
+    {
+      "idx": 37,
+      "version": "7",
+      "when": 1788177600000,
+      "tag": "0037_sprint20_vouchers_discounts_banks",
+      "breakpoints": true
     }
   ]
 }

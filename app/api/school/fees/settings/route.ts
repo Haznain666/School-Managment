@@ -41,6 +41,10 @@ export const GET = withSchoolAuth(
           lateFeeType: 'fixed' as const,
           lateFeeAmount: '0.00',
           maxLateFee: null,
+          // Both off, matching the columns' own defaults. A school that has
+          // never opened this screen is not discounting anybody's fees.
+          autoApplySiblingDiscount: false,
+          siblingDiscountForLastChild: false,
         },
         configured: rule !== null,
       });
@@ -60,6 +64,8 @@ interface UpdateSettingsBody {
   lateFeeType?: unknown;
   lateFeeAmount?: unknown;
   maxLateFee?: unknown;
+  autoApplySiblingDiscount?: unknown;
+  siblingDiscountForLastChild?: unknown;
 }
 
 export const PATCH = withSchoolAuth(
@@ -95,6 +101,25 @@ export const PATCH = withSchoolAuth(
        * form always sends both fields.
        */
       const autoSendVouchers = readBoolean(body.autoSendVouchers, false);
+
+      /*
+       * The two sibling-discount settings, read the same way and for the same
+       * reason (Sprint 20, item 6). Absent means **off**: this is a replace,
+       * not a merge, the form always sends both fields, and a body that does
+       * not mention `autoApplySiblingDiscount` must not leave a school silently
+       * discounting every new admission's fees.
+       *
+       * The asymmetric one is worth stating: `siblingDiscountForLastChild`
+       * defaulting to false means the sweep *removes* a discount, which is a
+       * fee rise on a parent's next voucher. That is the behaviour the
+       * requirement describes — a discount for having siblings is not owed to a
+       * child who has none — and a school that disagrees switches it on here.
+       */
+      const autoApplySiblingDiscount = readBoolean(body.autoApplySiblingDiscount, false);
+      const siblingDiscountForLastChild = readBoolean(
+        body.siblingDiscountForLastChild,
+        false,
+      );
 
       const autoSendDay = Number(body.autoSendDay ?? DEFAULT_AUTO_SEND_DAY);
       if (!Number.isInteger(autoSendDay) || autoSendDay < 1 || autoSendDay > 28) {
@@ -175,6 +200,8 @@ export const PATCH = withSchoolAuth(
           lateFeeType: body.lateFeeType,
           lateFeeAmount: paiseToNumeric(toPaise(amount)),
           maxLateFee,
+          autoApplySiblingDiscount,
+          siblingDiscountForLastChild,
         })
         .onConflictDoUpdate({
           target: lateFeeRules.locationId,
@@ -187,6 +214,8 @@ export const PATCH = withSchoolAuth(
             lateFeeType: body.lateFeeType,
             lateFeeAmount: paiseToNumeric(toPaise(amount)),
             maxLateFee,
+            autoApplySiblingDiscount,
+            siblingDiscountForLastChild,
             updatedAt: new Date(),
           },
         });

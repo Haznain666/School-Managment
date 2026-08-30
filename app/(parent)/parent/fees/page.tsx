@@ -25,6 +25,7 @@ import { listChildrenForGuardian, getActiveAcademicYear } from '@/lib/admissions
 import { formatDateOnly } from '@/lib/dates';
 import {
   getChallanDetail,
+  getLateFeeRule,
   getStudentFeeSummary,
   guardianOwnsStudent,
   listStudentChallans,
@@ -33,7 +34,9 @@ import {
 import { formatAmount, formatPkr, toPaise } from '@/lib/money';
 import { requireSchoolRole } from '@/lib/school-guard';
 import { getSchoolUserByUid } from '@/lib/school-queries';
+import { getSchoolBranding } from '@/lib/school-tenant';
 import { isUuid } from '@/lib/validation';
+import { buildVoucherPrintData } from '@/lib/voucher-print-data';
 
 export const metadata: Metadata = {
   title: 'Fees',
@@ -132,6 +135,26 @@ export default async function ParentFeesPage({
       ? await getChallanDetail(locationId, requestedChallan)
       : null;
 
+  /*
+   * The printable slip, built by the same helper the school's own screens use —
+   * see `buildVoucherPrintData`. It reads the school's active, student-facing
+   * bank accounts for this voucher's campus, which is why it is awaited rather
+   * than written as an object literal.
+   *
+   * Only for an **open** voucher (Sprint 20, item 3a). A parent looking back at
+   * a paid slip is looking at history; printing it would hand them a demand for
+   * money they have already paid, and a bank counter cannot tell the two apart.
+   */
+  const printData =
+    openChallan === null ||
+    !(openChallan.status === 'unpaid' || openChallan.status === 'partial')
+      ? null
+      : await buildVoucherPrintData(openChallan, {
+          locationId,
+          lateFeeRule: await getLateFeeRule(locationId),
+          logoUrl: (await getSchoolBranding(locationId))?.logoUrl ?? null,
+        });
+
   return (
     <div className="space-y-6">
       <Heading />
@@ -224,31 +247,15 @@ export default async function ParentFeesPage({
             </div>
           </Card>
 
-          <ChallanPrintView
-            data={{
-              challanNumber: openChallan.challanNumber,
-              schoolName: openChallan.schoolName,
-              schoolAddress: openChallan.schoolAddress,
-              schoolPhone: openChallan.schoolPhone,
-              branchName: openChallan.branchName,
-              studentName: openChallan.studentName,
-              studentId: openChallan.studentId,
-              gradeName: openChallan.gradeName,
-              sectionName: openChallan.sectionName,
-              rollNumber: openChallan.rollNumber,
-              billingMonth: openChallan.billingMonth,
-              billingYear: openChallan.billingYear,
-              academicYearName: openChallan.academicYearName,
-              issueDate: openChallan.issueDate,
-              dueDate: openChallan.dueDate,
-              subtotal: openChallan.subtotal,
-              concessionAmount: openChallan.concessionAmount,
-              lateFeeAmount: openChallan.lateFeeAmount,
-              totalAmount: openChallan.totalAmount,
-              paidAmount: openChallan.paidAmount,
-              items: openChallan.items,
-            }}
-          />
+          {/*
+            The same document the school prints, assembled by the same helper
+            — bank block, NTN, valid-upto and both totals included. Before
+            Sprint 20 this page spread `ChallanDetail` in by hand and would
+            therefore have printed a slip with no bank details on it while the
+            school's own copy had them, which is the worst possible place for
+            the two to differ.
+          */}
+          {printData === null ? null : <ChallanPrintView data={printData} />}
         </>
       )}
 
@@ -263,7 +270,7 @@ export default async function ParentFeesPage({
       >
         {challans.length === 0 ? (
           <p className="px-5 py-4 text-sm text-ink-muted">
-            No challans have been issued yet.
+            No vouchers have been issued yet.
           </p>
         ) : (
           <div className="overflow-x-auto">

@@ -40,6 +40,14 @@ import { schoolErrorMessage, schoolFetch } from '@/lib/school-client';
  * because the rows the user was choosing from are gone and carrying an
  * invisible selection into a new result set is how someone prints four hundred
  * vouchers they did not mean to.
+ *
+ * ── A closed voucher cannot be selected — Sprint 20, item 3a ─────────────
+ * `paid`, `cancelled` and `waived` vouchers are not payment instruments, so
+ * their box is **disabled and says why** rather than being silently dropped
+ * from the job. Dropping them would be the worse half of the same rule: a clerk
+ * who ticks *select all* on a page of forty and gets thirty-one sheets has been
+ * told nothing about the nine, and their first assumption is that the printer
+ * jammed.
  */
 
 interface ChallanRow {
@@ -115,6 +123,18 @@ const MONTH_OPTIONS = [
  * whose own Kind column disagreed with the filter that had just found them.
  * The filter and this label now answer from the same column.
  */
+/**
+ * Whether this voucher is still a payment instrument, and therefore printable.
+ *
+ * The same two statuses `ChallanActions` calls `isOpen`, and the same rule:
+ * once a voucher is paid, cancelled or waived the slip is a demand for money
+ * the school is not owed, and at a bank counter it is indistinguishable from a
+ * live one.
+ */
+function isPrintable(row: ChallanRow): boolean {
+  return row.status === 'unpaid' || row.status === 'partial';
+}
+
 function billingLabel(row: ChallanRow): string {
   if (row.challanKind === 'admission') return 'Admission';
   if (row.billingMonth === null || row.billingYear === null) return 'One-off';
@@ -207,7 +227,7 @@ export function ChallanTable({
       setData(await schoolFetch<ChallansResponse>(`/api/school/fees/challans?${query}`));
       setError(null);
     } catch (caught) {
-      setError(schoolErrorMessage(caught, 'Could not load the challans.'));
+      setError(schoolErrorMessage(caught, 'Could not load the vouchers.'));
     } finally {
       setPending(false);
     }
@@ -245,7 +265,12 @@ export function ChallanTable({
   };
 
   const rows = data?.challans ?? [];
-  const pageIds = rows.map((row) => row.id);
+  // Only the printable ones take part in selection at all — see `isPrintable`
+  // and the note at the top of this file. A page of nothing but paid vouchers
+  // therefore has an inert header box rather than one that ticks nine rows and
+  // prints none of them.
+  const pageIds = rows.filter(isPrintable).map((row) => row.id);
+  const closedOnPage = rows.length - pageIds.length;
   const selectedOnPage = pageIds.filter((id) => selected.has(id)).length;
   const allOnPageSelected = pageIds.length > 0 && selectedOnPage === pageIds.length;
   const overCap = selectedIds.length > MAX_PRINTABLE_CHALLANS;
@@ -286,24 +311,48 @@ export function ChallanTable({
           ref={headerBox}
           type="checkbox"
           className="h-4 w-4 align-middle"
-          aria-label="Select every voucher on this page"
+          aria-label="Select every open voucher on this page"
           checked={allOnPageSelected}
+          disabled={pageIds.length === 0}
+          title={
+            pageIds.length === 0
+              ? 'Nothing on this page is still open, so there is nothing to print.'
+              : closedOnPage === 0
+                ? undefined
+                : `Selects the ${pageIds.length} open voucher${pageIds.length === 1 ? '' : 's'} on this page. Settled, cancelled and waived vouchers are not printable.`
+          }
           onChange={(event) => {
             togglePage(event.target.checked);
           }}
         />
       ),
-      cell: (row) => (
-        <input
-          type="checkbox"
-          className="h-4 w-4 align-middle"
-          aria-label={`Select voucher ${row.challanNumber} for ${row.studentName}`}
-          checked={selected.has(row.id)}
-          onChange={(event) => {
-            toggleRow(row.id, event.target.checked);
-          }}
-        />
-      ),
+      cell: (row) =>
+        /*
+         * Disabled and explained, never absent. An empty cell where every other
+         * row has a box reads as a rendering fault; a disabled box with a
+         * reason on it reads as a rule.
+         */
+        isPrintable(row) ? (
+          <input
+            type="checkbox"
+            className="h-4 w-4 align-middle"
+            aria-label={`Select voucher ${row.challanNumber} for ${row.studentName}`}
+            checked={selected.has(row.id)}
+            onChange={(event) => {
+              toggleRow(row.id, event.target.checked);
+            }}
+          />
+        ) : (
+          <input
+            type="checkbox"
+            className="h-4 w-4 align-middle"
+            disabled
+            checked={false}
+            readOnly
+            aria-label={`Voucher ${row.challanNumber} is ${CHALLAN_STATUS_LABELS[row.status].toLowerCase()} and cannot be printed`}
+            title={`This voucher is ${CHALLAN_STATUS_LABELS[row.status].toLowerCase()}. It is not a payment instrument any more, so it cannot be printed.`}
+          />
+        ),
     },
     {
       id: 'challanNumber',

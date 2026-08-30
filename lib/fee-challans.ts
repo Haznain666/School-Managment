@@ -307,7 +307,7 @@ export async function previewChallan(
   if (structures.length === 0) {
     throw new ChallanGenerationError(
       'no_fee_structure',
-      `No fee structure is set up for ${placement.gradeName} in this academic year. Add one before generating challans.`,
+      `No fee structure is set up for ${placement.gradeName} in this academic year. Add one before generating vouchers.`,
       409,
     );
   }

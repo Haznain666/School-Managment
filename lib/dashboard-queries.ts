@@ -2022,10 +2022,24 @@ function campusOfStudent(locationId: string, academicYearId: string) {
  * and no vouchers still gets a row of zeroes rather than vanishing — a
  * scorecard that silently omits the campus nobody has set up is a scorecard
  * that hides the thing most worth knowing.
+ *
+ * ── `window` narrows the money, and only the money (Sprint 20, item 2d) ──
+ * Absent means the whole academic year, which is what every caller got before
+ * this sprint and is byte-for-byte the same statement. Present, it narrows the
+ * `fee_challans` aggregate by **issue date** — billed, collected, outstanding
+ * and over-90 all come from vouchers raised inside the window.
+ *
+ * Enrollment and attendance are deliberately **not** narrowed. Enrollment is a
+ * count of who is on the roll *now* and has no window to be inside; attendance
+ * is already its own fixed 30 days, which is what the column heading says. A
+ * period selector that silently changed the attendance column's meaning while
+ * the heading went on saying "last 30 days" is the kind of quiet disagreement
+ * that stops a table being believed.
  */
 export async function getCampusScorecard(
   locationId: string,
   branchIds: string[] | null = null,
+  window?: { from: string; to: string },
 ): Promise<CampusScorecardRow[]> {
   const campuses = await db
     .select({ id: branches.id, name: branches.name })
@@ -2137,6 +2151,23 @@ export async function getCampusScorecard(
           // they are excluded rather than shown as permanently outstanding —
           // the same three statuses `getFeeStatusSplit` counts.
           inArray(feeChallans.status, ['unpaid', 'partial', 'paid']),
+          /*
+           * The period, when the caller asked for one. `gte`/`lte` and never a
+           * raw `sql` template: `issue_date` is a DATE column and the operator
+           * maps the value for the driver — CLAUDE.md's rule, and the scheduled
+           * announcements that never released.
+           *
+           * By issue date rather than by due date. The question the selector
+           * asks is "what did this campus bill *this month*", and a voucher
+           * raised in August and due in September belongs to August's billing
+           * however late it falls due.
+           */
+          ...(window === undefined
+            ? []
+            : [
+                gte(feeChallans.issueDate, window.from),
+                lte(feeChallans.issueDate, window.to),
+              ]),
         ),
       )
       .groupBy(byCampus.campusId),

@@ -274,9 +274,14 @@ export function AgedDebtTable({ rows, canCollect }: AgedDebtTableProps) {
         ) : (
           <span className="flex flex-wrap gap-1">
             {row.reminders.map((reminder) => (
+              // `text-xs`, not `text-[11px]` — Sprint 20, item 4c. Every
+              // secondary line in this table is one size and one muted colour;
+              // three sizes for the same *kind* of thing reads as three
+              // different tables. The pill background stays: it is what makes a
+              // chip a chip.
               <span
                 key={`${String(reminder.sequence)}-${reminder.sentAt}`}
-                className="whitespace-nowrap rounded-full bg-surface-sunken px-2 py-0.5 text-[11px] text-ink-muted"
+                className="whitespace-nowrap rounded-full bg-surface-sunken px-2 py-0.5 text-xs text-ink-muted"
               >
                 Reminder {reminder.sequence} · {formatDateOnly(reminder.sentAt)}
               </span>

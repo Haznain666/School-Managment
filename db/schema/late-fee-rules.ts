@@ -98,6 +98,32 @@ export const lateFeeRules = pgTable(
      * gets it. Null means never run.
      */
     autoSendLastRunOn: date('auto_send_last_run_on'),
+    /**
+     * Whether enrolling a child who already has a brother or sister here grants
+     * the school's sibling scheme without being asked (Sprint 20, item 6a).
+     *
+     * **Off, and it must stay off until a school turns it on.** This is the fee
+     * module's equivalent of `auto_send_vouchers` above and it is worse in one
+     * respect: an email cannot be recalled, and a discount applied by surprise
+     * cannot be un-applied either — by the time anybody notices, the vouchers
+     * have been priced, printed and in some cases paid. A school that wants it
+     * says so on `/dashboard/fees/settings`.
+     */
+    autoApplySiblingDiscount: boolean('auto_apply_sibling_discount')
+      .notNull()
+      .default(false),
+    /**
+     * Whether the last child of a family keeps the sibling discount once every
+     * other sibling has left (Sprint 20, item 6b).
+     *
+     * Default false, which is what the requirement describes: a discount given
+     * for *having* siblings is not owed to a child who no longer has any. A
+     * school that reads it as a loyalty discount instead switches this on and
+     * `lib/sibling-discounts.ts` stops removing anything.
+     */
+    siblingDiscountForLastChild: boolean('sibling_discount_for_last_child')
+      .notNull()
+      .default(false),
     createdAt: timestamp('created_at', { withTimezone: true })
       .notNull()
       .defaultNow(),

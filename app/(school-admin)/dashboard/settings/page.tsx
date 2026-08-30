@@ -43,6 +43,10 @@ export default async function SchoolSettingsPage() {
       email: schools.email,
       address: schools.address,
       principalName: schools.principalName,
+      // Sprint 20, decision D4. Printed on the fee voucher, and only when set.
+      ntn: schools.ntn,
+      website: schools.website,
+      financeEmail: schools.financeEmail,
     })
     .from(schools)
     .where(eq(schools.locationId, locationId))
@@ -79,11 +83,36 @@ export default async function SchoolSettingsPage() {
           email: school.email,
           address: school.address,
           principalName: school.principalName,
+          ntn: school.ntn,
+          website: school.website,
+          financeEmail: school.financeEmail,
         }}
         canEdit={canEdit}
       />
 
       <SchoolBrandingForm schoolName={school.name} canEdit={canEdit} />
+
+      {/*
+        Sprint 20, item 10 and decision D2. Its own screen rather than a card
+        here, because a school holds several accounts and each of them has
+        eleven fields, an on/off state and a print order.
+
+        Gated on `settings.read` like the rest of this page — no new permission
+        key, and therefore no change to the `role_permissions` CHECK (§5o).
+      */}
+      <Card header={<CardTitle title="Bank accounts" />}>
+        <p className="text-sm text-ink-muted">
+          Where fees are paid in and salaries are paid out. Every active
+          student-facing account prints on your fee vouchers; the payroll one
+          never does.
+        </p>
+        <Link
+          href="/dashboard/settings/banks"
+          className="mt-3 inline-block text-sm font-medium text-brand-primary hover:underline"
+        >
+          Manage bank accounts
+        </Link>
+      </Card>
 
       {permissions.includes('permissions.manage') ? (
         <Card header={<CardTitle title="Roles and permissions" />}>

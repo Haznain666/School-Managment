@@ -13,7 +13,9 @@ import {
 import { readListQuery } from '@/lib/list-query';
 import { resolvePrincipalScope } from '@/lib/principal-resolver';
 import { getSchoolUserByUid } from '@/lib/school-queries';
+import { applyEnrollmentDiscounts } from '@/lib/sibling-discounts';
 import { StudentIdError } from '@/lib/student-id';
+import { isUuid } from '@/lib/validation';
 
 /**
  * /api/school/students
@@ -125,6 +127,39 @@ export const POST = withSchoolAuth(
         placement,
       });
 
+      /*
+       * Sprint 20, items 6a and 7a. The discounts, applied the moment the child
+       * exists — and never able to undo the admission that just happened.
+       *
+       * ── Why this is outside the enrolment transaction ─────────────────
+       * `enrollStudent` writes its four tables through one `batch()`, and every
+       * statement in a batch is built before any of them runs — so this could
+       * not have been inside it in any case: the sibling question is answered
+       * from the guardian rows, which do not exist until that batch commits.
+       *
+       * It would have been possible to open a second transaction and fail the
+       * request on it. That is deliberately not done, and it is the same
+       * judgement the GHL sync three lines up and the photo upload in the
+       * wizard both make: **a child admitted is a fact.** A discount that did
+       * not apply is one click from the profile this redirects to, and that
+       * profile *says so* — the panel prints "Sara has a brother at this
+       * school. She qualifies for the sibling discount" with the button beside
+       * it. An admission rolled back because a discount failed is a queue at
+       * the desk and a clerk told to check details, none of which are wrong.
+       *
+       * Neither call throws; both report what they did.
+       */
+      const chosenSchemeIds = Array.isArray(body['concessionSchemeIds'])
+        ? [...new Set((body['concessionSchemeIds'] as unknown[]).filter(isUuid))]
+        : [];
+
+      const discounts = await applyEnrollmentDiscounts({
+        locationId: auth.locationId,
+        actorUid: auth.uid,
+        studentProfileId: enrolled.studentProfileId,
+        schemeIds: chosenSchemeIds,
+      });
+
       const sync = await syncEnrollmentToGhl(
         db,
         auth.locationId,
@@ -144,6 +179,7 @@ export const POST = withSchoolAuth(
             studentContactId: sync.studentContactId,
             guardiansSynced: Object.keys(sync.guardianContactIds).length,
           },
+          discounts,
         },
         201,
       );

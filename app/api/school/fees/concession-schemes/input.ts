@@ -1,3 +1,4 @@
+import { isSchemeType } from '@/db/schema/concession-schemes';
 import type { SchemeInput } from '@/lib/concession-schemes';
 import { paiseToNumeric, toPaise } from '@/lib/money';
 import { isUuid, readOptionalString, readString } from '@/lib/validation';
@@ -16,6 +17,24 @@ export function readSchemeInput(body: Record<string, unknown>): SchemeInput | st
   if (name === '' || name.length > 80) {
     return 'Give the scheme a name of 80 characters or fewer, e.g. “Sibling Discount”.';
   }
+
+  /*
+   * The kind of discount — Sprint 20, item 5.
+   *
+   * Read here rather than on each route, for the reason this whole module
+   * exists: a create that classified a scheme and an edit that quietly dropped
+   * the classification would be two validators, and the second would silently
+   * reset every edited scheme to whatever the column defaulted to.
+   *
+   * Absent means `other`, which is the same reading the migration's backfill
+   * takes: nothing is ever inferred from the scheme's *name*, on the way in or
+   * afterwards.
+   */
+  const rawType = body['schemeType'];
+  if (rawType !== undefined && rawType !== null && !isSchemeType(rawType)) {
+    return 'Choose whether this is a sibling discount, a scholarship or something else.';
+  }
+  const schemeType = isSchemeType(rawType) ? rawType : 'other';
 
   const discountType = body['discountType'];
   if (discountType !== 'percentage' && discountType !== 'fixed') {
@@ -62,6 +81,7 @@ export function readSchemeInput(body: Record<string, unknown>): SchemeInput | st
 
   return {
     name,
+    schemeType,
     discountType,
     discountValue:
       discountType === 'percentage'

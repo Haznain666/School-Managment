@@ -258,7 +258,7 @@ function OutstandingSection({ grades }: { grades: readonly GradeOption[] }) {
           actions={
             <p className="text-sm text-ink-muted">
               <span className="font-semibold text-ink">{formatPkr(total)}</span>{' '}
-              outstanding across {(rows ?? []).length} challan
+              outstanding across {(rows ?? []).length} voucher
               {(rows ?? []).length === 1 ? '' : 's'}.
             </p>
           }
@@ -671,7 +671,7 @@ function DefaultersSection({
           actions={
             <p className="text-sm text-ink-muted">
               <span className="font-semibold text-ink">{formatPkr(totalOutstanding)}</span>{' '}
-              across {(rows ?? []).length} challan
+              across {(rows ?? []).length} voucher
               {(rows ?? []).length === 1 ? '' : 's'}.
             </p>
           }

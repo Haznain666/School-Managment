@@ -372,6 +372,78 @@ export function formatPhoneForDisplay(stored: string | null | undefined): string
    */
   if (/[A-Za-z]/.test(trimmed)) return trimmed;
 
+  /*
+   * And a value carrying a mask character is not a number either.
+   *
+   * ── The defect this closes (Sprint 20, item 4a) ───────────────────────
+   * `lib/defaulters.ts` masks the guardian's number *before* it reaches the
+   * screen, on purpose — the aged-debt report exists to decide who to chase,
+   * and rendering four hundred parents' full numbers into one page is handing
+   * out a contact list. `maskPhone('+923211234567')` gives `+92321****5555`.
+   *
+   * This function then stripped every non-digit, asterisks included, and
+   * re-grouped what was left. Nine digits went through the mobile mask and came
+   * out as `(0321) 555-5`: a number that is not the parent's, is not any
+   * length a Pakistani number has, and looks entirely deliberate.
+   *
+   * Same reasoning as the letter test above, and the same answer: digits that
+   * are not a *whole* number must never be re-grouped. `maskDisplayPhone`
+   * below is the other half of the fix — mask after formatting, not before —
+   * and either alone would leave the trap loaded for the next caller.
+   */
+  if (trimmed.includes('*')) return trimmed;
+
   const formatted = normalisePhoneOfAnyKind(trimmed);
   return formatted === '' ? trimmed : formatted;
+}
+
+/**
+ * A stored number, formatted for reading and *then* masked:
+ * `+923211234567` -> `(0321) ***-4567`.
+ *
+ * ── Why this exists rather than `maskPhone` (Sprint 20, item 4a) ─────────
+ * `maskPhone` in `lib/phone.ts` masks the E.164 storage form — `+92321****5555`
+ * — and has a different job: confirming to somebody which number a passcode was
+ * just sent to, in a sentence, where the shape of the string is irrelevant. Put
+ * that value in a table column and it reads as a corrupted number, and putting
+ * it through a formatter (which is what happened) produced a plausible wrong
+ * one.
+ *
+ * This masks the **display** form instead, so the result still reads as a
+ * Pakistani mobile, still has the right number of digits in the right groups,
+ * and cannot be mistaken for a real number by a person or re-parsed by a
+ * formatter. The trunk code stays — an accountant deciding whether to chase a
+ * family recognises `0321` — and so do the last four, which is how a colleague
+ * confirms they are looking at the right parent before asking for the number.
+ *
+ * Anything this module cannot read is masked by the crude rule instead of being
+ * handed back whole: a value that is not a recognisable number is still
+ * somebody's contact detail, and the safe failure is the unreadable one.
+ * Blank stays blank — there is nothing to conceal.
+ */
+export function maskDisplayPhone(stored: string | null | undefined): string {
+  const shown = formatPhoneForDisplay(stored);
+  if (shown === '') return '';
+
+  // `(0321) 123-4567` -> `(0321) ***-4567`. The subscriber middle only: the
+  // trunk code is how a reader tells a mobile from a landline, and the last
+  // four are how they confirm the right family without being given the number.
+  const mobile = /^(\(\d{4}\) )\d{3}(-\d{4})$/.exec(shown);
+  if (mobile !== null) return `${mobile[1]!}***${mobile[2]!}`;
+
+  // `(021) 34567890` -> `(021) ****7890`. A landline's subscriber part varies
+  // from four to ten digits, so the mask is sized to what is actually there
+  // rather than to a fixed count that would sometimes reveal more than the
+  // mobile mask does.
+  const landline = /^(\(\d{3}\) )(\d+)$/.exec(shown);
+  if (landline !== null) {
+    const digits = landline[2]!;
+    const tail = digits.slice(-4);
+    return `${landline[1]!}${'*'.repeat(Math.max(digits.length - tail.length, 1))}${tail}`;
+  }
+
+  // Anything else — a number this module could not parse, or one already
+  // masked. Conceal all but the last four rather than printing it whole.
+  const tail = shown.slice(-4);
+  return `${'*'.repeat(Math.max(shown.length - tail.length, 1))}${tail}`;
 }

@@ -714,11 +714,26 @@ export function DataTable<Row>({
                         onClick={() => {
                           handleSort(column.id);
                         }}
+                        /*
+                          The caret always follows the label — Sprint 20, item 4b.
+
+                          This used to be `flex-row-reverse` on a numeric or
+                          end-aligned column, which put the caret *before* the
+                          label on three headers of the aged-debt table and
+                          after it on every other one. Read across the header
+                          row it looked like two tables spliced together, and
+                          the reversal bought nothing the alignment does not:
+                          a full-width button with `justify-end` pushes the
+                          pair to the right edge and keeps the reading order
+                          the same everywhere.
+                        */
                         className={cn(
-                          'group inline-flex items-center gap-1 rounded-control text-2xs font-semibold uppercase tracking-wide',
+                          'group flex w-full items-center gap-1 rounded-control text-2xs font-semibold uppercase tracking-wide',
                           'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-primary/40',
                           isSorted ? 'text-ink' : 'text-ink-muted hover:text-ink',
-                          align === 'numeric' || align === 'end' ? 'flex-row-reverse' : '',
+                          align === 'numeric' || align === 'end'
+                            ? 'justify-end'
+                            : 'justify-start',
                         )}
                         // Says what the click will do, not what the state is —
                         // `aria-sort` on the th already reports the state.
@@ -729,17 +744,28 @@ export function DataTable<Row>({
                         }
                       >
                         <span>{column.header}</span>
-                        <Icon
-                          as={
-                            isSorted
-                              ? activeSort?.direction === 'asc'
-                                ? ArrowUp
-                                : ArrowDown
-                              : ChevronsUpDown
-                          }
-                          size="xs"
-                          className={isSorted ? 'text-brand-primary' : 'text-ink-faint'}
-                        />
+                        {/*
+                          A fixed footprint for the caret, so a sorted header
+                          and an unsorted one are the same width. The three
+                          glyphs are not: `ChevronsUpDown` is a double arrow and
+                          the sorted ones are single, so without this the whole
+                          row shifted by a pixel or two the moment somebody
+                          sorted it — on a table whose columns a reader is
+                          comparing across.
+                        */}
+                        <span className="inline-flex w-3 shrink-0 justify-center">
+                          <Icon
+                            as={
+                              isSorted
+                                ? activeSort?.direction === 'asc'
+                                  ? ArrowUp
+                                  : ArrowDown
+                                : ChevronsUpDown
+                            }
+                            size="xs"
+                            className={isSorted ? 'text-brand-primary' : 'text-ink-faint'}
+                          />
+                        </span>
                       </button>
                     ) : (
                       column.header

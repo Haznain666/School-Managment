@@ -462,7 +462,7 @@ export async function listActiveConcessionsForStudents(
 // -----------------------------------------------------------------------------
 
 export interface LateFeeSettings {
-  /** Day of the month monthly challans fall due. */
+  /** Day of the month monthly vouchers fall due. */
   dueDay: number;
   /**
    * Whether the school emails its parents this month's open vouchers on a
@@ -476,6 +476,20 @@ export interface LateFeeSettings {
   lateFeeType: LateFeeType;
   lateFeeAmount: string;
   maxLateFee: string | null;
+  /**
+   * Whether enrolling a child with a brother or sister already here grants the
+   * school's sibling scheme without being asked (Sprint 20, item 6a).
+   *
+   * Off until a school turns it on, and that is not a default so much as a
+   * safety rail — see `db/schema/late-fee-rules.ts`. A discount applied by
+   * surprise cannot be un-applied: the vouchers have already been priced.
+   */
+  autoApplySiblingDiscount: boolean;
+  /**
+   * Whether the last child of a family keeps the sibling discount once every
+   * other sibling has left (item 6b). Default false, which removes it.
+   */
+  siblingDiscountForLastChild: boolean;
 }
 
 /** The 10th, per Sprint 5's decision, until a school configures otherwise. */
@@ -495,6 +509,8 @@ export async function getLateFeeRule(
       maxLateFee: lateFeeRules.maxLateFee,
       autoSendVouchers: lateFeeRules.autoSendVouchers,
       autoSendDay: lateFeeRules.autoSendDay,
+      autoApplySiblingDiscount: lateFeeRules.autoApplySiblingDiscount,
+      siblingDiscountForLastChild: lateFeeRules.siblingDiscountForLastChild,
     })
     .from(lateFeeRules)
     .where(eq(lateFeeRules.locationId, locationId))
@@ -872,7 +888,28 @@ export interface ChallanDetail extends ChallanListRow {
   schoolName: string;
   schoolAddress: string | null;
   schoolPhone: string | null;
+  schoolEmail: string | null;
+  /**
+   * The three fields the printed voucher asks for (Sprint 20, decision D4).
+   * All nullable, all printed only when set.
+   */
+  schoolNtn: string | null;
+  schoolWebsite: string | null;
+  schoolFinanceEmail: string | null;
+  /** The student's own directory email, printed on the voucher when set. */
+  studentEmail: string | null;
+  branchId: string | null;
   branchName: string | null;
+  /**
+   * The campus's own address, phone and email.
+   *
+   * The voucher footer prefers these over the school's where a campus has
+   * them: a parent at Defence should be walking into Defence with a query
+   * about a Defence voucher, not telephoning head office.
+   */
+  branchAddress: string | null;
+  branchPhone: string | null;
+  branchEmail: string | null;
   notes: string | null;
   rollNumber: string | null;
   items: ChallanItemRow[];
@@ -920,7 +957,16 @@ export async function getChallanDetail(
       schoolName: schools.name,
       schoolAddress: schools.address,
       schoolPhone: schools.phone,
+      schoolEmail: schools.email,
+      schoolNtn: schools.ntn,
+      schoolWebsite: schools.website,
+      schoolFinanceEmail: schools.financeEmail,
+      studentEmail: schoolUsers.email,
+      branchId: grades.branchId,
       branchName: branches.name,
+      branchAddress: branches.address,
+      branchPhone: branches.phone,
+      branchEmail: branches.email,
     })
     .from(feeChallans)
     .innerJoin(studentProfiles, eq(studentProfiles.id, feeChallans.studentProfileId))
@@ -1016,7 +1062,16 @@ export async function getChallanDetail(
     schoolName: header.schoolName,
     schoolAddress: header.schoolAddress,
     schoolPhone: header.schoolPhone,
+    schoolEmail: header.schoolEmail,
+    schoolNtn: header.schoolNtn,
+    schoolWebsite: header.schoolWebsite,
+    schoolFinanceEmail: header.schoolFinanceEmail,
+    studentEmail: header.studentEmail,
+    branchId: header.branchId,
     branchName: header.branchName,
+    branchAddress: header.branchAddress,
+    branchPhone: header.branchPhone,
+    branchEmail: header.branchEmail,
     notes: header.notes,
     rollNumber: header.rollNumber,
     items,

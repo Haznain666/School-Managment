@@ -121,7 +121,7 @@ export function NotificationPreferencesForm() {
 
           <p className="mt-5 rounded-lg bg-surface-sunken px-3 py-2 text-xs text-ink-muted">
             Switching an email off never hides anything from you. Notices still
-            appear on your notice board and challans still appear on your fee
+            appear on your notice board and vouchers still appear on your fee
             page — you simply stop being mailed about them.
           </p>
 

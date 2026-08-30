@@ -1,7 +1,7 @@
 import { withSchoolAuth } from '@/lib/api-auth';
 import { apiSuccess, handleApiError } from '@/lib/api-response';
 import { listOutstandingChallans } from '@/lib/fee-queries';
-import { maskPhone } from '@/lib/phone';
+import { maskDisplayPhone } from '@/lib/phone-formats';
 import { toPaise } from '@/lib/money';
 
 /**
@@ -13,6 +13,12 @@ import { toPaise } from '@/lib/money';
  * remind, and the reminder endpoint reads the real number server-side, so
  * shipping full numbers to a browser would be handing out a parent contact list
  * for no gain.
+ *
+ * Masked in **display** form — `(0321) ***-4567` — since Sprint 20, item 4a.
+ * `maskPhone` masked the E.164 string instead, and `FeeReports` puts this value
+ * through `formatPhoneForDisplay`, which used to strip the asterisks and
+ * re-group what was left into a nine-digit number that was nobody's. Same
+ * defect as the aged-debt screen and the same fix, so the two agree.
  */
 
 export const runtime = 'nodejs';
@@ -42,7 +48,8 @@ export const GET = withSchoolAuth(
         minDaysOverdue,
         defaulters: rows.map((row) => ({
           ...row,
-          guardianPhone: row.guardianPhone === null ? null : maskPhone(row.guardianPhone),
+          guardianPhone:
+            row.guardianPhone === null ? null : maskDisplayPhone(row.guardianPhone),
         })),
         totalOutstanding: (totalPaise / 100).toFixed(2),
       });

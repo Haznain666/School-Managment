@@ -89,7 +89,7 @@ export default function ShellPreviewPage() {
                 Export CSV
               </Button>
               <Button size="sm" icon={Plus}>
-                Issue challan
+                Issue voucher
               </Button>
             </>
           }

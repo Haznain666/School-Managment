@@ -31,11 +31,28 @@ import type { SiblingRow } from '@/lib/siblings';
  * their phone number, and the phone half can group two families who share a
  * handset — see `lib/siblings.ts`. Naming the guardian is what lets an admin
  * see a wrong grouping rather than trust it.
+ *
+ * ── And which campus, when it is not this one — Sprint 20, item 8 ────────
+ * The sibling rule is school-wide and always was: it matches on
+ * `student_guardians.location_id` and joins no `branches`, so two children at
+ * two campuses of one school have always read as siblings. What was missing is
+ * that a clerk at Defence, looking at a discount granted because of a child at
+ * Karachi, saw a name with no class beside it and no reason for the grant.
+ * `contextBranchId` is the campus the reader is looking *from*; anything else
+ * is badged. Pass it and a one-campus school sees nothing new.
  */
 export function SiblingCard({
   siblings,
   /** Where each name links. The admin and parent portals differ. */
   hrefFor,
+  /**
+   * The campus of the student this list is about, when there is one.
+   *
+   * A sibling at a different campus is badged with theirs. Omitted, every
+   * sibling's campus is shown — which is right on a screen that is not about
+   * one child, and wrong nowhere.
+   */
+  contextBranchId,
   /**
    * Overridden on the application screen, where the person this list belongs
    * to is not a student yet and so has no siblings — they have a family.
@@ -45,6 +62,7 @@ export function SiblingCard({
 }: {
   siblings: readonly SiblingRow[];
   hrefFor?: (sibling: SiblingRow) => string;
+  contextBranchId?: string | null;
   title?: string;
   description?: string;
 }) {
@@ -91,6 +109,16 @@ export function SiblingCard({
                     {sibling.sectionName === null ? '' : ` — ${sibling.sectionName}`}
                   </span>
                 )}
+                {/*
+                  The campus, when it is not the one this list is being read
+                  from. Item 8: a discount granted for a child at another campus
+                  has to say which one, or it reads as a grant with no reason.
+                */}
+                {sibling.branchName !== null &&
+                (contextBranchId === undefined ||
+                  contextBranchId !== sibling.branchId) ? (
+                  <Badge variant="neutral">{sibling.branchName}</Badge>
+                ) : null}
                 {sibling.isCurrentlyEnrolled ? null : (
                   <Badge variant="neutral">Not currently enrolled</Badge>
                 )}

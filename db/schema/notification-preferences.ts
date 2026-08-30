@@ -43,14 +43,14 @@ export type NotificationCategory = (typeof NOTIFICATION_CATEGORIES)[number];
 
 export const NOTIFICATION_CATEGORY_LABELS: Record<NotificationCategory, string> = {
   announcements: 'School announcements',
-  fees: 'Fee challans and reminders',
+  fees: 'Fee vouchers and reminders',
   attendance: 'Absence notices',
 };
 
 export const NOTIFICATION_CATEGORY_DESCRIPTIONS: Record<NotificationCategory, string> = {
   announcements:
     'Notices the school sends to parents. They always appear on your notice board; this only controls the email.',
-  fees: 'A new challan, and reminders while one is unpaid. Your fee page always shows what is owed.',
+  fees: 'A new voucher, and reminders while one is unpaid. Your fee page always shows what is owed.',
   attendance: 'An email on a day one of your children is marked absent.',
 };
 

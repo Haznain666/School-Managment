@@ -293,9 +293,9 @@ export function TransferPanel({
 
               {quote.challanIds.length > 0 ? (
                 <p className="mt-2 text-sm text-status-warning-onSubtle">
-                  {quote.challanIds.length} open challan
+                  {quote.challanIds.length} open voucher
                   {quote.challanIds.length === 1 ? '' : 's'} for this month will
-                  be cancelled. A challan already paid is not touched — refunds
+                  be cancelled. A voucher already paid is not touched — refunds
                   are handled at the counter.
                 </p>
               ) : null}

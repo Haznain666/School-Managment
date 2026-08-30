@@ -47,10 +47,12 @@ import {
   LANDLINE_HINT,
   MOBILE_HINT,
   detectPhoneKind,
+  formatPhoneForDisplay,
   formatPhoneOfKind,
   hasCompletePhoneDigits,
   hasCompletePhoneOfAnyKind,
   isValidPhoneOfKind,
+  maskDisplayPhone,
   normalisePhoneOfAnyKind,
   phoneErrorOfKind,
   phoneHintOfKind,
@@ -243,6 +245,65 @@ ok(
 ok(
   phoneErrorOfKind('mobile') !== phoneErrorOfKind('landline'),
   'the two kinds fail with different messages',
+);
+
+/* -----------------------------------------------------------------------------
+ * 4b. Masking a number for a report, and the defect that bought this section.
+ *
+ * ── What went wrong (Sprint 20, item 4a) ─────────────────────────────────
+ * `lib/defaulters.ts` masked the guardian's number *before* it reached the
+ * screen — deliberately, and that decision stands: the aged-debt report exists
+ * to decide who to chase, and rendering four hundred parents' full numbers into
+ * one page is handing out a contact list.
+ *
+ * It masked the **storage** form, giving `+92321****5555`. `AgedDebtTable` then
+ * handed that to `formatPhoneForDisplay`, which stripped every non-digit —
+ * asterisks included — and re-grouped the nine survivors through the mobile
+ * mask as `(0321) 555-5`: a number that is not the parent's and is not a length
+ * any Pakistani number has. It looked entirely deliberate, which is why it
+ * survived a sprint.
+ *
+ * Both halves of the fix are asserted, because either alone leaves the trap
+ * loaded for the next caller: the formatter refuses a value carrying a `*`, and
+ * `maskDisplayPhone` masks *after* formatting so the result still reads as a
+ * mobile.
+ * -------------------------------------------------------------------------- */
+section('Masking a number for a report');
+
+ok(
+  formatPhoneForDisplay('+923211234567') === '(0321) 123-4567',
+  'a stored mobile still formats for reading',
+);
+ok(
+  formatPhoneForDisplay('+92321****5555') === '+92321****5555',
+  'a value carrying a mask character is handed back untouched — digits that are not a whole number must never be re-grouped',
+);
+ok(
+  formatPhoneForDisplay('student:LGS-2026-0009') === 'student:LGS-2026-0009',
+  'and so is the student directory sentinel, for the same reason',
+);
+
+ok(
+  maskDisplayPhone('+923211234567') === '(0321) ***-4567',
+  'maskDisplayPhone masks the subscriber middle of a mobile and keeps the shape',
+);
+ok(
+  maskDisplayPhone('+92213456789') === maskDisplayPhone('+92213456789'),
+  'it is deterministic',
+);
+ok(
+  /^\(\d{3}\) \*+\d{4}$/.test(maskDisplayPhone('+92213456789')),
+  'a landline keeps its area code and its last four, and hides the rest',
+);
+ok(maskDisplayPhone('') === '', 'blank stays blank — there is nothing to conceal');
+ok(maskDisplayPhone(null) === '', 'and so does null');
+ok(
+  !maskDisplayPhone('+923211234567').includes('1234'),
+  'the subscriber digits do not survive the mask',
+);
+ok(
+  formatPhoneForDisplay(maskDisplayPhone('+923211234567')) === '(0321) ***-4567',
+  'and the masked value survives a second trip through the formatter unchanged — which is the whole defect',
 );
 
 /* -----------------------------------------------------------------------------

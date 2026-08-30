@@ -550,7 +550,7 @@ export function SchoolTable() {
             <div className="rounded-lg bg-status-danger-subtle px-3 py-2 text-sm text-status-danger-ink">
               <p className="font-medium">This erases the tenant and everything in it.</p>
               <p className="mt-1">
-                Branches, students, staff, enrollments, fee challans and payments,
+                Branches, students, staff, enrollments, fee vouchers and payments,
                 exams and results, payroll, and announcements all go with it. The
                 subdomain{' '}
                 <code className="font-mono">{deleting.slug}</code> becomes free

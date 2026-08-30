@@ -193,7 +193,7 @@ export const DEFAULT_CHART: readonly ChartAccountSeed[] = [
     name: 'Fee Income',
     type: 'income',
     systemKey: 'fee_income',
-    description: 'Tuition and every other charge raised on a challan.',
+    description: 'Tuition and every other charge raised on a fee voucher.',
   },
   {
     code: '4900',
