@@ -1,6 +1,6 @@
 # Sprint 20 — Your fee voucher, your discounts, and the account parents pay into
 
-**Migration `0037` — written, not yet applied.** One new table
+**Migration `0037` — applied and verified, 2026-08-30.** One new table
 (`bank_accounts`), one new column on discount schemes, two new fee settings and
 three new fields on your school profile. Nothing existing is changed and no row
 is rewritten: every discount scheme you already have keeps its rate, its dates
@@ -202,8 +202,11 @@ unchanged.
   sheet with a bank block is a layout claim, and a layout cannot be judged from
   code. The first thing to try is a voucher with six fee heads, two discounts
   and three bank accounts: does it still fit half a sheet?
-* **The migration has not been applied**, so no bank account, no scheme type and
-  no sibling setting has ever been read out of a real database.
+* **The migration is applied**, and every one of the eleven new or widened
+  statements has been executed against the live schema. But **no school has
+  entered a bank account, classified a scheme or switched on either sibling
+  setting yet** — the tables are correct and empty, and none of this has been
+  read back off a screen a person was looking at.
 * **The automatic sibling-discount removal has never run** against a real
   family.
 * **Cross-campus siblings have never been seen working**, because there is still

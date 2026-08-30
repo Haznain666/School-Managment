@@ -6,12 +6,16 @@ step, before the session ends.
 
 **Last updated:** 2026-08-30 (**Sprint 20 — the voucher, the discount, and the
 bank — §5bj. All eleven items of `SPRINT-20-SPEC.md`, nothing descoped.
-**`0037_sprint20_vouchers_discounts_banks.sql` is WRITTEN and NOT APPLIED** —
-journal `idx: 37`, stamped `1788177600000`; `SPRINT-20-DDL-NOTES.md` is beside
-it. Twelve gates green **including `npm run build`**.
+**`0037_sprint20_vouchers_discounts_banks.sql` is APPLIED and verified — 37
+bookkeeping rows → 38**, entry `id=38` stamped `1788177600000` to match the
+journal. 18 of 18 catalogue assertions and **39 of 39 constraint-firing tests**,
+each expected refusal in its own `SAVEPOINT`, whole transaction rolled back,
+row counts identical before and after. `SPRINT-20-DDL-NOTES.md` is beside it.
+Twelve gates green **including `npm run build`**.
 
-⚠ **`0037` goes in before the code, and the row to read twice is `POST
-…/challans/[id]/payments` — the fee counter stops being able to take money**,
+✅ **`0037` went in before the code, which is the order that mattered.** The
+row to read twice was `POST …/challans/[id]/payments` — **the fee counter
+stops being able to take money**,
 because `getChallanDetail` now selects three new `schools` columns and is the
 first thing that route does. It reads before it writes, so there is no partial
 state and no ledger entry without its payment. Five screens 500 alongside it,
@@ -9908,12 +9912,74 @@ against it today. **Rebuilding it is worth more than the next feature.**
 
 Spec: `SPRINT-20-SPEC.md`, all eleven items. Nothing was descoped.
 
-Migration: **`0037_sprint20_vouchers_discounts_banks.sql` is WRITTEN and NOT
-APPLIED.** Journal entry `idx: 37`, stamped `1788177600000` — one day after
-`0036`. `0037` was confirmed free by **listing `db/migrations/`**, not by
+Migration: **`0037_sprint20_vouchers_discounts_banks.sql` is APPLIED and
+verified — 2026-08-30.** The bookkeeping table held **37 rows before and 38
+after**, entry `id=38` stamped `1788177600000` to match the journal. Journal
+entry `idx: 37`, one day after `0036`. `0037` was confirmed free by **listing `db/migrations/`**, not by
 trusting prose. `SPRINT-20-DDL-NOTES.md` at the repo root records what it does,
 how to verify it, how to undo it and what breaks if the code deploys ahead of
-it. Applying it is DevOps's step.
+it.
+
+### How `0037` was applied, and how it was verified
+
+`drizzle-kit migrate` was not used and still cannot be — `DATABASE_URL` holds an
+unescaped literal `@` in the password and Sprint 18 watched it hang for five
+minutes and apply nothing (§5bg). `0037`, like `0034`, `0035` and `0036`, went
+in through **drizzle-orm's own `postgres-js` migrator** — same statements, same
+`drizzle.__drizzle_migrations` bookkeeping — against the **pooler host on port
+5432** (session mode; 6543 is transaction mode and will not do DDL, and the
+direct `db.<ref>.supabase.co` host is IPv6-only, §5c). It returned in 3.3s.
+
+Note for whoever percent-encodes that password one day: **postgres-js already
+copes with it.** Node's WHATWG URL parser takes the *last* `@` as the userinfo
+delimiter and percent-encodes the rest, and postgres-js decodes it back. It is
+`drizzle-kit` alone that hangs.
+
+**Verified against the catalogue rather than the success message.** 18 read-only
+assertions: `bank_accounts` at 20 columns with every type, nullability and
+default read out of `information_schema` and compared one by one; the
+`purpose` CHECK; both foreign keys with `confdeltype` — `n` (SET NULL) on the
+branch, `c` (CASCADE) on the school; all three tenant-first indexes plus the
+primary key; `scheme_type` text/NOT NULL/`'other'::text` with its CHECK; both
+`late_fee_rules` booleans NOT NULL default false; `schools.ntn`, `.website` and
+`.finance_email` nullable text with no default; and `role_permissions` still
+carrying exactly its two CHECKs with the permission list still at 37 keys — no
+key was added, which is §5o's trap.
+
+Then **39 constraint-firing tests** inside one transaction that was rolled back,
+each expected refusal in its own `SAVEPOINT` per §5be. Every CHECK was made to
+refuse an invented value (`sibiling`, `Sibling`, `family`, `parents`,
+`students`, the empty string) with `23514` and the constraint named; every NOT
+NULL refused with `23502` and the column named; both foreign keys refused a
+stranger with `23503`. **Both delete rules were made to actually fire**, which
+is the only thing that settles them: a temporary campus was created, a bank
+account hung off it, the campus deleted, and the account asserted still present
+with `branch_id` NULL; then a temporary school, its account, the school deleted,
+and the account asserted gone. Row counts were identical before and after and
+the temporary campus was confirmed absent. **39 of 39 passed.**
+
+**The backfill did exactly what the header promised and nothing more.** The one
+concession scheme on the live database is named *"Siblings Discount"* and it
+came out `other`. That is the point: nothing is inferred from a name, and a
+scheme wrongly marked `sibling` is one the last-child sweep would one day remove
+from a child.
+
+### `check-sprint20` before and after, which is the cheapest proof there is
+
+`npm run check-sprint20` executes each of Sprint 20's new and widened statements
+against a location id matching no school. It reads whether `bank_accounts`
+exists and says which mode it is in rather than being told.
+
+| | Before | After |
+| --- | --- | --- |
+| banner | `0037 is NOT applied` | `0037 IS APPLIED` |
+| result | 10 ok, 0 failed | **11 ok, 0 failed** |
+| the six that need `0037` | refused `42P01` / `42703`, as predicted | all execute |
+
+`getStudentDiscountState` is the eleventh: before the migration it
+short-circuited before reaching the new column and could not be exercised at
+all. `listSchoolUsers` — the ordered-aggregate shape that shipped §5bg's 42702
+500 — executed in both runs.
 
 ### ⚠ `0037` first, and the row to read twice is **payments**
 
