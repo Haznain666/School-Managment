@@ -186,9 +186,15 @@ export function FeeClearancePanel({
    * is what stops a clerk sending the same demand twice.
    */
   const emailedNote = (withPrint: boolean) => (
+    // One text node, assembled here rather than two JSX children with a
+    // conditional between them. The conditional form renders the sentence as
+    // `{text}{''}` when the print half is off, which is a different child count
+    // from the server's and is enough on its own to trip a hydration warning.
     <p className="mt-2 text-xs text-ink-muted">
-      This voucher was emailed to the primary contact when it was raised.
-      {withPrint ? ' Print a copy only if the family asked for one.' : ''}
+      {[
+        'This voucher was emailed to the primary contact when it was raised.',
+        ...(withPrint ? ['Print a copy only if the family asked for one.'] : []),
+      ].join(' ')}
     </p>
   );
 

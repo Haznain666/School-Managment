@@ -194,24 +194,64 @@ unchanged.
 
 ---
 
+## What we found by opening it, and fixed
+
+Four things were wrong, all of the same kind: a label or a control that said
+something the software did not do.
+
+* **A staff bank account said it was printing on fee vouchers.** It never was —
+  staff accounts are excluded from vouchers by design — but the status column
+  said *Printing* regardless. A bursar reading that would reasonably think the
+  school's salary account number was going out to every parent, and switching it
+  off would have quietly taken the account out of payroll instead. It now says
+  *Active* for a staff account and *Printing* only for one that actually prints.
+* **The discount panel told a school with a live scheme that it had none.** For
+  a child who does not qualify for a sibling discount — an only child, or the
+  eldest — the panel said *"This school has no active discount schemes yet"*.
+  It now says the child is billed at the full rate and why, so nobody goes and
+  creates a duplicate scheme that was already there.
+* **A paid admission voucher still offered *Print voucher*.** Handing a parent a
+  slip that says *pay this* for money already taken is how a fee gets paid
+  twice. It is gone; the voucher number beside it is still a link for anyone who
+  needs the record.
+* **And the line under that button** — *"Print a copy only if the family asked
+  for one"* — outlived it, pointing at a control that was no longer there.
+
+## One thing we found and did **not** change
+
+**Taking a discount off does not remove it from a voucher already issued.**
+Applying one *does* reprice an unpaid voucher straight away; removing it leaves
+that voucher as it was, and says so on screen. So a discount given to the wrong
+child cannot be taken off this month's bill from the same panel — the voucher
+has to be cancelled and raised again.
+
+We have left it alone deliberately. Every way of fixing it changes what a parent
+owes on a bill your school has already sent them, and that is your decision to
+make rather than ours. It is the first thing on the list for the next fee
+release.
+
+---
+
 ## What has **not** been checked
 
-* **Nothing in this release has been opened in a browser.** It compiles, it
-  passes twelve automated checks, and no person has clicked any of it.
-* **The redesigned voucher has never been printed.** Two copies on a landscape
-  sheet with a bank block is a layout claim, and a layout cannot be judged from
-  code. The first thing to try is a voucher with six fee heads, two discounts
-  and three bank accounts: does it still fit half a sheet?
-* **The migration is applied**, and every one of the eleven new or widened
-  statements has been executed against the live schema. But **no school has
-  entered a bank account, classified a scheme or switched on either sibling
-  setting yet** — the tables are correct and empty, and none of this has been
-  read back off a screen a person was looking at.
-* **The automatic sibling-discount removal has never run** against a real
-  family.
-* **Cross-campus siblings have never been seen working**, because there is still
-  no two-campus school to test against.
+* **The redesigned voucher has not been on paper.** It was measured against the
+  exact printable area of a landscape A4 sheet — two copies, each precisely half
+  the sheet, with about a third of the page still free below the bank details —
+  but nothing has come out of a printer. Print one before your first fee run.
+* **The automatic sibling-discount removal has never run against a real
+  family.** Testing it would have meant withdrawing three of four real children
+  from a live school and putting them back.
+* **Cross-campus siblings have never been seen working.** The school we test
+  against has two campuses but every student on one of them. The rule is
+  correct in code and checked automatically; it has not been watched.
+* **No child has been enrolled end to end through the new Discounts step.** The
+  step is in place and the panel behind it was exercised from a student's
+  profile; completing the wizard would have created a real student.
 * **The *after due date* figure is priced at one day past your grace period.**
   For a school charging a fixed late fee that is exactly right; for one charging
   per day it is the first day's charge, which is worth reading once before you
-  rely on it.
+  rely on it. Its **omission** when you charge no late fee is correct in code
+  but was not seen on a screen, because our test school charges one.
+* **Searching and sorting the Users list by phone** still uses the student's
+  internal reference rather than the guardian's number now shown in the column.
+  The column is right; the sort is not yet.
