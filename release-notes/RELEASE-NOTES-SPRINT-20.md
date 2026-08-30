@@ -1,6 +1,6 @@
 # Sprint 20 — Your fee voucher, your discounts, and the account parents pay into
 
-**Migration `0037` — applied and verified, 2026-08-30.** One new table
+**Migration `0037` — applied and verified, 2026-08-30, and this release is live.** One new table
 (`bank_accounts`), one new column on discount schemes, two new fee settings and
 three new fields on your school profile. Nothing existing is changed and no row
 is rewritten: every discount scheme you already have keeps its rate, its dates
