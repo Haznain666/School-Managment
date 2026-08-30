@@ -3,6 +3,7 @@ import Link from 'next/link';
 
 import { AgedDebtTable } from '@/components/fees/AgedDebtTable';
 import { Card, CardTitle } from '@/components/ui/Card';
+import { PageHeader } from '@/components/ui/PageHeader';
 import { AGING_BUCKETS, BUCKET_LABELS, listDefaulters } from '@/lib/defaulters';
 import { formatPkr } from '@/lib/money';
 import { requireSchoolPermission } from '@/lib/school-guard';
@@ -53,21 +54,34 @@ export default async function DefaultersPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h2 className="text-xl font-semibold text-ink">Aged debt</h2>
-        <p className="mt-1 text-sm text-ink-muted">
-          Everyone with money outstanding, aged from the date it fell due. Chase
-          a family or settle their vouchers from the row itself; the per-voucher
-          chase list lives in{' '}
-          <Link
-            href="/dashboard/fees/reports"
-            className="font-medium text-brand-primary hover:underline"
-          >
-            Fee Reports
-          </Link>
-          .
-        </p>
-      </div>
+      {/*
+        `PageHeader`, not a hand-rolled `<h2>` — Sprint 20, item 4d.
+
+        This page wrote its own heading at `text-xl` inside an `<h2>`, while
+        every other screen in the product renders `PageHeader`'s `<h1>` at
+        `text-2xl`. Read against `/dashboard/fees/challans` or `/dashboard/users`
+        at the same zoom it was visibly the smaller title, and the outlier was
+        here rather than in the majority — which is also why the description
+        paragraph sat at the full page width instead of `PageHeader`'s readable
+        measure.
+      */}
+      <PageHeader
+        title="Aged debt"
+        description={
+          <>
+            Everyone with money outstanding, aged from the date it fell due.
+            Chase a family or settle their vouchers from the row itself; the
+            per-voucher chase list lives in{' '}
+            <Link
+              href="/dashboard/fees/reports"
+              className="font-medium text-brand-primary hover:underline"
+            >
+              Fee Reports
+            </Link>
+            .
+          </>
+        }
+      />
 
       <Card
         header={

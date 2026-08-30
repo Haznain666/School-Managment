@@ -11,6 +11,7 @@ import {
   type DataTableSort,
 } from '@/components/ui/DataTable';
 import { Button } from '@/components/ui/Button';
+import { formatPhoneForDisplay } from '@/lib/phone-formats';
 import { MAX_BULK_DELETE, type DeletionOutcome } from '@/lib/user-deletion';
 import { ROLE_LABELS, isUserRole } from '@/types/school-auth';
 
@@ -20,6 +21,15 @@ export interface UserRow {
   name: string;
   email: string | null;
   phone: string;
+  /**
+   * The number to print — Sprint 20, item 1.
+   *
+   * For a student that is their primary guardian's, because `phone` above
+   * carries `studentDirectoryPhone`'s `student:<admission number>` sentinel:
+   * the column is `NOT NULL` and a seven-year-old has no telephone. Null means
+   * nobody is on file, and the cell prints `—` rather than the sentinel.
+   */
+  contactPhone: string | null;
   role: string;
   branchId: string | null;
   branchName: string | null;
@@ -356,7 +366,8 @@ export function UserTable({ branches, lockedBranchId, canManage }: UserTableProp
       muted: true,
       sortable: true,
       className: 'font-mono text-xs',
-      cell: (user) => user.phone,
+      cell: (user) =>
+        user.contactPhone === null ? '—' : formatPhoneForDisplay(user.contactPhone),
     },
     {
       id: 'status',

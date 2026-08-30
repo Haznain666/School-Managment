@@ -21,6 +21,8 @@ import {
   schoolModules,
   schoolUsers,
   studentEnrollments,
+  studentGuardians,
+  studentProfiles,
   type SchoolUser,
 } from '@/db/schema';
 import {
@@ -55,6 +57,26 @@ export interface SchoolUserRow {
   isActive: boolean;
   joinedAt: Date | null;
   createdAt: Date;
+}
+
+/**
+ * One row of the Users & Staff directory.
+ *
+ * `contactPhone` is what the screen prints; `phone` is what the column holds.
+ * They differ for exactly one role and the difference is item 1 of Sprint 20 —
+ * see `listSchoolUsers`.
+ */
+export interface SchoolUserListRow extends SchoolUserRow {
+  /**
+   * The number a person would actually ring, or null when there is nobody.
+   *
+   * For staff it is `school_users.phone`. For a **student** it is their primary
+   * guardian's, because `school_users.phone` is `NOT NULL`, a seven-year-old
+   * has no phone, and `studentDirectoryPhone` therefore fills it with the
+   * sentinel `student:LGS-2026-0009`. Null where a student has no guardian on
+   * file; the screen prints `—`, never the sentinel.
+   */
+  contactPhone: string | null;
 }
 
 const USER_COLUMNS = {
@@ -232,11 +254,27 @@ function userConditions(
   return conditions;
 }
 
+/**
+ * The school's own directory, with facet counts.
+ *
+ * ── Sprint 20, item 1: a student's row shows their guardian's number ─────
+ * The Phone column printed `student:LGS-2026-0009` on four rows of the live
+ * tenant. That is `studentDirectoryPhone`'s sentinel: `school_users.phone` is
+ * `NOT NULL`, a seven-year-old has no phone, and the enrolment writes the
+ * admission number there so the column has something in it.
+ * `formatPhoneForDisplay` already refuses to mask a value containing a letter,
+ * so the sentinel was passing through untouched — the defect was the
+ * *selection*, not the formatting, which is why it is fixed here.
+ *
+ * §5bf fixed the same thing on the all-students list. This is that fix, one
+ * screen over, resolving the guardian through the student's profile rather than
+ * through the enrolment.
+ */
 export async function listSchoolUsers(
   locationId: string,
   filters: ListUsersFilters,
 ): Promise<{
-  users: SchoolUserRow[];
+  users: SchoolUserListRow[];
   total: number;
   page: number;
   limit: number;
@@ -244,6 +282,64 @@ export async function listSchoolUsers(
 }> {
   const limit = Math.min(Math.max(filters.limit ?? 20, 1), 100);
   const page = Math.max(filters.page ?? 1, 1);
+
+  /*
+   * The primary guardian's number, one row per student directory account.
+   *
+   * Grouped on `student_profiles.school_user_id` rather than on the profile id,
+   * because the outer query is over `school_users` and that is the key it joins
+   * on. A joined subquery rather than a correlated sub-select: the directory is
+   * paginated and sorted in the database, and anything per-row would run once
+   * per member on a screen somebody is waiting on.
+   *
+   * `array_agg(… order by …)` is the ordered-aggregate form of "first by this
+   * ranking" — the guardian flagged primary, then the earliest recorded. There
+   * is no operator for an ordered aggregate, which is the only reason this is a
+   * raw template; no JavaScript value is interpolated into it.
+   *
+   * ── Aliased `student_guardian_phone`, and that is load-bearing ────────
+   * Drizzle emits a raw-`sql` subquery column by its alias **unqualified**.
+   * This statement also joins `school_users`, which has a `phone` of its own,
+   * so an alias of `phone` would make the whole listing fail to parse with
+   * `column reference "phone" is ambiguous` (42702) — which is exactly the 500
+   * §5bg records shipping on the all-students screen. A name no other joined
+   * table carries resolves unambiguously without qualifying anything, and the
+   * reference below is written out qualified anyway.
+   */
+  const studentContact = db
+    .select({
+      // A plain column, so Drizzle qualifies the outer reference for us. The
+      // derived column keeps its own name, `school_user_id`, which nothing else
+      // in this statement has.
+      schoolUserId: studentProfiles.schoolUserId,
+      phone:
+        sql<string>`(array_agg(${studentGuardians.phone} order by ${studentGuardians.isPrimaryContact} desc, ${studentGuardians.createdAt} asc))[1]`.as(
+          'student_guardian_phone',
+        ),
+    })
+    .from(studentGuardians)
+    .innerJoin(
+      studentProfiles,
+      eq(studentProfiles.id, studentGuardians.studentProfileId),
+    )
+    .where(eq(studentGuardians.locationId, locationId))
+    .groupBy(studentProfiles.schoolUserId)
+    .as('student_contact');
+
+  /*
+   * Written out qualified for the reason above. A qualified reference to a
+   * joined relation is valid wherever it appears; a bare select-list alias is
+   * not, and would bind to `school_users.phone` in a `WHERE` — the sentinel
+   * this column exists to stop showing people.
+   *
+   * Not added to the free-text search: the search is over the whole directory
+   * and its total is counted by a second statement that does not carry this
+   * join. Widening one without the other is how a reader pages off the end of
+   * a list, which is §5bf's own note.
+   */
+  const guardianPhoneColumn = sql<
+    string | null
+  >`"student_contact"."student_guardian_phone"`;
 
   const order = filters.direction === 'desc' ? desc : asc;
   const sortColumn = {
@@ -258,9 +354,14 @@ export async function listSchoolUsers(
 
   const [rows, totals, roleFacets, branchFacets, statusFacets] = await Promise.all([
     db
-      .select(USER_COLUMNS)
+      .select({ ...USER_COLUMNS, guardianPhone: guardianPhoneColumn })
       .from(schoolUsers)
       .leftJoin(branches, eq(branches.id, schoolUsers.branchId))
+      // A LEFT join, and only on the page query. It cannot multiply rows — the
+      // subquery is grouped on the key it is joined by — and it is deliberately
+      // absent from the count and the three facet queries, which read no phone
+      // and must keep the numbers they had before this sprint.
+      .leftJoin(studentContact, eq(studentContact.schoolUserId, schoolUsers.id))
       .where(where)
       .orderBy(order(sortColumn))
       .limit(limit)
@@ -293,7 +394,20 @@ export async function listSchoolUsers(
   ]);
 
   return {
-    users: rows,
+    /*
+     * The number to print, decided here rather than on the screen.
+     *
+     * A student's own directory row is a sentinel by construction, so it is
+     * *never* offered as a contact: where the guardian resolves to nothing the
+     * answer is null, which the table renders as `—`. Printing the sentinel is
+     * not acceptable in any case, and neither is printing a number that is
+     * really an admission number with the colon taken out.
+     */
+    users: rows.map(({ guardianPhone, ...user }) => ({
+      ...user,
+      contactPhone:
+        user.role === 'student' ? (guardianPhone ?? null) : (user.phone || null),
+    })),
     total: totals[0]?.value ?? 0,
     page,
     limit,

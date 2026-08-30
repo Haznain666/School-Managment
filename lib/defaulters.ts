@@ -17,7 +17,7 @@ import {
 import { AGING_BUCKETS, type AgingBucket } from './aging-buckets';
 import { db } from './drizzle';
 import { remindersForStudents, type ReminderChip } from './fee-reminders';
-import { maskPhone } from './phone';
+import { maskDisplayPhone } from './phone-formats';
 
 /**
  * The fee defaulter list — "the report an accountant actually opens each
@@ -227,14 +227,28 @@ export async function listDefaulters(
         sectionName: row.sectionName,
         branchName: row.branchName,
         guardianName: row.guardianName,
-        // Masked, matching the decision already taken on
-        // `/api/school/fees/reports/defaulters`: this report exists to decide
-        // *who* to chase, the reminder path reads the real number
-        // server-side, and rendering four hundred parents' full numbers into
-        // a page is handing out a contact list for no gain. `reachable`
-        // below is computed from the unmasked value, so the report can still
-        // say who cannot be reached at all.
-        guardianPhone: row.guardianPhone === null ? null : maskPhone(row.guardianPhone),
+        /*
+         * Masked, matching the decision already taken on
+         * `/api/school/fees/reports/defaulters`: this report exists to decide
+         * *who* to chase, the reminder path reads the real number
+         * server-side, and rendering four hundred parents' full numbers into
+         * a page is handing out a contact list for no gain. `reachable`
+         * below is computed from the **unmasked** value, so the report can
+         * still say who cannot be reached at all.
+         *
+         * ── Masked *after* formatting since Sprint 20, item 4a ──────────
+         * This was `maskPhone`, which masks the E.164 storage form and gives
+         * `+92321****5555`. `AgedDebtTable` then handed that to
+         * `formatPhoneForDisplay`, which stripped every non-digit — asterisks
+         * included — and re-grouped the nine survivors as `(0321) 555-5`: a
+         * number that is not the parent's and is not a length any Pakistani
+         * number has. `maskDisplayPhone` formats first and blanks the
+         * subscriber middle afterwards, giving `(0321) ***-4567` — still
+         * masked, still unmistakably a mobile, and safe to put through the
+         * formatter a second time.
+         */
+        guardianPhone:
+          row.guardianPhone === null ? null : maskDisplayPhone(row.guardianPhone),
         guardianEmail: row.guardianEmail,
         reachable:
           (row.guardianPhone !== null && row.guardianPhone !== '') ||
