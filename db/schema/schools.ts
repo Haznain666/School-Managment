@@ -76,6 +76,33 @@ export const schools = pgTable(
     /** Mobile, in the display form `(0321) 123-4567`. */
     phone: text('phone'),
     email: text('email'),
+    /**
+     * The three fields the printed fee voucher asks for and the product held
+     * nowhere (Sprint 20, decision D4).
+     *
+     * All nullable and all printed **only when set**, so a school that has not
+     * filled them in gets exactly the voucher it got before — no empty label,
+     * no "N/A". A blank `NTN #` on a fee slip is a question a parent asks at the
+     * counter.
+     *
+     * `ntn` is the National Tax Number a Pakistani institution prints on any
+     * document that acknowledges money. It is free text: NTN formats have
+     * changed twice and a school that types its STRN here instead is still
+     * printing the number it means to print.
+     */
+    ntn: text('ntn'),
+    /** `https://…`, printed in the voucher footer. */
+    website: text('website'),
+    /**
+     * Where a parent sends proof of payment.
+     *
+     * Deliberately not `email` above, which is the school office's. The bank
+     * transfer note on a voucher names the desk that reconciles it, and at every
+     * school large enough to have a finance office those are two different
+     * inboxes. Null means the note is not printed at all rather than printed
+     * with the office address in it.
+     */
+    financeEmail: text('finance_email'),
     principalName: text('principal_name'),
     /**
      * Whether this school runs one head or several (BR4, Sprint 13).

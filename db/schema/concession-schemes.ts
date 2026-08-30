@@ -18,6 +18,32 @@ import { feeTypes } from './fee-types';
 import { schools } from './schools';
 
 /**
+ * What kind of discount a scheme is (Sprint 20, item 5).
+ *
+ * Three values and no more, because the type is not a description — it is the
+ * slot the scheme appears in on the apply-discount modal, and the operator may
+ * pick at most one of each. A fourth kind would be a fourth section on that
+ * modal, which is a product decision rather than a dropdown entry.
+ *
+ * **A scheme's type does not change what it is worth.** The rate, the heads and
+ * the dates still decide the money; this decides where the scheme is offered
+ * and, for `sibling`, whether the auto-apply and the last-child sweep know
+ * which scheme they mean.
+ */
+export const SCHEME_TYPES = ['sibling', 'scholarship', 'other'] as const;
+export type SchemeType = (typeof SCHEME_TYPES)[number];
+
+export const SCHEME_TYPE_LABELS: Record<SchemeType, string> = {
+  sibling: 'Sibling Discount',
+  scholarship: 'Scholarship Discount',
+  other: 'Other Discount',
+};
+
+export function isSchemeType(value: unknown): value is SchemeType {
+  return typeof value === 'string' && (SCHEME_TYPES as readonly string[]).includes(value);
+}
+
+/**
  * concession_schemes — a discount the school owns, rather than one retyped per
  * child.
  *
@@ -70,6 +96,20 @@ export const concessionSchemes = pgTable(
     }),
     /** What the school calls it, e.g. `Sibling Discount`. */
     name: text('name').notNull(),
+    /**
+     * Which of the three kinds this is (Sprint 20, item 5).
+     *
+     * **Backfilled to `other`, never inferred from the name.** A scheme called
+     * "Sibling Discount" almost certainly is one, and guessing that from a
+     * string is exactly the drift this table was created to end — the same
+     * school also has "Sibling disc." and "sibling discount (2 kids)". `other`
+     * is the honest answer for a row created before the question was asked,
+     * and it is one dropdown to correct.
+     *
+     * `text` + CHECK rather than `pgEnum`, per the repository's convention: a
+     * fourth value is an `ALTER … DROP CONSTRAINT` rather than a type surgery.
+     */
+    schemeType: text('scheme_type').notNull().default('other').$type<SchemeType>(),
     discountType: text('discount_type').notNull().$type<'percentage' | 'fixed'>(),
     /** A percentage (0–100) or a flat PKR amount, per `discount_type`. */
     discountValue: numeric('discount_value', { precision: 10, scale: 2 }).notNull(),
@@ -103,6 +143,10 @@ export const concessionSchemes = pgTable(
     check(
       'concession_schemes_discount_type_check',
       sql`${table.discountType} IN ('percentage', 'fixed')`,
+    ),
+    check(
+      'concession_schemes_scheme_type_check',
+      sql`${table.schemeType} IN ('sibling', 'scholarship', 'other')`,
     ),
   ],
 );
