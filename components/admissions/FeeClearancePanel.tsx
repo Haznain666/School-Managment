@@ -125,6 +125,21 @@ export function FeeClearancePanel({
   // the guard is repeated because the component must be safe to place anywhere.
   if (state.kind === 'not_enrolled') return null;
 
+  /**
+   * Whether the voucher behind this panel is still a live demand.
+   *
+   * The same `unpaid | partial` test `ChallanActions`, the voucher list and the
+   * bulk print route apply, so all four screens agree about what is printable.
+   * It is asked of the **voucher**, never of the panel's own case: `settled` is
+   * reached both by a paid or waived voucher *and* by an enrollment cleared by
+   * hand at a desk, and in the second of those the voucher can still be unpaid
+   * and the family can still owe the money.
+   */
+  const openVoucher =
+    'challan' in state &&
+    state.challan !== null &&
+    (state.challan.status === 'unpaid' || state.challan.status === 'partial');
+
   const messages = (
     <>
       {notice !== null ? (
@@ -410,7 +425,7 @@ export function FeeClearancePanel({
             {printVoucherButton(challanPrintHref([state.challan.id]))}
             {confirmButton}
           </div>
-          {emailedNote(true)}
+          {emailedNote(openVoucher)}
           {messages}
         </Card>
       );
@@ -449,26 +464,39 @@ export function FeeClearancePanel({
           )}
 
           {/*
-            No Print here, and that is item 3a rather than an omission.
+            Print is decided by the **voucher's** status, not by this case.
 
-            Every state that reaches `settled` has a closed voucher behind it —
-            paid, waived or cancelled — and a closed voucher is not a payment
-            instrument. Handing a parent a slip that says *pay this* for money
-            the school has already taken is how a fee gets paid twice, and the
-            second payment lands as an unexplained credit nobody reconciles.
+            Item 3a's rule is that a paid, waived or cancelled voucher is not a
+            payment instrument: handing a parent a slip that says *pay this* for
+            money already taken is how a fee gets paid twice, and the second
+            payment lands as an unexplained credit nobody reconciles.
 
-            The voucher number above is still a link, so the record is one click
-            away for anybody who needs to look at it; what is gone is the
-            invitation to put it on paper.
+            But `settled` is reached two ways, and only one of them means the
+            voucher is closed. `resolveAdmissionFee` returns it when the
+            **challan** is paid or waived — and *also* when the enrollment was
+            **cleared by hand**, which happens when a school takes cash across a
+            desk. In that second case the voucher behind it can still be
+            `unpaid`, the family can still owe the money, and they appear on the
+            aged-debt screen owing it.
 
-            A paid admission genuinely does need a **receipt**, and this sprint
-            does not build one. That is a gap worth naming rather than papering
-            over with the wrong document — see STATE.md §5bj.
+            Gating on the case rather than the status therefore took Print away
+            from a voucher that is still a live demand — found by opening
+            Student 18, whose admission voucher is unpaid for PKR 50,000 while
+            this panel reads *Paid*. So the test is `openVoucher`, which is the
+            same `unpaid | partial` test `ChallanActions` and the bulk print
+            route apply.
+
+            A genuinely paid admission needs a **receipt**, which this sprint
+            does not build. Named rather than papered over with the wrong
+            document — see STATE.md §5bj.
           */}
-          {feeClearedAt === null ? (
-            <div className="flex flex-wrap items-start gap-3">{confirmButton}</div>
-          ) : null}
-          {state.challan === null ? null : emailedNote(false)}
+          <div className="flex flex-wrap items-start gap-3">
+            {openVoucher && state.challan !== null
+              ? printVoucherButton(challanPrintHref([state.challan.id]))
+              : null}
+            {feeClearedAt === null ? confirmButton : null}
+          </div>
+          {state.challan === null ? null : emailedNote(openVoucher)}
           {messages}
         </Card>
       );
