@@ -30,10 +30,33 @@ committed and swallows its own failures, because a child admitted is a fact and
 a discount that did not apply is one click from the profile the wizard redirects
 to.
 
-⚠ **Nothing here has been driven in a browser, and the repainted voucher has
-never been on paper.** What *was* proved is that all six new or widened
-statements compile to the SQL they are supposed to — `toSQL()` printed and read
-by eye, and the script kept at `scripts/print-sprint20-sql.ts`.**);
+✅ **QA is done — driven in a browser at LGS, four defects found and fixed, one
+design inconsistency reported.** A staff bank account badged *Printing* on a
+screen whose own hint says it never prints; the discount panel telling a school
+with a live scheme that it had none; *Print voucher* still offered on a **paid**
+admission voucher by the one panel item 3a did not reach; and the sentence under
+it pointing at a button that was gone. All four fixed and re-verified.
+**Everything written to LGS was removed and the removal read back** — §5bg left
+a 5,000 credit behind, this run left nothing. `test-cases/TEST-CASES-SPRINT-20.md`.
+
+⚠ **One thing is reported and not fixed, and it is about money.** Applying a
+discount reprices an already-issued open voucher; **removing one does not**. So
+a discount applied to the wrong child cannot be taken off this month's bill from
+the panel that applied it. Every candidate fix changes what a parent owes on a
+voucher already issued, which is a product decision rather than a QA correction.
+It is the first thing to settle in the next fee sprint.
+
+**Sixteen gates green**, including `npm run build`, all three database-backed
+checks, and the new **`npm run check-sprint20`** — which *executes* each new and
+widened statement rather than printing it, because an ambiguous column reference
+is a planning error and a compiled statement is evidence about names only. It
+caught that `getChallanDetail` needed `0037`, which is why the migration went in
+before the merge. `listSchoolUsers` — the ordered-aggregate shape that shipped
+§5bg's 42702 — executes, and is now asserted on every run.
+
+⚠ **The Browser pane could not composite in this session**, so every page read
+as its loading skeleton. That is the harness, **not** the product: the same URLs
+render completely in Playwright. Use Playwright to reproduce this run.**);
 2026-08-29 (**Sprint 19b — the campus calendar, student
 documents, academic history and Enrol→Enroll — §5bi. Items 14–19 of
 `SPRINT-19-SPEC.md`. **`0036` APPLIED and verified, 36 rows -> 37 — 21 of 21
@@ -10315,44 +10338,187 @@ tables.
 * **No `student_concessions` schema change.** Removal writes `valid_until` and
   appends to `notes`; both columns already existed.
 
+### QA — driven in a browser at LGS, 2026-08-30
+
+**Four defects found and fixed, one design inconsistency found and reported.**
+`test-cases/TEST-CASES-SPRINT-20.md`. Driven at `9b0d5462ea70` against the real
+live database with `0037` applied.
+
+⚠ **The Browser pane could not composite in this session**, so every page read
+as its loading skeleton — React's streamed content never resolves in a pane that
+is not painting. That is a harness limitation and **not** a product defect: the
+same URLs render completely in Playwright, which drives its own Chrome. Anyone
+reproducing this run should use Playwright. This is a *third* distinct thing
+that has masqueraded as "the pane cannot paint" — see §5be, which corrected the
+second one after it had cost three sprints.
+
+**🐛 D1 — a staff bank account was badged *Printing*.** The status column read
+`isActive ? 'Printing' : 'Not printing'` and ignored `purpose`, so the payroll
+account claimed it appears on fee vouchers — on a screen whose own field hint
+says "Never printed on a voucher". `listVoucherBankAccounts` filters
+`purpose IN ('student','both')`, so it never has. A bursar reading that has been
+told the school's salary account number goes out to every parent, and the
+reasonable response — switching it off — stops nothing and quietly removes the
+account from payroll. The label now says what the switch governs for that row.
+
+**🐛 D2 — the discount panel told a school with a live scheme that it had
+none.** `sections` drops the sibling section for a child who does not qualify,
+and at a school whose only scheme is a sibling one that leaves it empty while
+`state.schemes` holds an active row. The **eldest** of LGS's four-child family —
+correctly not entitled, by item 9a — produced *"This school has no active
+discount schemes yet."* An administrator who believes that creates a **second**
+sibling scheme, which is the duplication `concession_schemes_location_name_idx`
+exists to prevent. The school having none and this child being offered none are
+now two different sentences, in all three places that made the claim.
+
+**🐛 D3 — Print voucher on a paid admission voucher.** Item 3a reached
+`ChallanActions`, the voucher list and the bulk print route, but not
+`FeeClearancePanel` — the panel that *raises* the voucher. Handing a parent a
+slip that says *pay this* for money already taken is how a fee gets paid twice,
+and the second payment lands as an unexplained credit nobody reconciles. Removed
+from the `settled` case, which covers paid, waived and cancelled alike.
+
+**🐛 D4 — and the sentence under it.** *"Print a copy only if the family asked
+for one"* survived the button it referred to. An instruction pointing at a
+control that is not on screen sends the reader hunting for it. Now conditional
+on the button, and assembled as **one** text node — the `{text}{cond ? x : ''}`
+form renders a different child count on server and client and trips a hydration
+warning on its own.
+
+### What the browser proved that no script could
+
+* **The Phone column.** Thirteen rows, **no `student:` sentinel anywhere**. The
+  four children of one family all show their shared father's number.
+* **The charts.** Karachi's zeros render `—`. Every `<text>` in every chart was
+  measured with `getBBox()` against its viewBox: **zero overflowing labels**,
+  including `PKR 200,000` — longer than the `PKR 20,000` that was being clipped.
+* **The masked phone.** `(0321) ***-4545`, right digit count, still a Pakistani
+  mobile. The report that opened this sprint showed `(0321) 454-5`.
+* **The voucher, measured rather than eyeballed.** The print root revealed at
+  exactly A4-landscape-minus-margins (**1062 × 733 px**): two copies at **531 px
+  each**, exactly half the sheet, document height **490 px** with a bank block,
+  notes and footer — **240 px of headroom**. The layout claim §5bg said could
+  not be judged from the DOM *can* be, if you measure the printable area rather
+  than look at it.
+* **Two scoping rules proved by absence**, which is the half that fails
+  silently: a **Karachi-only** bank account did **not** print on a **Defence**
+  student's voucher, and the **staff** account did not print at all.
+* **Applying a discount repriced the open voucher and left the paid one alone.**
+  20,000 − 3,000 − 5,000 credit = 12,000 on the unpaid; the paid 35,000
+  untouched. Removal wrote `valid_until` and an audit note — **a dated close,
+  never a `DELETE`**.
+
+### ⚠ Removal does not un-price an already-issued voucher — the one to settle next
+
+Removing a grant reported **`0 open vouchers repriced`** and the voucher kept its
+concession, seconds after applying the same discount had put it there.
+
+The mechanism is not itself a bug. `closingDate` closes a grant **yesterday**,
+and an August voucher is still inside a window that ran to 29 August, so the
+concession legitimately still applies to that voucher's period. The panel says so
+honestly: *"Vouchers already issued keep the discount they were raised with."*
+
+**The problem is the asymmetry.** Applying reprices an already-issued open
+voucher; removing does not. So a discount applied to the wrong child cannot be
+taken off this month's bill from the panel that applied it — the only recourse is
+to cancel the voucher and raise it again, or to edit the grant's dates on a
+different screen, which is not what the `×` promises.
+
+Deliberately **not** fixed in QA: every candidate fix — closing at `today`, or
+making the reprice ignore the window for open vouchers — **changes what a parent
+owes on a voucher the school has already issued**. That is a product decision
+about money, not a QA correction. It is the first thing to settle in the next fee
+sprint.
+
+The cleanup script demonstrates the other half: deleting a grant outright and
+re-running `repriceOpenChallans` restored the voucher exactly, so the repricing
+path works in both directions.
+
+### ⚠ QA shares a database with production, and this run left nothing
+
+Everything written to LGS was removed and **the removal was read back**, not
+assumed: three bank accounts, three concession schemes, one grant, three school
+fields, and one scheme reclassification reverted to `other`.
+`scripts/qa-sprint20-cleanup.ts` puts the repriced voucher back through the fee
+module's **own** `repriceOpenChallans` rather than writing figures at the
+columns — a hand-restored total and a recomputed one are not guaranteed to
+agree, and the one that matters is the one the module would produce. Final
+read-back: `bank_accounts` 0 rows, one scheme typed `other`, voucher
+`LGS-2026-08-0008` back to `0.00` / `15000.00`, byte-identical to the pre-run
+snapshot. §5bg left a 5,000 credit behind; this run left nothing.
+
 ### What was NOT verified, honestly
 
-* **Nothing here has been driven in a browser.** No screen, no modal, no
-  refusal, no print. §5bg, §5bh and §5bi all conclude that this is the gate that
-  matters and the one thirteen green checks cannot stand in for.
-* **`0037` has not been applied**, so no query touching `bank_accounts`,
-  `scheme_type` or the two new booleans has ever returned a row. What *was*
-  proved is that all six statements **compile to the SQL they are supposed to**,
-  read by eye from `toSQL()`. An ambiguous column reference is a planning error,
-  so a compiled statement is evidence about names and nothing else.
-* **The repainted voucher has never been on paper.** Two copies on landscape A4
-  with a bank block and a notes box is a *layout* claim, and a layout claim
-  cannot be judged from the DOM — §5bg says exactly that about item 10 of Sprint
-  18. The one thing to check first is whether a voucher with six fee heads, two
-  discounts and three bank accounts still fits half a sheet.
-* **The sibling sweep has never run.** No timer has ticked against a real
-  family, no grant has been claimed, and `reopenGrant` has never been reached.
-  The claim is the same shape as `voucher-auto-send`'s, which is live and works.
-* **Cross-campus siblings remain unfixtured.** The assertions say the query
-  carries no branch predicate; nothing has returned two children at two
-  campuses, because there is still no two-campus tenant.
+* **Cross-campus siblings remain unfixtured.** LGS has two campuses and **all
+  six students sit on Defence**, so no query in this run returned two children
+  at two campuses. `lib/siblings.ts` carries no branch predicate and
+  `check-branch-scope` asserts it in 1,379 assertions; the rule is asserted, not
+  observed. **This is the fixture asked for in four consecutive sprints now.**
+* **The sibling sweep has never run against a real family.** The scheduler
+  starts — `[sibling-discount] sweep started (every 15 minutes)` is in the dev
+  log — and its claim is a conditional `UPDATE … RETURNING` per CLAUDE.md.
+  Exercising the removal would mean withdrawing three of four real children at
+  LGS and undoing it, which is more damage than the finding is worth.
+* **No full enrolment was driven through the wizard.** The Discounts step
+  renders in place as step 5 of 6; completing it would create a real student in
+  production. The panel behind that step is the same component, exercised
+  through both of its states on the profile.
+* **The voucher has not been on paper.** Measured in CSS pixels at the exact
+  printable area; not sent to a printer, and no browser print preview was
+  available in this session.
+* **The `after due date` row's omission is verified by code, not by
+  observation** — LGS has late fees on, and turning them off would rewrite a
+  live policy. `buildVoucherPrintData` returns `null` when the rule is absent,
+  disabled or prices to zero, and the component renders no row for null.
 * **The `after due date` figure is unchecked against a daily rule.** It is
   priced at grace + one day, which for a `daily` policy is one day's charge.
-  That is defensible and it is a choice; a school charging 100/day would want to
-  know it says 100 and not 3,000.
+  Defensible, and a choice; a school charging 100/day would want to know it says
+  100 and not 3,000.
+* **The users list's free-text search and Phone sort still read
+  `school_users.phone`**, so a student sorts by the sentinel while displaying a
+  guardian's number. Reported by the developer, unchanged.
 
-### Gates run and green
+### Gates run and green — sixteen
 
 `typecheck`, `lint`, `check-loaders` (279), `check-forms` (60),
 `check-address-phone` (50), `check-cnic` (36), `check-currency` (7),
 `check-sprint-periods` (107), `check-accounting` (121), `check-theme` (7
-palettes), `check-branch-scope` (1,379) and **`npm run build`**. The three
-database-backed checks — `check-reports`, `check-dashboard`, `check-portals` —
-were **not** run: they need credentials this worktree does not hold.
+palettes), `check-branch-scope` (1,379), **`check-sprint20` (11 ok, 0 failed,
+`0037 IS APPLIED`)**, all three database-backed ones — `check-reports`,
+`check-dashboard`, `check-portals` — and **`npm run build`**.
 
-⚠ **The §5f stub bit again.** The first `next build` in this worktree passed and
-wrote `.claude/worktrees/node_modules` holding only `next` and `styled-jsx`; the
-second failed on `Can't resolve '../shared/lib/utils'`. Deleting it and
-rebuilding was green. Four sessions have now rediscovered this.
+⚠ **The §5f stub bit again**, twice: once during development and once during
+the QA build. Four sessions have now rediscovered it. It is deleted.
+
+### `npm run check-sprint20` — executing the statements, not printing them
+
+New this sprint, and it earned itself immediately. `scripts/print-sprint20-sql.ts`
+prints `toSQL()` and proves **naming**; that is not enough, because an ambiguous
+column reference is a *planning* error — Postgres raises 42702 when it resolves
+the statement, not when it returns rows. The only thing that settles it is
+handing the statement to a server.
+
+Eleven statements, against a location id matching no school, so nothing is read
+and nothing is written. Those needing `0037` must refuse with exactly `42P01` or
+`42703`; **any other error is a real defect wearing a predicted failure's
+clothes**. It runs in both modes and reads which one it is in rather than being
+told.
+
+Two corrections it forced on the way, both before the migration went in:
+
+1. **The SQLSTATE is on the `cause`, not on the error.** Drizzle throws a
+   `DrizzleQueryError` whose own `code` is undefined. Reading `.code` directly
+   answers `undefined` for every failure, which made every predicted refusal
+   look unpredicted. The chain is walked now.
+2. **`getChallanDetail` belongs in the post-migration bucket** — it selects
+   `schools.ntn`. So the voucher detail page, and with it
+   `POST …/challans/[id]/payments`, was down at every school until `0037`
+   landed. The DDL notes already said so; the spec's own hazard table did not.
+   That is why `0037` went in **before** the merge.
+
+`listSchoolUsers` — the ordered-aggregate shape that shipped §5bg's 42702 —
+executed in both runs. It is the single highest-risk statement in the sprint and
+it is now asserted on every run rather than read once.
+
 
 ### Next free migration number is `0038`.

@@ -111,6 +111,32 @@ function emptyDraft(): Draft {
   };
 }
 
+/**
+ * What this row's switch actually does, in the row's own terms.
+ *
+ * ── The defect this closes ───────────────────────────────────────────────
+ * The label read `isActive ? 'Printing' : 'Not printing'` for every row, and
+ * ignored `purpose`. A **staff** account was therefore badged *Printing* — on
+ * a screen whose own field hint, two clicks away, says "Salaries are paid out
+ * of this account. **Never printed on a voucher**". Both cannot be true, and
+ * the hint is the one that matches the code: `listVoucherBankAccounts` filters
+ * `purpose IN ('student', 'both')`, so a staff account has never reached a
+ * voucher and never will.
+ *
+ * That is worse than a wording slip. A bursar reading *Printing* against the
+ * payroll account has been told the school's salary account number is going
+ * out to every parent in the school, and the reasonable response to that is to
+ * switch it off — which does not stop a thing that was never happening, and
+ * does quietly take the account out of payroll.
+ *
+ * So the label says what the switch governs for *this* row: whether a
+ * student-facing account prints, and whether a staff-facing one is in use.
+ */
+function statusLabel(row: { purpose: BankPurpose; isActive: boolean }): string {
+  if (row.purpose === 'staff') return row.isActive ? 'Active' : 'Inactive';
+  return row.isActive ? 'Printing' : 'Not printing';
+}
+
 function draftFrom(row: BankAccountRow): Draft {
   return {
     id: row.id,
@@ -318,22 +344,20 @@ export function BankAccountsTable({ canEdit }: { canEdit: boolean }) {
     },
     {
       id: 'isActive',
-      header: 'On vouchers',
+      header: 'Status',
       sortValue: (row) => (row.isActive ? 1 : 0),
       cell: (row) =>
         canEdit ? (
           <Toggle
             checked={row.isActive}
             disabled={busy}
-            label={row.isActive ? 'Printing' : 'Not printing'}
+            label={statusLabel(row)}
             onChange={(next) => {
               void toggle(row, next);
             }}
           />
         ) : (
-          <Badge variant={row.isActive ? 'success' : 'neutral'}>
-            {row.isActive ? 'Printing' : 'Not printing'}
-          </Badge>
+          <Badge variant={row.isActive ? 'success' : 'neutral'}>{statusLabel(row)}</Badge>
         ),
     },
   ];
