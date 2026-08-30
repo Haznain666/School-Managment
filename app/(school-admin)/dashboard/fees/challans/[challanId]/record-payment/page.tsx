@@ -57,14 +57,14 @@ export default async function RecordPaymentPage({
       {challan.status === 'cancelled' || challan.status === 'waived' ? (
         <Card>
           <p className="text-sm text-ink-muted">
-            This challan is {CHALLAN_STATUS_LABELS[challan.status].toLowerCase()}, so
+            This voucher is {CHALLAN_STATUS_LABELS[challan.status].toLowerCase()}, so
             no payment can be recorded against it.
           </p>
         </Card>
       ) : balance <= 0 ? (
         <Card>
           <p className="text-sm text-ink-muted">
-            This challan is fully paid. There is nothing left to record.
+            This voucher is fully paid. There is nothing left to record.
           </p>
         </Card>
       ) : (

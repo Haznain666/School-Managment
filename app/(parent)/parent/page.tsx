@@ -191,7 +191,7 @@ export default async function ParentDashboardPage() {
           <p className="text-sm text-ink-muted">
             Fees cannot be paid through this portal.{' '}
             <Link href="/parent/fees" className="font-medium text-brand-primary hover:underline">
-              See every challan
+              See every voucher
             </Link>{' '}
             and take the number to your school office.
           </p>

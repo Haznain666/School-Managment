@@ -271,7 +271,7 @@ function SinglePanel({
     } catch (caught) {
       setItems(null);
       setTotals(null);
-      setError(schoolErrorMessage(caught, 'Could not price this challan.'));
+      setError(schoolErrorMessage(caught, 'Could not price this voucher.'));
     } finally {
       setLoading(false);
     }
@@ -304,7 +304,7 @@ function SinglePanel({
 
       router.push(`/dashboard/fees/challans/${payload.challan.id}`);
     } catch (caught) {
-      setError(schoolErrorMessage(caught, 'Could not generate the challan.'));
+      setError(schoolErrorMessage(caught, 'Could not generate the voucher.'));
       setGenerating(false);
     }
   };
@@ -527,7 +527,7 @@ function BulkPanel({
       setResult(payload);
       await loadCandidates();
     } catch (caught) {
-      setError(schoolErrorMessage(caught, 'Could not generate the challans.'));
+      setError(schoolErrorMessage(caught, 'Could not generate the vouchers.'));
     } finally {
       setGenerating(false);
     }

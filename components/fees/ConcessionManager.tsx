@@ -271,7 +271,7 @@ export function ConcessionManager({ feeTypes, canEdit }: ConcessionManagerProps)
             <p className="text-sm text-ink-muted">Loading…</p>
           ) : concessions.length === 0 ? (
             <p className="text-sm text-ink-muted">
-              {student.name} has no concessions. Their challans are billed at the
+              {student.name} has no concessions. Their vouchers are billed at the
               full rate for their grade.
             </p>
           ) : (

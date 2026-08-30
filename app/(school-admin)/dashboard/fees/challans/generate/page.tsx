@@ -49,7 +49,7 @@ export default async function GenerateChallansPage() {
       ) : !hasMonthlyType ? (
         <Card>
           <p className="text-sm text-ink-muted">
-            No active monthly fee head exists, so a monthly challan would be empty.
+            No active monthly fee head exists, so a monthly voucher would be empty.
             Set up your fee types first.
           </p>
           <Link
