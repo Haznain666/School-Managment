@@ -6,10 +6,11 @@ import { PrintSheet } from '@/components/print/PrintSheet';
 import { PrintNow } from '@/components/print/PrintNow';
 import { Card, CardTitle } from '@/components/ui/Card';
 import { MAX_PRINTABLE_CHALLANS } from '@/lib/challan-print';
-import { getChallanDetail } from '@/lib/fee-queries';
+import { getChallanDetail, getLateFeeRule } from '@/lib/fee-queries';
 import { requireSchoolPermission } from '@/lib/school-guard';
 import { getSchoolBranding } from '@/lib/school-tenant';
 import { isUuid } from '@/lib/validation';
+import { buildVoucherPrintData } from '@/lib/voucher-print-data';
 
 export const metadata: Metadata = {
   title: 'Print vouchers',
@@ -63,9 +64,9 @@ export default async function BulkChallanPrintPage({
   if (ids.length === 0) {
     return (
       <Message title="Nothing selected">
-        Choose some challans on the{' '}
+        Choose some vouchers on the{' '}
         <Link href="/dashboard/fees/challans" className="underline">
-          challans list
+          vouchers list
         </Link>{' '}
         and print from there.
       </Message>
@@ -75,7 +76,7 @@ export default async function BulkChallanPrintPage({
   if (ids.length > MAX_PRINTABLE_CHALLANS) {
     return (
       <Message title="Too many at once">
-        {ids.length} challans were selected. Print at most{' '}
+        {ids.length} vouchers were selected. Print at most{' '}
         {MAX_PRINTABLE_CHALLANS} in one
         go — larger jobs tend to fail part-way through the browser&apos;s print
         dialog, and a half-printed batch is worse than none. Narrow the filter,
@@ -84,8 +85,9 @@ export default async function BulkChallanPrintPage({
     );
   }
 
-  const [branding, ...challans] = await Promise.all([
+  const [branding, lateFeeRule, ...challans] = await Promise.all([
     getSchoolBranding(locationId),
+    getLateFeeRule(locationId),
     ...ids.map((id) => getChallanDetail(locationId, id)),
   ]);
 
@@ -94,11 +96,44 @@ export default async function BulkChallanPrintPage({
   // user asked to print what they can see.
   const found = challans.filter((challan) => challan !== null);
 
-  if (found.length === 0) {
+  /*
+   * Closed vouchers are dropped, and counted separately — Sprint 20, item 3a.
+   *
+   * The list will not build a selection containing one; this page is reached by
+   * a hand-edited URL as well, and "the client is not a gate" is already this
+   * file's own rule about the cap. A paid, cancelled or waived voucher is not a
+   * payment instrument, and at a bank counter a printed one is indistinguishable
+   * from a live slip.
+   */
+  const printable = found.filter(
+    (challan) => challan.status === 'unpaid' || challan.status === 'partial',
+  );
+  const closed = found.length - printable.length;
+
+  if (printable.length === 0) {
     return (
       <Message title="Nothing to print">
-        None of those challans could be found in this school.
+        {found.length === 0
+          ? 'None of those vouchers could be found in this school.'
+          : 'Every one of those vouchers is settled, cancelled or waived. A closed voucher is not a payment instrument, so there is nothing to print.'}
       </Message>
+    );
+  }
+
+  /*
+   * One assembled document per voucher, built by the same server helper the
+   * detail page uses. Sequential rather than `Promise.all`: each one reads the
+   * bank accounts for its own campus, and two hundred of those at once against
+   * one pooled connection is how a bulk run times out.
+   */
+  const documents = [];
+  for (const challan of printable) {
+    documents.push(
+      await buildVoucherPrintData(challan, {
+        locationId,
+        lateFeeRule,
+        logoUrl: branding?.logoUrl ?? null,
+      }),
     );
   }
 
@@ -107,10 +142,17 @@ export default async function BulkChallanPrintPage({
       <Card className="print:hidden">
         <CardTitle title="Ready to print" />
         <p className="mt-2 text-sm">
-          {found.length} challan{found.length === 1 ? '' : 's'}, one per sheet,
-          three copies each.
+          {printable.length} voucher{printable.length === 1 ? '' : 's'}, one per
+          sheet, two copies each — student and school.
           {found.length === ids.length ? null : (
             <> {ids.length - found.length} could not be found and were skipped.</>
+          )}
+          {closed === 0 ? null : (
+            <>
+              {' '}
+              {closed} {closed === 1 ? 'was' : 'were'} settled, cancelled or
+              waived and {closed === 1 ? 'is' : 'are'} not printable.
+            </>
           )}
         </p>
         <p className="mt-2 text-sm text-muted">
@@ -122,11 +164,11 @@ export default async function BulkChallanPrintPage({
       </Card>
 
       <PrintSheet paper="a4" orientation="landscape">
-        {found.map((challan, index) => (
+        {documents.map((document, index) => (
           <ChallanCopies
-            key={challan.id}
-            breakAfter={index < found.length - 1}
-            data={{ ...challan, logoUrl: branding?.logoUrl ?? null }}
+            key={document.challanNumber}
+            breakAfter={index < documents.length - 1}
+            data={document}
           />
         ))}
       </PrintSheet>

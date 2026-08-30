@@ -31,8 +31,10 @@ import {
 } from '@/lib/fee-queries';
 import { amountInWords, formatAmount, formatPkr, toPaise } from '@/lib/money';
 import { requireSchoolPermission } from '@/lib/school-guard';
+import { getSchoolBranding } from '@/lib/school-tenant';
 import { listSiblings } from '@/lib/siblings';
 import { isUuid } from '@/lib/validation';
+import { buildVoucherPrintData } from '@/lib/voucher-print-data';
 
 export const metadata: Metadata = {
   title: 'Voucher',
@@ -90,10 +92,25 @@ export default async function ChallanDetailPage({
   ]);
 
   const balancePaise = toPaise(challan.totalAmount) - toPaise(challan.paidAmount);
-  const overdueDays =
-    challan.status === 'unpaid' || challan.status === 'partial'
-      ? daysOverdue(challan.dueDate)
-      : 0;
+  const isOpen = challan.status === 'unpaid' || challan.status === 'partial';
+  const overdueDays = isOpen ? daysOverdue(challan.dueDate) : 0;
+
+  /*
+   * The printable slip, assembled by one server helper rather than spread here
+   * by hand — see `buildVoucherPrintData`. It reads the school's active,
+   * student-facing bank accounts for this voucher's campus, which is why it is
+   * awaited rather than written as an object literal.
+   *
+   * Built only for an **open** voucher: it costs two queries, and a closed
+   * voucher has nothing to print.
+   */
+  const printData = isOpen
+    ? await buildVoucherPrintData(challan, {
+        locationId,
+        lateFeeRule,
+        logoUrl: (await getSchoolBranding(locationId))?.logoUrl ?? null,
+      })
+    : null;
 
   const period =
     challan.billingMonth === null || challan.billingYear === null
@@ -109,7 +126,7 @@ export default async function ChallanDetailPage({
               href="/dashboard/fees/challans"
               className="text-sm font-medium text-brand-primary hover:underline"
             >
-              ← All challans
+              ← All vouchers
             </Link>
             <h2 className="mt-1 flex flex-wrap items-center gap-3 text-xl font-semibold text-ink">
               <span className="font-mono">{challan.challanNumber}</span>
@@ -279,6 +296,9 @@ export default async function ChallanDetailPage({
 
         <SiblingCard
           siblings={siblings}
+          // Item 8: a brother at another campus is named with his, so a clerk
+          // reading a family voucher can see why the family spans two lists.
+          contextBranchId={challan.branchId}
           title="Siblings at this school"
           description="This student's family. If more than one of them has an open voucher this month, a single family voucher can be issued instead — Fees → Family Vouchers."
           hrefFor={(sibling) =>
@@ -297,7 +317,7 @@ export default async function ChallanDetailPage({
         >
           {challan.payments.length === 0 ? (
             <p className="px-5 py-4 text-sm text-ink-muted">
-              Nothing has been received against this challan yet.
+              Nothing has been received against this voucher yet.
             </p>
           ) : (
             <div className="overflow-x-auto">
@@ -336,32 +356,18 @@ export default async function ChallanDetailPage({
         </Card>
       </div>
 
-      <ChallanPrintView
-        data={{
-          challanNumber: challan.challanNumber,
-          schoolName: challan.schoolName,
-          schoolAddress: challan.schoolAddress,
-          schoolPhone: challan.schoolPhone,
-          branchName: challan.branchName,
-          studentName: challan.studentName,
-          studentId: challan.studentId,
-          gradeName: challan.gradeName,
-          sectionName: challan.sectionName,
-          rollNumber: challan.rollNumber,
-          billingMonth: challan.billingMonth,
-          billingYear: challan.billingYear,
-          academicYearName: challan.academicYearName,
-          issueDate: challan.issueDate,
-          dueDate: challan.dueDate,
-          subtotal: challan.subtotal,
-          concessionAmount: challan.concessionAmount,
-          creditApplied: challan.creditApplied,
-          lateFeeAmount: challan.lateFeeAmount,
-          totalAmount: challan.totalAmount,
-          paidAmount: challan.paidAmount,
-          items: challan.items,
-        }}
-      />
+      {/*
+        Only an **open** voucher has a slip worth printing (Sprint 20, item 3a).
+
+        Once it is paid, cancelled or waived it is not a payment instrument, and
+        the print view is not rendered at all rather than rendered and hidden:
+        the sheet is `display: none` on screen and revealed by `@media print`,
+        so leaving it in the tree would still put a demand for settled money on
+        the paper of anybody who pressed Ctrl+P. The button is gone from
+        `ChallanActions` for the same reason; this is the half that Ctrl+P
+        cannot get round.
+      */}
+      {printData === null ? null : <ChallanPrintView data={printData} />}
     </>
   );
 }

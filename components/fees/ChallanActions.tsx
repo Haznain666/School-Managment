@@ -16,6 +16,18 @@ import { schoolErrorMessage, schoolFetch } from '@/lib/school-client';
  * Cancel and waive both destroy a school's ability to collect on a bill, so
  * both sit behind a confirmation. Cancel is refused server-side once money has
  * been taken; the button says so rather than letting the user find out.
+ *
+ * ── Print appears only on an open voucher — Sprint 20, item 3a ───────────
+ * It used to render unconditionally. A voucher that is `paid`, `cancelled` or
+ * `waived` is not a payment instrument any more, and printing one hands a
+ * parent a demand for money the school is not owed — which at a bank counter is
+ * indistinguishable from a live slip, because nothing on the paper says
+ * otherwise.
+ *
+ * A **paid** voucher does still need a document: a receipt. That is a different
+ * thing this sprint does not build, and repurposing the voucher print for it
+ * would print the word "payable" over a settled bill. Leaving the button there
+ * in the meantime would be the same mistake with an extra click in it.
  */
 
 export interface ChallanActionsProps {
@@ -94,14 +106,16 @@ export function ChallanActions({
   return (
     <div className="space-y-3">
       <div className="flex flex-wrap gap-3">
-        <Button
-          variant="secondary"
-          onClick={() => {
-            window.print();
-          }}
-        >
-          Print challan
-        </Button>
+        {isOpen ? (
+          <Button
+            variant="secondary"
+            onClick={() => {
+              window.print();
+            }}
+          >
+            Print voucher
+          </Button>
+        ) : null}
 
         {canWrite && isOpen ? (
           <Button
@@ -135,7 +149,7 @@ export function ChallanActions({
               void patch(
                 'lateFee',
                 { applyLateFee: true },
-                'The late fee has been added to this challan.',
+                'The late fee has been added to this voucher.',
               );
             }}
           >
@@ -179,7 +193,7 @@ export function ChallanActions({
               }
             }}
           >
-            Cancel challan
+            Cancel voucher
           </Button>
         ) : null}
       </div>
