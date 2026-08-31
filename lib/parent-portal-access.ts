@@ -1,6 +1,6 @@
-import 'server-only';
+import "server-only";
 
-import { and, eq, inArray, isNull, sql } from 'drizzle-orm';
+import { and, asc, eq, inArray, isNull, or, sql } from "drizzle-orm";
 
 import {
   schoolUsers,
@@ -8,10 +8,10 @@ import {
   studentEnrollments,
   studentGuardians,
   studentProfiles,
-} from '@/db/schema';
+} from "@/db/schema";
 
-import { queueAccessEmail } from './access-email';
-import { db } from './drizzle';
+import { queueAccessEmail } from "./access-email";
+import { db } from "./drizzle";
 
 /**
  * Parent portal accounts, and the welcome that carries the link to them.
@@ -103,7 +103,8 @@ async function childNamesFor(
 }
 
 /**
- * Whether this guardian can be given an account at all, in the school's words.
+ * What stands between this guardian and an account: a refusal, or an account
+ * they should be given instead of a new one.
  *
  * Two reads and no writes, lifted out of `provisionGuardianPortalAccess` below
  * so that `npm run check-sprint21` can execute both against the real schema.
@@ -111,14 +112,63 @@ async function childNamesFor(
  * a guard that only runs on the path nobody dares run in a test is a guard
  * nobody has ever run.
  *
- * Returns the refusal, or null when there is nothing in the way.
+ * ── An address already in use is usually not a mistake ───────────────────
+ * The first version of this returned a refusal for it, and that was wrong in a
+ * way QA caught before any school did. Two things provoke it and both are
+ * ordinary:
+ *
+ *   · **a household with one inbox.** A mother and a father sharing an email
+ *     address is common on a Pakistani school roll. Refusing meant the second
+ *     parent got no account at all;
+ *   · **one parent recorded on two children with two different numbers.** The
+ *     upsert keys on phone, so the second child's guardian row looked like a
+ *     new person to the phone index and a duplicate to the address index. The
+ *     refusal blamed the address; the difference was the phone.
+ *
+ * The second was the worse of the two, because the refusal returned *before*
+ * the guardian link was written — so that child's `school_user_id` stayed
+ * NULL, `listChildrenForGuardian` never returned them, and the parent portal
+ * showed a family with a child missing from it. That is Sprint 21's original
+ * symptom wearing a different hat, which is exactly how this defect class keeps
+ * coming back.
+ *
+ * So an address already held by an active **non-student** row is now an
+ * `adopt`: that row is the account for that inbox, because under Supabase Auth
+ * the address *is* the identity and one inbox cannot sign in as two people. The
+ * guardian is linked to it and welcomed through it. The same father gets one
+ * login showing every child on both his numbers, and the mother sharing his
+ * inbox reaches the same portal — which is what a household sharing an inbox
+ * has actually asked for.
+ *
+ * A **student's** row is still a refusal, and always will be. That is the
+ * defect this sprint exists to close, and adopting one would hand a parent
+ * their own child's login.
  */
+export type PortalAccountBlocker =
+  | { kind: "refuse"; reason: string; occupantId: string | null }
+  | {
+      kind: "adopt";
+      accountId: string;
+      accountName: string;
+      accountEmail: string | null;
+      /*
+       * Carried, not defaulted to null.
+       *
+       * `queueAccessEmail` writes a *first-time setup* link for an account with
+       * no Supabase user and something else for one that already has one. An
+       * adopted row usually has one — that is why it holds the address — so
+       * inventing a null here would send a teacher or a parent who already
+       * signs in a "choose your password" mail for an account they already use.
+       */
+      accountAuthUserId: string | null;
+    };
+
 export async function portalAccountBlocker(
   locationId: string,
   guardianName: string,
   phone: string,
   email: string,
-): Promise<{ reason: string; occupantId: string | null } | null> {
+): Promise<PortalAccountBlocker | null> {
   /*
    * ── The conflicting row, resolved before the upsert causes it ────────────
    *
@@ -138,15 +188,22 @@ export async function portalAccountBlocker(
    * on them again.
    */
   const conflicting = await db
-    .select({ id: schoolUsers.id, role: schoolUsers.role, name: schoolUsers.name })
+    .select({
+      id: schoolUsers.id,
+      role: schoolUsers.role,
+      name: schoolUsers.name,
+    })
     .from(schoolUsers)
-    .where(and(eq(schoolUsers.locationId, locationId), eq(schoolUsers.phone, phone)))
+    .where(
+      and(eq(schoolUsers.locationId, locationId), eq(schoolUsers.phone, phone)),
+    )
     .limit(1);
 
   const occupant = conflicting[0] ?? null;
 
-  if (occupant !== null && occupant.role === 'student') {
+  if (occupant !== null && occupant.role === "student") {
     return {
+      kind: "refuse",
       occupantId: occupant.id,
       reason: `${phone} is already recorded as the directory number for the student ${occupant.name}, so opening a parent account on it would hand ${guardianName} that child’s login. Correct the number on one of the two records, then send the invite again.`,
     };
@@ -163,7 +220,15 @@ export async function portalAccountBlocker(
    * instead, which names the other person and says what to do.
    */
   const sameAddress = await db
-    .select({ id: schoolUsers.id, name: schoolUsers.name })
+    .select({
+      id: schoolUsers.id,
+      name: schoolUsers.name,
+      role: schoolUsers.role,
+      // Both carried so an adoption can address the welcome correctly rather
+      // than assume the adopted account has never been set up.
+      email: schoolUsers.email,
+      authUserId: schoolUsers.authUserId,
+    })
     .from(schoolUsers)
     .where(
       and(
@@ -171,18 +236,31 @@ export async function portalAccountBlocker(
         eq(schoolUsers.isActive, true),
         sql`lower(${schoolUsers.email}) = lower(${email})`,
       ),
-    );
+    )
+    .orderBy(asc(schoolUsers.createdAt), asc(schoolUsers.id));
 
   const otherHolder = sameAddress.find((row) => row.id !== occupant?.id);
 
-  if (otherHolder !== undefined) {
+  if (otherHolder === undefined) return null;
+
+  // A student holding the address is the defect, not a household. It can only
+  // be a row `0038` did not reach, and adopting it would hand a parent their
+  // own child's login — the whole subject of this sprint.
+  if (otherHolder.role === "student") {
     return {
+      kind: "refuse",
       occupantId: occupant?.id ?? null,
-      reason: `${email} already belongs to ${otherHolder.name} at this school, and one address can open only one account. Give ${guardianName} an address of their own, or correct whichever of the two records has the wrong one.`,
+      reason: `${email} is recorded against the student ${otherHolder.name} at this school, so opening a parent account on it would hand ${guardianName} that child’s login. Correct the address on one of the two records, then send the invite again.`,
     };
   }
 
-  return null;
+  return {
+    kind: "adopt",
+    accountId: otherHolder.id,
+    accountName: otherHolder.name,
+    accountEmail: otherHolder.email,
+    accountAuthUserId: otherHolder.authUserId,
+  };
 }
 
 /**
@@ -231,15 +309,15 @@ export async function provisionGuardianPortalAccess(input: {
   if (guardian === undefined) {
     return {
       guardianId,
-      guardianName: '',
+      guardianName: "",
       schoolUserId: null,
       emailQueued: false,
-      reason: 'That guardian is no longer on this student’s record.',
+      reason: "That guardian is no longer on this student’s record.",
     };
   }
 
-  const email = (guardian.email ?? '').trim();
-  if (email === '') {
+  const email = (guardian.email ?? "").trim();
+  if (email === "") {
     return {
       guardianId: guardian.id,
       guardianName: guardian.name,
@@ -256,19 +334,25 @@ export async function provisionGuardianPortalAccess(input: {
       guardianName: guardian.name,
       schoolUserId: guardian.schoolUserId,
       emailQueued: false,
-      reason: 'This school record is unavailable.',
+      reason: "This school record is unavailable.",
     };
   }
 
   /*
-   * The two refusals that must happen before the upsert, not after it.
+   * What is in the way, decided before the upsert rather than after it.
    *
-   * They live in `portalAccountBlocker` above rather than here because a check
+   * It lives in `portalAccountBlocker` above rather than here because a check
    * script can execute a read and cannot execute this upsert, and a guard that
    * only runs on a path nobody dares run in a test is a guard nobody has run.
    */
-  const blocker = await portalAccountBlocker(locationId, guardian.name, guardian.phone, email);
-  if (blocker !== null) {
+  const blocker = await portalAccountBlocker(
+    locationId,
+    guardian.name,
+    guardian.phone,
+    email,
+  );
+
+  if (blocker !== null && blocker.kind === "refuse") {
     return {
       guardianId: guardian.id,
       guardianName: guardian.name,
@@ -288,31 +372,46 @@ export async function provisionGuardianPortalAccess(input: {
    * address if the existing row had none, because an account with no address
    * cannot sign in and that is the whole point of this call.
    */
-  const upserted = await db
-    .insert(schoolUsers)
-    .values({
-      locationId,
-      name: guardian.name,
-      phone: guardian.phone,
-      email,
-      role: 'parent',
-      invitedByUid: actorUid,
-      invitedAt: new Date(),
-    })
-    .onConflictDoUpdate({
-      target: [schoolUsers.locationId, schoolUsers.phone],
-      set: {
-        email: sql`COALESCE(NULLIF(${schoolUsers.email}, ''), ${email})`,
-        isActive: true,
-        updatedAt: new Date(),
-      },
-    })
-    .returning({
-      id: schoolUsers.id,
-      name: schoolUsers.name,
-      email: schoolUsers.email,
-      authUserId: schoolUsers.authUserId,
-    });
+  const upserted =
+    blocker !== null
+      ? // Adopted. The address already has an account here and under Supabase
+        // Auth the address *is* the identity, so this guardian signs in as that
+        // account rather than as a second one that could never be reached. No
+        // write: the row is somebody else's record and this call has no mandate
+        // to rename it.
+        [
+          {
+            id: blocker.accountId,
+            name: blocker.accountName,
+            email: blocker.accountEmail,
+            authUserId: blocker.accountAuthUserId,
+          },
+        ]
+      : await db
+          .insert(schoolUsers)
+          .values({
+            locationId,
+            name: guardian.name,
+            phone: guardian.phone,
+            email,
+            role: "parent",
+            invitedByUid: actorUid,
+            invitedAt: new Date(),
+          })
+          .onConflictDoUpdate({
+            target: [schoolUsers.locationId, schoolUsers.phone],
+            set: {
+              email: sql`COALESCE(NULLIF(${schoolUsers.email}, ''), ${email})`,
+              isActive: true,
+              updatedAt: new Date(),
+            },
+          })
+          .returning({
+            id: schoolUsers.id,
+            name: schoolUsers.name,
+            email: schoolUsers.email,
+            authUserId: schoolUsers.authUserId,
+          });
 
   const account = upserted[0];
   if (account === undefined) {
@@ -325,16 +424,31 @@ export async function provisionGuardianPortalAccess(input: {
     };
   }
 
-  // Link every guardian row on this number, not only the one asked about: the
-  // same father recorded against three children is three rows, and the parent
-  // portal finds his children by following all of them.
+  /*
+   * Link every guardian row on this number **and the one this call is about**.
+   *
+   * The same father recorded against three children is three rows, and the
+   * parent portal finds his children by following all of them — so the phone
+   * clause is what makes one invite cover a whole family.
+   *
+   * The `id` clause beside it is the case the phone clause cannot see: a school
+   * that recorded the same parent on two children with two different numbers.
+   * That row would be linked to nothing, and a guardian row with a NULL
+   * `school_user_id` is a child who does not appear in their own parent's
+   * portal — silently, with the family assuming the school never enrolled them.
+   * It cost this sprint's QA one finding to notice, and it is the same shape as
+   * the defect the sprint opened with.
+   */
   await db
     .update(studentGuardians)
     .set({ schoolUserId: account.id })
     .where(
       and(
         eq(studentGuardians.locationId, locationId),
-        eq(studentGuardians.phone, guardian.phone),
+        or(
+          eq(studentGuardians.id, guardian.id),
+          eq(studentGuardians.phone, guardian.phone),
+        ),
         isNull(studentGuardians.schoolUserId),
       ),
     );
@@ -359,7 +473,7 @@ export async function provisionGuardianPortalAccess(input: {
       authUserId: account.authUserId,
     },
     createdBy: actorUid,
-    audience: 'parent',
+    audience: "parent",
     childNames: await childNamesFor(locationId, guardian.phone),
   });
 
@@ -460,7 +574,7 @@ export async function feeClearanceFor(
     .where(
       and(
         eq(studentEnrollments.locationId, locationId),
-        eq(studentEnrollments.status, 'active'),
+        eq(studentEnrollments.status, "active"),
         inArray(studentEnrollments.studentProfileId, [...studentProfileIds]),
       ),
     );

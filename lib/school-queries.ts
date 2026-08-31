@@ -489,6 +489,71 @@ export async function getSchoolUserById(
   return rows[0] ?? null;
 }
 
+/** The index `0038` adds. Named here so every reader spells it once. */
+export const EMAIL_INDEX = 'school_users_location_email_active_idx';
+
+/**
+ * Whether a write failed on `0038`'s address index rather than on the phone one.
+ *
+ * `school_users` now has two unique indexes a write can land on, and they mean
+ * different things to whoever is at the keyboard: one says the number is taken,
+ * the other says the address is. Before this existed, three routes reported the
+ * second as the first — `POST /api/school/users` told an administrator that a
+ * phone number was in use when the number was free and the address was not, and
+ * they had nothing to correct.
+ *
+ * The SQLSTATE is on the error's `cause` and not on the error: postgres-js
+ * raises it, Drizzle wraps it, and reading `.code` at the top level answers
+ * `undefined` for every failure. That is the same trap `check-sprint20` records,
+ * and it is why the chain is walked rather than the surface read.
+ */
+export function isEmailIndexConflict(error: unknown): boolean {
+  let current: unknown = error;
+
+  for (let depth = 0; depth < 5 && current !== null && current !== undefined; depth += 1) {
+    const candidate = current as { code?: unknown; constraint_name?: unknown; message?: unknown };
+    if (candidate.code === '23505') {
+      const named = `${String(candidate.constraint_name ?? '')} ${String(candidate.message ?? '')}`;
+      return named.includes(EMAIL_INDEX);
+    }
+    current = (current as { cause?: unknown }).cause;
+  }
+
+  return false;
+}
+
+/**
+ * Who already holds this address at this school, if anybody but `exceptId`.
+ *
+ * The pre-check the write routes use so the school meets a sentence instead of
+ * a SQLSTATE. It is deliberately *not* the only guard — `isEmailIndexConflict`
+ * above catches the same collision from the database — because a check and a
+ * write are two statements and a second administrator can arrive between them.
+ * The read gives a good message; the catch guarantees there is one.
+ */
+export async function emailHolderAt(
+  locationId: string,
+  email: string | null | undefined,
+  exceptId?: string,
+): Promise<{ id: string; name: string; role: string } | null> {
+  const address = (email ?? '').trim();
+  if (address === '') return null;
+
+  const rows = await db
+    .select({ id: schoolUsers.id, name: schoolUsers.name, role: schoolUsers.role })
+    .from(schoolUsers)
+    .where(
+      and(
+        eq(schoolUsers.locationId, locationId),
+        eq(schoolUsers.isActive, true),
+        sql`lower(${schoolUsers.email}) = lower(${address})`,
+      ),
+    )
+    .orderBy(asc(schoolUsers.createdAt), asc(schoolUsers.id));
+
+  return rows.find((row) => row.id !== exceptId) ?? null;
+}
+
 /**
  * Every active membership of one school carrying one email address.
  *
