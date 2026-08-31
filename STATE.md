@@ -4,7 +4,64 @@
 resume without re-deriving context. Updated at the end of every development
 step, before the session ends.
 
-**Last updated:** 2026-08-30 (**Sprint 20 — the voucher, the discount, and the
+**Last updated:** 2026-08-31 (**Sprint 21 — one email is one person, and the
+results page that never rendered — §5bk. Two defects, both reported by the user
+in one screenshot, both diagnosed by *executing* the real queries against the
+live schema rather than by reading code.
+
+✅ **DEPLOYED, LIVE AND MIGRATED.** PR [#49](https://github.com/Haznain666/School-Managment/pull/49)
+merged 08:24:39Z, live 08:27:30Z as `8a882f651ff4` — **2m51s**, CDN purged. Then
+PR [#50](https://github.com/Haznain666/School-Managment/pull/50), the QA round,
+merged 09:13:22Z as `6fbd28b5ad67`. **`0038` is APPLIED and verified — 38
+bookkeeping rows → 39**, entry `id=39` stamped `1788264000000`, applied through
+drizzle-orm's own `postgres-js` migrator on the session pooler (5432) because
+`drizzle-kit migrate` still hangs on the unescaped `@`.
+
+⚠ **The deploy order was the reverse of Sprint 20's: code first, migration
+second.** Every code change works on an unmigrated database, so there was no
+window in which a screen was down. `SPRINT-21-DDL-NOTES.md` says why.
+
+✅ **`0038` is not expand-only — it rewrites rows — so it was verified against
+the rows rather than against the migrator's success message.**
+`scripts/verify-0038.mjs`, 15 of 15: the partial unique index exists, is UNIQUE,
+is on `lower(email)` and is scoped to active non-blank rows; Student 1's
+directory row is back to `student:LGS-2026-0001` with a NULL email and a **NULL
+`auth_user_id`**; **five** guardian rows point at Father 1's parent row; zero
+guardians linked to a student row and zero duplicate active addresses at
+*either* school; and a deliberately created duplicate is refused with `23505`
+inside a rolled-back transaction.
+
+⚠ **QA found six defects and every one sat on a path `0038` newly constrained.**
+The worst was in the sprint's own new code: `portalAccountBlocker` refused *any*
+address already in use, which turns away a household sharing one inbox **and**
+one parent recorded on two children under two numbers — and the refusal returned
+*before* the guardian link was written, so that child kept a NULL
+`school_user_id` and vanished from their own parent's portal. **That is this
+sprint's opening symptom in a quieter costume.** An address held by an active
+non-student row is now **adopted**; a student's is still refused. The other five
+were the school meeting a SQLSTATE: reactivation could 500 from either panel,
+member creation reported an address clash as a phone clash about a number nobody
+held, invitation acceptance could 500 in front of the *invitee*, and
+`otp/request` matched case-sensitively with an unordered `limit(1)` and no active
+filter — which could silently decline to send a code to a real member.
+
+⚠ **`check-portals` had been reporting a pass it never earned**, and that is why
+this sprint exists. It called `listPublishedTermsForStudent` with the `NOBODY`
+tenant, which returns at the function's own empty-enrolment guard *before* the
+42P10 statement. Reach is measured now, not declared: four entries print **NOT
+EXERCISED**. **`npm run check-sprint21` executes 19 assertions against rows that
+exist**, including a real `23505` provoked in a rolled-back transaction to prove
+`isEmailIndexConflict` digs the SQLSTATE out of the `cause` chain — four write
+routes stake a 500 on that predicate and reading it could never have settled it.
+
+⚠ **The parent portal has NOT been opened by a person, and could not be.**
+Unbinding the account is what frees it, and its only route back is a six-digit
+code to the user's own mailbox. The admin-side screens *were* driven in a
+browser and are correct. The acceptance test is the user's:
+`…+father1@gmail.com` at LGS, **the emailed code rather than the saved
+password**, five child cards. Sixteen gates green including `npm run build`.
+`test-cases/TEST-CASES-SPRINT-21.md`.**);
+2026-08-30 (**Sprint 20 — the voucher, the discount, and the
 bank — §5bj. All eleven items of `SPRINT-20-SPEC.md`, nothing descoped.
 **`0037_sprint20_vouchers_discounts_banks.sql` is APPLIED and verified — 37
 bookkeeping rows → 38**, entry `id=38` stamped `1788177600000` to match the
@@ -10730,23 +10787,70 @@ it rather than rediscovering it.
 `check-forms` (60), `check-address-phone` (50), `check-cnic` (36),
 `check-currency` (7), `check-sprint-periods` (107), `check-accounting` (121),
 `check-provisioning`, `check-portals` (18 of 22 reached, 4 reported NOT
-EXERCISED), `check-sprint20` (11 ok), **`check-sprint21` (14 ok, 0 failed)** and
-**`npm run build`**.
+EXERCISED), `check-sprint20` (11 ok), **`check-sprint21` (19 ok, 0 failed or not
+exercised, after the QA round)** and **`npm run build`**.
 
 ⚠ **The §5f stub bit again.** Five sessions have now rediscovered it: the
 *second* `next build` in a worktree failed on `Can't resolve '../lib/is-error'`.
 Deleting `.claude/worktrees/node_modules` and rebuilding was all it needed, and
 it is deleted.
 
+### Applied, deployed, and then QA — PR #50, merged 09:13:22Z as `6fbd28b5ad67`
+
+`0038` went in **after** the code, at 08:28:41Z, and `scripts/verify-0038.mjs`
+asserts its effects against the rows: 15 of 15, including the `23505` the index
+now raises. The bookkeeping went 38 → 39.
+
+QA then drove the sprint against the live database and found **six defects, none
+of them a regression of the fix**. Every one sat on a path `0038` newly
+constrained and nobody had guarded, which is the lesson worth keeping: *a
+constraint does not only stop bad writes — it makes previously unreachable
+failure paths reachable, so every route that writes the constrained column
+becomes a route that can meet a SQLSTATE.*
+
+1. **`portalAccountBlocker` refused what it should have adopted.** Any address
+   already in use was a refusal, which turns away a mother and father sharing one
+   household inbox — ordinary on a Pakistani roll — and one parent recorded on
+   two children under two different numbers. The second is the serious one: the
+   refusal returned **before** the guardian link update, so that child's
+   `school_user_id` stayed NULL, `listChildrenForGuardian` never returned them,
+   and the child vanished from their own parent's portal. **The sprint's opening
+   symptom, one function over.** An address held by an active *non-student* row
+   is now `adopt` — under Supabase Auth the address *is* the identity, so that
+   row is the account for that inbox. A **student's** row is still `refuse` and
+   always must be. The link update now also names the guardian row the call is
+   about, not only rows sharing its phone.
+2. **Reactivation could 500**, from `…/users/[userId]` and from the Super Admin
+   panel both. The index is scoped to active rows *on purpose* — a leaver must
+   not block her own re-hire — and the price of that choice is that an address
+   freed by a deactivation may legitimately be given away. Both refusals now name
+   the holder.
+3. **`POST /api/school/users` reported an address clash as a phone clash.** An
+   untargeted `.onConflictDoNothing()` swallowed both indexes, so an administrator
+   was told a phone number was taken when the number was free, with nothing on the
+   form to correct.
+4. **Invitation acceptance could 500 in front of the invitee** — somebody outside
+   the school, clicking a link, with nobody to ask.
+5. **`otp/request` was case-sensitive, unordered and unfiltered.** `eq(email,
+   email)` against `lower(email)` everywhere else, a `limit(1)` with no
+   `orderBy`, and `is_active` read *after* the row was chosen. Each half could
+   answer "not a member" about a member, and the reply is identical either way by
+   design — so nothing on any screen would ever have said a code was not sent.
+   **Sprint 21 leaves exactly one person for whom that code is the only way in.**
+6. Reported, not fixed: `check-portals` still cannot force a *new* entry to
+   declare a `reaches` fragment (below).
+
 ### Still open
 
-* **`0038` is not applied.** Until it is, Father 1 still lands in the student
-  portal — that is the one symptom the code alone cannot fix. Everything else in
-  this sprint works on an unmigrated database, so unlike Sprint 20 the **code
-  ships first and the migration follows**.
-* The acceptance test that needs the migration: sign in at LGS as
-  `…+father1@gmail.com` with the emailed code and land in the **parent** portal
-  with five child cards, each panel populated.
+* **The acceptance test is the user's, and has not been run.** Sign in at LGS as
+  `…+father1@gmail.com` — **with the emailed code, not the saved password** —
+  and land in the **parent** portal with five child cards, each panel populated.
+  The password will not work until that happens once: `0038` unbound the account
+  deliberately and `otp/verify` is the only path that binds one. That is the
+  unlocking, not a fault.
+* **No portal screen has been opened by a person.** It cannot be without that
+  mailbox. The admin-side screens were driven and are correct, and the portal
+  reads were proved by executing their whole query stack against the real rows.
 * `check-portals`'s other eighteen entries reach their own statements today, but
   nothing forces a *new* entry to declare a `reaches` fragment. A function added
   later with a guard in front of it will report `ok` on one statement again. The
