@@ -2,7 +2,7 @@ import 'server-only';
 
 import { randomUUID } from 'node:crypto';
 
-import { and, eq, inArray } from 'drizzle-orm';
+import { and, eq, inArray, ne } from 'drizzle-orm';
 
 import {
   academicYears,
@@ -597,6 +597,45 @@ function todayIso(): string {
 }
 
 /**
+ * Who at this school is already reachable on a guardian's number.
+ *
+ * Anyone found is linked to the child rather than duplicated — that link,
+ * `student_guardians.school_user_id`, is what the parent portal follows to
+ * decide which children a signed-in person may see.
+ *
+ * ── Except a student, and this is the whole point of the function ────────
+ * A child is not their own guardian. Until the sentinel above shipped,
+ * children's directory rows carried their father's mobile, so a sibling
+ * enrolled afterwards on the same number had her guardian row pointed at her
+ * brother's login. That is not a cosmetic mistake: it is one family reading
+ * another child's attendance, results and fee ledger, and it renders as a
+ * perfectly ordinary parent portal with the wrong child in it.
+ *
+ * Excluded in the statement rather than filtered afterwards, so there is no
+ * path that forgets — and lifted out of `enrollStudent` so that
+ * `npm run check-sprint21` can execute it. `enrollStudent` writes; a check
+ * script cannot call it, and a guard nothing can run is a guard nobody has run.
+ */
+export async function linkableAccountsByPhone(
+  database: Database,
+  locationId: string,
+  phones: readonly string[],
+): Promise<{ id: string; phone: string }[]> {
+  if (phones.length === 0) return [];
+
+  return database
+    .select({ id: schoolUsers.id, phone: schoolUsers.phone })
+    .from(schoolUsers)
+    .where(
+      and(
+        eq(schoolUsers.locationId, locationId),
+        inArray(schoolUsers.phone, [...phones]),
+        ne(schoolUsers.role, 'student'),
+      ),
+    );
+}
+
+/**
  * Creates the directory row, profile, enrollment and guardians for one student.
  *
  * Does not touch GHL — the caller runs the sync afterwards, so a CRM outage
@@ -639,19 +678,9 @@ export async function enrollStudent(
     throw new EnrollmentError('invalid_body', 'At least one guardian is required.');
   }
 
-  // Anyone already at this school on a guardian's number gets linked to the
-  // child rather than duplicated — that link is what the parent portal reads.
   const guardianPhones = [...new Set(guardians.map((guardian) => guardian.phone))];
 
-  const existingByPhone = await db
-    .select({ id: schoolUsers.id, phone: schoolUsers.phone })
-    .from(schoolUsers)
-    .where(
-      and(
-        eq(schoolUsers.locationId, locationId),
-        inArray(schoolUsers.phone, guardianPhones),
-      ),
-    );
+  const existingByPhone = await linkableAccountsByPhone(db, locationId, guardianPhones);
 
   const userIdByPhone = new Map(existingByPhone.map((row) => [row.phone, row.id]));
 

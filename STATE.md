@@ -10540,4 +10540,216 @@ executed in both runs. It is the single highest-risk statement in the sprint and
 it is now asserted on every run rather than read once.
 
 
-### Next free migration number is `0038`.
+### Next free migration number is `0038` (written by Sprint 21, not yet applied).
+
+## 5bk. Sprint 21 — one email is one person, and the results page that never rendered — 2026-08-31
+
+Spec: `SPRINT-21-SPEC.md`, items 1, 2, 4, 5 and 6 built; item 3 **authored, not
+applied** — `db/migrations/0038_sprint21_one_email_one_person.sql`, journal
+`idx: 38`, stamped `1788264000000`. Applying it is the DevOps step, and
+`SPRINT-21-DDL-NOTES.md` at the repo root says how, in what order, how to verify
+it and what it deliberately does not fix.
+
+The sprint started from one screenshot: a father who said he could see only one
+of his four enrolled children, and an error on My Results. The screenshot was
+the diagnosis. He was in the **student portal**, badged as his own daughter.
+
+### `listPublishedTermsForStudent` had never executed. At any school.
+
+`lib/portal-results.ts` held a `SELECT DISTINCT` ordered by
+`academic_years.start_year`, which was not in its select list. Postgres refuses
+that outright:
+
+```
+42P10  for SELECT DISTINCT, ORDER BY expressions must appear in select list
+```
+
+Not a data condition — a *planning* error, so it threw before touching a row,
+every time, since Sprint 13. It took three callers with it: `/student/results`,
+`/parent/results`, and `getChildSnapshot`, where `settle()` catches the throw
+per child and renders each card on the parent dashboard with its attendance and
+results panel silently blank. That is the "information is missing" in the
+report, and nothing anywhere said why.
+
+Fixed by selecting `startYear` and dropping it in the `map`, so
+`StudentTermRow`'s public shape is unchanged. The column cannot widen the
+result: `start_year` is functionally dependent on `academic_year_id`, which was
+already in the DISTINCT. The ordering is untouched, and the docblock's reason
+for ordering by year and sequence rather than by start date still holds.
+
+Executed against LGS before and after. Before: 42P10 for both students. After:
+1 row for Student 1 (`c64b2707…`, who has a published term) and 0 rows for
+Student 2 (`ade92cd3…`, who has none), and `getChildSnapshot` returns a
+populated card for the first.
+
+### Nine green gates could not see it, and one of them was reporting a pass
+
+`check-portals` has called `listPublishedTermsForStudent` since Sprint 13 — line
+298, with a tenant id owning no row. The function returns `[]` at its own
+`enrolments.length === 0` guard **before** it builds the DISTINCT. The gate had
+printed `ok` for two and a half years on a statement it had never once handed to
+Postgres.
+
+That is exactly the trap CLAUDE.md names — *a read that short-circuits before it
+reaches the new column must be reported as not exercised rather than passed* —
+and it is now the second defect it has shipped.
+
+**Do not re-litigate how reach is decided.** It is *measured*, not declared.
+`countStatements` in `check-portals` wraps the Drizzle instance returned by
+`getDb()` and records the SQL of everything each entry builds; an entry may name
+a fragment that proves its own target was among them. `SHOW_SQL=1 npm run
+check-portals` prints the lot, and every fragment in the file was taken from
+such a run rather than from reading a function.
+
+Three facts about Drizzle's builders shape that wrapper, all established by
+watching it:
+
+* a builder has no SQL when it is created — `db.select()` has no `FROM` yet — so
+  the read happens when `then` is fetched, the last moment before the driver;
+* `.from()` returns a **new object**, not `this`, so a wrapper that only re-wraps
+  its own identity is lost on the first chained call;
+* a builder is thenable, so "is it a promise" cannot distinguish it from the
+  awaited result. Anything with a `toSQL` is re-wrapped; nothing else is.
+
+Four of the 22 entries now read **NOT EXERCISED** —
+`listPublishedTermsForStudent`, `getStudentReportCard`, `listStudentExams`,
+`getChildSnapshot`. That is not a failure *there* and it should not be made one:
+a nobody-tenant is incapable of reaching them, which is the point of using one.
+It is a failure in `check-sprint21`, which runs them for real.
+
+### One email, two membership rows, and a father locked out
+
+`school_users` at LGS carried the same address twice: `9ebacf91…` "Student 1",
+role `student`, phone `+923213124545`; and `2c329df7…` "Father 1", role
+`parent`, phone `+923001234156`. The father's Supabase uid was bound to the
+**student** row, and `student_guardians` for Student 1 pointed at it too.
+
+The sequence, from the timestamps:
+
+1. Student 1 was enrolled while `studentDirectoryPhone` still borrowed the
+   primary guardian's mobile, so the child's row claimed the father's number;
+2. parent-portal provisioning upserts on `(location_id, phone)` and therefore
+   landed on the child's row, wrote the father's email onto it and pointed the
+   guardian link there;
+3. he accepted his invite and GoTrue bound his uid to a `role = 'student'` row;
+4. `school_users_location_id_auth_user_id_idx` is unique per school, so his uid
+   could never also sit on his own parent row. **Permanently in the student
+   portal**, with four of his five children unreachable by any login he had.
+
+Step 1's forward fix shipped long ago — the `student:<admission number>`
+sentinel is unconditional and `lib/enrollment.ts` describes this failure in the
+past tense. **It repaired nothing**, and nothing stopped step 2 recurring on the
+rows already there. That is the whole shape of this sprint: a fixed cause, an
+unrepaired effect, and no constraint in between.
+
+### The four guards, and why each is where it is
+
+* **`lib/enrollment.ts`** — the guardian-to-account lookup excludes
+  `role = 'student'`. A child is not their own guardian. Lifted into
+  `linkableAccountsByPhone` so a check script can execute it; `enrollStudent`
+  writes, and a guard that only runs on a path nobody dares run in a test is a
+  guard nobody has run.
+* **`lib/parent-portal-access.ts`** — `portalAccountBlocker` resolves the
+  conflicting `(location, phone)` row *before* the upsert can land on it, and
+  refuses a student's in words. It also detects an existing active row on the
+  same `(location, lower(email))`, because `0038` makes that a `23505` and a
+  school must never meet a SQLSTATE. Both return a `reason`; **neither throws**,
+  because every caller has already committed an admission or a payment.
+* **`app/api/school/auth/otp/verify`** — binds exactly one row or none. It used
+  to `UPDATE … WHERE email = $1` and take whatever matched; at LGS that was two
+  rows, and the unique auth index picked the daughter's. Where more than one
+  active membership claims an address, none is bound and the session is signed
+  out, exactly as an unknown address is. After `0038` this is unreachable; it is
+  there so that if it ever becomes reachable nobody is quietly seated in the
+  wrong portal.
+* **`getSchoolUserByUid`** — the unordered `.limit(1)` is ordered now. The index
+  makes it one row anyway; the point is that an unordered limit is only ever
+  ambiguous when something is already wrong, and what made this defect hard to
+  see was that every read in the sign-in path answered *confidently*.
+
+Both new reads match on `lower(email)`, which is what the index constrains. A
+row stored as `Father@Example.com` occupied the slot either way; matching it
+exactly left it holding an address it could not sign in with.
+
+### `0038`, and the three things about it not to change
+
+1. **Step 1 runs before step 2.** Step 1 finds the parent row *by the address on
+   the child's row*, and step 2 removes that address. Reversed, step 1 matches
+   nothing, silently, and the migration reports success.
+2. **A wrong link becomes NULL, not "left alone".** `school_user_id` is what the
+   parent portal follows to decide which children somebody may see. A link left
+   pointing at a child is one family reading another child's fees, rendered as a
+   perfectly ordinary portal. No link is an empty portal and one click to fix.
+3. **The index is partial and active-scoped** — `lower(email)`, `email IS NOT
+   NULL AND email <> ''`, `is_active`. A leaver must not block a returner, and a
+   school with forty staff who have no address is normal.
+
+Clearing `auth_user_id` in step 2 is the point of the step, not tidying: it is
+what frees the father's account to bind to his own parent row. **He must sign in
+with an emailed code once, not a saved password** — `getSchoolUserByUid` answers
+null for an unbound uid and `otp/verify` is the only path that writes one.
+
+Simulated read-only against live data before it was written: 1 duplicated
+address, 1 guardian linked to a student row, 1 student row still carrying a
+guardian contact detail, all the same family — and **0 duplicates surviving
+steps 1 and 2**, so step 3 will build. `check-sprint21` re-runs that simulation
+on every pre-migration run, so `CREATE UNIQUE INDEX` cannot surprise DevOps.
+
+### `npm run check-sprint21` — and it proves it reached the statement
+
+`scripts/check-sprint21.ts`, wired into `package.json` in `check-sprint20`'s
+esbuild shape. It does the one thing every earlier gate did not: **it uses a
+tenant and a student that exist.** They are discovered by shape — a student
+whose section sat an exam in a published, unarchived term, and one enrolled
+where no term is published — read-only, so it keeps working at a school this
+sprint has never heard of, and it fails rather than passes when it cannot find
+them.
+
+`mustReach` takes a predicate that proves execution, usually "it returned at
+least one row", which nothing but a server can produce. A run that does not
+reach a statement reports **not exercised**, and not exercised is a failure.
+
+Which side of `0038` it is on is read from `pg_indexes` by name, not assumed, so
+one command works before and after. The SQLSTATE-on-`cause` trap from Sprint 20
+is carried over.
+
+14 assertions, 0 failed, on a database where `0038` is not yet applied.
+
+### Reported, not fixed
+
+Student 1's guardian row holds CNIC `31111111111111111111111111111111` — 32
+digits, a value `normalizeCnic` cannot produce. Under CLAUDE.md's sibling rule
+that is a family split in two on the sibling lookup and the family voucher.
+Repairing it means **inventing a national ID number**, which is the school's to
+correct. It is written up in `SPRINT-21-DDL-NOTES.md` so the next person finds
+it rather than rediscovering it.
+
+### Gates run and green — twelve
+
+`typecheck` (0 errors), `lint` (0 warnings), `check-loaders` (279),
+`check-forms` (60), `check-address-phone` (50), `check-cnic` (36),
+`check-currency` (7), `check-sprint-periods` (107), `check-accounting` (121),
+`check-provisioning`, `check-portals` (18 of 22 reached, 4 reported NOT
+EXERCISED), `check-sprint20` (11 ok), **`check-sprint21` (14 ok, 0 failed)** and
+**`npm run build`**.
+
+⚠ **The §5f stub bit again.** Five sessions have now rediscovered it: the
+*second* `next build` in a worktree failed on `Can't resolve '../lib/is-error'`.
+Deleting `.claude/worktrees/node_modules` and rebuilding was all it needed, and
+it is deleted.
+
+### Still open
+
+* **`0038` is not applied.** Until it is, Father 1 still lands in the student
+  portal — that is the one symptom the code alone cannot fix. Everything else in
+  this sprint works on an unmigrated database, so unlike Sprint 20 the **code
+  ships first and the migration follows**.
+* The acceptance test that needs the migration: sign in at LGS as
+  `…+father1@gmail.com` with the emailed code and land in the **parent** portal
+  with five child cards, each panel populated.
+* `check-portals`'s other eighteen entries reach their own statements today, but
+  nothing forces a *new* entry to declare a `reaches` fragment. A function added
+  later with a guard in front of it will report `ok` on one statement again. The
+  honest fix is more entries in `check-sprint21`, against real ids.
+
+### Next free migration number is `0039`.

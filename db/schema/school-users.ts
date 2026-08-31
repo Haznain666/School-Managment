@@ -86,6 +86,40 @@ export const schoolUsers = pgTable(
       table.locationId,
       table.authUserId,
     ),
+    /*
+     * One email is one person at one school. Migration `0038`.
+     *
+     * Nothing forbade the ambiguity until Sprint 21, and what it cost was a
+     * father with five children at LGS. A student's directory row had borrowed
+     * his mobile back when it did that, the parent-portal upsert on
+     * (location, phone) therefore landed on his daughter's row and wrote his
+     * address onto it, and when he accepted his invite GoTrue bound his uid
+     * there. The unique auth index above then made it permanent: his uid could
+     * never also sit on his own `parent` row, so every sign-in put him in the
+     * *student* portal as one of his own children, and four of his five
+     * children were unreachable by any login he had.
+     *
+     * Two things made it invisible rather than loud. `otp/verify` updated
+     * every row matching the address and kept whichever the auth index allowed;
+     * `getSchoolUserByUid` was an unordered `limit(1)`. Both answered
+     * confidently. Neither had any way to say it had chosen.
+     *
+     * ── Partial, and scoped to the active ────────────────────────────────
+     * `lower(email)` because `Father@Example.com` and `father@example.com` are
+     * one inbox, and a constraint that let both in would be a constraint that
+     * only catches the careful. Deactivated rows are outside it on purpose: a
+     * teacher who left in June and is re-hired in September must not be blocked
+     * by her own archived membership, and blank is outside it because
+     * `school_users.email` is nullable and a school with forty staff who have
+     * no address is normal.
+     *
+     * Drizzle cannot express a partial expression index in a way `db:generate`
+     * will reproduce, so `0038` writes it by hand and this declaration exists
+     * to keep the schema file honest about what is on the table.
+     */
+    uniqueIndex('school_users_location_email_active_idx')
+      .on(table.locationId, sql`lower(${table.email})`)
+      .where(sql`${table.email} is not null and ${table.email} <> '' and ${table.isActive}`),
     check(
       'school_users_role_check',
       sql.raw(`role IN (${USER_ROLES.map((role) => `'${role}'`).join(', ')})`),

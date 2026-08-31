@@ -93,6 +93,24 @@ export async function listPublishedTermsForStudent(
       startDate: examTerms.startDate,
       endDate: examTerms.endDate,
       sequenceOrder: examTerms.sequenceOrder,
+      /*
+       * Selected only so the ORDER BY below is legal, and dropped again in the
+       * `map` so no caller ever sees it.
+       *
+       * Postgres refuses a `SELECT DISTINCT` ordered by an expression that is
+       * not in its select list — 42P10, and it refuses at *plan* time, so the
+       * statement never returned a row at any school from Sprint 13 until this
+       * was found. It took down `/student/results`, `/parent/results` and
+       * every child card on the parent dashboard, where `settle()` caught the
+       * throw per child and rendered the card with its attendance and results
+       * panel silently blank.
+       *
+       * The extra column cannot widen the result. `start_year` is functionally
+       * dependent on `academic_year_id`, which is already in the DISTINCT, so
+       * the same set of terms comes back — the ordering is what changes, and it
+       * is unchanged from what the docblock below always intended.
+       */
+      startYear: academicYears.startYear,
     })
     .from(exams)
     .innerJoin(examTerms, eq(examTerms.id, exams.termId))
@@ -110,7 +128,21 @@ export async function listPublishedTermsForStudent(
     // fields their school happened to fill in.
     .orderBy(desc(academicYears.startYear), desc(examTerms.sequenceOrder));
 
-  return rows;
+  // `startYear` was an ordering key, not a fact about the term, so it does not
+  // reach `StudentTermRow`. Both portals render the year by *name*, and adding
+  // a second way to say which year a term belongs to is how the two of them
+  // eventually disagree. Rebuilt field by field rather than spread minus one:
+  // the shape a caller receives should be readable here, not inferred from an
+  // omission.
+  return rows.map((row) => ({
+    termId: row.termId,
+    termName: row.termName,
+    academicYearId: row.academicYearId,
+    academicYearName: row.academicYearName,
+    startDate: row.startDate,
+    endDate: row.endDate,
+    sequenceOrder: row.sequenceOrder,
+  }));
 }
 
 /**
