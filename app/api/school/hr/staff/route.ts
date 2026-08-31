@@ -145,8 +145,27 @@ export const POST = withSchoolAuth(
 
       const firstName = readString(body.firstName);
       const lastName = readString(body.lastName);
-      if (firstName === '' || lastName === '') {
-        return apiFailure('invalid_body', 'Enter the first and last name.', 400);
+      /*
+       * The surname may be blank, and refusing it here was a dead end.
+       *
+       * `staff.last_name` is NOT NULL but an empty string satisfies that, and
+       * `splitPersonName` leaves it empty on purpose for a one-word name — a
+       * great many people in Pakistan are recorded under one. The Users & Staff
+       * profile's "Add an employment record" button posts here with the split
+       * already applied, so "Sikandar" was badged *No employment record* and
+       * then refused by the button the badge points at, with a sentence naming
+       * two fields that screen does not show.
+       *
+       * `POST /api/school/invitations` inserts the same split straight into
+       * `staff` and has never had this guard, so the same person filed without
+       * complaint from the other direction. One of the two was wrong; this was.
+       *
+       * The HR form itself is unaffected — `StaffManager` requires both fields
+       * in the browser, which is the right place to ask a clerk typing a record
+       * from scratch for a surname.
+       */
+      if (firstName === '') {
+        return apiFailure('invalid_body', 'Enter the name.', 400);
       }
 
       if (body.employmentType !== undefined && body.employmentType !== null) {
