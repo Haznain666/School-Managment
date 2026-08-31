@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import { useCallback, useEffect, useState } from 'react';
 
 import { Badge } from '@/components/ui/Badge';
@@ -31,6 +32,12 @@ import type { ComponentCalculation, ComponentKind } from '@/db/schema/salary-com
 import { DATE_INPUT_HINT } from '@/lib/dates';
 import { formatPkr, toPaise } from '@/lib/money';
 import { schoolErrorMessage, schoolFetch } from '@/lib/school-client';
+import {
+  BRANCH_REQUIRED_ROLES,
+  INVITABLE_ROLES,
+  ROLE_LABELS,
+  isUserRole,
+} from '@/types/school-auth';
 
 /**
  * One staff member: their file, and the salary structure payroll reads.
@@ -68,7 +75,33 @@ interface StaffDetail {
   bankAccountNumber: string | null;
   bankName: string | null;
   branchName: string | null;
+  branchId: string | null;
+  isClassTeacher: boolean;
+  schoolUserId: string | null;
 }
+
+/** The portal account this record is joined to, when there is one. */
+interface LinkedAccount {
+  id: string;
+  name: string;
+  role: string;
+  branchName: string | null;
+  isActive: boolean;
+  authUserId: string | null;
+}
+
+interface PortalAccountOption {
+  id: string;
+  name: string;
+  role: string;
+  phone: string;
+  email: string | null;
+  branchName: string | null;
+}
+
+type AccessDelivery =
+  | { queued: true; firstTime: boolean; email: string }
+  | { queued: false; reason: string };
 
 interface ComponentRow {
   id: string;
@@ -89,6 +122,11 @@ interface StructureRow {
 export interface StaffDetailPanelProps {
   staffId: string;
   canEdit: boolean;
+  /** `users.write` — may mint a login for this person. */
+  canCreateLogin: boolean;
+  /** `users.read` — may be shown, and offered, the portal directory. */
+  canSeeAccounts: boolean;
+  branches: ReadonlyArray<{ id: string; name: string }>;
 }
 
 const STATUS_OPTIONS = STAFF_STATUSES.map((value) => ({
@@ -100,6 +138,12 @@ const EMPLOYMENT_OPTIONS = [
   { value: '', label: 'Not set' },
   ...EMPLOYMENT_TYPES.map((value) => ({ value, label: EMPLOYMENT_TYPE_LABELS[value] })),
 ];
+
+/** Students and parents are absent for the same reason `InviteForm` omits them. */
+const ROLE_OPTIONS = INVITABLE_ROLES.map((role) => ({
+  value: role,
+  label: ROLE_LABELS[role],
+}));
 
 const GENDER_OPTIONS = [
   { value: '', label: 'Not set' },
@@ -133,8 +177,21 @@ function buildMatrix(
   return matrix;
 }
 
-export function StaffDetailPanel({ staffId, canEdit }: StaffDetailPanelProps) {
+export function StaffDetailPanel({
+  staffId,
+  canEdit,
+  canCreateLogin,
+  canSeeAccounts,
+  branches,
+}: StaffDetailPanelProps) {
   const [detail, setDetail] = useState<StaffDetail | null>(null);
+  const [account, setAccount] = useState<LinkedAccount | null>(null);
+  const [accounts, setAccounts] = useState<PortalAccountOption[] | null>(null);
+  const [accountsPending, setAccountsPending] = useState(false);
+  const [linkChoice, setLinkChoice] = useState('');
+  const [loginRole, setLoginRole] = useState('');
+  const [loginBranchId, setLoginBranchId] = useState('');
+  const [portalPanel, setPortalPanel] = useState<'closed' | 'link' | 'create'>('closed');
   const [components, setComponents] = useState<ComponentRow[]>([]);
   const [matrix, setMatrix] = useState<Matrix>({});
   const [form, setForm] = useState<Record<string, string>>({});
@@ -145,13 +202,16 @@ export function StaffDetailPanel({ staffId, canEdit }: StaffDetailPanelProps) {
   const load = useCallback(async () => {
     try {
       const [staffPayload, salaryPayload] = await Promise.all([
-        schoolFetch<{ staff: StaffDetail }>(`/api/school/hr/staff/${staffId}`),
+        schoolFetch<{ staff: StaffDetail; account: LinkedAccount | null }>(
+          `/api/school/hr/staff/${staffId}`,
+        ),
         schoolFetch<{ structure: StructureRow[]; components: ComponentRow[] }>(
           `/api/school/hr/staff/${staffId}/salary`,
         ),
       ]);
 
       setDetail(staffPayload.staff);
+      setAccount(staffPayload.account);
       setComponents(salaryPayload.components);
       setMatrix(buildMatrix(salaryPayload.components, salaryPayload.structure));
 
@@ -214,6 +274,114 @@ export function StaffDetailPanel({ staffId, canEdit }: StaffDetailPanelProps) {
       await load();
     } catch (caught) {
       setError(schoolErrorMessage(caught, 'Could not save the changes.'));
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  /**
+   * The link picker's candidates, fetched when the picker is opened.
+   *
+   * Never on mount: most people arrive at this screen to change a salary head,
+   * and reading the user directory to answer a question nobody asked is a
+   * request a school pays for on every visit.
+   */
+  const loadAccounts = useCallback(async () => {
+    setAccountsPending(true);
+    try {
+      const payload = await schoolFetch<{ accounts: PortalAccountOption[] }>(
+        '/api/school/hr/staff/portal-accounts',
+      );
+      setAccounts(payload.accounts);
+    } catch (caught) {
+      setAccounts([]);
+      setError(schoolErrorMessage(caught, 'Could not load portal accounts.'));
+    } finally {
+      setAccountsPending(false);
+    }
+  }, []);
+
+  const linkAccount = async (): Promise<void> => {
+    if (linkChoice === '') {
+      setError('Choose an account to link.');
+      return;
+    }
+
+    setBusy('link');
+    setError(null);
+    setNotice(null);
+
+    try {
+      await schoolFetch(`/api/school/hr/staff/${staffId}/portal-access`, {
+        method: 'POST',
+        body: JSON.stringify({ mode: 'link', schoolUserId: linkChoice }),
+      });
+      setNotice('Linked. The two records are now one person.');
+      setPortalPanel('closed');
+      setLinkChoice('');
+      setAccounts(null);
+      await load();
+    } catch (caught) {
+      setError(schoolErrorMessage(caught, 'Could not link that account.'));
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const createLogin = async (): Promise<void> => {
+    if (loginRole === '') {
+      setError('Choose the role the login is created with.');
+      return;
+    }
+
+    setBusy('create-login');
+    setError(null);
+    setNotice(null);
+
+    try {
+      const payload = await schoolFetch<{
+        portalAccess: { linked: true; schoolUserId: string; delivery: AccessDelivery | null };
+      }>(`/api/school/hr/staff/${staffId}/portal-access`, {
+        method: 'POST',
+        body: JSON.stringify({
+          mode: 'create',
+          role: loginRole,
+          branchId: loginBranchId === '' ? undefined : loginBranchId,
+        }),
+      });
+
+      // Queued, never sent — the message leaves `email_outbox` moments from
+      // now. Saying "sent" here would be a claim nobody checked.
+      const delivery = payload.portalAccess.delivery;
+      setNotice(
+        delivery !== null && !delivery.queued
+          ? `The login was created, but no password-setup email was queued. ${delivery.reason} Send it again from their profile.`
+          : 'Login created. A link to set a password has been queued to their address.',
+      );
+
+      setPortalPanel('closed');
+      await load();
+    } catch (caught) {
+      setError(schoolErrorMessage(caught, 'Could not create the login.'));
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const unlinkAccount = async (): Promise<void> => {
+    setBusy('unlink');
+    setError(null);
+    setNotice(null);
+
+    try {
+      await schoolFetch(`/api/school/hr/staff/${staffId}/portal-access`, {
+        method: 'DELETE',
+      });
+      setNotice('Unlinked. Both records are intact; only the link was removed.');
+      setAccounts(null);
+      await load();
+    } catch (caught) {
+      setError(schoolErrorMessage(caught, 'Could not unlink that account.'));
     } finally {
       setBusy(null);
     }
@@ -508,6 +676,228 @@ export function StaffDetailPanel({ staffId, canEdit }: StaffDetailPanelProps) {
             </Button>
           </div>
         ) : null}
+      </Card>
+
+      {/*
+        ── Portal access ────────────────────────────────────────────────
+        The two halves of one person, and the row that says whether they have
+        met. Advisory throughout: nothing here changes what any other screen
+        permits, and the record saves with or without it.
+      */}
+      <Card
+        header={
+          <CardTitle
+            title="Portal access"
+            description="Whether this person can sign in, and which account is theirs."
+            action={
+              account === null ? (
+                <Badge variant="warning">No login</Badge>
+              ) : (
+                <Badge variant="success">Linked</Badge>
+              )
+            }
+          />
+        }
+      >
+        {account !== null ? (
+          <div className="space-y-3">
+            <dl className="grid gap-4 sm:grid-cols-3">
+              <div>
+                <dt className="text-xs uppercase tracking-wide text-ink-muted">Account</dt>
+                <dd className="mt-1 text-sm text-ink">
+                  <Link
+                    href={`/dashboard/users/${account.id}`}
+                    className="font-medium text-brand-primary hover:underline"
+                  >
+                    {account.name}
+                  </Link>
+                </dd>
+              </div>
+              <div>
+                <dt className="text-xs uppercase tracking-wide text-ink-muted">Role</dt>
+                <dd className="mt-1 text-sm text-ink">
+                  {isUserRole(account.role) ? ROLE_LABELS[account.role] : account.role}
+                </dd>
+              </div>
+              <div>
+                <dt className="text-xs uppercase tracking-wide text-ink-muted">Branch</dt>
+                <dd className="mt-1 text-sm text-ink">
+                  {account.branchName ?? 'All branches'}
+                </dd>
+              </div>
+            </dl>
+
+            {canEdit ? (
+              <Button
+                variant="secondary"
+                size="sm"
+                isLoading={busy === 'unlink'}
+                onClick={() => {
+                  void unlinkAccount();
+                }}
+              >
+                Unlink
+              </Button>
+            ) : null}
+          </div>
+        ) : (
+          <div className="space-y-3">
+            <p className="text-sm text-ink-muted">
+              This employment record has no portal account, so this person
+              cannot sign in.
+              {/*
+                The consequence, stated only where it is one. A class teacher
+                with no login is the case the sprint was opened for: the class
+                can name them, and no timetable can give them a period.
+              */}
+              {detail.isClassTeacher
+                ? ' They are marked as a class teacher and cannot be assigned periods without a portal login.'
+                : ''}
+            </p>
+
+            {canEdit && portalPanel === 'closed' ? (
+              <div className="flex flex-wrap gap-3">
+                {canSeeAccounts ? (
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    onClick={() => {
+                      setPortalPanel('link');
+                      if (accounts === null && !accountsPending) void loadAccounts();
+                    }}
+                  >
+                    Link an existing account
+                  </Button>
+                ) : null}
+                {canCreateLogin ? (
+                  <Button
+                    size="sm"
+                    onClick={() => {
+                      setPortalPanel('create');
+                      setLoginBranchId(detail.branchId ?? '');
+                    }}
+                  >
+                    Create a login
+                  </Button>
+                ) : null}
+              </div>
+            ) : null}
+
+            {portalPanel === 'link' ? (
+              <div className="space-y-3">
+                {accountsPending ? (
+                  <p className="text-sm text-ink-muted">Loading portal accounts…</p>
+                ) : (accounts ?? []).length === 0 ? (
+                  <p className="text-sm text-ink-muted">
+                    Every active account at this school already has an employment
+                    record. Create a login instead.
+                  </p>
+                ) : (
+                  <Select
+                    label="Portal account"
+                    placeholder="Select an account"
+                    options={(accounts ?? []).map((option) => ({
+                      value: option.id,
+                      label: `${option.name} — ${
+                        isUserRole(option.role) ? ROLE_LABELS[option.role] : option.role
+                      }${option.branchName === null ? '' : ` · ${option.branchName}`}`,
+                    }))}
+                    value={linkChoice}
+                    onChange={(event) => {
+                      setLinkChoice(event.target.value);
+                    }}
+                  />
+                )}
+
+                <div className="flex gap-3">
+                  <Button
+                    size="sm"
+                    isLoading={busy === 'link'}
+                    disabled={(accounts ?? []).length === 0}
+                    onClick={() => {
+                      void linkAccount();
+                    }}
+                  >
+                    Link
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => {
+                      setPortalPanel('closed');
+                    }}
+                  >
+                    Cancel
+                  </Button>
+                </div>
+              </div>
+            ) : null}
+
+            {portalPanel === 'create' ? (
+              <div className="space-y-3">
+                <p className="text-sm text-ink-muted">
+                  The login is created against the email address and phone number
+                  on this record — {detail.email ?? 'no address on file'} and{' '}
+                  {detail.phone ?? 'no number on file'}. Correct them above first
+                  if either is wrong; the address is the identity the account is
+                  keyed by.
+                </p>
+
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <Select
+                    label="Role"
+                    placeholder="Select a role"
+                    options={ROLE_OPTIONS}
+                    value={loginRole}
+                    onChange={(event) => {
+                      setLoginRole(event.target.value);
+                    }}
+                  />
+                  {BRANCH_REQUIRED_ROLES.includes(
+                    loginRole as (typeof INVITABLE_ROLES)[number],
+                  ) ? (
+                    <Select
+                      label="Branch"
+                      options={[
+                        { value: '', label: 'Select a branch' },
+                        ...branches.map((branch) => ({
+                          value: branch.id,
+                          label: branch.name,
+                        })),
+                      ]}
+                      value={loginBranchId}
+                      hint="Required for this role."
+                      onChange={(event) => {
+                        setLoginBranchId(event.target.value);
+                      }}
+                    />
+                  ) : null}
+                </div>
+
+                <div className="flex gap-3">
+                  <Button
+                    size="sm"
+                    isLoading={busy === 'create-login'}
+                    onClick={() => {
+                      void createLogin();
+                    }}
+                  >
+                    Create login
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => {
+                      setPortalPanel('closed');
+                    }}
+                  >
+                    Cancel
+                  </Button>
+                </div>
+              </div>
+            ) : null}
+          </div>
+        )}
       </Card>
 
       <Card

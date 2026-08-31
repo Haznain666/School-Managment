@@ -10857,3 +10857,158 @@ becomes a route that can meet a SQLSTATE.*
   honest fix is more entries in `check-sprint21`, against real ids.
 
 ### Next free migration number is `0039`.
+
+## 5bl. Sprint 22 — one person, one record — 2026-09-01
+
+Spec: `SPRINT-22-SPEC.md`, sections 1 to 6, all built. **No migration.** Nothing
+to apply, nothing to sequence with the deploy, and `0039` is still free.
+
+A member of staff could exist twice in this product and the two halves never
+met. `staff.school_user_id` is the column that joins them; it has existed since
+Sprint 7, it is indexed as `staff_school_user_id_idx`, the POST route has
+accepted it since the day it was written — and **no screen in the product ever
+set it**. `listUnlinkedSchoolUsers`, written "for the link picker", was called
+by nothing. So the column was null at every school and neither screen said so.
+
+What that costs, concretely: `timetable_entries.teacher_id` points at
+`school_users` and `sections.class_teacher_id` points at `staff`. A teacher
+invited from Users & Staff can be given periods and can never be a home-room
+teacher; a teacher added from HR gets the reverse.
+
+### The ordering rule, and it is not symmetric
+
+**Whichever record is the point of the screen you are on is written first and is
+never rolled back.** From HR that is the employment record; from Invite Staff it
+is the account. The second half failing comes back in the response as a sentence
+with the reason, and the form says the first half was saved and the second was
+not. That is `enrollStudent`'s stance over the sibling auto-grant (§5bj), and it
+is right here for the same reason: a person recorded is a fact, and a login that
+did not go out is one click from their profile.
+
+Do not "fix" this by wrapping the two in a transaction. A school that has typed
+forty staff into a form does not want the fortieth thrown away because a mail
+transport was down, and `queueAccessEmail` has never been rollback-safe.
+
+### One account, one employment record — in code, deliberately not in the schema
+
+`staff.school_user_id` has **no unique index and is not getting one**. A partial
+unique index over a nullable column on a live table is a migration, this sprint
+has none, and the rule it would enforce is one three code paths can state:
+`accountLinkable` refuses an account another `staff` row of the same tenant
+already claims, and `claimStaffLink` — the single `UPDATE` both linking paths
+share — writes only onto a record that is unlinked or already points at the same
+account.
+
+Two administrators on the same second can still both pass that check. The
+consequence is a duplicate employment record: visible, repairable, and not a
+security boundary. A wrong *tenant* would be one, and that is read from the
+database rather than believed from a body.
+
+### §6 — the live defect this sprint was obliged to fix
+
+`POST /api/school/invitations` never received Sprint 21's fix. It still called
+`.onConflictDoNothing()` **untargeted**, so `0038`'s partial unique index on
+`lower(email)` was swallowed alongside the phone index and reported as *"Someone
+with that phone number already exists at this school"* — about a number nobody
+held, with nothing on the form to correct.
+
+It was missed in Sprint 21 because `/users` and `/invitations` were never the
+same code. They are now: **`lib/school-member-accounts.ts` is the only door**,
+and it carries all three guards together — `emailHolderAt` before the write, the
+conflict targeted on `[locationId, phone]`, and `isEmailIndexConflict` in the
+catch for the race between them. Three callers use it (Invite Staff, HR "Create
+a login" on the add form, "Create a login" on a staff profile) and a fourth
+cannot be written without them.
+
+### Decisions not to re-litigate
+
+* **"No login needed" is the default on the HR form and stays the default.**
+  Most of a school's payroll never signs in. A form opening on "Create a login"
+  either mints accounts nobody wanted or makes a clerk clear a field forty times.
+* **"Create a login" reuses the staff form's own Email and Phone.** One person,
+  one set of contact details. A second pair is how the two records start
+  disagreeing on the day they are created.
+* **The badges are advisory and change nothing any screen permits.** Neither
+  screen may refuse to save. HR badges an *active* record with no account; Users
+  & Staff badges an *active* member in an `INVITABLE_ROLES` role backing no
+  `staff` row. A resigned driver and a seven-year-old are not findings.
+* **The two "Unlinked" filters are not facets.** They are reconciliation tools a
+  school turns on deliberately, not one of the three dimensions the bar offers to
+  pick between, so they carry no count beside them — a fourth number computed a
+  different way in that row would be read as the same kind of number. On Users &
+  Staff the filter is server-side (`?employment=none`) because that table pages
+  in the database; on HR it is a `DataTable` filter because that whole list
+  already arrives in one request, and the API carries `?linked=none` for
+  everything that is not that screen.
+* **`hasEmployment` is a fact, not a judgement.** Who *ought* to have a record is
+  a UI question, and deciding it in `lib/school-queries.ts` would put the
+  judgement two files from the sentence that renders it.
+* **`splitPersonName` lives in `lib/person-name.ts` and is not `server-only`.**
+  The browser fills the same two columns on the Users & Staff profile, and a
+  second copy there is exactly the drift it exists to prevent. A one-word name
+  leaves the surname empty rather than inventing a dash, which would look like a
+  surname.
+* **`nextEmployeeCode` is a proposal, not a reservation**, and it reads in
+  JavaScript rather than with `substring(...)::int`. The column holds whatever a
+  school has ever typed into it — `emp-007`, `T-14`, `Ahmed` — and a cast over
+  that set is a `22P02` on the row nobody expected.
+* **Permissions cross.** Creating a login from HR needs `users.write` on top of
+  `hr.write`; filing an employment record from Invite needs `hr.write` on top of
+  `users.write`; the link picker needs `users.read`. A holder of only one sees
+  the other section **absent, not disabled** — a permanently greyed control
+  teaches a clerk the product is broken — and every one of the three is enforced
+  on the server as well, because a request posted directly never runs a
+  component. No new permission keys: all four already existed.
+
+### `npm run check-sprint22` — 17 ok, 0 failed or not exercised
+
+`scripts/check-sprint22.ts`, in `check-sprint21`'s shape. There is no
+predicted-failure half this time: with no migration, **every** statement must
+execute today, and a `42703` here is a defect rather than a deploy-order note.
+
+The highest-risk statement is `listSchoolUsers` again — §5bg's 42702 shipped on
+it, it already carried an ordered aggregate aliased `student_guardian_phone`
+beside a joined `school_users.phone`, and this sprint adds a correlated `EXISTS`
+over `staff` to the same select list and a `NOT EXISTS` to the `WHERE` of all
+five of its queries. It is executed three ways: plain, with `employment=none`,
+and with `employment=none` sorted by branch and searched.
+
+Two things about how reach is decided:
+
+* **A nobody tenant cannot pass a guard**, so `accountLinkable`'s second read —
+  the one enforcing acceptance criterion 9 — and the `UPDATE` behind it are run
+  against a **real** unlinked account discovered by shape, with a *nobody* staff
+  id. Both statements execute; neither matches a row; nothing is written. A run
+  that cannot find such an account reports NOT EXERCISED, which is a failure.
+* **The `INSERT` in `createMemberAccount` is not executed and the script says
+  so.** It writes a row and queues an email. The one thing about it that can fail
+  at plan time is the inferred conflict target, so
+  `school_users_location_id_phone_idx` is asserted by name instead.
+
+### Gates run and green — thirteen
+
+`typecheck` (0 errors), `lint` (0 warnings), `check-loaders` (279),
+`check-forms` (60), `check-address-phone` (50), `check-cnic` (36),
+`check-currency` (7), `check-sprint-periods` (107), `check-accounting` (121),
+`check-portals` (18 of 22 reached, the same 4 NOT EXERCISED as Sprint 21),
+`check-sprint20` (11 ok), `check-sprint21` (19 ok), **`check-sprint22` (17 ok)**
+and `npm run build`.
+
+### Still open
+
+* **Nothing here has been driven by a person.** Every statement was executed and
+  every gate is green, but the ten acceptance criteria are click-throughs and
+  none has been clicked. The two worth doing first are (8) inviting somebody on a
+  colleague's address — the sentence must name the *address* and the phone
+  message must not appear — and (2) HR → Add staff member with "Create a login",
+  which must produce one row in each table joined by `school_user_id`.
+* **Nothing reconciles the records already split.** The two filters find them and
+  a human links them one at a time. A bulk "link by matching email address" was
+  considered and left out: matching people by address is exactly what Sprint 21
+  spent itself undoing, and a wrong link here puts somebody on another person's
+  payroll record.
+* **`staff.user_id` is still there**, pointing at Sprint 1's `users` table, and
+  nothing in this sprint touches it. It is dead weight beside `school_user_id`
+  and dropping it is a migration somebody should schedule.
+
+### Next free migration number is still `0039`.

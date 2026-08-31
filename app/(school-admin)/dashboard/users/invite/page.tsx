@@ -78,7 +78,12 @@ export default async function InviteStaffPage() {
         description="The invitation goes out by email. The link is valid for 72 hours."
       />
 
-      <InviteForm branches={branches} />
+      {/*
+        One screen, two permission keys. Somebody holding only `users.write`
+        sees no employment section at all rather than a disabled one, and the
+        route refuses the field for them in any case.
+      */}
+      <InviteForm branches={branches} canAddEmployment={permissions.includes('hr.write')} />
     </div>
   );
 }

@@ -4,6 +4,7 @@ import { notFound } from 'next/navigation';
 import { StaffDetailPanel } from '@/components/hr/StaffDetailPanel';
 import { getStaff } from '@/lib/hr-queries';
 import { requireSchoolPermission } from '@/lib/school-guard';
+import { listBranchOptions } from '@/lib/school-queries';
 import { isUuid } from '@/lib/validation';
 import { PageHeader } from '@/components/ui/PageHeader';
 
@@ -40,6 +41,11 @@ export default async function StaffDetailPage({
       <StaffDetailPanel
         staffId={staffId}
         canEdit={permissions.includes('hr.write')}
+        // Two keys, one screen — see `app/api/school/hr/staff/route.ts`. The
+        // options a viewer may not use are absent rather than disabled.
+        canCreateLogin={permissions.includes('users.write')}
+        canSeeAccounts={permissions.includes('users.read')}
+        branches={await listBranchOptions(locationId)}
       />
     </div>
   );

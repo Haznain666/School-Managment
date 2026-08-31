@@ -6,11 +6,13 @@ import {
   count,
   desc,
   eq,
+  exists,
   ilike,
   inArray,
   isNotNull,
   isNull,
   ne,
+  not,
   or,
   sql,
   type SQL,
@@ -20,6 +22,7 @@ import {
   branches,
   schoolModules,
   schoolUsers,
+  staff,
   studentEnrollments,
   studentGuardians,
   studentProfiles,
@@ -30,7 +33,7 @@ import {
   toModuleFlags,
   type SchoolModuleFlags,
 } from '@/lib/platform-modules';
-import type { UserRole } from '@/types/school-auth';
+import { INVITABLE_ROLES, type UserRole } from '@/types/school-auth';
 
 import { getActiveAcademicYear } from './admissions-queries';
 import { ownedBy } from './branch-scope';
@@ -77,6 +80,15 @@ export interface SchoolUserListRow extends SchoolUserRow {
    * file; the screen prints `—`, never the sentinel.
    */
   contactPhone: string | null;
+  /**
+   * Whether a `staff` row of this school points at this account — Sprint 22.
+   *
+   * The plain fact, not the badge. Who *ought* to have an employment record is
+   * a UI judgement (`INVITABLE_ROLES`, still active), and a student or a parent
+   * having none is not a finding about anything. Deciding that here would put
+   * the judgement two files away from the sentence that renders it.
+   */
+  hasEmployment: boolean;
 }
 
 const USER_COLUMNS = {
@@ -151,6 +163,18 @@ export interface ListUsersFilters {
    */
   branchIds?: string[] | null | undefined;
   status?: UserStatus | undefined;
+  /**
+   * `'none'` = only the split records: an active member who could hold an
+   * employment record and does not.
+   *
+   * Not a facet dimension, for the same reason `search` is not: it is a
+   * reconciliation tool a school turns on deliberately, not one of the three
+   * things the filter bar offers to pick between. It is applied to the page
+   * query, the total **and** all three facet counts, because §5bf's rule is
+   * that a count carrying different filters from the page is how a reader pages
+   * off the end of a list.
+   */
+  employment?: 'none' | undefined;
   search?: string | undefined;
   page?: number | undefined;
   limit?: number | undefined;
@@ -197,6 +221,33 @@ const STATUS_EXPRESSION = sql<string>`case
 end`;
 
 /**
+ * Whether any `staff` row of this school points at the account being read.
+ *
+ * Correlated on the outer `school_users` row, and the tenant is carried on
+ * **both** sides rather than inherited from the outer filter. Without
+ * `staff.location_id = school_users.location_id` another school's employment
+ * record would satisfy the EXISTS, and this member would silently look linked —
+ * which is a fact about another tenant's data leaking through a boolean.
+ *
+ * `EXISTS` rather than a joined subquery because it is used in a `WHERE` as
+ * well as in the select list, and a join that can appear in one and not the
+ * other is exactly how a count stops agreeing with its page.
+ */
+function employmentRecordExists(): SQL {
+  return exists(
+    db
+      .select({ present: sql`1` })
+      .from(staff)
+      .where(
+        and(
+          eq(staff.locationId, schoolUsers.locationId),
+          eq(staff.schoolUserId, schoolUsers.id),
+        ),
+      ),
+  );
+}
+
+/**
  * Builds the WHERE conditions for a filter set, optionally leaving one
  * dimension out so that dimension's own facet can be counted.
  */
@@ -237,6 +288,21 @@ function userConditions(
 
   if (omit !== 'status' && filters.status !== undefined) {
     conditions.push(statusCondition(filters.status));
+  }
+
+  /*
+   * "Show me the ones with no employment record", which is the *reconciliation*
+   * question rather than a filter dimension — see `ListUsersFilters.employment`.
+   *
+   * The three conditions together are the same population the badge marks: an
+   * active member, in a role a school hires into, backing no `staff` row. A
+   * student or a parent having no employment record is not a finding, and a
+   * leaver's is the school's own business.
+   */
+  if (filters.employment === 'none') {
+    conditions.push(eq(schoolUsers.isActive, true));
+    conditions.push(inArray(schoolUsers.role, [...INVITABLE_ROLES]));
+    conditions.push(not(employmentRecordExists()));
   }
 
   // Search is not a facet dimension — it narrows every dropdown and is never
@@ -354,7 +420,14 @@ export async function listSchoolUsers(
 
   const [rows, totals, roleFacets, branchFacets, statusFacets] = await Promise.all([
     db
-      .select({ ...USER_COLUMNS, guardianPhone: guardianPhoneColumn })
+      .select({
+        ...USER_COLUMNS,
+        guardianPhone: guardianPhoneColumn,
+        // A correlated EXISTS rather than a fourth join: the count and the
+        // three facet queries must be able to carry the same condition, and
+        // they carry no joins at all.
+        hasEmployment: sql<boolean>`${employmentRecordExists()}`,
+      })
       .from(schoolUsers)
       .leftJoin(branches, eq(branches.id, schoolUsers.branchId))
       // A LEFT join, and only on the page query. It cannot multiply rows — the
@@ -403,8 +476,12 @@ export async function listSchoolUsers(
      * not acceptable in any case, and neither is printing a number that is
      * really an admission number with the colon taken out.
      */
-    users: rows.map(({ guardianPhone, ...user }) => ({
+    users: rows.map(({ guardianPhone, hasEmployment, ...user }) => ({
       ...user,
+      // Postgres answers a boolean and postgres-js hands back a boolean, but
+      // this column is an expression rather than a typed column, so the cast
+      // is written down rather than assumed.
+      hasEmployment: hasEmployment === true,
       contactPhone:
         user.role === 'student' ? (guardianPhone ?? null) : (user.phone || null),
     })),
