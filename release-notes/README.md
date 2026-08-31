@@ -6,6 +6,8 @@ what is not there yet. They are not the engineering handover — that is
 
 | Sprint | Theme | Migration | Notes |
 | --- | --- | --- | --- |
+| **22** | One person, one record — a staff member's login and their employment record finally join up, in both directions, with the split ones findable | none — built on a column that already existed | [read](RELEASE-NOTES-SPRINT-22.md) |
+| **21** | One email address opens one account; the results page that never rendered | `0038` **APPLIED** | [read](RELEASE-NOTES-SPRINT-21.md) |
 | **20** | The fee voucher redrawn, bank accounts, discounts at the enrolment desk, the sibling discount that removes itself | `0037` **APPLIED** | [read](RELEASE-NOTES-SPRINT-20.md) |
 | **19b** | Campus calendars created in runs, the promotion that could not name its year, student documents, academic history, Enrol → Enroll | `0036` **APPLIED** | [read](RELEASE-NOTES-SPRINT-19B.md) |
 | **19a** | A campus is a boundary; the owner's cross-campus dashboard, branch CRUD, a campus on every report | `0035` **APPLIED** | [read](RELEASE-NOTES-SPRINT-19A.md) |

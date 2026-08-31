@@ -732,8 +732,24 @@ export function StaffManager({
               { value: 'none', label: 'Unlinked — no login' },
               { value: 'linked', label: 'Has a login' },
             ],
-            rowValue: (row) =>
-              row.status === 'active' && row.schoolUserId === null ? 'none' : 'linked',
+            /*
+             * Three answers, not two.
+             *
+             * "Unlinked" is deliberately an *active-only* question — a resigned
+             * record needs no login and is not badged for wanting one. But the
+             * complement of that is not "has a login": written as
+             * `… ? 'none' : 'linked'`, a resigned unlinked record fell through
+             * to `'linked'` and was listed under *Has a login* while holding
+             * none.
+             *
+             * So the two filters are answered independently and a record that
+             * is neither returns null, which `matchesFilter` treats as matching
+             * nothing (`components/ui/DataTable.tsx:341`).
+             */
+            rowValue: (row) => {
+              if (row.schoolUserId !== null) return 'linked';
+              return row.status === 'active' ? 'none' : null;
+            },
           },
         ]}
         itemNoun={{ singular: 'staff record', plural: 'staff records' }}
