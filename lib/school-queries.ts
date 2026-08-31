@@ -489,6 +489,54 @@ export async function getSchoolUserById(
   return rows[0] ?? null;
 }
 
+/**
+ * Every active membership of one school carrying one email address.
+ *
+ * Normally exactly one, and after migration `0038`'s partial unique index on
+ * `(location_id, lower(email))` it can be nothing else. It returns a *list*
+ * because the interesting answer is "more than one", and because a function
+ * that returned a single row would have had to choose — which is the whole
+ * defect Sprint 21 was opened for. `otp/verify` binds only when there is one
+ * and signs the session out otherwise.
+ *
+ * Matched on `lower(email)` rather than on `=`, because that is what the index
+ * constrains. A row stored as `Father@Example.com` occupies the slot either
+ * way; matching it exactly would leave it holding an address it cannot sign in
+ * with.
+ */
+export async function activeMembershipsByEmail(
+  locationId: string,
+  email: string,
+): Promise<{ id: string; role: string; name: string }[]> {
+  return db
+    .select({ id: schoolUsers.id, role: schoolUsers.role, name: schoolUsers.name })
+    .from(schoolUsers)
+    .where(
+      and(
+        eq(schoolUsers.locationId, locationId),
+        eq(schoolUsers.isActive, true),
+        sql`lower(${schoolUsers.email}) = lower(${email})`,
+      ),
+    )
+    .orderBy(asc(schoolUsers.createdAt), asc(schoolUsers.id));
+}
+
+/**
+ * The membership one Supabase account holds at one school.
+ *
+ * `school_users_location_id_auth_user_id_idx` makes this at most one row, so
+ * the `limit(1)` is the index's promise written down rather than a choice. It
+ * is ordered anyway, and that is not belt-and-braces: an unordered `LIMIT 1` is
+ * only ever ambiguous when something has already gone wrong, and Sprint 21
+ * found out what that costs. A father's uid ended up on his daughter's
+ * directory row, and the whole reason it was hard to see was that every read in
+ * the sign-in path answered *confidently* — with a row, promptly, and with no
+ * indication that another had been just as eligible.
+ *
+ * Oldest first, so that if the index is ever dropped or the constraint
+ * deferred, two consecutive requests at least get the same answer and the
+ * defect is a reproducible one rather than an intermittent one.
+ */
 export async function getSchoolUserByUid(
   locationId: string,
   authUserId: string,
@@ -500,6 +548,7 @@ export async function getSchoolUserByUid(
     .where(
       and(eq(schoolUsers.locationId, locationId), eq(schoolUsers.authUserId, authUserId)),
     )
+    .orderBy(asc(schoolUsers.createdAt), asc(schoolUsers.id))
     .limit(1);
 
   return rows[0] ?? null;

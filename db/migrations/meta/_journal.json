@@ -267,6 +267,13 @@
       "when": 1788177600000,
       "tag": "0037_sprint20_vouchers_discounts_banks",
       "breakpoints": true
+    },
+    {
+      "idx": 38,
+      "version": "7",
+      "when": 1788264000000,
+      "tag": "0038_sprint21_one_email_one_person",
+      "breakpoints": true
     }
   ]
 }

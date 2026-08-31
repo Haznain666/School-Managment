@@ -24,6 +24,23 @@
  * while reading no real school's data.
  *
  *     npm run check-portals
+ *     SHOW_SQL=1 npm run check-portals    # every statement it actually issued
+ *
+ * ── What a nobody-tenant cannot do, and what this used to claim it did ───
+ * A tenant owning no row makes most of these functions return at their first
+ * guard, and until Sprint 21 this script printed `ok` for them anyway. Line 298
+ * called `listPublishedTermsForStudent`, which returned `[]` at its enrolments
+ * check and never built the `SELECT DISTINCT` behind it — a statement Postgres
+ * refuses outright with 42P10 and had refused at every school since Sprint 13.
+ * The gate had been green on SQL it had never once handed to a server.
+ *
+ * Reach is measured now: `countStatements` records the SQL of everything each
+ * entry builds, and an entry may name the fragment that proves its own target
+ * was among them. Anything that did not get there reports **not exercised**,
+ * which is not a pass. It is also not a failure *here* — a nobody-tenant is
+ * incapable of reaching them and that is the point of using one. Making the
+ * guarded reads run for real is `npm run check-sprint21`'s job, and there a
+ * statement not reached fails the build.
  */
 
 import { readFileSync } from 'node:fs';
@@ -291,13 +308,48 @@ function checkPortalDay(): void {
  * Every new query, against the real schema.
  * -------------------------------------------------------------------------- */
 
-const CHECKS: Array<[string, () => Promise<unknown>]> = [
+/**
+ * A query to execute, and — where the function guards it behind an earlier
+ * read — a fragment of the statement that proves it was actually reached.
+ *
+ * The third element is what `check-sprint21` was opened for. Counting
+ * statements is not enough on its own: `listPublishedTermsForStudent` issues
+ * its enrolments lookup and *then* returns, so "it issued a statement" was true
+ * of the run that never once handed Postgres the broken `SELECT DISTINCT`
+ * underneath it. The fragment is matched against the SQL Drizzle generates, so
+ * it is checked rather than asserted, and it is chosen from a `SHOW_SQL=1` run
+ * rather than from reading the function.
+ */
+type QueryCheck = [name: string, run: () => Promise<unknown>, reaches?: string];
+
+const CHECKS: QueryCheck[] = [
   ['getPrincipalModel', () => getPrincipalModel(NOBODY)],
   ['listPrincipalAssignments', () => listPrincipalAssignments(NOBODY)],
   ['listAssignablePrincipals', () => listAssignablePrincipals(NOBODY)],
-  ['listPublishedTermsForStudent', () => listPublishedTermsForStudent(NOBODY, NO_ONE)],
-  ['getStudentReportCard', () => getStudentReportCard(NOBODY, NO_ONE, NO_ONE)],
-  ['listStudentExams', () => listStudentExams(NOBODY, NO_ONE, NO_ONE)],
+  /*
+   * The four entries whose target statement sits behind an earlier read, and
+   * the SQL fragment that proves it was reached. Every fragment was taken from
+   * a `SHOW_SQL=1` run, not from reading the function.
+   *
+   * `listPublishedTermsForStudent` is the one this whole mechanism exists for.
+   * It issues its enrolments lookup, returns `[]` because a nobody-tenant has
+   * none, and never builds the `SELECT DISTINCT … FROM exams` underneath —
+   * which for two and a half years was a 42P10 no gate had ever executed.
+   * `getChildSnapshot` fans out into the same function and loses the same leg.
+   */
+  [
+    'listPublishedTermsForStudent',
+    () => listPublishedTermsForStudent(NOBODY, NO_ONE),
+    'from "exams"',
+  ],
+  // Past its published-term guard the section is looked up per term, so
+  // reaching that read is the proof the guard let something through.
+  [
+    'getStudentReportCard',
+    () => getStudentReportCard(NOBODY, NO_ONE, NO_ONE),
+    'from "student_enrollments"',
+  ],
+  ['listStudentExams', () => listStudentExams(NOBODY, NO_ONE, NO_ONE), 'from "exams"'],
   [
     'listOwnPlans',
     () => listOwnPlans(NOBODY, NO_ONE, { from: '2026-01-01', to: '2026-12-31' }),
@@ -326,7 +378,7 @@ const CHECKS: Array<[string, () => Promise<unknown>]> = [
   ['getTeacherDay', () => getTeacherDay(NOBODY, NO_ONE, NO_ONE, MIDWEEK)],
   ['getTeacherTasks', () => getTeacherTasks(NOBODY, NO_ONE, NO_ONE, NO_ONE, MIDWEEK)],
   ['getTeacherClasses', () => getTeacherClasses(NOBODY, NO_ONE, NO_ONE)],
-  ['getChildSnapshot', () => getChildSnapshot(NOBODY, NO_ONE, NO_ONE, MIDWEEK)],
+  ['getChildSnapshot', () => getChildSnapshot(NOBODY, NO_ONE, NO_ONE, MIDWEEK), 'from "exams"'],
   ['getStudentSectionId', () => getStudentSectionId(NOBODY, NO_ONE, NO_ONE)],
   ['getStudentDay', () => getStudentDay(NOBODY, NO_ONE, NO_ONE, MIDWEEK)],
 
@@ -368,6 +420,120 @@ function loadDatabaseUrl(): void {
   throw new Error('DATABASE_URL not found — set it, or run from a checkout with .env.local');
 }
 
+/**
+ * Counts the statements one check actually builds.
+ *
+ * ── Why this had to be added, and what it cost not to have it ────────────
+ * Every entry below runs against `NOBODY`, a tenant that owns no row. Most of
+ * these functions read something first and return early when it is empty —
+ * correctly — which means the statement the entry exists to exercise is often
+ * never issued at all. This script printed `ok` for those anyway, and had done
+ * since Sprint 13.
+ *
+ * What was hiding behind one of them was `listPublishedTermsForStudent`, a
+ * `SELECT DISTINCT` ordered by a column that was not in its select list.
+ * Postgres refuses that at plan time — 42P10 — so it had **never returned a row
+ * at any school**, and it took `/student/results`, `/parent/results` and the
+ * results panel of every child card on the parent dashboard with it. This gate
+ * reported it green for two and a half years, on line 298, because the function
+ * returned `[]` at its `enrolments.length === 0` guard before Postgres was ever
+ * asked anything.
+ *
+ * So reach is now *measured*, not assumed. `lib/drizzle.ts` exports `getDb()`
+ * and every module under test resolves `db` through the same instance, so
+ * wrapping its builder methods counts what each check asks the database for. A
+ * builder is counted when it is created rather than when it resolves — nothing
+ * in this codebase builds a statement it does not await, and counting at
+ * creation is what makes an early return distinguishable from an empty result.
+ *
+ * ── Not exercised is not a failure here, and that is deliberate ──────────
+ * A nobody-tenant *cannot* reach most of these; that is the point of using one.
+ * Turning them red would say the script is broken when what is true is that it
+ * is narrow. `npm run check-sprint21` is the gate that executes the portal
+ * reads against a tenant and a student that exist, and it fails when a
+ * statement is not reached. This one now says which of its entries it is
+ * entitled to have an opinion about.
+ */
+function countStatements(database: object): () => string[] {
+  const issued: string[] = [];
+
+  const hasToSql = (value: unknown): boolean =>
+    typeof value === 'object' &&
+    value !== null &&
+    typeof (value as { toSQL?: unknown }).toSQL === 'function';
+
+  /**
+   * Follows a Drizzle builder to the point it is awaited, then records its SQL.
+   *
+   * Three facts about Drizzle's builders shape this, and all three were
+   * established by watching it rather than by reading it:
+   *
+   *   · a builder cannot be asked for its SQL when it is created — `db.select()`
+   *     has no `FROM` yet — so the read happens when `then` is fetched, which is
+   *     the last moment before the statement reaches the driver;
+   *   · `.from()` returns a **new** object rather than `this`, so a wrapper that
+   *     only re-wraps its own identity is lost on the first chained call. That
+   *     is why anything with a `toSQL` coming back out is re-wrapped;
+   *   · everything else coming back out is left alone. A builder is thenable, so
+   *     "is it a promise" cannot be used to tell the two apart, and wrapping the
+   *     awaited promise would file one statement twice.
+   */
+  const track = (builder: object): object =>
+    new Proxy(builder, {
+      get(target, property, receiver) {
+        if (property === 'then' && hasToSql(target)) {
+          try {
+            issued.push((target as { toSQL: () => { sql: string } }).toSQL().sql);
+          } catch {
+            issued.push('(toSQL threw)');
+          }
+        }
+
+        const value = Reflect.get(target, property, receiver) as unknown;
+
+        if (typeof value === 'function') {
+          const fn = value as (...args: unknown[]) => unknown;
+          return (...args: unknown[]): unknown => {
+            const result = fn.apply(target, args);
+            return result === target || hasToSql(result)
+              ? track(result as object)
+              : result;
+          };
+        }
+
+        return value;
+      },
+    });
+
+  const methods = [
+    'select',
+    'selectDistinct',
+    'selectDistinctOn',
+    'insert',
+    'update',
+    'delete',
+    'execute',
+  ] as const;
+
+  const target = database as Record<string, unknown>;
+
+  for (const method of methods) {
+    const original = target[method];
+    if (typeof original !== 'function') continue;
+    const fn = original as (...args: unknown[]) => unknown;
+    target[method] = (...args: unknown[]): unknown => {
+      const built = fn.apply(database, args);
+      if (method === 'execute') {
+        issued.push('(execute)');
+        return built;
+      }
+      return typeof built === 'object' && built !== null ? track(built) : built;
+    };
+  }
+
+  return () => [...issued];
+}
+
 async function main(): Promise<void> {
   checkCalendar();
   checkWeeks();
@@ -379,12 +545,40 @@ async function main(): Promise<void> {
   console.log('\nSprint 13 queries against the real schema:');
   loadDatabaseUrl();
 
-  let queryFailures = 0;
+  const { getDb } = await import('../lib/drizzle');
+  const issuedSoFar = countStatements(getDb());
 
-  for (const [name, run] of CHECKS) {
+  let queryFailures = 0;
+  let notExercised = 0;
+  let before = issuedSoFar().length;
+
+  for (const [name, run, reaches] of CHECKS) {
     try {
       const started = Date.now();
       const result = await run();
+      const elapsed = String(Date.now() - started).padStart(5);
+      const all = issuedSoFar();
+      const statements = all.slice(before);
+      before = all.length;
+
+      if (process.env.SHOW_SQL === '1') {
+        for (const statement of statements) console.log(`       · ${statement}`);
+      }
+
+      const missed =
+        statements.length === 0
+          ? 'it returned before issuing a single statement'
+          : reaches !== undefined &&
+              !statements.some((statement) => statement.toLowerCase().includes(reaches))
+            ? `it issued ${String(statements.length)} statement(s), none of them the one containing \`${reaches}\``
+            : null;
+
+      if (missed !== null) {
+        notExercised += 1;
+        console.log(`  --   ${name.padEnd(28)} ${elapsed}ms  NOT EXERCISED — ${missed}`);
+        continue;
+      }
+
       const shape = Array.isArray(result)
         ? `${result.length} row(s)`
         : result === null
@@ -395,24 +589,33 @@ async function main(): Promise<void> {
               ? Object.keys(result as object).join(', ')
               : String(result);
       console.log(
-        `  ok   ${name.padEnd(28)} ${String(Date.now() - started).padStart(5)}ms  ${shape}`,
+        `  ok   ${name.padEnd(28)} ${elapsed}ms  ${String(statements.length).padStart(2)} stmt  ${shape}`,
       );
     } catch (caught) {
+      before = issuedSoFar().length;
       queryFailures += 1;
       console.log(`  FAIL ${name}`);
       console.log(`       ${caught instanceof Error ? caught.message : String(caught)}`);
     }
   }
 
+  const exercised = CHECKS.length - queryFailures - notExercised;
+
+  if (notExercised > 0) {
+    console.log(
+      `\n  ${String(notExercised)} of ${CHECKS.length} entries never reached the statement they exist to exercise. A tenant that\n  owns no row cannot get past their guards, so this gate has no opinion about their SQL and\n  now says so instead of printing ok. \`npm run check-sprint21\` runs the portal reads against\n  a tenant and a student that exist, and there a statement not reached is a failure.`,
+    );
+  }
+
   if (queryFailures > 0) {
     console.log(`\nFAIL — ${queryFailures} of ${CHECKS.length} queries could not execute.`);
   } else if (pureFailures > 0) {
     console.log(
-      `\nFAIL — every query executed, but ${pureFailures} assertion(s) about the calendar, the week snapping or the principal scope did not hold.`,
+      `\nFAIL — every query that ran executed, but ${pureFailures} assertion(s) about the calendar, the week snapping or the principal scope did not hold.`,
     );
   } else {
     console.log(
-      `\nPASS — ${CHECKS.length} queries executed against the real schema, and the calendar, week snapping and principal scope all hold.`,
+      `\nPASS — ${exercised} of ${CHECKS.length} queries reached the database and executed, and the calendar, week snapping and principal scope all hold.`,
     );
   }
 

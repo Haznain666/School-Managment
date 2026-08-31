@@ -103,6 +103,89 @@ async function childNamesFor(
 }
 
 /**
+ * Whether this guardian can be given an account at all, in the school's words.
+ *
+ * Two reads and no writes, lifted out of `provisionGuardianPortalAccess` below
+ * so that `npm run check-sprint21` can execute both against the real schema.
+ * The upsert they guard cannot be executed by a check script — it writes — and
+ * a guard that only runs on the path nobody dares run in a test is a guard
+ * nobody has ever run.
+ *
+ * Returns the refusal, or null when there is nothing in the way.
+ */
+export async function portalAccountBlocker(
+  locationId: string,
+  guardianName: string,
+  phone: string,
+  email: string,
+): Promise<{ reason: string; occupantId: string | null } | null> {
+  /*
+   * ── The conflicting row, resolved before the upsert causes it ────────────
+   *
+   * The upsert lands on whatever row already holds this number at this school,
+   * and for one school year that row was sometimes **the child's**. Until
+   * `lib/enrollment.ts`'s sentinel shipped, a student's directory row borrowed
+   * the primary guardian's mobile; provisioning then wrote the father's email
+   * onto his own daughter's row and the guardian link followed it there. He
+   * accepted the invite, GoTrue bound his uid to a row whose role is `student`,
+   * and — because `school_users_location_id_auth_user_id_idx` is unique per
+   * school — his uid could never afterwards sit on his own `parent` row. He was
+   * permanently in the student portal, looking at one of his five children as
+   * if he were her.
+   *
+   * The sentinel stops new rows being made that way. It does nothing for the
+   * ones already there, and until this read nothing stopped the upsert landing
+   * on them again.
+   */
+  const conflicting = await db
+    .select({ id: schoolUsers.id, role: schoolUsers.role, name: schoolUsers.name })
+    .from(schoolUsers)
+    .where(and(eq(schoolUsers.locationId, locationId), eq(schoolUsers.phone, phone)))
+    .limit(1);
+
+  const occupant = conflicting[0] ?? null;
+
+  if (occupant !== null && occupant.role === 'student') {
+    return {
+      occupantId: occupant.id,
+      reason: `${phone} is already recorded as the directory number for the student ${occupant.name}, so opening a parent account on it would hand ${guardianName} that child’s login. Correct the number on one of the two records, then send the invite again.`,
+    };
+  }
+
+  /*
+   * ── And the address, which `0038` makes a hard constraint ────────────────
+   *
+   * One email is one person. `school_users` had no unique index on
+   * `(location_id, lower(email))` until `0038`, so two active memberships of
+   * one school could carry one address and every sign-in path then resolved the
+   * person arbitrarily. `0038` closes it, which means this upsert can newly
+   * raise `23505` — and a school must never meet a SQLSTATE. It meets this
+   * instead, which names the other person and says what to do.
+   */
+  const sameAddress = await db
+    .select({ id: schoolUsers.id, name: schoolUsers.name })
+    .from(schoolUsers)
+    .where(
+      and(
+        eq(schoolUsers.locationId, locationId),
+        eq(schoolUsers.isActive, true),
+        sql`lower(${schoolUsers.email}) = lower(${email})`,
+      ),
+    );
+
+  const otherHolder = sameAddress.find((row) => row.id !== occupant?.id);
+
+  if (otherHolder !== undefined) {
+    return {
+      occupantId: occupant?.id ?? null,
+      reason: `${email} already belongs to ${otherHolder.name} at this school, and one address can open only one account. Give ${guardianName} an address of their own, or correct whichever of the two records has the wrong one.`,
+    };
+  }
+
+  return null;
+}
+
+/**
  * Gives one guardian a portal account and queues their welcome.
  *
  * Idempotent in both halves. An existing `school_users` row on the same phone
@@ -174,6 +257,24 @@ export async function provisionGuardianPortalAccess(input: {
       schoolUserId: guardian.schoolUserId,
       emailQueued: false,
       reason: 'This school record is unavailable.',
+    };
+  }
+
+  /*
+   * The two refusals that must happen before the upsert, not after it.
+   *
+   * They live in `portalAccountBlocker` above rather than here because a check
+   * script can execute a read and cannot execute this upsert, and a guard that
+   * only runs on a path nobody dares run in a test is a guard nobody has run.
+   */
+  const blocker = await portalAccountBlocker(locationId, guardian.name, guardian.phone, email);
+  if (blocker !== null) {
+    return {
+      guardianId: guardian.id,
+      guardianName: guardian.name,
+      schoolUserId: guardian.schoolUserId,
+      emailQueued: false,
+      reason: blocker.reason,
     };
   }
 
