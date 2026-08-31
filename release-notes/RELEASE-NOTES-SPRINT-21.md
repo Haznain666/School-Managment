@@ -106,14 +106,72 @@ and on a family fee voucher.
 national ID number for a real person, which is the school's to do and nobody
 else's. It is recorded in the deployment notes so it is not lost.
 
+## The second round, after QA
+
+The repair was driven against the live database before this shipped, and it
+turned up six further problems — none of them in the fix itself, all of them on
+paths that the new "one address, one person" rule newly constrains and that
+nobody had looked at.
+
+**The most important was in this release's own new code, and it would have hurt
+exactly the families it was written for.** Opening a parent account refused any
+address that was already in use at the school. Two entirely ordinary situations
+run into that:
+
+* **a mother and a father who share one email address**, which is common. The
+  second of them got no account at all;
+* **one parent recorded against two children under two different phone
+  numbers.** The second child was refused — and the refusal happened *before*
+  the parent was linked to that child, so the child disappeared from their own
+  parent's portal, silently.
+
+That is the very complaint this release opened with, wearing a different hat.
+
+An address already in use now **joins the existing account** rather than being
+turned away. One inbox is one login, so a father with two numbers on file sees
+every one of his children under a single sign-in, and a household sharing an
+inbox reaches the same portal. A **student's** address is still refused, and
+always will be — that is the whole point of the release.
+
+The remaining five were the platform showing "Something went wrong" where it
+should have shown a sentence:
+
+* **switching a former member back on** could fail outright, from either the
+  school's own screen or the platform panel, if their address had been given to
+  somebody else while they were switched off. It now says who has it;
+* **adding a member** reported an address already in use as *a phone number*
+  already in use — about a number nobody held, so there was nothing on the form
+  to correct;
+* **accepting an invitation** could fail in front of the invited person, who is
+  outside the school and has nobody to ask;
+* **requesting a sign-in code** could quietly decline to send one — to an
+  address recorded with capital letters, or to somebody sharing an address with
+  a former member. Nothing on screen would ever have said so, because the reply
+  is deliberately the same whether a code was sent or not.
+
+That last one is the one to know about. This release leaves exactly one person
+— the parent whose account it unlocked — for whom the emailed code is the only
+way back in.
+
 ## Not yet driven at a school
 
-Everything above passes twelve automated checks, including a new one that
-executes every query in this release against the real database with real
-records — which is precisely the check that was missing when the results page
-shipped broken. **No screen in this release has yet been opened by a person**,
-and the parent-portal outcome cannot be confirmed until `0038` is applied.
+Everything above passes sixteen automated checks, including a new one that
+executes every query and every guard in this release against the real database
+with real records — which is precisely the check that was missing when the
+results page shipped broken.
 
-The one acceptance test that settles it: sign in at LGS with the father's own
-address, using the emailed code, and land in the **parent** portal with five
-children listed, each showing attendance and results.
+The database repair **is applied and verified**: the child's record has its own
+identity back, the father's account is free, and all five of his children are
+attached to it. The school's own administrative screens were driven in a
+browser and are correct.
+
+**The parent portal itself has not been opened by a person, and could not be.**
+Unlocking that account is what frees it, and the only way back into it is a
+six-digit code sent to the parent's own mailbox — which is not something anyone
+but the parent should be handling.
+
+So the one acceptance test that settles it is yours: sign in at LGS with the
+father's own address, choosing **the emailed code rather than the saved
+password**, and land in the **parent** portal with five children listed, each
+showing attendance and results. The old password will not work until that is
+done once; that is the unlocking, not a fault.
