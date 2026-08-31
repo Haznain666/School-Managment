@@ -4,7 +4,60 @@
 resume without re-deriving context. Updated at the end of every development
 step, before the session ends.
 
-**Last updated:** 2026-08-31 (**Sprint 21 — one email is one person, and the
+**Last updated:** 2026-09-01 (**Sprint 22 — one person, one record — §5bl. A
+member of staff could exist twice in this product and the two halves never met:
+`staff.school_user_id` has existed since Sprint 7, is indexed, and **no screen
+ever set it**. `listUnlinkedSchoolUsers`, written "for the link picker", was
+called by nothing. The cost is exact — `timetable_entries.teacher_id` points at
+`school_users`, `sections.class_teacher_id` points at `staff`, so a teacher
+invited from one screen can be timetabled and never made a class teacher, and a
+teacher added from the other gets the reverse.
+
+✅ **DEPLOYED, LIVE, AND THERE IS NO MIGRATION.** `0039` is still free; nothing
+to apply, nothing to sequence with the deploy. PR
+[#52](https://github.com/Haznain666/School-Managment/pull/52) merged 19:30:40Z,
+live 19:35:51Z as `8104e9855961` — **5m11s**, CDN purge confirmed HTTP 200 with
+the edge serving fresh on every check. The live schema was verified rather than
+assumed: `staff.school_user_id` is `uuid`/NULLABLE with `ON DELETE SET NULL`
+(`confdeltype = n`), `staff_school_user_id_idx` is present, and the bookkeeping
+table still ends at **39 rows, `0038`**.
+
+⚠ **One deploy check failed and is reported rather than omitted:** the run at
+19:32 got HTTP 000 on all four smoke assertions — the app restarting mid-deploy,
+a transport failure, not a status. It recovered inside the same window and the
+next run was clean.
+
+✅ **QA was driven in a browser and found two defects, both fixed and
+re-verified, both in the reconciliation surface this sprint added.** The worse
+one: `POST /api/school/hr/staff` refused a blank surname, but `splitPersonName`
+leaves it blank *on purpose* for a one-word name — so a member called
+"Sikandar" was badged *No employment record* and then **refused by the very
+button that badge points at**, naming two fields the screen does not show, while
+`/api/school/invitations` filed the identical split without complaint. The two
+halves of this sprint disagreed about the same person. The second: the Portal
+access filter computed "Has a login" as the complement of an *active-only*
+predicate, so a resigned unlinked record was listed as having one.
+
+✅ **The §6 fix landed and was proved by clicking**: inviting somebody on a
+colleague's address returns a 409 naming the *address*, the phone sentence never
+appears, and a genuinely taken phone still gets the phone sentence. The
+partial-failure ordering holds in **both** directions — the record that is the
+point of the screen survives and the form says the other half did not. Tenancy
+was attacked from both schools on every new route and refused every time.
+
+⚠ **Criterion 9, the permission split, is NOT exercised and cannot be by
+default** — no default role holds `hr.write` without `users.write` or the
+reverse. Every new route calls `hasPermission` for the crossing key server-side;
+nobody has run it as a restricted role.
+
+⚠ **The in-app Browser pane would not navigate** (300s timeout while the server
+logged `200`). Fourth costume, same harness fault. Playwright drove the run.
+
+Everything created was removed and the removal read back: `staff` back to one
+row platform-wide, LGS to 13 users, residue zero. Twelve gates green including
+`npm run build` and **`check-sprint22` (17 ok, 0 not exercised)**.
+`test-cases/TEST-CASES-SPRINT-22.md`.**);
+2026-08-31 (**Sprint 21 — one email is one person, and the
 results page that never rendered — §5bk. Two defects, both reported by the user
 in one screenshot, both diagnosed by *executing* the real queries against the
 live schema rather than by reading code.
@@ -11012,3 +11065,67 @@ and `npm run build`.
   and dropping it is a migration somebody should schedule.
 
 ### Next free migration number is still `0039`.
+
+### QA — driven in a browser at LGS, 2026-09-01
+
+`test-cases/TEST-CASES-SPRINT-22.md`, 23 cases. **Twenty passed, two failed and
+both were fixed and re-verified, one was not exercised.** Both failures were in
+the reconciliation surface this sprint added — nothing in the core contract
+broke.
+
+**1. "Add an employment record" was a dead end for one-word names.**
+`POST /api/school/hr/staff` refused `lastName === ''`, but `splitPersonName`
+leaves the surname blank *on purpose* for a one-word name, and a great many
+people in Pakistan are recorded under one. So a member called "Sikandar" was
+badged *No employment record* and then refused by the very button that badge
+points at, with a sentence naming two fields the screen does not show — while
+`POST /api/school/invitations` inserted the identical split and never had the
+guard. **The two halves of this sprint disagreed about the same person.** The
+route now refuses only a blank `firstName`; `StaffManager` still asks a clerk
+typing a record from scratch for both.
+
+**2. "Has a login" listed staff with no login.** The filter computed `'linked'`
+as the boolean complement of an *active-only* predicate, so a resigned unlinked
+record fell through into it. The two filters are answered independently now and
+a record that is neither returns `null`, which `matchesFilter` treats as
+matching nothing (`components/ui/DataTable.tsx:341`).
+
+**What was proved by clicking**, at LGS on a local `next dev` entered through
+Super Admin → Login as Admin: "No login needed" fires exactly one request and
+sets nothing; "Create a login" produces both rows joined; Invite with the box on
+produces both, with the employee code pre-filled from `next-code`; link and
+unlink move the column and both badges on both screens; **the §6 fix landed** —
+inviting on a colleague's address returns a 409 naming the *address*, and the
+phone sentence never appears, while a genuinely taken phone still gets the phone
+sentence; and the partial-failure ordering holds **in both directions**, with the
+first record surviving and the form saying so. Tenancy was attacked from both
+schools on every new route and refused every time. No JS errors and no 5xx
+across the whole run.
+
+⚠ **The permission split (criterion 9) is NOT exercised, and cannot be by
+default.** No default role holds `hr.write` without `users.write` or the
+reverse — `school_admin` and `hr_manager` hold both — so reaching it needs a
+per-school override. What was verified is that all four keys already exist, that
+every new route calls `hasPermission` for the crossing key **server-side**, and
+that all four pages read their flags from the same array. The wiring is right;
+nobody has run it as a restricted role.
+
+⚠ **The happy path never says the mail was queued.** All three forms speak only
+when it was *not*. That matches `InviteForm`'s existing behaviour, which §1 of
+the spec names as the model, so it is read as deliberate — but acceptance
+criterion 2 is met negatively and it is a product decision, not a fix.
+
+**Everything created was removed and the removal read back.** `staff` is back to
+one row platform-wide (`QA14-T1`, active, unlinked), LGS back to 13 users,
+`email_outbox` cleared of the test address, residue query all zeroes.
+`.env.local` restored byte-identical — the QA `SUPER_ADMIN_PASSWORD_HASH_B64`
+line is gone.
+
+⚠ **The in-app Browser pane would not navigate** — `navigate` timed out at 300s
+while the dev server answered `GET /super-admin 200` in its own log. That is the
+harness wearing its fourth costume, **not** the product. Playwright drove the
+whole run instead. Use Playwright here.
+
+⚠ **A trap worth one line:** appending the QA hash to `.env.local` with `cat >>`
+glued it onto `SMTP_PORT=465` because the file has no trailing newline, and the
+only symptom was "Incorrect email or password." Use `printf '\n%s\n'`.

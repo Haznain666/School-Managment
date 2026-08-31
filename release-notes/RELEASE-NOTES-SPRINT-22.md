@@ -115,3 +115,32 @@ Creating a login from HR needs permission to manage **users** as well as **HR**;
 adding an employment record from the invite screen needs permission to manage
 **HR** as well as **users**. If you hold only one of the two, the other section
 simply is not there — not greyed out and unexplained.
+
+## Two things QA caught before this reached you
+
+**A member of staff with only one name could not be given an employment
+record.** The *Add an employment record* button on their profile refused to
+save, asking for a first *and* last name — two fields that screen does not even
+show. A great many people are recorded under a single name, and the same person
+could be filed without complaint from the other screen, which made it look
+arbitrary. It saves now, and the surname is simply left blank rather than filled
+with a placeholder that would read like a real one.
+
+**The staff list's "Has a login" filter listed people who had none.** Anyone who
+had left the school and never had a login was being counted as having one. Both
+halves of that filter are now exact: *Unlinked* shows current staff with no
+login, *Has a login* shows only those who have one, and a resigned record with
+no login appears in neither.
+
+## What is not covered yet
+
+**On the happy path, none of the three forms tells you the password-setup email
+was sent.** They speak only when it could *not* be sent, which is the same way
+the invite screen has always behaved. Nothing is lost — the email goes, and
+*Send access email* on the person's profile will send it again — but if you want
+positive confirmation on screen, say so and it is a small change.
+
+**There is no bulk "link everybody by matching email address".** The two filters
+find the split records and you link them one at a time. That is deliberate:
+matching people by address is precisely what caused last sprint's problem, and a
+wrong link here would put somebody on another person's payroll record.
