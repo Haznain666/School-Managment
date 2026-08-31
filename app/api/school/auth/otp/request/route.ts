@@ -1,7 +1,5 @@
-import { and, eq } from 'drizzle-orm';
 import type { NextRequest } from 'next/server';
 
-import { schoolUsers } from '@/db/schema';
 import { apiFailure, apiSuccess, handleApiError, readJsonBody } from '@/lib/api-response';
 import {
   checkThrottle,
@@ -9,8 +7,8 @@ import {
   recordAttempt,
   throttledResponse,
 } from '@/lib/auth-throttle';
-import { db } from '@/lib/drizzle';
 import { SCHOOL_LOCATION_HEADER } from '@/lib/school-context';
+import { activeMembershipsByEmail } from '@/lib/school-queries';
 import { normaliseEmail, sendEmailOtp } from '@/lib/supabase-auth';
 
 /**
@@ -79,15 +77,34 @@ export async function POST(request: NextRequest) {
 
     await recordAttempt('otp_request', email, ipHash, true);
 
-    const rows = await db
-      .select({ isActive: schoolUsers.isActive })
-      .from(schoolUsers)
-      .where(and(eq(schoolUsers.locationId, locationId), eq(schoolUsers.email, email)))
-      .limit(1);
+    /*
+     * Case-insensitive, active-only, and through the one function that decides
+     * what "this address is a member here" means.
+     *
+     * It used to be `eq(email, email)` with an unordered `limit(1)` and the
+     * active flag read afterwards, and both halves were wrong in the same
+     * direction — they could answer "not a member" about somebody who is one,
+     * silently, because the answer to a code request is deliberately identical
+     * either way and nothing on screen would ever say a code had not been sent.
+     *
+     *   · **Case.** `0038`'s index is on `lower(email)` and every other read in
+     *     the sign-in path was moved to match it. This one was not, so a row
+     *     stored as `Father@Example.com` could be bound by `otp/verify` and
+     *     never sent a code to bind with. Nothing lower-cases addresses on the
+     *     way in — not the users route, not invitations, not provisioning,
+     *     which copies `student_guardians.email` verbatim.
+     *   · **The unordered limit(1).** The index permits an inactive row and an
+     *     active row to share an address, on purpose, so a leaver could be the
+     *     one row this read returned and the request would fall silent for the
+     *     colleague who now holds it.
+     *
+     * Sprint 21 left one person — the parent whose account `0038` unbound — for
+     * whom the emailed code is the *only* way back in. A lookup that can quietly
+     * decline to send it is the last thing that should be approximate.
+     */
+    const members = await activeMembershipsByEmail(locationId, email);
 
-    const member = rows[0];
-
-    if (member !== undefined && member.isActive) {
+    if (members.length > 0) {
       await sendEmailOtp(email, true);
     }
 

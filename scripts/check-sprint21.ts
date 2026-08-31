@@ -213,7 +213,7 @@ async function main(): Promise<void> {
   );
   const { getChildSnapshot } = await import('../lib/portal-dashboard');
   const { portalAccountBlocker } = await import('../lib/parent-portal-access');
-  const { activeMembershipsByEmail, getSchoolUserByUid } = await import(
+  const { activeMembershipsByEmail, getSchoolUserByUid, isEmailIndexConflict } = await import(
     '../lib/school-queries'
   );
   const { linkableAccountsByPhone } = await import('../lib/enrollment');
@@ -369,6 +369,102 @@ async function main(): Promise<void> {
     );
 
     /*
+     * ── The QA pass, second round: an address in use must ADOPT, not refuse ──
+     *
+     * The first version of the blocker returned a refusal for any address
+     * already held, and QA found what that costs a real school. Two parents
+     * sharing one household inbox — ordinary on a Pakistani roll — meant the
+     * second got no account at all. Worse, one parent recorded on two children
+     * with two different numbers was refused on the second child, and the
+     * refusal returned *before* the guardian link was written, so that child's
+     * `school_user_id` stayed NULL and they vanished from their own parent's
+     * portal. That is this sprint's opening symptom in a quieter costume.
+     *
+     * So: handed an address a live non-student account already holds, the
+     * answer must be `adopt` and must name that account.
+     */
+    const heldAddress = rows<{ locationId: string; id: string; name: string; email: string }>(
+      await db.execute(sql`
+        select location_id as "locationId", id, name, email
+          from school_users
+         where role <> 'student' and is_active
+           and email is not null and email <> ''
+         order by created_at, id
+         limit 1`),
+    )[0];
+
+    if (heldAddress === undefined) {
+      notExercised(
+        'portalAccountBlocker adopts',
+        'no active non-student row anywhere holds an email address, so the adoption path cannot be reached.',
+      );
+    } else {
+      // A number nobody holds, so the phone half cannot answer first and the
+      // address half is the one under test.
+      const freePhone = `+9200000${Date.now().toString().slice(-6)}`;
+      const verdict = await portalAccountBlocker(
+        heldAddress.locationId,
+        'A second guardian in the same household',
+        freePhone,
+        heldAddress.email,
+      );
+
+      assert(
+        'portalAccountBlocker adopts an address a live account already holds',
+        verdict?.kind === 'adopt' && verdict.accountId === heldAddress.id,
+        verdict === null
+          ? 'it answered null, so the guardian would get a second account on one inbox and 0038 would refuse the insert with 23505.'
+          : verdict.kind === 'refuse'
+            ? `it refused: "${verdict.reason}" — a household sharing one inbox, or one parent on two numbers, is turned away and a child can disappear from the portal.`
+            : `it adopted ${verdict.accountId}, not ${heldAddress.id}.`,
+      );
+
+      // And the case-insensitivity the index has, which the adoption must share.
+      const shouty = await portalAccountBlocker(
+        heldAddress.locationId,
+        'A second guardian in the same household',
+        freePhone,
+        heldAddress.email.toUpperCase(),
+      );
+
+      assert(
+        'and it adopts case-insensitively, exactly as the index matches',
+        shouty?.kind === 'adopt' && shouty.accountId === heldAddress.id,
+        'an address differing only in case would open a second account the index then refuses.',
+      );
+    }
+
+    /*
+     * A student's row remains a refusal, and that is not negotiable. Adopting
+     * one would hand a parent their own child's login, which is the defect
+     * Sprint 21 exists to close.
+     */
+    const studentWithAddress = rows<{ locationId: string; email: string }>(
+      await db.execute(sql`
+        select location_id as "locationId", email from school_users
+         where role = 'student' and is_active and email is not null and email <> ''
+         limit 1`),
+    )[0];
+
+    if (studentWithAddress === undefined) {
+      console.log(
+        '  --    no active student row holds an email address, so the student refusal has nothing to refuse. 0038 cleared them; this stays as the alarm if one returns.',
+      );
+    } else {
+      const verdict = await portalAccountBlocker(
+        studentWithAddress.locationId,
+        'A guardian',
+        `+9200000${Date.now().toString().slice(-6)}`,
+        studentWithAddress.email,
+      );
+      assert(
+        'portalAccountBlocker still refuses a student’s address',
+        verdict?.kind === 'refuse',
+        'it would hand a parent their own child’s login.',
+      );
+    }
+
+    /*
      * An empty answer is a legitimate result here — a guardian's number may
      * belong to nobody with a login — so no row count can prove this one ran.
      * Its only early return is `phones.length === 0`, and it is handed one
@@ -453,6 +549,65 @@ async function main(): Promise<void> {
       () => activeMembershipsByEmail(member.locationId, member.email.toUpperCase()),
       (found) => found.length > 0,
       'the upper-cased address found nothing, so the read and the unique index disagree about who holds it.',
+    );
+  }
+
+  /* ---------------------------------------------------------------------
+   * The predicate four write routes stake a 500 on.
+   *
+   * `isEmailIndexConflict` is what stands between an administrator and
+   * "Something went wrong" on four ordinary paths — creating a member,
+   * reactivating one from either panel, and accepting an invitation. If it
+   * answers false for the real error, every one of them rethrows and the
+   * defect is exactly where it was.
+   *
+   * It cannot be settled by reading it. The SQLSTATE is on the error's `cause`
+   * and not on the error — postgres-js raises it, Drizzle wraps it — which is
+   * the trap `check-sprint20` records, and the reason a predicate written
+   * against the surface would look right and be wrong. So a real collision is
+   * provoked, inside a transaction that is rolled back.
+   * ------------------------------------------------------------------ */
+
+  console.log('\nThe predicate four write routes stake a 500 on:');
+
+  const twoActive = rows<{ locationId: string; id: string; email: string }>(
+    await db.execute(sql`
+      select location_id as "locationId", id, email from school_users
+       where is_active and email is not null and email <> ''
+       order by created_at, id
+       limit 2`),
+  );
+
+  if (twoActive.length < 2) {
+    notExercised(
+      'isEmailIndexConflict',
+      'this database has fewer than two active rows carrying an address, so no collision can be provoked.',
+    );
+  } else {
+    let seen: unknown = null;
+
+    try {
+      await db.transaction(async (tx) => {
+        await tx.execute(
+          sql`update school_users set email = ${twoActive[0]!.email}
+               where id = ${twoActive[1]!.id}`,
+        );
+        throw new Error('the index did not refuse a duplicate address');
+      });
+    } catch (error) {
+      seen = error;
+    }
+
+    assert(
+      'isEmailIndexConflict recognises the real 23505, dug out of the cause chain',
+      isEmailIndexConflict(seen),
+      'it answered false, so every route that catches it rethrows and the school meets "Something went wrong" instead of a sentence naming the other holder.',
+    );
+
+    assert(
+      'and it does not claim every failure as its own',
+      !isEmailIndexConflict(new Error('nothing to do with any index')),
+      'a predicate that answered true for everything would report a phone collision, and every unrelated fault, as an address clash.',
     );
   }
 

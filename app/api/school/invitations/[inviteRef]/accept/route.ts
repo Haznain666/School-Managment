@@ -1,14 +1,20 @@
-import { and, eq } from 'drizzle-orm';
-import type { NextRequest } from 'next/server';
+import { and, eq } from "drizzle-orm";
+import type { NextRequest } from "next/server";
 
-import { schoolInvitations, schoolUsers, schools } from '@/db/schema';
-import { apiFailure, apiSuccess, handleApiError, readJsonBody } from '@/lib/api-response';
-import { db } from '@/lib/drizzle';
-import { getOrCreateAuthUser, mintSessionForEmail } from '@/lib/supabase-auth';
-import { verifyOTPSession } from '@/lib/otp';
-import { InvalidPhoneError, normalizePhone } from '@/lib/phone';
-import { readString } from '@/lib/validation';
-import { isUserRole } from '@/types/school-auth';
+import { schoolInvitations, schoolUsers, schools } from "@/db/schema";
+import {
+  apiFailure,
+  apiSuccess,
+  handleApiError,
+  readJsonBody,
+} from "@/lib/api-response";
+import { db } from "@/lib/drizzle";
+import { emailHolderAt, isEmailIndexConflict } from "@/lib/school-queries";
+import { getOrCreateAuthUser, mintSessionForEmail } from "@/lib/supabase-auth";
+import { verifyOTPSession } from "@/lib/otp";
+import { InvalidPhoneError, normalizePhone } from "@/lib/phone";
+import { readString } from "@/lib/validation";
+import { isUserRole } from "@/types/school-auth";
 
 /**
  * POST /api/school/invitations/[inviteRef]/accept
@@ -25,8 +31,8 @@ import { isUserRole } from '@/types/school-auth';
  * secret token; resend and cancel read it as the invitation's id.
  */
 
-export const runtime = 'nodejs';
-export const dynamic = 'force-dynamic';
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 
 type RouteContext = { params: Promise<{ inviteRef: string }> };
 
@@ -41,13 +47,13 @@ export async function POST(request: NextRequest, context: RouteContext) {
 
     const body = await readJsonBody<AcceptBody>(request);
     const name = readString(body?.name);
-    const otp = typeof body?.otp === 'string' ? body.otp.trim() : '';
+    const otp = typeof body?.otp === "string" ? body.otp.trim() : "";
 
-    if (name === '') {
-      return apiFailure('invalid_body', 'Enter your full name.', 400);
+    if (name === "") {
+      return apiFailure("invalid_body", "Enter your full name.", 400);
     }
-    if (otp === '') {
-      return apiFailure('invalid_body', 'Enter the code we emailed you.', 400);
+    if (otp === "") {
+      return apiFailure("invalid_body", "Enter the code we emailed you.", 400);
     }
 
     const rows = await db
@@ -58,24 +64,32 @@ export async function POST(request: NextRequest, context: RouteContext) {
 
     const invitation = rows[0];
     if (invitation === undefined) {
-      return apiFailure('invalid_invite', 'Invalid or expired invite link.', 404);
+      return apiFailure(
+        "invalid_invite",
+        "Invalid or expired invite link.",
+        404,
+      );
     }
     if (invitation.acceptedAt !== null) {
       return apiFailure(
-        'already_used',
-        'This invite was already used. Try logging in.',
+        "already_used",
+        "This invite was already used. Try logging in.",
         409,
       );
     }
     if (invitation.expiresAt.getTime() < Date.now()) {
       return apiFailure(
-        'expired',
-        'This invite has expired. Ask your admin to resend.',
+        "expired",
+        "This invite has expired. Ask your admin to resend.",
         410,
       );
     }
     if (!isUserRole(invitation.role)) {
-      return apiFailure('invalid_invite', 'This invite is no longer valid.', 409);
+      return apiFailure(
+        "invalid_invite",
+        "This invite is no longer valid.",
+        409,
+      );
     }
 
     let phone: string;
@@ -84,8 +98,8 @@ export async function POST(request: NextRequest, context: RouteContext) {
     } catch (error) {
       if (error instanceof InvalidPhoneError) {
         return apiFailure(
-          'invalid_phone',
-          'The phone number on this invitation is not valid. Ask your admin to resend it.',
+          "invalid_phone",
+          "The phone number on this invitation is not valid. Ask your admin to resend it.",
           409,
         );
       }
@@ -96,18 +110,22 @@ export async function POST(request: NextRequest, context: RouteContext) {
       locationId: invitation.locationId,
       phone,
       otp,
-      purpose: 'invite_acceptance',
+      purpose: "invite_acceptance",
       inviteToken: inviteRef,
     });
 
-    if (verdict === 'expired') {
-      return apiFailure('otp_expired', 'OTP expired. Request a new one.', 410);
+    if (verdict === "expired") {
+      return apiFailure("otp_expired", "OTP expired. Request a new one.", 410);
     }
-    if (verdict === 'max_attempts') {
-      return apiFailure('otp_max_attempts', 'Too many attempts. Request a new OTP.', 429);
+    if (verdict === "max_attempts") {
+      return apiFailure(
+        "otp_max_attempts",
+        "Too many attempts. Request a new OTP.",
+        429,
+      );
     }
-    if (verdict === 'invalid') {
-      return apiFailure('otp_invalid', 'Incorrect OTP. Try again.', 401);
+    if (verdict === "invalid") {
+      return apiFailure("otp_invalid", "Incorrect OTP. Try again.", 401);
     }
 
     const schoolRows = await db
@@ -118,7 +136,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
 
     const school = schoolRows[0];
     if (school === undefined) {
-      return apiFailure('no_school', 'This school portal is unavailable.', 404);
+      return apiFailure("no_school", "This school portal is unavailable.", 404);
     }
 
     // ── Why the account comes first, and what it no longer carries ────────
@@ -131,10 +149,10 @@ export async function POST(request: NextRequest, context: RouteContext) {
     //
     // The address is the identity, so an invitation without one cannot be
     // accepted; the invite routes require it.
-    if (invitation.email === null || invitation.email === '') {
+    if (invitation.email === null || invitation.email === "") {
       return apiFailure(
-        'no_email',
-        'This invitation has no email address. Ask for a new one.',
+        "no_email",
+        "This invitation has no email address. Ask for a new one.",
         409,
       );
     }
@@ -144,35 +162,86 @@ export async function POST(request: NextRequest, context: RouteContext) {
 
     const now = new Date();
 
+    /*
+     * The address may have been taken since the invitation went out.
+     *
+     * The upsert below targets `(location_id, phone)`, so `0038`'s address
+     * index is not merged into — it is *raised*. Unhandled, the person meeting
+     * the 500 is the **invitee**: somebody outside the school, clicking a link
+     * they were sent, who can do nothing about it and has nobody to ask. So the
+     * collision is caught here and answered in words they can forward to the
+     * school, and the invitation is left unaccepted rather than half-applied.
+     *
+     * Checked before the write as well as after it. Between an invitation being
+     * created and being clicked there can be days, and the read is what makes
+     * the ordinary case a sentence rather than a caught exception.
+     */
+    // The row the upsert would merge into, if there is one. It holds this
+    // phone at this school, and it is allowed to hold this address too — that
+    // is the same person accepting, not a collision.
+    const phoneHolder = await db
+      .select({ id: schoolUsers.id })
+      .from(schoolUsers)
+      .where(
+        and(
+          eq(schoolUsers.locationId, invitation.locationId),
+          eq(schoolUsers.phone, phone),
+        ),
+      )
+      .limit(1);
+
+    const addressTaken = await emailHolderAt(
+      invitation.locationId,
+      invitation.email,
+      phoneHolder[0]?.id,
+    );
+
+    if (addressTaken !== null) {
+      return apiFailure(
+        "already_exists",
+        `${invitation.email} is already in use at this school, so this invitation cannot be accepted. Ask the school office to send a new one to a different address.`,
+        409,
+      );
+    }
+
     // Upsert rather than update: creating an invitation does not create the
     // member row, but someone added directly and then invited already has one.
-    await db
-      .insert(schoolUsers)
-      .values({
-        locationId: invitation.locationId,
-        authUserId: uid,
-        email: invitation.email,
-        phone,
-        name,
-        role: invitation.role,
-        branchId: invitation.branchId,
-        invitedByUid: invitation.invitedByUid,
-        invitedAt: invitation.createdAt,
-        joinedAt: now,
-        updatedAt: now,
-      })
-      .onConflictDoUpdate({
-        target: [schoolUsers.locationId, schoolUsers.phone],
-        set: {
+    try {
+      await db
+        .insert(schoolUsers)
+        .values({
+          locationId: invitation.locationId,
           authUserId: uid,
+          email: invitation.email,
+          phone,
           name,
           role: invitation.role,
           branchId: invitation.branchId,
+          invitedByUid: invitation.invitedByUid,
+          invitedAt: invitation.createdAt,
           joinedAt: now,
-          isActive: true,
           updatedAt: now,
-        },
-      });
+        })
+        .onConflictDoUpdate({
+          target: [schoolUsers.locationId, schoolUsers.phone],
+          set: {
+            authUserId: uid,
+            name,
+            role: invitation.role,
+            branchId: invitation.branchId,
+            joinedAt: now,
+            isActive: true,
+            updatedAt: now,
+          },
+        });
+    } catch (error) {
+      if (!isEmailIndexConflict(error)) throw error;
+      return apiFailure(
+        "already_exists",
+        `${invitation.email} is already in use at this school, so this invitation cannot be accepted. Ask the school office to send a new one to a different address.`,
+        409,
+      );
+    }
 
     await db
       .update(schoolInvitations)

@@ -1,14 +1,23 @@
-import { and, eq } from 'drizzle-orm';
-import type { NextRequest } from 'next/server';
+import { and, eq } from "drizzle-orm";
+import type { NextRequest } from "next/server";
 
-import { schoolUsers } from '@/db/schema';
-import { apiFailure, apiSuccess, handleApiError, readJsonBody } from '@/lib/api-response';
-import { db } from '@/lib/drizzle';
-import { deleteSchoolMember } from '@/lib/school-queries';
-import { resolveLocationId } from '@/lib/schools';
-import { requireSuperAdmin } from '@/lib/super-admin-guard';
-import { referencedExplanation } from '@/lib/user-deletion';
-import { isUuid } from '@/lib/validation';
+import { schoolUsers } from "@/db/schema";
+import {
+  apiFailure,
+  apiSuccess,
+  handleApiError,
+  readJsonBody,
+} from "@/lib/api-response";
+import { db } from "@/lib/drizzle";
+import {
+  deleteSchoolMember,
+  emailHolderAt,
+  isEmailIndexConflict,
+} from "@/lib/school-queries";
+import { resolveLocationId } from "@/lib/schools";
+import { requireSuperAdmin } from "@/lib/super-admin-guard";
+import { referencedExplanation } from "@/lib/user-deletion";
+import { isUuid } from "@/lib/validation";
 
 /**
  * /api/super-admin/schools/[schoolId]/users/[userId]
@@ -38,8 +47,8 @@ import { isUuid } from '@/lib/validation';
  * for the same reason must not explain it two different ways.
  */
 
-export const runtime = 'nodejs';
-export const dynamic = 'force-dynamic';
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 
 type RouteContext = { params: Promise<{ schoolId: string; userId: string }> };
 
@@ -59,11 +68,16 @@ async function resolveMember(schoolId: string, userId: string) {
     .select({
       id: schoolUsers.id,
       name: schoolUsers.name,
+      // Selected for the reactivation refusal below, which has to name the
+      // other holder of the address rather than say a collision happened.
+      email: schoolUsers.email,
       isActive: schoolUsers.isActive,
       joinedAt: schoolUsers.joinedAt,
     })
     .from(schoolUsers)
-    .where(and(eq(schoolUsers.locationId, locationId), eq(schoolUsers.id, userId)))
+    .where(
+      and(eq(schoolUsers.locationId, locationId), eq(schoolUsers.id, userId)),
+    )
     .limit(1);
 
   const member = rows[0];
@@ -81,18 +95,52 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
     const { schoolId, userId } = await context.params;
     const resolved = await resolveMember(schoolId, userId);
     if (resolved === null) {
-      return apiFailure('not_found', 'That user is not a member of this school.', 404);
+      return apiFailure(
+        "not_found",
+        "That user is not a member of this school.",
+        404,
+      );
     }
 
     const body = await readJsonBody<PatchBody>(request);
-    if (body === null || typeof body.is_active !== 'boolean') {
-      return apiFailure('invalid_body', 'Expected { is_active: boolean }.', 400);
+    if (body === null || typeof body.is_active !== "boolean") {
+      return apiFailure(
+        "invalid_body",
+        "Expected { is_active: boolean }.",
+        400,
+      );
     }
 
-    await db
-      .update(schoolUsers)
-      .set({ isActive: body.is_active, updatedAt: new Date() })
-      .where(eq(schoolUsers.id, userId));
+    /*
+     * The same collision the school's own PATCH route now names, one panel over.
+     *
+     * `0038`'s address index covers active rows only, so an address freed by a
+     * deactivation may legitimately have been given to somebody else in the
+     * meantime, and switching the first row back on is then refused. An
+     * operator meeting "Something went wrong" here has no way to discover
+     * that — the panel does not show the other person — so the refusal says
+     * who it is.
+     */
+    try {
+      await db
+        .update(schoolUsers)
+        .set({ isActive: body.is_active, updatedAt: new Date() })
+        .where(eq(schoolUsers.id, userId));
+    } catch (error) {
+      if (!isEmailIndexConflict(error)) throw error;
+      const holder = await emailHolderAt(
+        resolved.locationId,
+        resolved.member.email,
+        userId,
+      );
+      return apiFailure(
+        "already_exists",
+        holder === null
+          ? "Another active member at this school already uses that email address."
+          : `${holder.name} now uses that email address, so ${resolved.member.name} cannot be reactivated until one of the two records is given a different one.`,
+        409,
+      );
+    }
 
     return apiSuccess({
       id: userId,
@@ -111,15 +159,27 @@ export async function DELETE(_request: NextRequest, context: RouteContext) {
     const { schoolId, userId } = await context.params;
     const resolved = await resolveMember(schoolId, userId);
     if (resolved === null) {
-      return apiFailure('not_found', 'That user is not a member of this school.', 404);
+      return apiFailure(
+        "not_found",
+        "That user is not a member of this school.",
+        404,
+      );
     }
 
     const result = await deleteSchoolMember(resolved.locationId, userId);
 
     if (!result.deleted) {
-      return result.refusal === 'referenced'
-        ? apiFailure('conflict', referencedExplanation(resolved.member.name), 409)
-        : apiFailure('not_found', 'That user is not a member of this school.', 404);
+      return result.refusal === "referenced"
+        ? apiFailure(
+            "conflict",
+            referencedExplanation(resolved.member.name),
+            409,
+          )
+        : apiFailure(
+            "not_found",
+            "That user is not a member of this school.",
+            404,
+          );
     }
 
     return apiSuccess({ deleted: true, name: resolved.member.name });
