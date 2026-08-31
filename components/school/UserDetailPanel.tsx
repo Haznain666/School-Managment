@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useCallback, useState } from 'react';
 
@@ -10,8 +11,15 @@ import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
 import { Toggle } from '@/components/ui/Toggle';
 import { formatDateOnly } from '@/lib/dates';
+import { splitPersonName } from '@/lib/person-name';
 import { formatPhoneForDisplay } from '@/lib/phone-formats';
-import { BRANCH_REQUIRED_ROLES, ROLE_LABELS, USER_ROLES, isUserRole } from '@/types/school-auth';
+import {
+  BRANCH_REQUIRED_ROLES,
+  INVITABLE_ROLES,
+  ROLE_LABELS,
+  USER_ROLES,
+  isUserRole,
+} from '@/types/school-auth';
 
 export interface UserDetail {
   id: string;
@@ -28,11 +36,25 @@ export interface UserDetail {
   createdAt: string;
 }
 
+/** The employment record this account backs, when there is one. */
+export interface UserEmployment {
+  id: string;
+  employeeCode: string;
+  fullName: string;
+  designation: string | null;
+  department: string | null;
+  status: string;
+}
+
 export interface UserDetailPanelProps {
   user: UserDetail;
   branches: ReadonlyArray<{ id: string; name: string }>;
   /** Only school_admin and hr_manager may change anything here. */
   canEdit: boolean;
+  /** Read on the server, so the card is right on the first paint. */
+  employment: UserEmployment | null;
+  /** `hr.write` — whether an employment record may be filed from here. */
+  canAddEmployment: boolean;
 }
 
 const ROLE_OPTIONS = USER_ROLES.map((role) => ({
@@ -40,7 +62,13 @@ const ROLE_OPTIONS = USER_ROLES.map((role) => ({
   label: ROLE_LABELS[role],
 }));
 
-export function UserDetailPanel({ user, branches, canEdit }: UserDetailPanelProps) {
+export function UserDetailPanel({
+  user,
+  branches,
+  canEdit,
+  employment,
+  canAddEmployment,
+}: UserDetailPanelProps) {
   const router = useRouter();
 
   const [name, setName] = useState(user.name);
@@ -60,6 +88,106 @@ export function UserDetailPanel({ user, branches, canEdit }: UserDetailPanelProp
   const [deleteError, setDeleteError] = useState<string | null>(null);
 
   const branchRequired = isUserRole(role) && BRANCH_REQUIRED_ROLES.includes(role);
+
+  /*
+   * ── The employment half ──────────────────────────────────────────────
+   * The mirror of HR's Portal access row. Read from the server, so the card is
+   * right on the first paint rather than after a fetch that would flash "no
+   * record" at somebody who has one.
+   */
+  const [employmentOpen, setEmploymentOpen] = useState(false);
+  const [employeeCode, setEmployeeCode] = useState('');
+  const [codePending, setCodePending] = useState(false);
+  const [designation, setDesignation] = useState('');
+  const [department, setDepartment] = useState('');
+  const [joinedOn, setJoinedOn] = useState('');
+  const [isFiling, setIsFiling] = useState(false);
+  const [employmentError, setEmploymentError] = useState<string | null>(null);
+
+  const needsEmployment =
+    user.isActive &&
+    isUserRole(user.role) &&
+    INVITABLE_ROLES.includes(user.role) &&
+    employment === null;
+
+  /** Opens the form and asks the server what the next free code is. */
+  const openEmploymentForm = useCallback(async () => {
+    setEmploymentOpen(true);
+    setEmploymentError(null);
+    setCodePending(true);
+
+    try {
+      const response = await fetch('/api/school/hr/staff/next-code');
+      const payload = (await response.json()) as {
+        ok: boolean;
+        data?: { employeeCode: string };
+      };
+
+      if (response.ok && payload.ok && payload.data !== undefined) {
+        setEmployeeCode(payload.data.employeeCode);
+      }
+    } catch {
+      // A proposal that could not be fetched is not a failure: the field is
+      // editable and the school has its own numbering.
+    } finally {
+      setCodePending(false);
+    }
+  }, []);
+
+  const fileEmployment = useCallback(async () => {
+    if (employeeCode.trim() === '') {
+      setEmploymentError('Give the employment record an employee code.');
+      return;
+    }
+
+    setIsFiling(true);
+    setEmploymentError(null);
+
+    try {
+      const response = await fetch('/api/school/hr/staff', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          employeeCode: employeeCode.trim(),
+          // One name, two NOT NULL columns — the same split the server uses on
+          // the invite path, from the same module.
+          ...splitPersonName(user.name),
+          designation: designation.trim(),
+          department: department.trim(),
+          joinedOn: joinedOn === '' ? null : joinedOn,
+          branchId: user.branchId,
+          phone: user.phone,
+          email: user.email ?? '',
+          /*
+           * The link is made in the same request that creates the record, so
+           * there is no window in which the school has a second unlinked staff
+           * row. The route refuses an account another record already claims,
+           * which is what stops a double-click producing two employees.
+           */
+          portalAccess: { mode: 'link', schoolUserId: user.id },
+        }),
+      });
+
+      const payload = (await response.json()) as {
+        ok: boolean;
+        error?: { message: string };
+      };
+
+      if (!response.ok || payload.ok !== true) {
+        setEmploymentError(
+          payload.error?.message ?? 'Could not add the employment record.',
+        );
+        return;
+      }
+
+      setEmploymentOpen(false);
+      router.refresh();
+    } catch {
+      setEmploymentError('Could not add the employment record.');
+    } finally {
+      setIsFiling(false);
+    }
+  }, [employeeCode, designation, department, joinedOn, user, router]);
 
   const save = useCallback(async () => {
     setError(null);
@@ -262,6 +390,166 @@ export function UserDetailPanel({ user, branches, canEdit }: UserDetailPanelProp
             </p>
           </div>
         ) : null}
+      </Card>
+
+      {/*
+        ── Employment record ─────────────────────────────────────────────
+        The mirror of the Portal access row on the HR profile. Advisory: this
+        card never blocks a save and changes nothing any screen permits.
+      */}
+      <Card
+        header={
+          <CardTitle
+            title="Employment record"
+            description="The HR record payroll pays, and the one a class names as its class teacher."
+            action={
+              employment !== null ? (
+                <Badge variant="success">On the staff list</Badge>
+              ) : needsEmployment ? (
+                <Badge variant="warning">No employment record</Badge>
+              ) : undefined
+            }
+          />
+        }
+      >
+        {employment !== null ? (
+          <dl className="grid gap-4 sm:grid-cols-3">
+            <div>
+              <dt className="text-xs uppercase tracking-wide text-ink-muted">
+                Employee code
+              </dt>
+              <dd className="mt-1 text-sm text-ink">
+                <Link
+                  href={`/dashboard/hr/staff/${employment.id}`}
+                  className="font-medium text-brand-primary hover:underline"
+                >
+                  {employment.employeeCode}
+                </Link>
+              </dd>
+            </div>
+            <div>
+              <dt className="text-xs uppercase tracking-wide text-ink-muted">
+                Designation
+              </dt>
+              <dd className="mt-1 text-sm text-ink">{employment.designation ?? '—'}</dd>
+            </div>
+            <div>
+              <dt className="text-xs uppercase tracking-wide text-ink-muted">
+                Department
+              </dt>
+              <dd className="mt-1 text-sm text-ink">{employment.department ?? '—'}</dd>
+            </div>
+          </dl>
+        ) : (
+          <div className="space-y-3">
+            <p className="text-sm text-ink-muted">
+              {needsEmployment
+                ? 'This member has a login and no employment record, so payroll does not know about them.'
+                : 'This account has no employment record. Student and parent accounts do not need one.'}
+              {/*
+                The consequence, named only for the role that has one. A teacher
+                without a `staff` row can be given periods and can never be made
+                a class teacher — the two halves this sprint exists to join.
+              */}
+              {needsEmployment && user.role === 'teacher'
+                ? ' They cannot be made a class teacher without an employment record.'
+                : ''}
+            </p>
+
+            {employmentError !== null ? (
+              <p
+                role="alert"
+                className="rounded-lg bg-status-danger-subtle px-3 py-2 text-sm text-status-danger-ink"
+              >
+                {employmentError}
+              </p>
+            ) : null}
+
+            {canAddEmployment && needsEmployment && !employmentOpen ? (
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => {
+                  void openEmploymentForm();
+                }}
+              >
+                Add an employment record
+              </Button>
+            ) : null}
+
+            {employmentOpen ? (
+              <>
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <Input
+                    label="Employee code"
+                    value={employeeCode}
+                    maxLength={32}
+                    placeholder="EMP-001"
+                    disabled={isFiling || codePending}
+                    hint={
+                      codePending
+                        ? 'Looking up the next free code…'
+                        : 'Unique at this school. Edit it if your numbering differs.'
+                    }
+                    onChange={(event) => {
+                      setEmployeeCode(event.target.value);
+                    }}
+                  />
+                  <Input
+                    label="Designation"
+                    value={designation}
+                    placeholder="Senior Physics Teacher"
+                    disabled={isFiling}
+                    onChange={(event) => {
+                      setDesignation(event.target.value);
+                    }}
+                  />
+                  <Input
+                    label="Department"
+                    value={department}
+                    placeholder="Science"
+                    disabled={isFiling}
+                    onChange={(event) => {
+                      setDepartment(event.target.value);
+                    }}
+                  />
+                  <Input
+                    label="Joining date"
+                    type="date"
+                    value={joinedOn}
+                    disabled={isFiling}
+                    onChange={(event) => {
+                      setJoinedOn(event.target.value);
+                    }}
+                  />
+                </div>
+
+                <div className="flex gap-3">
+                  <Button
+                    size="sm"
+                    isLoading={isFiling}
+                    onClick={() => {
+                      void fileEmployment();
+                    }}
+                  >
+                    Add record
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    disabled={isFiling}
+                    onClick={() => {
+                      setEmploymentOpen(false);
+                      setEmploymentError(null);
+                    }}
+                  >
+                    Cancel
+                  </Button>
+                </div>
+              </>
+            ) : null}
+          </div>
+        )}
       </Card>
 
       <Card header={<CardTitle title="Assignment" />}>

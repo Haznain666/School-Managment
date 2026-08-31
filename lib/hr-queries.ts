@@ -9,7 +9,9 @@ import {
   gte,
   ilike,
   inArray,
+  isNull,
   lte,
+  notExists,
   or,
   sql,
   type SQL,
@@ -40,6 +42,7 @@ import {
   type StaffAttendanceStatus,
   type StaffStatus,
 } from '@/db/schema';
+import { INVITABLE_ROLES } from '@/types/school-auth';
 
 import { sharedOrOwnedBy } from './branch-scope';
 import { db } from './drizzle';
@@ -89,6 +92,16 @@ export interface StaffRow {
    * the class; this only says who may appear in that picker.
    */
   isClassTeacher: boolean;
+  /**
+   * The portal account this person signs in with, or null.
+   *
+   * Sprint 22. The column has existed since Sprint 7 and no screen ever set it,
+   * so every staff row in the product carried null and nothing said so. It is
+   * on the *list* row rather than only the detail because "who has no login"
+   * is a question a school answers by scanning the directory, not by opening
+   * forty profiles.
+   */
+  schoolUserId: string | null;
 }
 
 export interface ListStaffFilters {
@@ -96,6 +109,15 @@ export interface ListStaffFilters {
   status?: StaffStatus;
   branchId?: string;
   department?: string;
+  /**
+   * `'none'` = only the split records: still employed here, no portal login.
+   *
+   * Scoped to `active` on purpose, and it is the same scoping the badge uses.
+   * A resigned driver has no login and never needed one; listing him under
+   * "Unlinked" would bury the four people a school actually has to reconcile
+   * under everyone who has ever left.
+   */
+  linked?: 'none';
 }
 
 /**
@@ -122,6 +144,11 @@ export async function listStaff(
 
   if (filters.department !== undefined && filters.department !== '') {
     conditions.push(eq(staff.department, filters.department));
+  }
+
+  if (filters.linked === 'none') {
+    conditions.push(eq(staff.status, 'active'));
+    conditions.push(isNull(staff.schoolUserId));
   }
 
   const search = filters.search?.trim() ?? '';
@@ -153,6 +180,7 @@ export async function listStaff(
       branchId: staff.branchId,
       branchName: branches.name,
       isClassTeacher: staff.isClassTeacher,
+      schoolUserId: staff.schoolUserId,
     })
     .from(staff)
     .leftJoin(branches, eq(branches.id, staff.branchId))
@@ -163,7 +191,6 @@ export async function listStaff(
 }
 
 export interface StaffDetail extends StaffRow {
-  schoolUserId: string | null;
   cnic: string | null;
   dateOfBirth: string | null;
   gender: Gender | null;
@@ -218,36 +245,153 @@ export async function getStaff(
   return row === undefined ? null : { ...row, fullName: staffFullName(row) };
 }
 
-/** Portal accounts not yet attached to an employment record, for the link picker. */
+export interface UnlinkedSchoolUser {
+  id: string;
+  name: string;
+  role: string;
+  phone: string;
+  email: string | null;
+  branchName: string | null;
+}
+
+/**
+ * Portal accounts not yet attached to an employment record — the link picker.
+ *
+ * ── Two things changed in Sprint 22, and the second is the point ────────
+ * It was written "for the link picker" in Sprint 7 and no screen ever called
+ * it, so it has never returned a row to anybody. Now that one does, two of its
+ * habits had to go.
+ *
+ * It read every `staff` row of the school to build a list of taken ids and
+ * filtered the accounts in JavaScript afterwards — correct, and it fetched the
+ * whole staff table to answer a question Postgres answers with an index
+ * (`staff_school_user_id_idx`). `NOT EXISTS` is that question, correlated on
+ * the account's own id and **carrying the tenant on both sides**: the outer
+ * filter alone would let another school's `staff` row make an account here look
+ * taken, which is a leak of the fact that the row exists.
+ *
+ * `student` and `parent` are excluded. An account created by the admissions
+ * flow is not a colleague, and offering a seven-year-old in a picker headed
+ * "link this employment record to an account" is an invitation to make the
+ * exact mistake Sprint 21 spent itself repairing.
+ */
 export async function listUnlinkedSchoolUsers(
   locationId: string,
-): Promise<Array<{ id: string; name: string; role: string; phone: string }>> {
-  const linked = await db
-    .select({ schoolUserId: staff.schoolUserId })
-    .from(staff)
-    .where(eq(staff.locationId, locationId));
-
-  const takenIds = linked
-    .map((row) => row.schoolUserId)
-    .filter((value): value is string => value !== null);
-
-  const conditions: SQL[] = [
-    eq(schoolUsers.locationId, locationId),
-    eq(schoolUsers.isActive, true),
-  ];
-
-  const rows = await db
+): Promise<UnlinkedSchoolUser[]> {
+  return db
     .select({
       id: schoolUsers.id,
       name: schoolUsers.name,
       role: schoolUsers.role,
       phone: schoolUsers.phone,
+      email: schoolUsers.email,
+      branchName: branches.name,
     })
     .from(schoolUsers)
-    .where(and(...conditions))
+    .leftJoin(branches, eq(branches.id, schoolUsers.branchId))
+    .where(
+      and(
+        eq(schoolUsers.locationId, locationId),
+        eq(schoolUsers.isActive, true),
+        inArray(schoolUsers.role, [...INVITABLE_ROLES]),
+        notExists(
+          db
+            .select({ present: sql`1` })
+            .from(staff)
+            .where(
+              and(
+                eq(staff.locationId, locationId),
+                eq(staff.schoolUserId, schoolUsers.id),
+              ),
+            ),
+        ),
+      ),
+    )
     .orderBy(asc(schoolUsers.name));
+}
 
-  return rows.filter((row) => !takenIds.includes(row.id));
+/**
+ * The employment record one portal account backs, or null.
+ *
+ * The mirror of `staff.school_user_id`, read from the other end, for the
+ * Users & Staff profile. `limit(1)` is not a choice between candidates: every
+ * write path here refuses an account that already backs a record, so more than
+ * one would be a defect, and the ordering makes which one is shown at least
+ * stable while somebody is looking at it.
+ */
+export async function getStaffBySchoolUserId(
+  locationId: string,
+  schoolUserId: string,
+): Promise<{
+  id: string;
+  employeeCode: string;
+  fullName: string;
+  designation: string | null;
+  department: string | null;
+  status: StaffStatus;
+} | null> {
+  const rows = await db
+    .select({
+      id: staff.id,
+      employeeCode: staff.employeeCode,
+      firstName: staff.firstName,
+      lastName: staff.lastName,
+      designation: staff.designation,
+      department: staff.department,
+      status: staff.status,
+    })
+    .from(staff)
+    .where(
+      and(
+        eq(staff.locationId, locationId),
+        eq(staff.schoolUserId, schoolUserId),
+      ),
+    )
+    .orderBy(asc(staff.createdAt), asc(staff.id))
+    .limit(1);
+
+  const row = rows[0];
+  return row === undefined ? null : { ...row, fullName: staffFullName(row) };
+}
+
+/**
+ * The next free `EMP-<n>` for this school.
+ *
+ * `staff.employee_code` is `NOT NULL` and unique per school and there has never
+ * been a generator, which is fine on the HR screen — a school entering its
+ * payroll has its own codes to hand — and hopeless on Invite Staff, where the
+ * person filling the form is inviting a colleague and has no idea what the
+ * school's numbering is. So this proposes; the field stays editable.
+ *
+ * Read in JavaScript rather than by a `max()` over a cast, because the column
+ * holds whatever a school has ever typed into it. `EMP-7`, `emp-007`, `T-14`
+ * and `Ahmed` are all valid values of it today, and a `substring(...)::int` over
+ * that set is a `22P02` on the row nobody expected. Anything that does not
+ * match `EMP-<digits>` is simply not a candidate, and a school with no matching
+ * code at all starts at `EMP-001`.
+ *
+ * It is a **proposal, not a reservation**: two administrators on the same
+ * minute are offered the same number, and the second one meets the `23505` the
+ * unique index raises, named against the field. That is the honest behaviour —
+ * reserving a code would leave a gap in the numbering every time somebody
+ * abandoned a form.
+ */
+export async function nextEmployeeCode(locationId: string): Promise<string> {
+  const rows = await db
+    .select({ employeeCode: staff.employeeCode })
+    .from(staff)
+    .where(and(eq(staff.locationId, locationId), ilike(staff.employeeCode, 'EMP-%')));
+
+  let highest = 0;
+  for (const row of rows) {
+    const match = /^EMP-(\d+)$/i.exec(row.employeeCode.trim());
+    if (match?.[1] === undefined) continue;
+
+    const value = Number.parseInt(match[1], 10);
+    if (Number.isFinite(value) && value > highest) highest = value;
+  }
+
+  return `EMP-${String(highest + 1).padStart(3, '0')}`;
 }
 
 /** Distinct departments already in use, so the form can offer them. */

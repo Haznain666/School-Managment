@@ -3,6 +3,7 @@ import { notFound } from 'next/navigation';
 
 import { UserDetailPanel } from '@/components/school/UserDetailPanel';
 import { PageHeader } from '@/components/ui/PageHeader';
+import { getStaffBySchoolUserId } from '@/lib/hr-queries';
 import { requireSchoolPermission } from '@/lib/school-guard';
 import { getSchoolUserById, listBranchOptions } from '@/lib/school-queries';
 import { isUuid } from '@/lib/validation';
@@ -37,6 +38,15 @@ export default async function UserDetailPage({
   const branches = await listBranchOptions(locationId);
   const canEdit = permissions.includes('users.write');
 
+  /*
+   * The employment half, read here rather than fetched by the panel. The page
+   * is already `force-dynamic` with a loader beside it, so one more read costs
+   * nothing a reader can see — and a fetch after mount would flash "no
+   * employment record" at somebody who has one, which is precisely the sentence
+   * this card exists to make trustworthy.
+   */
+  const employment = await getStaffBySchoolUserId(locationId, user.id);
+
   return (
     <div className="max-w-4xl space-y-6">
       <PageHeader
@@ -53,6 +63,10 @@ export default async function UserDetailPage({
       <UserDetailPanel
         canEdit={canEdit}
         branches={branches}
+        employment={employment}
+        // Two permission keys on one screen — filing an employment record is
+        // `hr.write`'s to give, whatever `users.write` says.
+        canAddEmployment={permissions.includes('hr.write')}
         user={{
           id: user.id,
           authUserId: user.authUserId,

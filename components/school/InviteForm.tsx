@@ -1,7 +1,7 @@
 'use client';
 
 import { useRouter } from 'next/navigation';
-import { useCallback, useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useState, type FormEvent } from 'react';
 
 import { Button } from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
@@ -25,6 +25,14 @@ export interface InviteFormBranch {
 
 export interface InviteFormProps {
   branches: readonly InviteFormBranch[];
+  /**
+   * `hr.write` — whether this person may also file an employment record.
+   *
+   * Absent, not disabled, for somebody who holds only `users.write`. A section
+   * that is visibly there and permanently greyed teaches the operator that the
+   * product is broken; the server checks the key again in any case.
+   */
+  canAddEmployment: boolean;
 }
 
 /**
@@ -43,6 +51,16 @@ interface InviteResponse {
     delivery:
       | { queued: true; firstTime: boolean; email: string }
       | { queued: false; reason: string };
+    /**
+     * The second half, when one was asked for — Sprint 22.
+     *
+     * The account is this screen's point, so it is written first and never
+     * rolled back. A failed employment insert leaves the member invited and
+     * says so, naming the field: the only collision that can happen here is an
+     * employee code somebody else already uses, and typing a different one is
+     * the only thing anybody can do about it.
+     */
+    employment: { created: true; staffId: string } | { created: false; problem: string } | null;
   };
   error?: { message: string };
 }
@@ -58,7 +76,7 @@ const ROLE_OPTIONS = INVITABLE_ROLES.map((role) => ({
 /** Roles normally created by Admissions rather than invited by hand. */
 const ADMISSIONS_ROLES: readonly UserRole[] = ['student', 'parent'];
 
-export function InviteForm({ branches }: InviteFormProps) {
+export function InviteForm({ branches, canAddEmployment }: InviteFormProps) {
   const router = useRouter();
 
   const [name, setName] = useState('');
@@ -67,13 +85,67 @@ export function InviteForm({ branches }: InviteFormProps) {
   const [role, setRole] = useState('');
   const [branchId, setBranchId] = useState('');
 
+  /*
+   * Default **on** for every invitable role, because all nine of them are
+   * staff. A teacher invited without an employment record can be timetabled
+   * and can never be a class teacher, and until this sprint nothing on this
+   * screen said so.
+   */
+  const [addEmployment, setAddEmployment] = useState(canAddEmployment);
+  const [employeeCode, setEmployeeCode] = useState('');
+  const [codePending, setCodePending] = useState(canAddEmployment);
+  const [designation, setDesignation] = useState('');
+  const [department, setDepartment] = useState('');
+  const [joinedOn, setJoinedOn] = useState('');
+
   const [error, setError] = useState<string | null>(null);
   const [warning, setWarning] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
+  /*
+   * The proposed employee code, fetched once.
+   *
+   * `staff.employee_code` is NOT NULL and unique per school with no generator,
+   * and the person filling in this form is inviting a colleague — they have no
+   * idea what the school's numbering looks like. So the server proposes and the
+   * field stays editable. A proposal, not a reservation: two administrators on
+   * the same minute are offered the same number and the second meets the unique
+   * index, reported against this field.
+   */
+  useEffect(() => {
+    if (!canAddEmployment) return;
+
+    let cancelled = false;
+
+    void (async () => {
+      try {
+        const response = await fetch('/api/school/hr/staff/next-code');
+        const payload = (await response.json()) as {
+          ok: boolean;
+          data?: { employeeCode: string };
+        };
+
+        if (!cancelled && response.ok && payload.ok && payload.data !== undefined) {
+          setEmployeeCode(payload.data.employeeCode);
+        }
+      } catch {
+        // A proposal that could not be fetched is not a failure of this screen:
+        // the field is editable and the school has its own codes. Silence here,
+        // and the placeholder says what the shape is.
+      } finally {
+        if (!cancelled) setCodePending(false);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [canAddEmployment]);
+
   const selectedRole = isUserRole(role) ? role : null;
   const branchRequired = selectedRole !== null && BRANCH_REQUIRED_ROLES.includes(selectedRole);
   const showAdmissionsNotice = selectedRole !== null && ADMISSIONS_ROLES.includes(selectedRole);
+  const fileEmployment = canAddEmployment && addEmployment;
 
   const handleSubmit = useCallback(
     async (event: FormEvent<HTMLFormElement>) => {
@@ -104,6 +176,10 @@ export function InviteForm({ branches }: InviteFormProps) {
         setError('This role must be assigned to a branch.');
         return;
       }
+      if (fileEmployment && employeeCode.trim() === '') {
+        setError('Give the employment record an employee code.');
+        return;
+      }
 
       setIsSubmitting(true);
 
@@ -117,6 +193,16 @@ export function InviteForm({ branches }: InviteFormProps) {
             email: email.trim(),
             role: selectedRole,
             branchId: branchId === '' ? undefined : branchId,
+            // Absent, not `null`, when the box is clear — the route reads the
+            // key's presence as the request, so an old client is unaffected.
+            employment: fileEmployment
+              ? {
+                  employeeCode: employeeCode.trim(),
+                  designation: designation.trim(),
+                  department: department.trim(),
+                  joinedOn: joinedOn === '' ? null : joinedOn,
+                }
+              : undefined,
           }),
         });
 
@@ -147,6 +233,19 @@ export function InviteForm({ branches }: InviteFormProps) {
           return;
         }
 
+        /*
+         * The employment half, reported the same way and for the same reason.
+         * The invitation went; the record did not. Leaving on the success path
+         * would say the opposite by omission, and the only fix — a different
+         * employee code — is on this form.
+         */
+        const employment = payload.data?.employment;
+        if (employment != null && !employment.created) {
+          setWarning(`${name.trim()} was invited. ${employment.problem}`);
+          setIsSubmitting(false);
+          return;
+        }
+
         router.push('/dashboard/users');
         router.refresh();
       } catch {
@@ -154,7 +253,20 @@ export function InviteForm({ branches }: InviteFormProps) {
         setIsSubmitting(false);
       }
     },
-    [name, phone, email, selectedRole, branchRequired, branchId, router],
+    [
+      name,
+      phone,
+      email,
+      selectedRole,
+      branchRequired,
+      branchId,
+      fileEmployment,
+      employeeCode,
+      designation,
+      department,
+      joinedOn,
+      router,
+    ],
   );
 
   const branchOptions = [
@@ -257,6 +369,89 @@ export function InviteForm({ branches }: InviteFormProps) {
           ) : null}
         </div>
       </Card>
+
+      {/*
+        ── The employment record ────────────────────────────────────────
+        A member of staff could exist twice in this product and the two halves
+        never met: `timetable_entries.teacher_id` points at the account this
+        form creates, and `sections.class_teacher_id` points at an employment
+        record only HR could file. Same person, two rows, and nothing joined
+        them. This box joins them, and it is ticked by default because every
+        role this form offers is a member of staff.
+      */}
+      {canAddEmployment ? (
+        <Card>
+          <label className="flex items-start gap-2 text-sm text-ink">
+            <input
+              type="checkbox"
+              className="mt-1"
+              checked={addEmployment}
+              disabled={isSubmitting}
+              onChange={(event) => {
+                setAddEmployment(event.target.checked);
+              }}
+            />
+            <span>
+              Also add an employment record
+              <span className="block text-xs text-ink-muted">
+                Puts them on the HR staff list, which is what a class names as
+                its class teacher and what payroll pays. Clear this for somebody
+                who only needs a login.
+              </span>
+            </span>
+          </label>
+
+          {fileEmployment ? (
+            <div className="mt-4 grid gap-4 sm:grid-cols-2">
+              <Input
+                label="Employee code"
+                required
+                value={employeeCode}
+                maxLength={32}
+                placeholder="EMP-001"
+                // Proposed by the server and editable. Pending until it lands,
+                // so nobody types over a value that is about to arrive.
+                disabled={isSubmitting || codePending}
+                hint={
+                  codePending
+                    ? 'Looking up the next free code…'
+                    : 'Unique at this school. Edit it if your numbering differs.'
+                }
+                onChange={(event) => {
+                  setEmployeeCode(event.target.value);
+                }}
+              />
+              <Input
+                label="Designation"
+                value={designation}
+                placeholder="Senior Physics Teacher"
+                disabled={isSubmitting}
+                onChange={(event) => {
+                  setDesignation(event.target.value);
+                }}
+              />
+              <Input
+                label="Department"
+                value={department}
+                placeholder="Science"
+                disabled={isSubmitting}
+                onChange={(event) => {
+                  setDepartment(event.target.value);
+                }}
+              />
+              <Input
+                label="Joining date"
+                type="date"
+                value={joinedOn}
+                disabled={isSubmitting}
+                onChange={(event) => {
+                  setJoinedOn(event.target.value);
+                }}
+              />
+            </div>
+          ) : null}
+        </Card>
+      ) : null}
 
       {error !== null ? (
         <p role="alert" className="rounded-lg bg-status-danger-subtle px-3 py-2 text-sm text-status-danger-ink">

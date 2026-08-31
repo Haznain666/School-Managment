@@ -1,16 +1,18 @@
 import { and, desc, eq, gt, isNull } from 'drizzle-orm';
 
-import { branches, schoolInvitations, schoolUsers, schools } from '@/db/schema';
-import { queueAccessEmail } from '@/lib/access-email';
+import { branches, schoolInvitations, staff } from '@/db/schema';
 import { apiFailure, apiSuccess, handleApiError, readJsonBody } from '@/lib/api-response';
 import { withSchoolAuth } from '@/lib/api-auth';
 import { db } from '@/lib/drizzle';
 import { isValidEmail, normalizeEmail } from '@/lib/password-strength';
+import { hasPermission } from '@/lib/permission-queries';
 import {
   hasCompletePhoneOfAnyKind,
   normalisePhoneOfAnyKind,
 } from '@/lib/phone-formats';
-import { isUuid, readString } from '@/lib/validation';
+import { splitPersonName } from '@/lib/person-name';
+import { createMemberAccount } from '@/lib/school-member-accounts';
+import { isIsoDate, isUuid, readOptionalString, readString } from '@/lib/validation';
 import { BRANCH_REQUIRED_ROLES, isUserRole } from '@/types/school-auth';
 
 /**
@@ -83,6 +85,21 @@ interface CreateInviteBody {
   email?: unknown;
   role?: unknown;
   branchId?: unknown;
+  /**
+   * The employment record to file alongside the account — Sprint 22.
+   *
+   * Absent means "account only", which is exactly what this route did before,
+   * so an old client is unaffected. Present means the caller also holds
+   * `hr.write`; the server checks that rather than believing the form.
+   */
+  employment?: unknown;
+}
+
+interface EmploymentBody {
+  employeeCode?: unknown;
+  designation?: unknown;
+  department?: unknown;
+  joinedOn?: unknown;
 }
 
 export const POST = withSchoolAuth(
@@ -156,15 +173,50 @@ export const POST = withSchoolAuth(
         }
       }
 
-      const schoolRows = await db
-        .select({ name: schools.name, slug: schools.slug })
-        .from(schools)
-        .where(eq(schools.locationId, auth.locationId))
-        .limit(1);
+      /*
+       * ── The employment record, validated before the account is written ──
+       *
+       * Everything that can be refused without costing the school the account
+       * is refused here. What is left for step 2 is the employee-code
+       * collision, which only the write can discover.
+       */
+      const employmentRequested =
+        typeof body.employment === 'object' && body.employment !== null;
+      const employment = employmentRequested
+        ? (body.employment as EmploymentBody)
+        : null;
 
-      const school = schoolRows[0];
-      if (school === undefined) {
-        return apiFailure('not_found', 'School not found.', 404);
+      let employeeCode = '';
+      let joinedOn: string | null = null;
+
+      if (employment !== null) {
+        /*
+         * One screen, two permission keys. Filing an employment record from
+         * Invite Staff is an `hr.write` action, and a `users.write` holder who
+         * does not have it sees no such section — but the request itself has to
+         * be guarded too, or the section's absence is decoration.
+         */
+        if (!(await hasPermission(auth.locationId, auth.role, 'hr.write'))) {
+          return apiFailure(
+            'forbidden',
+            'Adding an employment record also needs permission to manage HR. Send the invitation without one, and ask HR to add the record.',
+            403,
+          );
+        }
+
+        employeeCode = readString(employment.employeeCode).toUpperCase();
+        if (employeeCode === '' || employeeCode.length > 32) {
+          return apiFailure(
+            'invalid_body',
+            'Enter an employee code of 32 characters or fewer.',
+            400,
+          );
+        }
+
+        joinedOn = readOptionalString(employment.joinedOn);
+        if (joinedOn !== null && !isIsoDate(joinedOn)) {
+          return apiFailure('invalid_body', 'Enter a valid joining date.', 400);
+        }
       }
 
       /*
@@ -187,63 +239,97 @@ export const POST = withSchoolAuth(
        * `POST /api/school/users`, and `queueAccessEmail` takes it from there.
        * `authUserId` is null on a row that has just been created, so it takes
        * the first-time branch by itself and mails the setup link.
+       *
+       * ── Sprint 22: the same three guards as every other creation path ───
+       * This route wrote the row itself, with an **untargeted**
+       * `.onConflictDoNothing()`. `0038` gave `school_users` a second unique
+       * index — `lower(email)`, active rows only — and an untargeted conflict
+       * clause swallows both, so an administrator inviting a colleague on an
+       * address somebody else already held was told *"someone with that phone
+       * number already exists at this school"*. The number was free. There was
+       * nothing on the form to correct and no reason to look at the address.
+       *
+       * Sprint 21's QA fixed exactly that on `POST /api/school/users` and this
+       * route was missed, because the two were never the same code. They are
+       * now: `createMemberAccount` carries the pre-check, the targeted conflict
+       * and the `isEmailIndexConflict` catch, and every caller gets all three
+       * or none.
+       *
+       * `delivery` is reported, never thrown: the member exists and is correct
+       * by the time the mail is queued, a transport that is down must not undo
+       * that, and "invited" over a message nobody queued is the failure the
+       * shape exists to prevent.
        */
-      const inserted = await db
-        .insert(schoolUsers)
-        .values({
-          // Tenant comes from the verified session, never from the body.
-          locationId: auth.locationId,
-          name,
-          phone,
-          email,
-          role: body.role,
-          branchId,
-          invitedByUid: auth.uid,
-        })
-        // Phone is unique per school.
-        .onConflictDoNothing()
-        .returning({
-          id: schoolUsers.id,
-          name: schoolUsers.name,
-          phone: schoolUsers.phone,
-          email: schoolUsers.email,
-          role: schoolUsers.role,
-          authUserId: schoolUsers.authUserId,
-        });
+      const created = await createMemberAccount({
+        // Tenant comes from the verified session, never from the body.
+        locationId: auth.locationId,
+        name,
+        phone,
+        email,
+        role: body.role,
+        branchId,
+        invitedByUid: auth.uid,
+      });
 
-      const member = inserted[0];
-      if (member === undefined) {
-        return apiFailure(
-          'already_exists',
-          'Someone with that phone number already exists at this school.',
-          409,
-        );
+      if (!created.ok) {
+        return apiFailure(created.code, created.message, created.status);
+      }
+
+      const { member, delivery } = created;
+
+      if (employment === null) {
+        return apiSuccess({ user: member, delivery, employment: null }, 201);
       }
 
       /*
-       * Reported, never thrown.
+       * Step 2, and the account is never rolled back.
        *
-       * The member exists and is correct by the time this runs, and a mail
-       * transport that is down must not undo that — the account is reachable
-       * again from **Send access email** on their profile. What must not happen
-       * is the old failure mode in the other direction: the form saying
-       * "invited" while nothing was queued. So the result goes back in the
-       * response and `UserInviteForm` says plainly whether the message was
-       * queued and, if not, why.
+       * The account is this screen's point — the same rule as the HR form, the
+       * other way round. A failed employment insert leaves the member invited,
+       * says so, and names the field: `staff_location_id_employee_code_idx` is
+       * a `23505` on a code somebody else already uses, and the one thing the
+       * person at the keyboard can do about it is type a different one.
        */
-      const delivery = await queueAccessEmail({
-        locationId: auth.locationId,
-        school: { name: school.name, slug: school.slug },
-        member: {
-          id: member.id,
-          name: member.name,
-          email: member.email,
-          authUserId: member.authUserId,
-        },
-        createdBy: auth.uid,
-      });
+      const filed = await db
+        .insert(staff)
+        .values({
+          locationId: auth.locationId,
+          schoolUserId: member.id,
+          branchId,
+          employeeCode,
+          // One full name in, two NOT NULL columns out. See `splitPersonName`.
+          ...splitPersonName(name),
+          designation: readOptionalString(employment.designation),
+          department: readOptionalString(employment.department),
+          joinedOn,
+          phone,
+          email,
+        })
+        .onConflictDoNothing({ target: [staff.locationId, staff.employeeCode] })
+        .returning({ id: staff.id });
 
-      return apiSuccess({ user: member, delivery }, 201);
+      if (filed[0] === undefined) {
+        return apiSuccess(
+          {
+            user: member,
+            delivery,
+            employment: {
+              created: false,
+              problem: `Employee code "${employeeCode}" is already in use at your school, so no employment record was added. The invitation was still sent.`,
+            },
+          },
+          201,
+        );
+      }
+
+      return apiSuccess(
+        {
+          user: member,
+          delivery,
+          employment: { created: true, staffId: filed[0].id },
+        },
+        201,
+      );
     } catch (error) {
       return handleApiError(error);
     }

@@ -6,6 +6,7 @@ import { apiFailure, apiSuccess, handleApiError, readJsonBody } from '@/lib/api-
 import { normalizeCnic } from '@/lib/national-id';
 import { db } from '@/lib/drizzle';
 import { getStaff, getStaffSalaryStructure } from '@/lib/hr-queries';
+import { getSchoolUserById } from '@/lib/school-queries';
 import { isIsoDate, isUuid, readOptionalString, readString } from '@/lib/validation';
 
 /**
@@ -44,8 +45,34 @@ export const GET = withSchoolAuth<RouteContext>(
         return apiFailure('not_found', 'Staff member not found.', 404);
       }
 
+      /*
+       * The linked account, read from the other end.
+       *
+       * A second small statement rather than a fourth join on `getStaff`: the
+       * account's branch is a *different* branch from the employment record's,
+       * so joining it would need `branches` twice under an alias, on a
+       * statement CLAUDE.md's rule about unqualified references already applies
+       * to. `getSchoolUserById` answers the same question, is tenant-scoped,
+       * and has been executed by a gate since Sprint 19.
+       */
+      const account =
+        detail.schoolUserId === null
+          ? null
+          : await getSchoolUserById(auth.locationId, detail.schoolUserId);
+
       return apiSuccess({
         staff: detail,
+        account:
+          account === null
+            ? null
+            : {
+                id: account.id,
+                name: account.name,
+                role: account.role,
+                branchName: account.branchName,
+                isActive: account.isActive,
+                authUserId: account.authUserId,
+              },
         salaryStructure: await getStaffSalaryStructure(auth.locationId, staffId),
       });
     } catch (error) {

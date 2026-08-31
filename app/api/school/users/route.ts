@@ -87,6 +87,11 @@ export const GET = withSchoolAuth(
         branchId,
         branchIds: effectiveBranchIds(scope),
         status,
+        // Sprint 22's reconciliation filter. One value, and anything else is
+        // "off" — a filter that narrowed on an unrecognised word would hide
+        // rows without saying it had.
+        employment:
+          url.searchParams.get("employment") === "none" ? "none" : undefined,
         search: url.searchParams.get("search") ?? undefined,
         page: list.page,
         limit: list.limit,

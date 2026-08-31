@@ -13,7 +13,7 @@ import {
 import { Button } from '@/components/ui/Button';
 import { formatPhoneForDisplay } from '@/lib/phone-formats';
 import { MAX_BULK_DELETE, type DeletionOutcome } from '@/lib/user-deletion';
-import { ROLE_LABELS, isUserRole } from '@/types/school-auth';
+import { INVITABLE_ROLES, ROLE_LABELS, isUserRole } from '@/types/school-auth';
 
 export interface UserRow {
   id: string;
@@ -35,6 +35,14 @@ export interface UserRow {
   branchName: string | null;
   isActive: boolean;
   joinedAt: string | null;
+  /**
+   * Whether a `staff` row of this school points back at this account.
+   *
+   * The plain fact. Whether its absence is worth badging is decided below —
+   * an active member in a role a school hires into. A student having no
+   * employment record is not a finding about anything.
+   */
+  hasEmployment: boolean;
 }
 
 export interface BranchOption {
@@ -78,6 +86,23 @@ const STATUS_LABELS: Record<string, string> = {
 const UNASSIGNED_BRANCH = 'unassigned';
 
 /**
+ * Whether this row is one of the split records — Sprint 22.
+ *
+ * The same three conditions the server's `?employment=none` filter applies, so
+ * the badge and the filter cannot disagree about who they are describing. A
+ * deactivated leaver is not a finding, and neither is a student or a parent:
+ * those accounts come from Admissions and were never anybody's employees.
+ */
+function needsEmployment(user: UserRow): boolean {
+  return (
+    user.isActive &&
+    isUserRole(user.role) &&
+    INVITABLE_ROLES.includes(user.role) &&
+    !user.hasEmployment
+  );
+}
+
+/**
  * The school's directory: filter, select, open, delete.
  *
  * ── The filters are faceted, and that is the fix ─────────────────────────
@@ -107,6 +132,16 @@ export function UserTable({ branches, lockedBranchId, canManage }: UserTableProp
   const [role, setRole] = useState('');
   const [branchId, setBranchId] = useState(lockedBranchId ?? '');
   const [status, setStatus] = useState('');
+  /**
+   * `''` = off, `'none'` = only the split records.
+   *
+   * Off by default and deliberately not a facet: this is a reconciliation tool
+   * a school reaches for once, not one of the three things the bar offers to
+   * pick between. Server-side rather than filtered here, because this table is
+   * paginated in the database and a browser-side filter would hide rows from a
+   * page while the total went on counting them.
+   */
+  const [employment, setEmployment] = useState('');
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(DATA_TABLE_DEFAULT_PAGE_SIZE);
   const [sort, setSort] = useState<DataTableSort>({ columnId: 'name', direction: 'asc' });
@@ -136,6 +171,7 @@ export function UserTable({ branches, lockedBranchId, canManage }: UserTableProp
       if (role !== '') query.set('role', role);
       if (branchId !== '') query.set('branchId', branchId);
       if (status !== '') query.set('status', status);
+      if (employment !== '') query.set('employment', employment);
 
       try {
         const response = await fetch(`/api/school/users?${query.toString()}`, { signal });
@@ -155,7 +191,7 @@ export function UserTable({ branches, lockedBranchId, canManage }: UserTableProp
         if (!signal.aborted) setPending(false);
       }
     },
-    [search, role, branchId, status, page, pageSize, sort],
+    [search, role, branchId, status, employment, page, pageSize, sort],
   );
 
   // Debounced so typing in the search box does not fire a request per keystroke.
@@ -379,14 +415,26 @@ export function UserTable({ branches, lockedBranchId, canManage }: UserTableProp
         server groups on an expression rather than a column, and a sort that
         disagreed with the facet counts beside it would be worse than none.
       */
-      cell: (user) =>
-        !user.isActive ? (
-          <Badge variant="danger">Deactivated</Badge>
-        ) : user.authUserId === null ? (
-          <Badge variant="warning">Never signed in</Badge>
-        ) : (
-          <Badge variant="success">Active</Badge>
-        ),
+      cell: (user) => (
+        <div className="flex flex-wrap items-center gap-1">
+          {!user.isActive ? (
+            <Badge variant="danger">Deactivated</Badge>
+          ) : user.authUserId === null ? (
+            <Badge variant="warning">Never signed in</Badge>
+          ) : (
+            <Badge variant="success">Active</Badge>
+          )}
+          {/*
+            Advisory, and it changes nothing any screen permits. The mirror of
+            HR's "No login": a teacher with an account and no employment record
+            can be timetabled and can never be made a class teacher, and until
+            Sprint 22 nothing on either screen said so.
+          */}
+          {needsEmployment(user) ? (
+            <Badge variant="warning">No employment record</Badge>
+          ) : null}
+        </div>
+      ),
     },
     {
       id: 'actions',
@@ -567,11 +615,31 @@ export function UserTable({ branches, lockedBranchId, canManage }: UserTableProp
               });
             },
           },
+          /*
+           * No count beside this one, and that is on purpose: the three above
+           * carry server facets computed with their own dimension excluded, and
+           * a fourth number computed a different way — or not at all — sitting
+           * in the same row of controls would be read as the same kind of
+           * number. It is a switch, not a dimension.
+           */
+          {
+            id: 'employment',
+            label: 'Employment',
+            allLabel: 'Any',
+            options: [{ value: 'none', label: 'No employment record' }],
+            value: employment,
+            onChange: (value) => {
+              changeFilter(() => {
+                setEmployment(value);
+              });
+            },
+          },
         ]}
         filtersActive={
           search.trim() !== '' ||
           role !== '' ||
           status !== '' ||
+          employment !== '' ||
           (branchId !== '' && lockedBranchId === null)
         }
         onClearFilters={() => {
@@ -579,6 +647,7 @@ export function UserTable({ branches, lockedBranchId, canManage }: UserTableProp
             setSearch('');
             setRole('');
             setStatus('');
+            setEmployment('');
             // A branch-bound administrator's branch is not a filter they chose.
             if (lockedBranchId === null) setBranchId('');
           });

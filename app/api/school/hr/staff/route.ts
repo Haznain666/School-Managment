@@ -1,17 +1,16 @@
-import { and, eq } from 'drizzle-orm';
-
-import {
-  isEmploymentType,
-  isGender,
-  isStaffStatus,
-  schoolUsers,
-  staff,
-} from '@/db/schema';
+import { isEmploymentType, isGender, isStaffStatus, staff } from '@/db/schema';
 import { withSchoolAuth } from '@/lib/api-auth';
 import { apiFailure, apiSuccess, handleApiError, readJsonBody } from '@/lib/api-response';
 import { normalizeCnic } from '@/lib/national-id';
 import { db } from '@/lib/drizzle';
 import { listDepartments, listStaff } from '@/lib/hr-queries';
+import { hasPermission } from '@/lib/permission-queries';
+import {
+  accountLinkable,
+  checkNewStaffLogin,
+  createLoginForStaff,
+  type NewStaffLogin,
+} from '@/lib/staff-portal-access';
 import {
   isIsoDate,
   isUuid,
@@ -36,6 +35,16 @@ import {
  * is on the payroll and never signs in, and demanding an account first would
  * push a school back onto a spreadsheet for half its staff — so `schoolUserId`
  * is optional, and validated to belong to this tenant when it is supplied.
+ *
+ * ── Portal access, Sprint 22 ─────────────────────────────────────────────
+ * `portalAccess.mode` is `none` (the default and the one that must not change),
+ * `link` (an existing account, from `listUnlinkedSchoolUsers`) or `create` (a
+ * new `school_users` row plus `queueAccessEmail` — the same path
+ * `POST /api/school/invitations` takes, never `school_invitations`).
+ *
+ * The employment record is inserted **first** and is never rolled back. See
+ * `lib/staff-portal-access.ts` for why the ordering is not symmetric with the
+ * invite screen's.
  */
 
 export const runtime = 'nodejs';
@@ -59,6 +68,8 @@ export const GET = withSchoolAuth(
           status: isStaffStatus(statusParam) ? statusParam : undefined,
           branchId: branchId ?? undefined,
           department: url.searchParams.get('department') ?? undefined,
+          // `?linked=none` — the split records, and nothing else is a value.
+          linked: url.searchParams.get('linked') === 'none' ? 'none' : undefined,
         }),
         listDepartments(auth.locationId),
       ]);
@@ -94,6 +105,25 @@ interface CreateStaffBody {
   bankAccountTitle?: unknown;
   bankAccountNumber?: unknown;
   bankName?: unknown;
+  portalAccess?: unknown;
+}
+
+/**
+ * The three mutually exclusive answers to "does this person sign in?".
+ *
+ * `none` is the default and stays the default: a driver is on the payroll and
+ * never signs in, and a form that implied otherwise would push a school back
+ * onto a spreadsheet for half its staff.
+ */
+interface PortalAccessBody {
+  mode?: unknown;
+  role?: unknown;
+  branchId?: unknown;
+  schoolUserId?: unknown;
+}
+
+function readPortalAccess(value: unknown): PortalAccessBody {
+  return typeof value === 'object' && value !== null ? (value as PortalAccessBody) : {};
 }
 
 export const POST = withSchoolAuth(
@@ -146,28 +176,77 @@ export const POST = withSchoolAuth(
         return apiFailure('invalid_body', 'Choose a valid branch.', 400);
       }
 
-      const schoolUserId = readOptionalString(body.schoolUserId);
-      if (schoolUserId !== null) {
-        if (!isUuid(schoolUserId)) {
-          return apiFailure('invalid_body', 'Choose a valid portal account.', 400);
+      /*
+       * ── Portal access, decided before anything is written ───────────────
+       *
+       * `body.schoolUserId` is the pre-Sprint-22 shape and is still honoured:
+       * the route has accepted it since Sprint 7 even though no screen ever
+       * sent one, and a caller that does is asking to link.
+       *
+       * Everything that can be refused *without* costing the school its
+       * employment record is refused here, before the insert — a role that is
+       * not invitable, an address that is not an address, an account belonging
+       * to another school. What is left for step 2 is the collision that only
+       * the write can discover, and by then the record is worth keeping.
+       */
+      const portal = readPortalAccess(body.portalAccess);
+      const legacySchoolUserId = readOptionalString(body.schoolUserId);
+      const mode =
+        portal.mode === 'create' || portal.mode === 'link'
+          ? portal.mode
+          : legacySchoolUserId !== null
+            ? 'link'
+            : 'none';
+
+      let linkTarget: string | null = null;
+      let pendingLogin: NewStaffLogin | null = null;
+
+      if (mode === 'link') {
+        const requested =
+          readOptionalString(portal.schoolUserId) ?? legacySchoolUserId;
+        if (requested === null) {
+          return apiFailure('invalid_body', 'Choose a portal account to link.', 400);
         }
 
-        // The account must belong to this tenant. Without this check an id from
-        // another school could be linked into this one's staff directory.
-        const owner = await db
-          .select({ id: schoolUsers.id })
-          .from(schoolUsers)
-          .where(
-            and(
-              eq(schoolUsers.id, schoolUserId),
-              eq(schoolUsers.locationId, auth.locationId),
-            ),
-          )
-          .limit(1);
-
-        if (owner[0] === undefined) {
-          return apiFailure('invalid_body', 'That portal account was not found.', 404);
+        const linkable = await accountLinkable(auth.locationId, requested, null);
+        if (!linkable.ok) {
+          return apiFailure('invalid_body', linkable.problem, 400);
         }
+        linkTarget = requested;
+      }
+
+      if (mode === 'create') {
+        /*
+         * One screen, two permission keys. Creating a login from HR is a
+         * `users.write` action wearing an HR form's clothes, and enforcing that
+         * only in the component would leave the request itself unguarded.
+         */
+        if (!(await hasPermission(auth.locationId, auth.role, 'users.write'))) {
+          return apiFailure(
+            'forbidden',
+            'Creating a portal login also needs permission to manage users. Save the employment record without one, and ask an administrator to add the login.',
+            403,
+          );
+        }
+
+        const requestedLoginBranch = readOptionalString(portal.branchId);
+        const checked = await checkNewStaffLogin(auth.locationId, {
+          role: portal.role,
+          // A branch admin's own branch wins here exactly as it does over the
+          // employment record above. Never the other way.
+          branchId: auth.branchId ?? requestedLoginBranch ?? branchId,
+          // The staff form's own fields, not a second pair. The person is one
+          // person; asking for their address twice is how the two records
+          // start disagreeing on the day they are created.
+          name: `${firstName} ${lastName}`,
+          phone: readString(body.phone),
+          email: readString(body.email),
+        });
+
+        if (!checked.ok) {
+          return apiFailure('invalid_body', checked.problem, 400);
+        }
+        pendingLogin = checked.login;
       }
 
       const created = await db
@@ -176,7 +255,7 @@ export const POST = withSchoolAuth(
           // Tenant comes from the verified session, never from the body.
           locationId: auth.locationId,
           branchId,
-          schoolUserId,
+          schoolUserId: linkTarget,
           employeeCode,
           firstName,
           lastName,
@@ -216,7 +295,37 @@ export const POST = withSchoolAuth(
         );
       }
 
-      return apiSuccess({ staffId: created[0].id }, 201);
+      const staffId = created[0].id;
+
+      /*
+       * Step 2. The employment record is committed and stays committed.
+       *
+       * A login that could not be created comes back as `portalAccess.linked:
+       * false` with the reason, and the screen says the staff member was saved
+       * and the login was not. The alternative — deleting the row we have just
+       * written — loses the fact the school came to this screen to record.
+       */
+      if (pendingLogin !== null) {
+        const outcome = await createLoginForStaff(
+          auth.locationId,
+          auth.uid,
+          staffId,
+          pendingLogin,
+        );
+
+        return apiSuccess({ staffId, portalAccess: outcome }, 201);
+      }
+
+      return apiSuccess(
+        {
+          staffId,
+          portalAccess:
+            linkTarget === null
+              ? null
+              : { linked: true, schoolUserId: linkTarget, delivery: null },
+        },
+        201,
+      );
     } catch (error) {
       return handleApiError(error);
     }
