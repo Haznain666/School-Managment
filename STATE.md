@@ -149,12 +149,17 @@ it pointing at a button that was gone. All four fixed and re-verified.
 **Everything written to LGS was removed and the removal read back** — §5bg left
 a 5,000 credit behind, this run left nothing. `test-cases/TEST-CASES-SPRINT-20.md`.
 
-⚠ **One thing is reported and not fixed, and it is about money.** Applying a
+⚠ **One thing is reported and not fixed, and it is about money.**
+*(Resolved as a decision 2026-09-03 — reprice only unpaid vouchers — and
+scheduled as Sprint 23 item 1. The paragraph below is the report as written.)*
+Applying a
 discount reprices an already-issued open voucher; **removing one does not**. So
 a discount applied to the wrong child cannot be taken off this month's bill from
 the panel that applied it. Every candidate fix changes what a parent owes on a
 voucher already issued, which is a product decision rather than a QA correction.
 It is the first thing to settle in the next fee sprint.
+**SETTLED 2026-09-03 by the user: reprice only unpaid vouchers.** A paid voucher
+is a closed transaction and is not touched. Built in Sprint 23, item 1.
 
 **Sixteen gates green**, including `npm run build`, all three database-backed
 checks, and the new **`npm run check-sprint20`** — which *executes* each new and
@@ -928,8 +933,14 @@ Sprint 13.7 — §5ar; 2026-08-19: §5aq, §5ap, §5ao, §5an, §5am, §5al, §5
 > renumbering of every unbuilt sprint onto free numbers from 23. Read it before
 > quoting a sprint number at anybody. **The next sprint is 23 — fee follow-up:
 > discount repricing, staff loans, message templates, defaulter reminder
-> sequences, lecture-wise salary.** Its first item is blocked on a product
-> decision, not on code (§5bj).
+> sequences, lecture-wise salary.**
+>
+> ✅ **Its first item is no longer blocked.** §5bj left "removing a discount does
+> not reprice an issued voucher" as a product decision rather than a QA fix. The
+> user settled it 2026-09-03: **reprice only unpaid vouchers.** A paid voucher is
+> a closed transaction and is not touched. One sub-question goes to the spec —
+> what "unpaid" means for a *part*-paid voucher — and `SPRINTS.md` §Sprint 23
+> records the assumption rather than leaving it silent.
 
 **Branch:** Sprint 0 (§5m) **is merged to `main`** — an earlier version of this
 header said it was not, and was stale. Sprint 9 (§5n) is on

@@ -863,12 +863,27 @@ removing one does not. So a discount applied to the wrong child cannot be taken
 off this month's bill from the panel that applied it, and the school's only
 route is a manual correction somewhere else.
 
-> ⚠️ **Blocked on a product decision, and it must be taken before this is
-> built, not during.** Every candidate fix changes what a parent owes on a
-> voucher already in their hands. Reprice silently, reprice with an audit note,
-> reprice only unpaid vouchers, or refuse and require a credit note — those are
-> four different answers to a parent at a counter, and only the school can pick
-> one. Sprint 20 declined to guess and was right to.
+> ✅ **DECIDED by the user 2026-09-03: reprice only unpaid vouchers.** A voucher
+> that has been paid is a closed transaction and is not touched; removing a
+> discount corrects the bill going forward and leaves the receipt alone. This
+> was one of four candidate answers — silent repricing, repricing with an audit
+> note, unpaid-only, or refusing and requiring a credit note — and Sprint 20 was
+> right to decline to guess between them.
+>
+> **Why this is the cheap answer as well as the right one.** It never rewrites a
+> figure a parent has already settled against, so it cannot contradict a receipt
+> in their hand or a ledger entry already posted. `CLAUDE.md`'s append-only rule
+> is untouched: nothing reverses, because nothing that reached the ledger moves.
+>
+> ⚠️ **One thing this decision does not settle, and it has to be settled in the
+> spec: what "unpaid" means when a voucher is *part*-paid.** Part payments have
+> existed since Sprint 5 and are ordinary here, so a voucher carrying 10,000 of
+> a 50,000 bill is neither paid nor unpaid. **Assumption to confirm when the
+> spec is written: "unpaid" means no payment recorded at all**, so a
+> part-paid voucher is left alone like a settled one — repricing underneath a
+> payment already taken is the case this decision exists to avoid. The
+> alternative (reprice the unpaid balance) is defensible and is a different
+> build; do not pick it silently.
 
 **2. Staff loans and advances, with instalment recovery from payroll.**
 §2.9 assigns this to 13.5, which shipped without it. `staff_loans` and
@@ -1418,14 +1433,14 @@ post to it.
 | Merchant onboarding started? | ~~No~~ → **Yes, begun** (user, 2026-08-12). Still externally paced, no longer the thing nobody has started. |
 | Do uniforms have size/colour variants? | **Yes** — Sprint 35 is variant-first |
 | Which school is the pilot? | **A seeded test school**; a real one stays open |
+| Removing a discount: what happens to an issued voucher? | **Reprice only unpaid vouchers** (user, 2026-09-03). A paid voucher is a closed transaction. Unblocks Sprint 23 item 1 |
 
 ### Still open, each blocking its own sprint
 
-**Before Sprint 23** (fee follow-up) — **the new one, and it blocks item 1:**
-- **Removing a discount does not reprice an issued voucher** (`STATE.md` §5bj).
-  Reprice silently, reprice with an audit note, reprice only unpaid vouchers, or
-  refuse and require a credit note? Four different answers to a parent standing
-  at a counter, and only the school can choose. Sprint 20 declined to guess.
+~~**Before Sprint 23** (fee follow-up) — the new one, and it blocks item 1.~~
+**ANSWERED 2026-09-03 — see the §7 table above.** Sprint 23 item 1 is unblocked.
+One sub-question is deferred to the spec rather than left open here: what
+"unpaid" means for a **part**-paid voucher. §Sprint 23 records the assumption.
 
 ~~**Before Sprint 13** (and any deploy at all): the domain name.~~ **CLOSED** —
 `schoolhub.codexmill.com`, its own delegated zone (`STATE.md` §5ag). The DMARC

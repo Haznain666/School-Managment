@@ -609,13 +609,15 @@ answering questions and testing, not around waiting for code.
 Not blocking today, but each will block the module it belongs to. Worth
 answering before that module starts, not during it.
 
-**Fee counter — added 2026-09-03, and this one blocks the *next* sprint**
-- **Removing a discount does not reprice an already-issued voucher.** Applying
-  one does. So a discount applied to the wrong child cannot be taken off this
-  month's bill from the panel that applied it (`STATE.md` §5bj). Reprice
-  silently, reprice with an audit note, reprice only unpaid vouchers, or refuse
-  and require a credit note? Each is a different thing said to a parent at a
-  counter. **Sprint 23 cannot build item 1 until this is answered.**
+**Fee counter — added and ANSWERED 2026-09-03**
+- ~~**Removing a discount does not reprice an already-issued voucher.**~~
+  **Settled: reprice only unpaid vouchers** (user, 2026-09-03). Applying a
+  discount already reprices an open voucher; removing one will now do the same,
+  but only where nothing has been paid against it. **A paid voucher is a closed
+  transaction and is not touched** — the correction applies going forward and
+  the receipt in the parent's hand stays true. `SPRINTS.md` §Sprint 23 item 1
+  carries the build note, and the one sub-question it defers to the spec: what
+  "unpaid" means for a **part**-paid voucher.
 
 **Parent wallet**
 - Can a wallet go negative (school extends credit), or is it strictly
