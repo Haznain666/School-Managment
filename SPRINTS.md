@@ -142,7 +142,7 @@ is a week added to whenever schools can take money through the platform.** Start
 the applications this week regardless of what sprint is running.
 
 **3. POS products have size and colour variants.** This settles the largest
-structural question in `ROADMAP.md` §7. Sprint 20's stock tables are
+structural question in `ROADMAP.md` §7. **Sprint 35's** (was 20, §1.2) stock tables are
 **variant-first from the first migration** — a `products` / `product_variants`
 split where stock, price and barcode live on the variant, never on the product.
 Do not build flat products "for now": retrofitting variants means rebuilding the
@@ -296,7 +296,7 @@ the per-vendor adapters stay demand-driven.
 Capacitor wrapping the existing Next.js PWA. One codebase, one UI, one auth
 path, and it delivers the three things the web cannot: native camera (gate
 scanning), **native push via FCM/APNs** — which sidesteps the iOS home-screen
-problem in §Sprint 15 entirely — and reliable background storage for the offline
+problem in §Sprint 25 entirely — and reliable background storage for the offline
 queue. React Native would mean maintaining a second implementation of every
 screen for the same product.
 
@@ -342,8 +342,14 @@ more surface area.
 | --- | --- | --- | --- |
 | **R0** | Sprint 0 | Reconciliation & auth hardening | Stale branches gone, rate limiting live |
 | **R1 — Pilot Ready** | 9–13, incl. **10.5** | What one real school cannot operate without | **Full-term dress rehearsal on seeded data** — see §0.8 |
-| **R2 — Commercial Parity** | 13.5–19.7 | What makes it sellable against OurSchoolSoftware | Feature parity demo-able |
-| **R3 — Scale & Monetise** | 20–25 | Revenue, commerce, hardening, launch | Public launch |
+| **R2 — Commercial Parity** | 13.5, then **13.7, 13.8, 14–22 as actually built** (§1.2), then **23–34** | What makes it sellable against OurSchoolSoftware | Feature parity demo-able |
+| **R3 — Scale & Monetise** | **35–40** | Revenue, commerce, hardening, launch | Public launch |
+
+**R1 is complete.** Sprints 0, 9, 10, 10.5, 11, 12 and 13 all shipped, and the
+dress rehearsal ran on the seeded school (§5r). R2 has been running since
+2026-08-21 and its sprint numbers are the ones §1.2 reconciles — **R2 is where
+the plan and the repo came apart**, and the renumbering there is what puts them
+back together.
 
 **No release is dated.** See §0.7 — the calendar that stood here was invented,
 not agreed, and is deleted. The releases run in order because each depends on
@@ -356,11 +362,11 @@ the last.
 | 1 | **0** — Reconciliation & auth hardening | ✅ Done |
 | 2 | **9** — Exams, results & report cards | ✅ Done. The keystone; everything after depended on it. |
 | 3 | **10** — Import, promotion, transfer, family fees | ✅ Done, including the adversarial seed (§0.8) |
-| 4 | **10.5** — Design system, UI overhaul & dashboard charts | ⬅ **NEXT** (user, 2026-08-12). Run with `/impeccable`. Before 11–13, because each of those adds screens that would otherwise be designed twice. |
-| 5 | **11** — Communications | Needs Sprint 0's outbox |
-| 6 | **12** — Reports & analytics | Needs Sprint 9; charts come from 10.5 |
-| 7 | **13** — Portals + PWA shell + BR4 | Needs Sprint 9 |
-| 8 | **Dress rehearsal** | Full term simulated end to end on seeded data, every role, every printed document |
+| 4 | **10.5** — Design system, UI overhaul & dashboard charts | ✅ Done 2026-08-13/15 (§5z). Ran with `/impeccable`. One item outstanding and it needs a person: print one of each document on real A4. |
+| 5 | **11** — Communications | ✅ Done (§5aa, `0022`) |
+| 6 | **12** — Reports & analytics | ✅ Done (§5ab, no migration) |
+| 7 | **13** — Portals + PWA shell + BR4 | ✅ Done (§5ac, `0023`) |
+| 8 | **Dress rehearsal** | ✅ Run on the seeded school (§5r). Three defects found and fixed; the A4 print sign-off is the one part still owed. |
 
 **If R1 has to be shortened**, Sprint 12 (reports) is the one to thin — reports
 are additive. **Do not thin Sprint 10**; without import and promotion there is
@@ -370,14 +376,97 @@ no school to demonstrate.
 Sprints 1–8. Sprint numbers below are the repo's. Each row names the document
 sprint it derives from so the two can be cross-read.
 
-**Migrations continue at `0015`.** `0000`–`0014` are applied and recorded
-against the live Supabase database. The document's migration table (0011 = Email
-Auth, 0012 = HR, …) is off by three and must not be used.
+~~**Migrations continue at `0015`.**~~ **Superseded 2026-09-03 — the next free
+migration number is `0039`.** `0000`–`0038` are applied and recorded against the
+live Supabase database; `STATE.md` §5bl is the last word on it. The document's
+migration table (0011 = Email Auth, 0012 = HR, …) was off by three and must not
+be used, and neither must the per-sprint numbers this file used to name against
+Sprints 14 onward — **every one of `0020`–`0027` is taken by something else**.
+An unbuilt sprint below says *next free number*, and means it.
 
 **Corrected 2026-08-08:** this document said Sprint 0 needed no migration. It
 does — rate limiting, lockout and the email outbox are all tables — so Sprint 0
 takes `0015` and every migration named for Sprints 9 onward shifted up by one.
 Sprint 9 is now `0016`. The numbers below are the corrected ones.
+
+### 1.2 What the repo actually built, 14–22 — reconciled 2026-09-03
+
+**This file said "`STATE.md` is the truth, and when they disagree this file gets
+corrected". They disagreed from 2026-08-22 and nobody corrected it.** From
+Sprint 14 the repo stopped executing the plan below and ran product-owner-driven
+sprints against Lahore Grammar School instead — exam terms, vouchers,
+concessions, branch boundaries, identity. Nine sprint *numbers* went to work
+this file never describes.
+
+The consequence to understand before reading §2: **a sprint number in the table
+below means one thing in this file and a different thing in `STATE.md` and the
+release notes.** Numbers are not reusable. That is why §2's unbuilt sprints were
+renumbered from 23 (2026-09-03, user's decision).
+
+| # | This file planned | `STATE.md` records as shipped | Migration |
+| --- | --- | --- | --- |
+| 13.6 | Internationalisation + per-school language | **nothing — skipped** | — |
+| 14 | Internal chat, part 1 | Exam terms, datesheets, descriptors, promotion (§5ay) | 0029, 0030 |
+| 15 | Chat part 2 + Web Push | Dashboards on five portals (§5ba); DataTable across 30 listings (§5bb) | none |
+| 16 | Payments + parent wallet | Feedback, global search, setup progress (§5bd) | 0032 |
+| 16.5 | Documents: certificates + ID cards | **nothing** | — |
+| 17 | LMS part 1 | Onboarding, admission fee, discounts (§5be) | 0033 |
+| 18 | LMS part 2 | Student record, vouchers, concessions (§5bf, §5bg) | 0034 |
+| 19 | Events & calendar | 19a branch boundary (§5bh); 19b campus calendar, student documents, academic history (§5bi) | 0035, 0036 |
+| 19.5–19.7 | E-learning, biometric, mobile app | **nothing** | — |
+| 20 | POS, inventory & merchandise | Vouchers, discounts, bank accounts (§5bj) | 0037 |
+| 21 | SaaS billing & subscriptions | One email is one person (§5bk) | 0038 |
+| 22 | Integrations, webhooks & public API | One person, one record — staff ↔ `school_users` (§5bl) | none |
+
+**Two sprints shipped that no plan file ever listed:** 13.7 — parent accounts,
+period schedules, colours, teacher calendar (`0025`, §5ar) — and 13.8 — sibling
+identity (`0026`, §5as). Both are in the release notes and in `STATE.md`; only
+this file did not know about them.
+
+**Verified absent** from `db/schema/` and `db/migrations/` through `0038`:
+`chat_*`, push subscriptions, any payment-gateway or wallet table, `lms_*`,
+`events`, `products` / `product_variants`, `saas_*`, `biometric_*`, staff loans,
+an admission inquiry register, and message templates. The **PWA shell is
+present** — `app/manifest.webmanifest`, `app/sw.js`, `app/offline` — because
+Sprint 13 shipped it, so Sprint 25's push work has its substrate.
+
+#### The renumbering
+
+| New # | Sprint | Was |
+| --- | --- | --- |
+| **23** | **Fee follow-up: repricing, staff loans, templates, reminder sequences** | new |
+| **24** | **Internal chat, part 1** | 14 |
+| 25 | Chat part 2 + Web Push | 15 |
+| 26 | Internationalisation + per-school language | 13.6 |
+| 27 | Documents: certificates + ID card designer | 16.5 |
+| 28 | Digital payments: JazzCash / Easypaisa + parent wallet | 16 |
+| 29 | LMS part 1: courses & content | 17 |
+| 30 | LMS part 2: student experience | 18 |
+| 31 | Events & calendar | 19 |
+| 32 | E-learning: homework diary, study material, online classes | 19.5 |
+| 33 | Biometric device integration | 19.6 |
+| 34 | Cross-platform app + gate attendance | 19.7 |
+| 35 | POS, inventory & merchandise checkout | 20 |
+| 36 | SaaS billing & subscriptions | 21 |
+| 37 | Integrations, webhooks & public API | 22 |
+| 38 | Security audit & hardening | 23 |
+| 39 | Performance | 24 |
+| 40 | Beta, pre-launch hardening & launch | 25 |
+
+**23 and 24 are the user's choice** (2026-09-03). The three placements that are
+not, and the reason for each:
+
+- **25 follows 24** because `ROADMAP.md` §5 is blunt that chat without push
+  replaces a channel parents read with one they do not open. Shipping 24 and
+  stopping is the single ordering that turns chat into a fee-collection risk.
+- **26 is as early as the first three allow.** Sprint 26's own argument is that
+  RTL gets more expensive per screen, and nine sprints of screens have been
+  added since it was scheduled and skipped.
+- **27 before 34**, because the QR the gate scanner reads is printed by the ID
+  card designer — the dependency §4 already states, under new numbers.
+
+Every ordering constraint in §4 survives: PWA (13, shipped) → push (25); wallet
+ledger (28) → POS checkout (35); ID card (27) → gate scanner (34).
 
 ---
 
@@ -700,7 +789,7 @@ triples the review overhead for no benefit.
   constraint and defeats BR5. The role stays `principal`; the *assignment*
   scopes what they see.
 - **PWA shell** — manifest, service worker, installability, offline app shell.
-  No push yet; this is the substrate Sprint 15 needs, and shipping it here means
+  No push yet; this is the substrate Sprint 25 needs, and shipping it here means
   parents are already installing the app before push arrives.
 
 **🚩 Release 1 gate — onboard the pilot school and run a full term.**
@@ -740,7 +829,7 @@ authoritative. `0027`'s header argues it in full.
   salary expense, and school-defined heads
 - `ledger_entries` — **append-only**, double-sided, never edited or deleted.
   A correction is a reversing entry. This is the only way a disputed balance is
-  explainable months later, and it is the same rule as the parent wallet (§Sprint 16).
+  explainable months later, and it is the same rule as the parent wallet (§Sprint 28).
 - `expenses` + `expense_categories` — entry, category, attachment, approver
 - **Fee payments post to the ledger** — `fee_payments` gains a ledger reference.
   Backfill existing rows in the migration.
@@ -757,11 +846,104 @@ authoritative. `0027`'s header argues it in full.
 the point; expenses are its first, cheapest consumer, and they exist here to
 prove it before real money depends on it.
 
-### Sprint 13.6 — Internationalisation + per-school language
+### Sprint 23 — Fee follow-up: repricing, staff loans, templates, reminder sequences
+*Added 2026-09-03 at the user's instruction, and the user's choice for the next
+sprint. Assembled from §2.9's unowned rows and the one item Sprint 20 shipped
+knowingly and left. Migration: `0039`.*
+
+**This sprint is the debt of three earlier ones, not a new module.** Every item
+below was assigned to a sprint that shipped without it. They are here together
+because they are all the fee counter and the payroll it feeds, and because a
+school running a term hits all five in the same week.
+
+**1. Removing a discount does not reprice an issued voucher.**
+`STATE.md` §5bj reports this and calls it *"the first thing to settle in the next
+fee sprint"*. Applying a discount reprices an already-issued open voucher;
+removing one does not. So a discount applied to the wrong child cannot be taken
+off this month's bill from the panel that applied it, and the school's only
+route is a manual correction somewhere else.
+
+> ⚠️ **Blocked on a product decision, and it must be taken before this is
+> built, not during.** Every candidate fix changes what a parent owes on a
+> voucher already in their hands. Reprice silently, reprice with an audit note,
+> reprice only unpaid vouchers, or refuse and require a credit note — those are
+> four different answers to a parent at a counter, and only the school can pick
+> one. Sprint 20 declined to guess and was right to.
+
+**2. Staff loans and advances, with instalment recovery from payroll.**
+§2.9 assigns this to 13.5, which shipped without it. `staff_loans` and
+`staff_loan_instalments`, recovery scheduled against `payroll_runs`, and the
+balance derived from the instalments rather than stored.
+
+**Every movement posts to the ledger, in the transaction that causes it** —
+`CLAUDE.md`'s append-only rule, and a loan is exactly the kind of balance a
+member of staff disputes eleven months later.
+
+**3. Message templates with merge tags, editable per school.** §2.9, owed by
+Sprint 11. The tags resolve against the same audience data `canReachGuardian()`
+already reads, so the template and the sender cannot disagree about who a
+message is for.
+
+**4. Defaulter reminder sequences** — first notice, second notice, escalation —
+class-filtered, on chat + email per §0.9. §2.9, owed by Sprint 11.
+`lib/fee-reminders.ts` and `fee_challan_reminders` exist to build on, and
+`lib/defaulters.ts` already computes the list.
+
+**A sequence is background work, so it is claimed and not checked.**
+`CLAUDE.md`'s rule applies exactly: production runs seven schedulers, and a
+read-then-`if` sends a family the same second notice seven times.
+
+**5. Lecture-wise salary and absence-based deduction rules.** §2.9, owed by
+13.5. Extends `staff_salary_structures` and `lib/payroll-calculator.ts`; staff
+attendance already feeds loss-of-pay, which is the half that exists.
+
+**Permission keys:** reuse `fees.*`, `comms.*` and `hr.*` where they fit; a new
+key only where a school would plausibly grant one half and not the other —
+loans are the likely one. Add to `PERMISSIONS` **and**
+`DEFAULT_ROLE_PERMISSIONS`, and remember §5o's trap: the live CHECK constraint
+is a migration, not a code change.
+
+**Execute the new statements.** Loans join `staff`, `payroll_runs` and the
+ledger in one query; that is over three tables, which is where `CLAUDE.md`'s
+42702 rule starts applying. Copy `check-sprint22` and point it at them.
+
+### Sprint 24 — Internal chat, part 1
+*Renumbered 2026-09-03 from Sprint 14 — see §1.2.*
+*Derives from: `ROADMAP.md` §5 build order 1–3. Absent from the document.
+Migration: next free number — `0020` is taken (§1.2).*
+
+Tables per `ROADMAP.md` §5: `chat_conversations`, `chat_participants`,
+`chat_messages`, `chat_settings`, `chat_reports`.
+
+1. Data model + **RLS policies** + the permission resolver. RLS is the point:
+   a conversation you are not a participant in is refused by the database, not
+   hidden by the UI.
+2. Direct messages, text only, staff ↔ staff — proves the Supabase Realtime layer.
+3. Parent and student rules + the per-teacher `students_may_initiate` opt-in
+   (default off). "Teachers of their children" derives from
+   `student_guardians` → `student_enrollments` → `sections` → `timetable_entries`.
+
+### Sprint 25 — Chat part 2 + Web Push
+*Renumbered 2026-09-03 from Sprint 15 — see §1.2.*
+*Derives from: `ROADMAP.md` §5 build order 4–7. Migration: next free number — `0021` is taken (§1.2).*
+
+Groups, one-way announcement channels, attachments, voice notes
+(`MediaRecorder` → Supabase Storage), then **Web Push via VAPID**, quiet hours,
+reporting, moderation and retention.
+
+**This sprint decides whether replacing WhatsApp was correct.** `ROADMAP.md`
+§5 is blunt: without push, this replaces a channel parents read with one they do
+not open, and fee collection suffers. Two things to carry into onboarding:
+- **iOS gives no notifications until the parent adds the site to their home
+  screen**, and nothing prompts them. Onboarding must walk them through it.
+- Email digest fallback for anyone without push.
+
+### Sprint 26 — Internationalisation + per-school language
+*Renumbered 2026-09-03 from Sprint 13.6 — see §1.2.*
 *Added 2026-08-12 (§0.9). Migration: next free number.*
 
 **Sequenced here deliberately: this gets more expensive per screen added, and R2
-adds a lot of screens.** Doing it after Sprint 20 costs several times what it
+adds a lot of screens.** Doing it after the commerce sprints costs several times what it
 costs now.
 
 - **Language section against each school in Super Admin**, listing all supported
@@ -781,52 +963,8 @@ costs now.
 Pick the i18n library in this sprint and record the choice — `next-intl` is the
 obvious fit for the App Router, but it is a decision, not a default.
 
-### Sprint 14 — Internal chat, part 1
-*Derives from: `ROADMAP.md` §5 build order 1–3. Absent from the document.
-Migration: `0020_sprint14_chat.sql`.*
-
-Tables per `ROADMAP.md` §5: `chat_conversations`, `chat_participants`,
-`chat_messages`, `chat_settings`, `chat_reports`.
-
-1. Data model + **RLS policies** + the permission resolver. RLS is the point:
-   a conversation you are not a participant in is refused by the database, not
-   hidden by the UI.
-2. Direct messages, text only, staff ↔ staff — proves the Supabase Realtime layer.
-3. Parent and student rules + the per-teacher `students_may_initiate` opt-in
-   (default off). "Teachers of their children" derives from
-   `student_guardians` → `student_enrollments` → `sections` → `timetable_entries`.
-
-### Sprint 15 — Chat part 2 + Web Push
-*Derives from: `ROADMAP.md` §5 build order 4–7. Migration: `0021_sprint15_push.sql`.*
-
-Groups, one-way announcement channels, attachments, voice notes
-(`MediaRecorder` → Supabase Storage), then **Web Push via VAPID**, quiet hours,
-reporting, moderation and retention.
-
-**This sprint decides whether replacing WhatsApp was correct.** `ROADMAP.md`
-§5 is blunt: without push, this replaces a channel parents read with one they do
-not open, and fee collection suffers. Two things to carry into onboarding:
-- **iOS gives no notifications until the parent adds the site to their home
-  screen**, and nothing prompts them. Onboarding must walk them through it.
-- Email digest fallback for anyone without push.
-
-### Sprint 16 — Digital payments: JazzCash / Easypaisa + parent wallet
-*Derives from: `ROADMAP.md` Tier 2 #4 and §2b. Migration: `0022_sprint16_payments.sql`.*
-
-- Gateway abstraction, JazzCash and Easypaisa adapters, webhook receipt with
-  signature verification, reconciliation against `fee_challans`
-- **Parent wallet, per family not per student** — append-only ledger, balance
-  derived and never edited directly. Build the ledger before POS: fees, POS and
-  refunds all sit on it.
-- `fee_payments` already stores `payment_method` and `reference_number`, so the
-  data model mostly accommodates this.
-
-**⚠️ Hard external dependency.** Merchant onboarding is weeks of paperwork on
-their timeline. If it has not started, this sprint slips regardless of code.
-Three questions in `ROADMAP.md` §7 must be answered first — can the wallet go
-negative, where do refunds land, does an unused balance follow a leaver.
-
-### Sprint 16.5 — Documents: certificates + ID card designer
+### Sprint 27 — Documents: certificates + ID card designer
+*Renumbered 2026-09-03 from Sprint 16.5 — see §1.2.*
 *Added 2026-08-12 (§0.9). Derives from the gap review §D. Migration:
 next free number.*
 
@@ -848,15 +986,34 @@ most of it is a template each.
 physical test before this is called done; a card that looks right on screen and
 prints 2 mm off-register is not finished.
 
-### Sprint 17 — LMS part 1: courses & content
-*Derives from: document Sprint 8, unchanged in substance. Migration: `0023_sprint17_lms.sql`.*
+### Sprint 28 — Digital payments: JazzCash / Easypaisa + parent wallet
+*Renumbered 2026-09-03 from Sprint 16 — see §1.2.*
+*Derives from: `ROADMAP.md` Tier 2 #4 and §2b. Migration: next free number — `0022` is taken (§1.2).*
+
+- Gateway abstraction, JazzCash and Easypaisa adapters, webhook receipt with
+  signature verification, reconciliation against `fee_challans`
+- **Parent wallet, per family not per student** — append-only ledger, balance
+  derived and never edited directly. Build the ledger before POS: fees, POS and
+  refunds all sit on it.
+- `fee_payments` already stores `payment_method` and `reference_number`, so the
+  data model mostly accommodates this.
+
+**⚠️ Hard external dependency.** Merchant onboarding is weeks of paperwork on
+their timeline. If it has not started, this sprint slips regardless of code.
+Three questions in `ROADMAP.md` §7 must be answered first — can the wallet go
+negative, where do refunds land, does an unused balance follow a leaver.
+
+### Sprint 29 — LMS part 1: courses & content
+*Renumbered 2026-09-03 from Sprint 17 — see §1.2.*
+*Derives from: document Sprint 8, unchanged in substance. Migration: next free number — `0023` is taken (§1.2).*
 
 `lms_courses`, `lms_sections`, `lms_lessons`, `lms_assignments`, `lms_quizzes`,
 `lms_questions`, `lms_enrollments`. Course builder with ordering, video/document/
 text/quiz lesson types, bulk enrolment by grade or section.
 
-### Sprint 18 — LMS part 2: student experience
-*Derives from: document Sprint 9. Migration: `0024_sprint18_lms_submissions.sql`.*
+### Sprint 30 — LMS part 2: student experience
+*Renumbered 2026-09-03 from Sprint 18 — see §1.2.*
+*Derives from: document Sprint 9. Migration: next free number — `0024` is taken (§1.2).*
 
 `lms_submissions`, `lms_quiz_attempts`, `lms_progress`. Course player, progress
 tracking, assignment upload, timed quiz player, certificate on completion.
@@ -865,8 +1022,9 @@ tracking, assignment upload, timed quiz player, certificate on completion.
 Storage". Use `PrintSheet` for the same reason as §Sprint 12 — no headless
 renderer on Hostinger.
 
-### Sprint 19 — Events & calendar
-*Derives from: document Sprint 10. Migration: `0025_sprint19_events.sql`.*
+### Sprint 31 — Events & calendar
+*Renumbered 2026-09-03 from Sprint 19 — see §1.2.*
+*Derives from: document Sprint 10. Migration: next free number — `0025` is taken (§1.2).*
 
 `events`, `event_attendees`, `event_reminders`. Calendar view, RSVP, attendance
 marking, post-event gallery.
@@ -875,7 +1033,8 @@ marking, post-event gallery.
 email". Route them through the Sprint 11 announcement path — our SMTP by
 default, chat announcement channel, GHL only if connected.
 
-### Sprint 19.5 — E-learning: homework diary, study material, online classes
+### Sprint 32 — E-learning: homework diary, study material, online classes
+*Renumbered 2026-09-03 from Sprint 19.5 — see §1.2.*
 *Added 2026-08-12 (§0.9). Derives from `ROADMAP.md` §2b "E-Learning & Homework"
 and the gap review §C. Migration: next free number.*
 
@@ -899,7 +1058,8 @@ Splits out of the old `lms` flag, which conflated "courses and quizzes"
 operational commitment — a box to patch and monitor — and it is the price of not
 paying per participant-minute.
 
-### Sprint 19.6 — Biometric device integration
+### Sprint 33 — Biometric device integration
+*Renumbered 2026-09-03 from Sprint 19.6 — see §1.2.*
 *Added 2026-08-12 (§0.9). Migration: next free number.*
 
 Architecture in §0.9. Ship the ZK push adapter only; further vendors are
@@ -916,17 +1076,18 @@ demand-driven and cost one adapter file each.
 **Before starting:** confirm the first school's device model and that its
 firmware exposes push/ADMS rather than poll-only.
 
-### Sprint 19.7 — Cross-platform app + gate attendance
+### Sprint 34 — Cross-platform app + gate attendance
+*Renumbered 2026-09-03 from Sprint 19.7 — see §1.2.*
 *Added 2026-08-12 (§0.9). Migration: next free number.*
 
-**Depends on Sprint 16.5** — the QR the scanner reads is printed by the ID card
-designer. **Depends on Sprint 15** — push tokens.
+**Depends on Sprint 27** — the QR the scanner reads is printed by the ID card
+designer. **Depends on Sprint 25** — push tokens.
 
 - **Capacitor wrapper around the existing PWA.** Not React Native; not a second
   UI. Four role shells off one binary — parent, student, staff, gatekeeper —
   chosen at login from the `school_users` row.
 - **Native push via FCM/APNs**, which retires the iOS home-screen caveat carried
-  in Sprint 15.
+  in Sprint 25.
 - **Gate scanning**: native continuous QR scan with torch control, **plus
   hardware USB/Bluetooth scanners as a first-class input** (they present as
   keyboards — a hidden focused input taking scan-and-enter). A school with 900
@@ -952,12 +1113,13 @@ before this sprint runs.
 
 ## Release 3 — Scale & Monetise
 
-### Sprint 20 — POS, inventory & merchandise checkout
-*Derives from: `ROADMAP.md` §2b. Absent from the document. Migration: `0026_sprint20_pos.sql`.*
+### Sprint 35 — POS, inventory & merchandise checkout
+*Renumbered 2026-09-03 from Sprint 20 — see §1.2.*
+*Derives from: `ROADMAP.md` §2b. Absent from the document. Migration: next free number — `0026` is taken (§1.2).*
 
 Products, stock, over-the-counter sale, barcode scan, low-stock alerts,
 purchase-vs-sale reporting — **and** a parent-facing cart and checkout sharing
-the Sprint 16 wallet and gateway.
+the Sprint 28 wallet and gateway.
 
 **Variants are decided (2026-08-08): yes.** `products` holds the sellable thing
 (name, category, tax); `product_variants` holds size, colour, **stock count,
@@ -974,8 +1136,9 @@ counter *and* parents buy online from the same stock — if so, stock needs
 locking to prevent overselling the last shirt; and is merchandise ever billed to
 the fee challan instead of paid at checkout.
 
-### Sprint 21 — SaaS billing & subscriptions
-*Derives from: document Sprint 16. Migration: `0027_sprint21_saas.sql`.*
+### Sprint 36 — SaaS billing & subscriptions
+*Renumbered 2026-09-03 from Sprint 21 — see §1.2.*
+*Derives from: document Sprint 16. Migration: next free number — `0027` is taken (§1.2).*
 
 `saas_plans`, `saas_subscriptions`, `saas_invoices`, `saas_usage`. Plans as
 specified (Starter PKR 15,000 / Growth 35,000 / Enterprise 75,000). Feature
@@ -986,7 +1149,8 @@ than introduce a second source of truth.
 plain Node process — there is no platform cron. Either a host-level cron hitting
 a protected route, or an on-read counter. Decide it here.
 
-### Sprint 22 — Integrations, webhooks & public API
+### Sprint 37 — Integrations, webhooks & public API
+*Renumbered 2026-09-03 from Sprint 22 — see §1.2.*
 *Derives from: document Sprint 19, plus deferred items I-7 and the Social Planner.*
 
 GHL OAuth install flow (a working one exists on the abandoned
@@ -995,7 +1159,8 @@ receiver with signature verification, outbound webhooks per school, API-key auth
 for third-party tools, GHL Social Planner, and the REST surface a future mobile
 app needs.
 
-### Sprint 23 — Security audit & hardening
+### Sprint 38 — Security audit & hardening
+*Renumbered 2026-09-03 from Sprint 23 — see §1.2.*
 *Derives from: document Sprint 20, minus what Sprint 0 already did.*
 
 Full permission audit of every route against `withSchoolAuth` and the BR5 keys;
@@ -1005,7 +1170,8 @@ Top 10. **Plus two open items from `STATE.md`:** refresh-token revocation on
 deactivation (§5k — `revokeAllSessions` is currently a documented no-op), and a
 deliberate decision on `outputFileTracingRoot` before the first real deploy.
 
-### Sprint 24 — Performance
+### Sprint 39 — Performance
+*Renumbered 2026-09-03 from Sprint 24 — see §1.2.*
 *Derives from: document Sprint 21.*
 
 `EXPLAIN ANALYZE` on the top 20 queries; indexes on `location_id + status`,
@@ -1015,7 +1181,8 @@ CDN. **Correction:** the document's "Neon connection pooling / PgBouncer for
 serverless functions" is moot — this runs as one long-lived Node process on
 Hostinger, so tune the Supavisor pooler and the `postgres-js` pool size instead.
 
-### Sprint 25 — Beta, pre-launch hardening & launch
+### Sprint 40 — Beta, pre-launch hardening & launch
+*Renumbered 2026-09-03 from Sprint 25 — see §1.2.*
 *Derives from: document Sprints 22–25, collapsed.*
 
 Error monitoring, uptime monitoring on `/api/health`, feedback form, feature
@@ -1034,26 +1201,32 @@ Policy and ToS, PDPA review, load testing, DNS cutover, on-call rotation.
 do not deserve sprints of their own. They are listed here so they are not lost
 between now and the sprint that owns them.
 
-| Item | Owning sprint |
-| --- | --- |
-| Absence alert, fee-received confirmation, exam-marks-published, admission status — on chat + email | 11 |
-| Message templates with merge tags, editable per school | 11 |
-| Defaulter reminder **sequences** (first / second / escalation), class-filtered | 11 |
-| Delivery log per recipient per channel | 11 |
-| Global header search across students and staff, with print actions on the result | 12 |
-| Excel export alongside CSV on list screens | 12 |
-| Fee discount report, account summary report | 12 (data from 13.5) |
-| Dashboard: unpaid invoices, income/expense/profit today, monthly income-vs-expense, class-wise expected vs collected vs balance | **10.5** builds the tiles and charts; the income/expense series needs 13.5's ledger, so those two tiles land empty until then and must say so rather than showing a zero |
-| **Subject / lecture-wise attendance** — ours is per-day only; `attendance_records` has no subject or period column | 12 or its own migration; **schema change, do not defer silently** |
-| Admission **inquiry** register — walk-in/phone leads, follow-up, conversion to application | 11 or 10 |
-| Live webcam photo capture at admission | 10 |
-| Campus switcher in the header for multi-campus operators | 13 |
-| Parent complaint management | 14 (rides chat) |
-| Staff loans / advances with instalment recovery from payroll | 13.5 (posts to the ledger) |
-| Lecture-wise salary; absence-based deduction rules | 13.5 |
-| Bulk / class-wise payment entry from a bank statement | 13.5 |
-| Bank reconciliation remarks on online payments | 16 |
-| Custom one-off fees (tour, summer camp, annual charge) | 10 or 13.5 |
+| Item | Owning sprint | State, 2026-09-03 |
+| --- | --- | --- |
+| Absence alert, fee-received confirmation, exam-marks-published, admission status — on chat + email | 11 | ⚠ Partial. 11 shipped announcements and the delivery log; the **event triggers** are not built. Re-home the fee ones to **23**, the rest to **24** |
+| Message templates with merge tags, editable per school | ~~11~~ **23** | ❌ Not built |
+| Defaulter reminder **sequences** (first / second / escalation), class-filtered | ~~11~~ **23** | ❌ Not built. `lib/fee-reminders.ts` and `lib/defaulters.ts` are the substrate |
+| Delivery log per recipient per channel | 11 | ✅ Built (§5aa) |
+| Global header search across students and staff, with print actions on the result | ~~12~~ 16-as-built | ✅ Built (§5bd) — five portals, each scoped |
+| Excel export alongside CSV on list screens | 12 | ❌ Not built. `lib/csv-export.ts` is CSV only; no xlsx writer is a dependency |
+| Fee discount report, account summary report | 12 (data from 13.5) | ⚠ Partial. `account-summary` is in `lib/report-catalogue.ts`; **fee discount report is not** |
+| Dashboard: unpaid invoices, income/expense/profit today, monthly income-vs-expense, class-wise expected vs collected vs balance | **10.5** builds the tiles and charts; the income/expense series needs 13.5's ledger | ✅ Built — 10.5 wired the charts (§5z), 15-as-built put them on all five portals (§5ba), and 13.5's ledger fills the two that were empty |
+| **Subject / lecture-wise attendance** — `attendance_records` has no subject or period column | 12 or its own migration; **schema change, do not defer silently** | ⚠ **Still deferred, and now silently.** 12 shipped a *derived* subject report off the timetable and says so (§5ab); the column does not exist. Needs an owner |
+| Admission **inquiry** register — walk-in/phone leads, follow-up, conversion to application | ~~11 or 10~~ **unassigned** | ❌ Not built, no table |
+| Live webcam photo capture at admission | ~~10~~ **unassigned** | ❌ Not built |
+| Campus switcher in the header for multi-campus operators | 13 | ⚠ Partial. `components/school/BranchSelector.tsx` scopes individual screens (19a-as-built, §5bh); there is no persistent header switcher |
+| Parent complaint management | ~~14~~ **24** (rides chat) | ❌ Not built. 16-as-built's feedback module is school → platform, not parent → school |
+| Staff loans / advances with instalment recovery from payroll | ~~13.5~~ **23** (posts to the ledger) | ❌ Not built |
+| Lecture-wise salary; absence-based deduction rules | ~~13.5~~ **23** | ❌ Not built |
+| Bulk / class-wise payment entry from a bank statement | 13.5 | ❌ Not built. 20-as-built added `bank_accounts` (§5bj), which is the account and not the import |
+| Bank reconciliation remarks on online payments | ~~16~~ **28** | ❌ Not built |
+| Custom one-off fees (tour, summer camp, annual charge) | ~~10 or 13.5~~ **23** | ⚠ `fee_types.fee_category` distinguishes monthly from the rest, so the shape exists; no screen raises an ad-hoc charge |
+
+**Reconciled 2026-09-03.** Six of these were owed by sprints that shipped without
+them, which is how a "folded in" list fails: nothing owns a row in a table, and
+the sprint it names closes anyway. **Sprint 23 exists because five of them
+landed on the fee counter.** The three now marked *unassigned* have no sprint at
+all and will keep not having one until somebody gives them a number.
 
 **Teacher performance tracking** stays uncosted: the competitor advertises it
 without showing what it measures. Needs discovery before it can be planned.
@@ -1142,16 +1315,17 @@ The chain is a default, not a ritual.
 
 Three items gate more than they appear to, and two are outside this repo.
 
-1. **🔴 JazzCash / Easypaisa merchant onboarding — NOT STARTED as of 2026-08-08.**
-   Weeks of their paperwork on their timeline. Gates Sprint 16, and Sprint 20
-   through the shared checkout. It does not block Release 1, which has no online
-   payment — but it is now the item that decides when schools can take money
-   through the platform at all. **Start the applications this week.** No code
-   shortens it and no sprint ordering avoids it.
-2. **🔴 The domain name** — still unanswered. Fills `PLATFORM_BASE_DOMAIN`,
-   `NEXT_PUBLIC_APP_DOMAIN`, `INVITE_LINK_BASE_URL`, `GHL_REDIRECT_URI`, and the
-   DMARC record (I-8). **Gates any deploy at all**, including the Sep 4–7 dress
-   rehearsal if that is to run anywhere but localhost. Needed before Sprint 13.
+1. **🟡 JazzCash / Easypaisa merchant onboarding — begun 2026-08-12**, still
+   externally paced. Weeks of their paperwork on their timeline. Gates **Sprint
+   28**, and **Sprint 35** through the shared checkout. It never blocked Release
+   1, which has no online payment — but it is the item that decides when schools
+   can take money through the platform at all. No code shortens it and no sprint
+   ordering avoids it.
+2. ~~**🔴 The domain name**~~ — **CLOSED.** The platform runs at
+   `schoolhub.codexmill.com`, which is its own delegated zone, and subdomain
+   provisioning works end to end bar the TLS certificate Hostinger issues on its
+   own schedule (`STATE.md` §5ag). The four env vars are filled; the DMARC
+   record (I-8) is the only part of this item still owed.
 3. **🟡 A real pilot school** — no longer blocks R1 (§0.8 settles the rehearsal
    on seeded data), but it remains the highest-value open item on the project.
    Printed artefacts at a bank counter, parent app adoption, and dirty data
@@ -1161,17 +1335,27 @@ Three items gate more than they appear to, and two are outside this repo.
 Inside the repo, the ordering constraints that cannot be reordered:
 
 ```
-Sprint 9 (exams) ──▶ Sprint 12 (results reports)
-                 ──▶ Sprint 13 (report card, gradebook, results history)
+Sprint 9 (exams) ──▶ Sprint 12 (results reports)              [both shipped]
+                 ──▶ Sprint 13 (report card, gradebook)        [shipped]
 
-Sprint 0 (outbox) ──▶ Sprint 11 (campaigns) ──▶ Sprint 19 (event notifications)
+Sprint 0 (outbox) ──▶ Sprint 11 (campaigns) ──▶ Sprint 31 (event notifications)
+                                            ──▶ Sprint 23 (reminder sequences)
 
-Sprint 13 (PWA shell) ──▶ Sprint 15 (Web Push) ──▶ chat is safe to rely on
+Sprint 13 (PWA shell) ──▶ Sprint 25 (Web Push) ──▶ chat is safe to rely on
+Sprint 24 (chat) ─────────▶ Sprint 25          ──▶ and not before
 
-Sprint 16 (wallet ledger) ──▶ Sprint 20 (POS checkout)
+Sprint 28 (wallet ledger) ──▶ Sprint 35 (POS checkout)
 
-Sprint 10 (import) ──▶ pilot onboarding ──▶ everything real
+Sprint 27 (ID card QR) ──▶ Sprint 34 (gate scanner)
+
+Sprint 13.5 (ledger) ──▶ Sprint 23 (staff loans post to it)   [ledger shipped]
+
+Sprint 10 (import) ──▶ pilot onboarding ──▶ everything real   [import shipped]
 ```
+
+**Renumbered 2026-09-03 (§1.2).** Every arrow that pointed at 14–22 pointed at a
+number the repo had already spent on something else; the dependencies themselves
+are unchanged.
 
 ---
 
@@ -1197,7 +1381,7 @@ for the current stack. Every agent follows these; a deviation is a review defect
 | Tenancy | every new table carries `location_id` and is indexed on it |
 | Printing | `PrintSheet` — no PDF library, no headless Chromium |
 | Sessions | Supabase Auth; authorization read per request from `school_users` via `membershipFor()`, never from the token |
-| WhatsApp | gated behind `school_modules.whatsapp` via `isWhatsAppEnabled()` — **not** commented out |
+| WhatsApp | **gone.** `0028_remove_whatsapp.sql` removed the flag, the client and the send paths (`STATE.md` §5aw). Chat + email carry everything; do not reintroduce a third channel |
 | GHL | opt-in per school; every GHL call goes through `ghlLocationFor()` |
 
 ---
@@ -1232,20 +1416,27 @@ post to it.
 | --- | --- |
 | Go-live: cut scope or move the date? | **Near-term scope is Release 1.** The date is deleted — see §0.7 |
 | Merchant onboarding started? | ~~No~~ → **Yes, begun** (user, 2026-08-12). Still externally paced, no longer the thing nobody has started. |
-| Do uniforms have size/colour variants? | **Yes** — Sprint 20 is variant-first |
+| Do uniforms have size/colour variants? | **Yes** — Sprint 35 is variant-first |
 | Which school is the pilot? | **A seeded test school**; a real one stays open |
 
 ### Still open, each blocking its own sprint
 
-**Before Sprint 13** (and any deploy at all):
-- **The domain name.** Four env vars and the DMARC record depend on it.
+**Before Sprint 23** (fee follow-up) — **the new one, and it blocks item 1:**
+- **Removing a discount does not reprice an issued voucher** (`STATE.md` §5bj).
+  Reprice silently, reprice with an audit note, reprice only unpaid vouchers, or
+  refuse and require a credit note? Four different answers to a parent standing
+  at a counter, and only the school can choose. Sprint 20 declined to guess.
 
-**Before Sprint 15** (chat), from `ROADMAP.md` §7:
+~~**Before Sprint 13** (and any deploy at all): the domain name.~~ **CLOSED** —
+`schoolhub.codexmill.com`, its own delegated zone (`STATE.md` §5ag). The DMARC
+record (I-8) is the only part still owed.
+
+**Before Sprint 24/25** (chat), from `ROADMAP.md` §7:
 - Can a parent message the school office generally, or only their children's
   teachers? The agreed rules cover teachers but not the front desk.
 - What happens to a conversation when a student leaves the school?
 
-**Before Sprint 16** (payments/wallet), from `ROADMAP.md` §7:
+**Before Sprint 28** (payments/wallet), from `ROADMAP.md` §7:
 - Can a wallet go negative — does the school extend credit — or is it strictly
   pre-paid? This changes the ledger design, so it must be settled before it is
   built, not after.
@@ -1255,7 +1446,7 @@ post to it.
   legal answer.
 - Who absorbs the transaction fee — the school or the parent?
 
-**Before Sprint 20** (POS):
+**Before Sprint 35** (POS):
 - Can staff sell over the counter *and* parents buy online from the same stock?
   If so, stock needs locking to prevent overselling the last shirt.
 - Is merchandise ever billed to the fee challan instead of paid at checkout?

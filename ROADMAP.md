@@ -46,7 +46,7 @@ Stronger than the comparison suggests at first glance.
 | Fee Collection | ✅ Built — challans, concessions, late-fee rules, part payments |
 | Customisable system | ✅ Built — per-school module toggles |
 | Domain / subdomain | ✅ Built |
-| WhatsApp alerts | ✅ Built via GoHighLevel (**currently being removed — see §4**) |
+| WhatsApp alerts | ❌ **Removed from the platform**, `0028_remove_whatsapp.sql`, 2026-08-22. Chat + email carry everything. §4 and §5 below are superseded on this point |
 
 **Not on their list at all, and ours:** HR and payroll — leave management,
 salary structures, payslip generation, staff attendance feeding loss-of-pay.
@@ -56,6 +56,24 @@ loud in sales material.
 ---
 
 ## 2. The gaps
+
+> **⚠️ Reconciled against the repo 2026-09-03. Read this before the tiers below.**
+>
+> - **Tier 1 is complete.** Exams, marks entry, result cards and the print
+>   framework all shipped (Sprints 9 and 10.5). The "still to build" list under
+>   item 3 is stale — see the correction there.
+> - **Tier 2 is half complete.** Accounting shipped as Sprint 13.5 with a real
+>   append-only ledger. Family/sibling fee grouping shipped as Sprint 10 and was
+>   deepened by 13.8. **Digital payments have not been built at all** and are now
+>   Sprint 28 in `SPRINTS.md`.
+> - **Tier 3 is untouched.** Biometric, the mobile app and the bundled website
+>   are Sprints 33, 34 and unscheduled respectively.
+> - **§2b's "small features" list is largely done.** Promotion, campus transfer,
+>   Excel import, defaulter lists, admit cards and tabulation sheets all shipped.
+>   The corrections are marked inline.
+> - **The sprint numbers in this file and in `SPRINTS.md` moved on 2026-09-03.**
+>   `SPRINTS.md` §1.2 is the map; nothing in the analysis below changed, only the
+>   number the work will be built under.
 
 ### Tier 1 — cannot credibly sell without these
 
@@ -99,9 +117,16 @@ No PDF dependency: the browser's print dialog is the renderer, and "Save as PDF"
 is built into it. That is deliberate — Hostinger runs a plain Node process on
 shared infrastructure, where headless Chromium is unreliable at best.
 
-**Still to build on top of it**, roughly a day each: fee receipt, thermal
+~~**Still to build on top of it**, roughly a day each: fee receipt, thermal
 receipt, student ID card, admit card, marksheet, leaving certificate,
-experience certificate, family/parent voucher.
+experience certificate, family/parent voucher.~~
+
+*Correction 2026-09-03: three of those eight shipped.* **Admit card** and the
+**marksheet / report card** landed with Sprint 9; the **family/parent voucher**
+landed with Sprint 10 (`lib/family-challans.ts`) and was reworked by Sprint 20.
+The remaining five — fee receipt, thermal receipt, student ID card, leaving
+certificate, experience certificate — are **Sprint 27** in `SPRINTS.md`, where
+the ID card designer is the real work and the certificates are a template each.
 
 Known limits, written up in the page itself: capped at 200 challans per job
 (one query per challan, and print dialogs fail past a few hundred pages), and it
@@ -109,7 +134,7 @@ needs "Background graphics" enabled in the print dialog for rules and cut lines.
 
 ### Tier 2 — strong commercial differentiators
 
-**4. Digital payments — ~10–15 days**
+**4. Digital payments — NOT BUILT. Now Sprint 28** *(was 16)*
 JazzCash and Easypaisa first, cards later. Today the system only *records* that
 a payment happened; it cannot take one. Needs a payments gateway abstraction,
 webhook handling, and reconciliation against `fee_challans`.
@@ -117,7 +142,7 @@ webhook handling, and reconciliation against `fee_challans`.
 Note: `fee_payments` already stores `payment_method` and `reference_number`, so
 the data model mostly accommodates this already.
 
-**5. Family / sibling fee grouping — ~3–5 days**
+**5. Family / sibling fee grouping — ✅ SHIPPED, Sprint 10, deepened by 13.8**
 Fees are strictly per-student. A parent with three children wants one voucher
 and one total. Cheap to build, disproportionately liked, and directly
 advertised by the competitor ("Family Fee Report", "Parent Voucher").
@@ -133,7 +158,7 @@ subscribe to it. See `SPRINTS.md` §0.9. The alert *events* still get built
 does not. Do not re-open this. `lib/otp-sender.ts`, cited here as the
 abstraction to reuse, no longer exists.
 
-**7. Full accounting — ~15–20 days — NOW MANDATORY, Sprint 13.5**
+**7. Full accounting — ✅ SHIPPED as Sprint 13.5, 2026-08-21**
 Income and expenses beyond fees, expense categories, vendor payments, a general
 ledger, and income/expense reporting. Without it schools keep separate books,
 which undercuts the "one system" pitch.
@@ -143,7 +168,7 @@ instruction, and positioned *before* online payments and POS — all three post 
 the same append-only ledger, and retrofitting one under live money is the
 expensive version of this work.
 
-**7b. Visual design and data visualisation — NOW THE NEXT SPRINT (10.5)**
+**7b. Visual design and data visualisation — ✅ SHIPPED as Sprint 10.5, 2026-08-13/15**
 *Raised by the user 2026-08-12: the CRM is "flat and boring", has no icons or
 graphics, and there are no charts on any dashboard.*
 
@@ -173,7 +198,7 @@ The plan, the two constraints that make it harder than a normal redesign
 
 ### Tier 3 — larger or hardware-dependent
 
-**8. Biometric / device attendance — CONFIRMED IN SCOPE 2026-08-12, Sprint 19.6**
+**8. Biometric / device attendance — CONFIRMED IN SCOPE 2026-08-12, now Sprint 33** *(was 19.6)*
 Fingerprint and face-ID devices, barcode ID-card scanning, webcam capture.
 Heavily marketed by the competitor.
 
@@ -183,7 +208,7 @@ the ZKTeco family (and its rebrands, which dominate this market) pushes logs
 firewall rule. Architecture in `SPRINTS.md` §0.9. Different vendors do not share
 a codebase — hence an adapter registry, with vendors added on demand.
 
-**9. Mobile apps (Android / iOS) — CONFIRMED IN SCOPE 2026-08-12, Sprint 19.7**
+**9. Mobile apps (Android / iOS) — CONFIRMED IN SCOPE 2026-08-12, now Sprint 34** *(was 19.7)*
 The competitor ships one app serving all roles, and the user requires the same.
 
 **~30–45 days assumed React Native. It is now a Capacitor wrapper around the
@@ -221,8 +246,8 @@ what is being built. This section records only what the transcript showed that
 
 **Corrections to §2b's "already covered by us" line:** ID cards, character and
 leaving certificates are listed there as covered. They are **not built at all** —
-only the `PrintSheet` framework they would sit on exists. See `SPRINTS.md`
-Sprint 16.5.
+only the `PrintSheet` framework they would sit on exists. **Still true on
+2026-09-03**, three weeks later: see `SPRINTS.md` **Sprint 27** *(was 16.5)*.
 
 **On the video's own claims:** it is a sales demo. The sub-second reporting and
 "Pakistan's number one" are marketing, not verified capability. What is listed
@@ -264,23 +289,29 @@ Open questions to settle before building — see §8.
 
 **Small features, disproportionate value**
 
-| Feature | Why it matters | Effort |
+| Feature | Why it matters | State, 2026-09-03 |
 | --- | --- | --- |
-| **Promote students to next class** | Every school does this once a year, for every student. Doing it by hand is unthinkable. **Biggest omission on this list.** | ~4–6 days |
-| **Campus transfer** | Move a student between branches keeping their history. We have branches but no transfer path. | ~2–3 days |
-| **Excel bulk import of students** | How a school onboards year one. Without it, adoption means typing 800 students in by hand. | ~4–6 days |
-| **Parent Wallet** | Advance/credit balance carried against future fees. Common in Pakistani schools. | ~5–8 days |
-| **Fee defaulter lists** | The report an accountant actually opens each morning. | ~2–3 days |
-| **Subject-wise attendance** | Ours is per-day only; theirs is per-lecture. Needed for secondary schools. | ~5–8 days |
-| **Admit cards** | Printed per student per exam. Cheap once exams exist and the print framework is in place. | ~1–2 days |
-| **Tabulation sheets & position holders** | Class-wide result grids and rankings — what a principal reviews after exams. | ~3–5 days |
-| **Staff loans & instalments** | Salary advances recovered over months. Payroll already exists, so this is an extension. | ~4–6 days |
-| **Gatekeeper role** | A gate-scanner account that can only mark attendance. Our permission matrix already supports this shape. | ~1–2 days |
-| **Teacher performance tracking** | Advertised; unclear what it measures. Needs discovery before costing. | unknown |
+| **Promote students to next class** | Every school does this once a year, for every student. Doing it by hand is unthinkable. **Biggest omission on this list.** | ✅ Shipped — Sprint 10, deepened by 14-as-built (promotion criteria, `0029`) |
+| **Campus transfer** | Move a student between branches keeping their history. We have branches but no transfer path. | ✅ Shipped — Sprint 10 (`student_transfers`), branch boundary hardened by 19a |
+| **Excel bulk import of students** | How a school onboards year one. Without it, adoption means typing 800 students in by hand. | ✅ Shipped — Sprint 10, dry-run validation and per-row failures |
+| **Parent Wallet** | Advance/credit balance carried against future fees. Common in Pakistani schools. | ⚠ **Partial.** `student_credits` (17-as-built) is a **per-student** credit; the per-**family** wallet this asks for is Sprint 28 |
+| **Fee defaulter lists** | The report an accountant actually opens each morning. | ✅ Shipped — Sprint 10, `lib/defaulters.ts`, with aging buckets. The reminder **sequences** on top of it are Sprint 23 |
+| **Subject-wise attendance** | Ours is per-day only; theirs is per-lecture. Needed for secondary schools. | ❌ **Still not built.** Sprint 12 shipped a *derived* report off the timetable and says so; `attendance_records` still has no subject or period column. Unowned — see `SPRINTS.md` §2.9 |
+| **Admit cards** | Printed per student per exam. Cheap once exams exist and the print framework is in place. | ✅ Shipped — Sprint 9 |
+| **Tabulation sheets & position holders** | Class-wide result grids and rankings — what a principal reviews after exams. | ✅ Shipped — Sprint 9 |
+| **Staff loans & instalments** | Salary advances recovered over months. Payroll already exists, so this is an extension. | ❌ Not built. **Sprint 23** |
+| **Gatekeeper role** | A gate-scanner account that can only mark attendance. Our permission matrix already supports this shape. | ❌ Not built. **Sprint 34**, with the scanner it exists for |
+| **Teacher performance tracking** | Advertised; unclear what it measures. Needs discovery before costing. | ❌ Still uncosted, still undiscovered |
 
-**Already covered by us:** ID card generation *(needs a template on the new print
+~~**Already covered by us:** ID card generation *(needs a template on the new print
 framework)*, character and leaving certificates *(same)*, timetable, marksheet
-*(needs exams first)*, income/expense reporting *(needs accounting)*.
+*(needs exams first)*, income/expense reporting *(needs accounting)*.~~
+
+*Correction 2026-09-03, and §2a already flagged half of it.* **Timetable**,
+**marksheet** and **income/expense reporting** are genuinely covered — exams
+shipped as Sprint 9 and accounting as 13.5. **ID cards and the character and
+leaving certificates are not built at all**, and never were; only `PrintSheet`
+exists under them. They are **Sprint 27**.
 
 ---
 
@@ -292,12 +323,36 @@ framework)*, character and leaving certificates *(same)*, timetable, marksheet
    roughly a day each. Do fee vouchers first — they are used daily.
 3. **Digital payments** — JazzCash and Easypaisa.
 4. **Family fee grouping.** Small, and schools ask for it constantly.
-5. Accounting, SMS, biometric, mobile apps — after paying schools tell you
-   which they actually want. Do not guess this far ahead.
+5. ~~Accounting, SMS, biometric, mobile apps — after paying schools tell you
+   which they actually want. Do not guess this far ahead.~~
+
+*Correction 2026-09-03: overtaken on every clause.* **Accounting was made
+mandatory** on 2026-08-12 and shipped as Sprint 13.5, positioned deliberately
+*before* payments and POS because all three post to one ledger. **SMS was
+rejected permanently** (item 6 above). **Biometric and the mobile app are
+committed** (Sprints 33 and 34). Items 1, 2 and 4 of this build order all
+shipped; **item 3, digital payments, is the only one still outstanding**, and it
+is Sprint 28.
 
 ---
 
-## 4. WhatsApp — settled 2026-08-07
+## 4. WhatsApp — settled 2026-08-07, then REVERSED
+
+> **⚠️ SUPERSEDED TWICE. Do not implement anything in this section.**
+>
+> §5 below supersedes it in principle (WhatsApp is replaced by internal chat,
+> not sold as an add-on), and the repo superseded it in fact:
+> **`0028_remove_whatsapp.sql`, 2026-08-22, removed the module flag, the
+> GoHighLevel client's send paths and every caller** (`STATE.md` §5aw).
+> `lib/otp-sender.ts` and `lib/ghl-fees.ts`, cited below as code to gate, no
+> longer exist. `SPRINTS.md` §5's binding-conventions table carried the dead
+> "gate it behind `school_modules.whatsapp`" rule until the same 2026-09-03
+> reconciliation removed it.
+>
+> The section is kept because the *reasoning* — turn the competitor's headline
+> feature into a revenue line rather than a cost — is why chat was built, and
+> because §5 only makes sense read after it.
+
 
 Earlier drafts of this file warned against removing WhatsApp outright, since the
 competitor's whole positioning rests on it. **The user has settled it, and the
@@ -478,13 +533,24 @@ account (~$99/year)** — worth budgeting now.
 
 ### Build order
 
-1. Data model + RLS policies + the permission resolver.
-2. Direct messages, text only, staff↔staff. Proves the realtime layer.
-3. Parent and student rules, plus the teacher opt-in setting.
-4. Groups and announcement channels.
-5. Attachments, then voice notes (`MediaRecorder` in the browser → Storage).
-6. **Web Push / PWA.**
-7. Moderation: reports, admin review, retention.
+**Status 2026-09-03: none of this is built.** Steps 1–3 are **Sprint 24** and
+steps 4–7 are **Sprint 25** in `SPRINTS.md` (they were 14 and 15 until the
+renumbering; §1.2 there says why). The one part that *does* exist is the PWA
+half of step 6 — Sprint 13 shipped the manifest, service worker and offline
+shell — so Web Push has its substrate and needs only VAPID and subscriptions.
+
+1. Data model + RLS policies + the permission resolver. — Sprint 24
+2. Direct messages, text only, staff↔staff. Proves the realtime layer. — 24
+3. Parent and student rules, plus the teacher opt-in setting. — 24
+4. Groups and announcement channels. — Sprint 25
+5. Attachments, then voice notes (`MediaRecorder` in the browser → Storage). — 25
+6. **Web Push / PWA.** — 25. *PWA shell shipped with Sprint 13; push has not.*
+7. Moderation: reports, admin review, retention. — 25
+
+**Do not build 24 and stop.** §"The real risk: reach" above is the reason, and
+it has not weakened: WhatsApp is gone from the platform as of `0028`, so until
+push exists there is no channel that reaches a parent who has not opened the
+portal.
 
 ---
 
@@ -543,6 +609,14 @@ answering questions and testing, not around waiting for code.
 Not blocking today, but each will block the module it belongs to. Worth
 answering before that module starts, not during it.
 
+**Fee counter — added 2026-09-03, and this one blocks the *next* sprint**
+- **Removing a discount does not reprice an already-issued voucher.** Applying
+  one does. So a discount applied to the wrong child cannot be taken off this
+  month's bill from the panel that applied it (`STATE.md` §5bj). Reprice
+  silently, reprice with an audit note, reprice only unpaid vouchers, or refuse
+  and require a credit note? Each is a different thing said to a parent at a
+  counter. **Sprint 23 cannot build item 1 until this is answered.**
+
 **Parent wallet**
 - Can a wallet go negative (school extends credit), or is it strictly
   pre-paid? This changes the ledger design, so decide before building.
@@ -572,7 +646,9 @@ answering before that module starts, not during it.
 
 **Rollout**
 - **Which school is the pilot?** Everything in this document is guesswork until
-  one real school uses it.
+  one real school uses it. **Still open, and still the highest-value item on the
+  project** — the seeded school (`SPRINTS.md` §0.8) proves the software and not
+  the operation.
 
 ---
 

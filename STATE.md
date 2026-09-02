@@ -844,7 +844,12 @@ Sprint 13.7 — §5ar; 2026-08-19: §5aq, §5ap, §5ao, §5an, §5am, §5al, §5
 > `0025` was taken by Sprint 13.7 on 2026-08-20. **`0026` is free.** Sprint
 > ~~13.5 (accounting) is still the next sprint, and still needs one.~~
 > Superseded — 13.5 was built on 2026-08-21 (§5au) and took `0027`. **`0028` is
-> free.** Sprint 13.6 (internationalisation) is next.
+> free.** ~~Sprint 13.6 (internationalisation) is next.~~ **Wrong from
+> 2026-08-22 and stale until 2026-09-03: 13.6 was skipped, and Sprints 14–22
+> went to entirely different work. `SPRINTS.md` §1.2 reconciles the two
+> numberings. The next sprint is 23 — fee follow-up.** And the migration
+> arithmetic in this whole block is superseded: **`0039` is the next free
+> number** (§5bl).
 
 > ✅ **`0022_sprint11_comms.sql` applied to the live database, 2026-08-15.**
 > Verified: 23 of 23 migrations applied, all three tables present, 12 indexes,
@@ -913,6 +918,18 @@ Sprint 13.7 — §5ar; 2026-08-19: §5aq, §5ap, §5ao, §5an, §5am, §5al, §5
 > **⚠ On Hostinger, the Environment panel and `.env` are ONE store.** Deleting
 > `.env` in File Manager deletes the panel entries. Use the Environment UI
 > only. And **pushing to `main` auto-deploys to production.** See §5v.
+
+> 📍 **The plan files were reconciled against this one on 2026-09-03.**
+> `SPRINTS.md` had said "`STATE.md` is the truth and this file gets corrected"
+> and had not been corrected since 2026-08-22. From Sprint 14 the repo stopped
+> executing its plan and ran product-owner sprints instead, so **nine sprint
+> numbers mean one thing here and a different thing there.**
+> **`SPRINTS.md` §1.2 is the map** — planned vs. shipped for 14–22, plus the
+> renumbering of every unbuilt sprint onto free numbers from 23. Read it before
+> quoting a sprint number at anybody. **The next sprint is 23 — fee follow-up:
+> discount repricing, staff loans, message templates, defaulter reminder
+> sequences, lecture-wise salary.** Its first item is blocked on a product
+> decision, not on code (§5bj).
 
 **Branch:** Sprint 0 (§5m) **is merged to `main`** — an earlier version of this
 header said it was not, and was stale. Sprint 9 (§5n) is on
@@ -7251,9 +7268,10 @@ section id and made to run.
    §7. Uniform size/colour variants is the one that cannot be retrofitted.
 8. **Register the Apple Developer ($99/yr) and Google Play ($25) accounts** —
    in progress; the user will confirm when they are ready. Needed to *ship*
-   Sprint 19.7, not to build it.
+   **Sprint 34** *(renumbered from 19.7, `SPRINTS.md` §1.2)*, not to build it.
 9. **Confirm the first school's biometric device model** and that its firmware
-   supports push/ADMS — needed before Sprint 19.6 (§5x).
+   supports push/ADMS — needed before **Sprint 33** *(renumbered from 19.6,
+   `SPRINTS.md` §1.2)*, §5x.
 10. ~~Decide the video vendor~~ — **self-hosted Jitsi, confirmed 2026-08-12.**
     A VPS is now platform infrastructure to provision and operate (§5x).
 11. ~~**A *working* Google Maps API key**, if the address picker is wanted.~~
