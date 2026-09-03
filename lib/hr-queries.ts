@@ -102,6 +102,15 @@ export interface StaffRow {
    * forty profiles.
    */
   schoolUserId: string | null;
+  /**
+   * The personnel photograph, or null (Sprint 23, item 5).
+   *
+   * On the *list* row as well as the detail because the directory renders an
+   * avatar per person, and fetching forty photographs one profile at a time is
+   * forty requests to draw one screen. Null is the ordinary case and gets the
+   * initials avatar `components/ui/Avatar.tsx` already draws.
+   */
+  photoUrl: string | null;
 }
 
 export interface ListStaffFilters {
@@ -118,6 +127,27 @@ export interface ListStaffFilters {
    * under everyone who has ever left.
    */
   linked?: 'none';
+  /**
+   * BR4 — the campuses a scoped principal may be shown (Sprint 23, item 3).
+   *
+   * ── Why campuses and not classes ────────────────────────────────────────
+   * A `staff` row carries `branch_id` and carries no grade at all. There is no
+   * column that says which classes a bursar or a driver belongs to, and
+   * inventing one out of `sections.class_teacher_id` would narrow the staff
+   * list to home-room teachers — which is not what "the staff at my campus"
+   * means to anybody.
+   *
+   * So the honest narrowing for this table is the campus half of the scope, and
+   * it is stated here rather than left to be inferred: **a head assigned a
+   * division but no campus sees every member of staff.** That is the same
+   * answer they got before this sprint, and narrowing it further would need a
+   * column the schema does not have.
+   *
+   * A **null** `branch_id` is admitted, exactly as a null grade is: a
+   * single-campus school that never created a branch record has every staff row
+   * null, and excluding them would show its heads an empty directory.
+   */
+  scopeBranchIds?: string[] | null | undefined;
 }
 
 /**
@@ -144,6 +174,16 @@ export async function listStaff(
 
   if (filters.department !== undefined && filters.department !== '') {
     conditions.push(eq(staff.department, filters.department));
+  }
+
+  // BR4. Applied in addition to `branchId` above, never instead of it: a head
+  // filtering to a campus outside their own gets nothing, not that campus.
+  if (filters.scopeBranchIds != null) {
+    const scoped =
+      filters.scopeBranchIds.length === 0
+        ? isNull(staff.branchId)
+        : or(isNull(staff.branchId), inArray(staff.branchId, filters.scopeBranchIds));
+    if (scoped !== undefined) conditions.push(scoped);
   }
 
   if (filters.linked === 'none') {
@@ -181,6 +221,7 @@ export async function listStaff(
       branchName: branches.name,
       isClassTeacher: staff.isClassTeacher,
       schoolUserId: staff.schoolUserId,
+      photoUrl: staff.photoUrl,
     })
     .from(staff)
     .leftJoin(branches, eq(branches.id, staff.branchId))
@@ -225,6 +266,7 @@ export async function getStaff(
       branchName: branches.name,
       isClassTeacher: staff.isClassTeacher,
       schoolUserId: staff.schoolUserId,
+      photoUrl: staff.photoUrl,
       cnic: staff.cnic,
       dateOfBirth: staff.dateOfBirth,
       gender: staff.gender,

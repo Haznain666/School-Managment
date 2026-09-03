@@ -599,6 +599,18 @@ export interface ListChallansFilters {
   limit?: number | undefined;
   sort?: ChallanSortColumn | undefined;
   direction?: 'asc' | 'desc' | undefined;
+  /**
+   * BR4 — the grades a scoped principal may be shown (Sprint 23, item 3).
+   *
+   * Applied *in addition to* whatever the caller filtered on, never instead of
+   * it: a head who filters to Class 5 outside their division gets nothing, not
+   * Class 5. `undefined` and `null` both mean "every grade"; an **empty array**
+   * is an unassigned head and matches no row, which `inArray` already renders
+   * as `false`. That is the same contract `ListStudentsFilters.scope` carries,
+   * deliberately, so the register and the roll cannot disagree about what
+   * "yours" means.
+   */
+  scopeGradeIds?: string[] | null | undefined;
 }
 
 export interface ListChallansResult {
@@ -661,6 +673,12 @@ export async function listChallans(
   }
   if (filters.gradeId !== undefined && filters.gradeId !== '') {
     conditions.push(eq(sections.gradeId, filters.gradeId));
+  }
+  // BR4. In the `WHERE` rather than filtered afterwards: this list is
+  // paginated and totalled in the database, and a JavaScript filter over one
+  // page would leave the totals answering for the whole school.
+  if (filters.scopeGradeIds != null) {
+    conditions.push(inArray(sections.gradeId, filters.scopeGradeIds));
   }
   // An unrecognised status is dropped rather than rejected: it arrives from a
   // query string, and a stale bookmark should show everything, not 400.
@@ -1265,6 +1283,13 @@ export interface OutstandingFilters {
   /** Only challans at least this many days past due. */
   minDaysOverdue?: number | undefined;
   limit?: number | undefined;
+  /**
+   * BR4 — the grades a scoped principal may be shown (Sprint 23, item 3).
+   *
+   * Backs both the outstanding report and the chase list, so one filter here
+   * narrows both and the two cannot come to disagree about a head's classes.
+   */
+  scopeGradeIds?: string[] | null | undefined;
 }
 
 /**
@@ -1297,6 +1322,11 @@ export async function listOutstandingChallans(
   }
   if (filters.gradeId !== undefined && filters.gradeId !== '') {
     conditions.push(eq(sections.gradeId, filters.gradeId));
+  }
+  // BR4. The `limit` below is applied after this, so a head's list is their
+  // own hundred rows rather than the school's hundred narrowed to a handful.
+  if (filters.scopeGradeIds != null) {
+    conditions.push(inArray(sections.gradeId, filters.scopeGradeIds));
   }
 
   const minDays = filters.minDaysOverdue ?? 0;

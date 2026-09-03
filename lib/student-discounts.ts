@@ -9,6 +9,7 @@ import {
   studentConcessionFeeTypes,
   studentConcessions,
   studentProfiles,
+  type ChallanStatus,
   type DiscountType,
   type SchemeType,
 } from '@/db/schema';
@@ -246,6 +247,19 @@ export async function getNewChildDiscountState(
   };
 }
 
+/**
+ * The statuses a *removal* may reprice — vouchers with no money against them.
+ *
+ * Deliberately **not** `OPEN_CHALLAN_STATUSES`, and deliberately not a
+ * narrowing of it. That constant means "still owed" and eight other modules
+ * read it that way: the defaulters list, the family voucher, the enrolment fee
+ * gate, the transfer clearance. Narrowing it to make one call site behave would
+ * change what a defaulter is. This is a different question — *has any money
+ * been handed over* — asked in one place, and so it lives here beside the
+ * caller that asks it.
+ */
+const PAYMENT_FREE_STATUSES: readonly ChallanStatus[] = ['unpaid'];
+
 export class StudentDiscountError extends Error {
   readonly status: number;
   readonly code: string;
@@ -270,16 +284,47 @@ export class StudentDiscountError extends Error {
  * for the wrong amount, which never should have existed at all.
  *
  * The close date is **yesterday**, clamped so it never precedes `valid_from`,
- * so the grant stops applying to anything billed from today. A voucher already
- * issued keeps its discount, which is right: it was raised for a period the
- * child held the grant in.
+ * so the grant stops applying to anything billed from today.
+ *
+ * ── Removal is a correction, not the passage of time (Sprint 23, item 1) ──
+ * Until this sprint the sentence here read *"a voucher already issued keeps
+ * its discount, which is right: it was raised for a period the child held the
+ * grant in"*, and the reprice below silently did nothing. That reasoning is
+ * correct for a grant that simply **expires** — its `valid_until` passes on
+ * its own — and wrong for one an operator is taking off because it should
+ * never have been given.
+ *
+ * The two are separated by the arguments, not by a new function:
+ *
+ *  * `priceAsOf: 'today'` — the grant is looked up as at now, after the
+ *    `valid_until` above has been written, so it is genuinely gone. Under the
+ *    default rule a voucher due on the 10th, corrected on the 27th, would be
+ *    priced as at the 10th and keep its discount;
+ *  * `statuses: ['unpaid']` — a voucher with **any** money against it is left
+ *    exactly like a settled one. That money is in the school's drawer and the
+ *    parent is holding a receipt for a figure this would move underneath them.
+ *
+ * A grant that expires naturally still passes through neither of these: the
+ * sweep in `lib/sibling-discounts.ts` calls `repriceOpenChallans` with its
+ * defaults, so issued vouchers stay as they were. That behaviour is the one
+ * §5bj called correct and it is untouched.
+ *
+ * **Nothing here touches the ledger, and nothing may.** A voucher with no
+ * payment has posted no transaction, which is exactly why repricing one is
+ * safe under CLAUDE.md's append-only rule — there is nothing to reverse.
  */
 export async function closeStudentConcession(params: {
   locationId: string;
   studentProfileId: string;
   concessionId: string;
   actorUid: string;
-}): Promise<{ repricedVouchers: number }> {
+}): Promise<{
+  repricedVouchers: number;
+  /** Vouchers left alone because money is recorded against them, by number. */
+  paidVouchers: string[];
+  /** Everything else that was skipped, with its reason. Family vouchers, mostly. */
+  skipped: Array<{ challanNumber: string; reason: string }>;
+}> {
   const { locationId, studentProfileId, concessionId, actorUid } = params;
   const today = toDateOnly(new Date());
 
@@ -330,7 +375,28 @@ export async function closeStudentConcession(params: {
     locationId,
     studentProfileId,
     actorUid,
+    // The two arguments that are the whole of Sprint 23 item 1. See the
+    // docblock above for why removal is not the passage of time.
+    priceAsOf: 'today',
+    statuses: PAYMENT_FREE_STATUSES,
   });
 
-  return { repricedVouchers: reprice.repriced.length };
+  /*
+   * Split by reason rather than returned as one list.
+   *
+   * "n left unchanged because a payment has been recorded against them" is the
+   * sentence that stops a half-correction looking like a whole one, and it is
+   * a different sentence from "it is on a family voucher". The panel renders
+   * both; collapsing them into one count would let the family-voucher case
+   * silently pad the number that matters.
+   */
+  const paidReason = 'A payment has been recorded against it.';
+
+  return {
+    repricedVouchers: reprice.repriced.length,
+    paidVouchers: reprice.skipped
+      .filter((row) => row.reason === paidReason)
+      .map((row) => row.challanNumber),
+    skipped: reprice.skipped.filter((row) => row.reason !== paidReason),
+  };
 }

@@ -29,6 +29,7 @@ import { formatDateOnly } from '@/lib/dates';
 import { MAX_GUARDIANS } from '@/lib/enrollment';
 import { getStudentCreditHistory } from '@/lib/fee-queries';
 import { listSiblings } from '@/lib/siblings';
+import { visibleScopeFor } from '@/lib/principal-visibility';
 import { requireSchoolPermission } from '@/lib/school-guard';
 import { isUuid } from '@/lib/validation';
 
@@ -98,6 +99,41 @@ export default async function StudentProfilePage({
     // B-Form".
     listStudentDocuments(locationId, studentId),
   ]);
+
+  /*
+   * BR4 — Sprint 23, item 3. A head's own children, and nobody else's.
+   *
+   * ── Why this is judged on the placements and not on the profile ────────
+   * `student_profiles` carries no grade. Which class a child is in is a
+   * *placement*, and a child has one per year — so the test is whether any of
+   * them is inside the head's scope, which keeps last year's pupil visible to
+   * the head who taught them.
+   *
+   * ── A child with no placement is visible to everybody ─────────────────
+   * `enrollments.length === 0` is an admitted student not yet placed, and
+   * hiding them from every head would make the record invisible to the only
+   * people who could place it. Same rule, same reason, as `scopeAdmitsGrade`
+   * admitting a null grade.
+   *
+   * ── `notFound()`, and what it is not ──────────────────────────────────
+   * This is a *visibility* filter, exactly as the branch check above it is a
+   * different, stronger thing. A head who posts this student's id to a write
+   * route is still obeyed — that is `SPRINT-23-SPEC.md` §3's recorded
+   * decision — and nothing here should be read as closing that.
+   */
+  const visible = await visibleScopeFor({
+    locationId,
+    role: claims.role,
+    uid: claims.uid,
+  });
+
+  if (
+    visible.gradeIds !== null &&
+    enrollments.length > 0 &&
+    !enrollments.some((row) => visible.gradeIds?.includes(row.gradeId) ?? false)
+  ) {
+    notFound();
+  }
 
   const {
     photo: photoFlag,

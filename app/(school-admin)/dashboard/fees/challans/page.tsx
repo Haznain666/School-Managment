@@ -3,8 +3,10 @@ import Link from 'next/link';
 
 import { VoucherRegisterTabs } from '@/components/fees/VoucherRegisterTabs';
 import { Button } from '@/components/ui/Button';
+import { PrincipalScopeNote } from '@/components/school/PrincipalScopeNote';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { listAcademicYears, listGrades } from '@/lib/admissions-queries';
+import { narrowGrades, visibleScopeFor } from '@/lib/principal-visibility';
 import { requireSchoolPermission } from '@/lib/school-guard';
 
 export const metadata: Metadata = {
@@ -17,11 +19,17 @@ export const runtime = 'nodejs';
 export default async function ChallansPage() {
   const { claims, locationId, permissions } = await requireSchoolPermission('fees.read');
 
-  const [academicYears, grades] = await Promise.all([
+  const [academicYears, allGrades, visible] = await Promise.all([
     listAcademicYears(locationId),
     // A branch-scoped admin only ever sees their own branch's grades.
     listGrades(locationId, claims.branchId ?? undefined),
+    // BR4 — Sprint 23, item 3. The class filter on the voucher register offers
+    // a head their own classes; the register's rows are narrowed by the API
+    // this component calls, which reads the same scope.
+    visibleScopeFor({ locationId, role: claims.role, uid: claims.uid }),
   ]);
+
+  const grades = narrowGrades(visible, allGrades);
 
   const canGenerate = permissions.includes('fees.write');
 
@@ -38,6 +46,8 @@ export default async function ChallansPage() {
           ) : null
         }
       />
+
+      <PrincipalScopeNote note={visible.note} />
 
       <VoucherRegisterTabs
         academicYears={academicYears}

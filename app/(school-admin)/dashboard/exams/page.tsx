@@ -4,12 +4,14 @@ import Link from 'next/link';
 import { BarChart } from '@/components/charts/BarChart';
 import { ExamScheduler } from '@/components/exams/ExamScheduler';
 import { Card, CardTitle } from '@/components/ui/Card';
+import { PrincipalScopeNote } from '@/components/school/PrincipalScopeNote';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { listAdmissionsBranches, listGrades, listSections } from '@/lib/admissions-queries';
 import { gradeLabels, sectionLabel } from '@/lib/class-labels';
 import { listAcademicYearOptions } from '@/lib/academics-queries';
 import { getRecentExamOutcomes, type ExamOutcome } from '@/lib/dashboard-queries';
 import { listExamTerms, listExams } from '@/lib/exam-queries';
+import { narrowByGrade, narrowGrades, visibleScopeFor } from '@/lib/principal-visibility';
 import { requireSchoolPermission } from '@/lib/school-guard';
 
 export const metadata: Metadata = {
@@ -31,9 +33,9 @@ export const runtime = 'nodejs';
  * their verified session, so there is no request parameter that could widen it.
  */
 export default async function ExamsOverviewPage() {
-  const { locationId, permissions } = await requireSchoolPermission('exams.read');
+  const { claims, locationId, permissions } = await requireSchoolPermission('exams.read');
 
-  const [terms, exams, years, sections, grades, branches, outcomes] =
+  const [terms, exams, years, allSections, allGrades, branches, visible] =
     await Promise.all([
       listExamTerms(locationId),
       listExams(locationId),
@@ -41,8 +43,19 @@ export default async function ExamsOverviewPage() {
       listSections(locationId, {}),
       listGrades(locationId),
       listAdmissionsBranches(locationId),
-      getRecentExamOutcomes(locationId),
+      // BR4 — Sprint 23, item 3. Exams, datesheets and the outcome chart all
+      // hang off a section, so narrowing the section list narrows the screen.
+      visibleScopeFor({ locationId, role: claims.role, uid: claims.uid }),
     ]);
+
+  const grades = narrowGrades(visible, allGrades);
+  const sections = narrowByGrade(visible, allSections);
+
+  // Narrowed by the same grade list, not by a second rule — the chart and the
+  // scheduler beneath it must be about the same classes.
+  const outcomes = await getRecentExamOutcomes(locationId, undefined, {
+    gradeIds: visible.gradeIds,
+  });
 
   // Qualified by campus only where two grades share a name — see
   // `lib/class-labels.ts`.
@@ -98,6 +111,8 @@ export default async function ExamsOverviewPage() {
           </div>
         }
       />
+
+      <PrincipalScopeNote note={visible.note} />
 
       {years.length === 0 ? (
         <Card>

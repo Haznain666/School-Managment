@@ -5,6 +5,7 @@ import { ChallanGenerationError, generateChallan } from '@/lib/fee-challans';
 import { isChallanKindFilter, type ChallanKindFilter } from '@/db/schema';
 import { CHALLAN_SORT_COLUMNS, listChallans } from '@/lib/fee-queries';
 import { readListQuery } from '@/lib/list-query';
+import { visibleScopeFor } from '@/lib/principal-visibility';
 import { ChallanNumberError } from '@/lib/challan-number';
 import { isUuid, readOptionalString } from '@/lib/validation';
 
@@ -45,7 +46,20 @@ export const GET = withSchoolAuth(
         defaultDirection: 'desc',
       });
 
+      /*
+       * BR4 — Sprint 23, item 3. The register is the widest fee read in the
+       * product: it is a whole school's billing in one paginated response, with
+       * totals computed over every matching row rather than the page. So the
+       * narrowing goes into the statement, not over the result — see
+       * `ListChallansFilters.scopeGradeIds`.
+       *
+       * `null` is every grade, which is what every non-principal resolves to
+       * without a query.
+       */
+      const visible = await visibleScopeFor(auth);
+
       const result = await listChallans(auth.locationId, {
+        scopeGradeIds: visible.gradeIds,
         academicYearId: url.searchParams.get('academicYearId') ?? undefined,
         billingMonth: readIntParam(url.searchParams.get('billingMonth')),
         billingYear: readIntParam(url.searchParams.get('billingYear')),

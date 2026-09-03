@@ -1,0 +1,67 @@
+-- Sprint 23 — the principal's grades, and the staff photograph.
+--
+-- Two columns, both additive, both defaulted, and neither one touches a row
+-- that already exists. There is no data repair in this file and there is
+-- deliberately none: the thing Sprint 23 constrains — two principals holding
+-- the same grade — is *already true* at some schools, and unassigning a head
+-- to satisfy a new setting is not a migration's business. See the grandfather
+-- note under step 1.
+--
+-- ── Atomic without a BEGIN ───────────────────────────────────────────────
+-- drizzle-orm's migrator runs each migration file inside one transaction, so
+-- both steps commit together or not at all. An explicit `BEGIN` here would be
+-- a nested transaction the migrator did not ask for.
+--
+-- `SPRINT-23-DDL-NOTES.md` at the repo root states how to verify this against
+-- the catalogue rather than against the exit code, how to undo it, and — the
+-- part that matters for the deploy order — exactly what breaks if the code
+-- ships ahead of it.
+--
+-- **No new permission keys.** The `role_permissions` `permission` CHECK is
+-- untouched, which is the trap STATE.md §5o records. This sprint narrows what
+-- a head is *shown* and adds two facts; neither is a new kind of thing a
+-- school would grant separately.
+
+-- ── Step 1: may a grade have more than one principal? ────────────────────
+--
+-- Default false, which is the product owner's instruction and is also the only
+-- safe default for rows that already exist: it changes nothing until somebody
+-- tries to *create* an overlap. Every assignment in the table today survives
+-- untouched, including the ones that overlap each other.
+--
+-- **Existing overlaps are grandfathered on purpose.** A school may already
+-- have two heads on grade 3. Silently ending one of those assignments to make
+-- the new default true would remove a person from their post on the strength
+-- of a setting nobody at that school has yet seen. The assignment screen shows
+-- the overlap with a warning chip instead, and an administrator resolves it
+-- deliberately — or turns the setting on, which is what the column is for.
+--
+-- A boolean rather than `text` + CHECK, and that is not a departure from the
+-- house rule. `principal_model` is `text` because "single" and "multiple" are a
+-- named choice with an obvious third member (a third arrangement is easy to
+-- imagine, and `is_multi_principal` could never express one). This is a plain
+-- yes/no about one rule: there is no third answer to "may two principals hold
+-- one grade", so there is nothing for a CHECK to constrain.
+ALTER TABLE "schools"
+  ADD COLUMN IF NOT EXISTS "allow_shared_principal_grades" boolean NOT NULL DEFAULT false;
+--> statement-breakpoint
+
+-- ── Step 2: the staff photograph ─────────────────────────────────────────
+--
+-- The exact shape `student_profiles.photo_url` already has: a nullable `text`
+-- holding the public download URL of an object the *server* uploaded, at a
+-- path derived from verified claims. Nothing about the upload posture is new,
+-- which is the point — a second posture would be a second place for the tenant
+-- prefix to be got wrong.
+--
+-- Nullable with no default, because a member of staff without a photograph is
+-- the ordinary case and stays the ordinary case: the list and the profile fall
+-- back to the initials avatar that is already there. There is no placeholder
+-- silhouette and no backfill.
+--
+-- Deliberately **not** `school_users.avatar_url`. That column is the sign-in
+-- account's avatar; conflating the two would mean an HR clerk uploading a
+-- personnel photograph and changing somebody's login identity. Different fact,
+-- different column.
+ALTER TABLE "staff"
+  ADD COLUMN IF NOT EXISTS "photo_url" text;

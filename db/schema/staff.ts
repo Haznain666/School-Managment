@@ -110,6 +110,23 @@ export const staff = pgTable(
     qualification: text('qualification'),
     emergencyContactName: text('emergency_contact_name'),
     emergencyContactPhone: text('emergency_contact_phone'),
+    /**
+     * The personnel photograph (Sprint 23, item 5). Migration `0039`.
+     *
+     * The public download URL of an object the *server* uploaded, at a path
+     * derived from verified claims — the same posture, byte for byte, as
+     * `student_profiles.photo_url`. A second posture would be a second place
+     * for the tenant prefix to be got wrong.
+     *
+     * Null is the ordinary case and stays it: the list and the profile fall
+     * back to the initials `Avatar` that is already there, and there is no
+     * placeholder silhouette.
+     *
+     * Deliberately not `school_users.avatar_url`. That is the sign-in account's
+     * picture; conflating the two would mean an HR clerk filing a personnel
+     * photograph and changing somebody's login identity.
+     */
+    photoUrl: text('photo_url'),
 
     // -- Where the salary is sent -------------------------------------------
     bankAccountTitle: text('bank_account_title'),

@@ -3,10 +3,12 @@ import type { Metadata } from 'next';
 import { AttendanceReports } from '@/components/academics/AttendanceReports';
 import { BarChart } from '@/components/charts/BarChart';
 import { Card, CardTitle } from '@/components/ui/Card';
+import { PrincipalScopeNote } from '@/components/school/PrincipalScopeNote';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { getAttendanceByClass } from '@/lib/dashboard-queries';
 import { listAcademicYearOptions } from '@/lib/academics-queries';
 import { listGrades, listSections } from '@/lib/admissions-queries';
+import { narrowGrades, visibleScopeFor } from '@/lib/principal-visibility';
 import { requireSchoolPermission } from '@/lib/school-guard';
 
 export const metadata: Metadata = {
@@ -19,14 +21,25 @@ export const runtime = 'nodejs';
 export default async function AttendanceReportsPage() {
   const { claims, locationId } = await requireSchoolPermission('academics.read');
 
-  const [academicYears, grades, sections, byClass] = await Promise.all([
+  const [academicYears, allGrades, sections, visible] = await Promise.all([
     listAcademicYearOptions(locationId),
     listGrades(locationId, claims.branchId ?? undefined),
     listSections(locationId, {}),
-    getAttendanceByClass(locationId),
+    // BR4 — Sprint 23, item 3.
+    visibleScopeFor({ locationId, role: claims.role, uid: claims.uid }),
   ]);
 
+  const grades = narrowGrades(visible, allGrades);
   const gradeIds = new Set(grades.map((grade) => grade.id));
+
+  /*
+   * The school-wide chart is narrowed by the *same* grade list the report below
+   * it is narrowed by, rather than by a second rule. `getAttendanceByClass`
+   * already takes an `AggregateScope`, which is where the dashboard's own
+   * narrowing goes — so a head sees the same classes on the chart and in the
+   * table, which is the only arrangement in which the two can be read together.
+   */
+  const byClass = await getAttendanceByClass(locationId, { gradeIds: visible.gradeIds });
 
   return (
     <div className="space-y-6">
@@ -34,6 +47,8 @@ export default async function AttendanceReportsPage() {
         title="Attendance reports"
         description="A month at a time, per student, with the class average. Below 75% is where most schools intervene."
       />
+
+      <PrincipalScopeNote note={visible.note} />
 
       {/*
         The school-wide view sits above the per-class report rather than inside

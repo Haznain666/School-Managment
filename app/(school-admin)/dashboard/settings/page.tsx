@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { schools } from '@/db/schema';
 import { SchoolBrandingForm } from '@/components/school/SchoolBrandingForm';
 import { SchoolProfileForm } from '@/components/school/SchoolProfileForm';
+import { SharedPrincipalGradesToggle } from '@/components/school/SharedPrincipalGradesToggle';
 import { Card, CardTitle } from '@/components/ui/Card';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { db } from '@/lib/drizzle';
@@ -47,6 +48,9 @@ export default async function SchoolSettingsPage() {
       ntn: schools.ntn,
       website: schools.website,
       financeEmail: schools.financeEmail,
+      // Sprint 23, item 2. The rule lives in Settings; the assignments it
+      // governs live on each campus's own page.
+      allowSharedPrincipalGrades: schools.allowSharedPrincipalGrades,
     })
     .from(schools)
     .where(eq(schools.locationId, locationId))
@@ -155,6 +159,17 @@ export default async function SchoolSettingsPage() {
           >
             Branches
           </Link>
+
+          {/*
+            Sprint 23, item 2. The one thing about principals that *is* a
+            school-wide rule rather than a campus's arrangement, so it is the
+            one thing that stayed behind when the assignment card moved to the
+            branch page in Sprint 19a.
+          */}
+          <SharedPrincipalGradesToggle
+            initial={school.allowSharedPrincipalGrades}
+            canEdit={canEdit}
+          />
         </Card>
       ) : null}
 

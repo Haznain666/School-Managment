@@ -11158,3 +11158,295 @@ whole run instead. Use Playwright here.
 ⚠ **A trap worth one line:** appending the QA hash to `.env.local` with `cat >>`
 glued it onto `SMTP_PORT=465` because the file has no trailing newline, and the
 only symptom was "Incorrect email or password." Use `printf '\n%s\n'`.
+
+## 5bm. Sprint 23 — the principal's grades, the class teacher, and the discount that would not come off — 2026-09-03
+
+Spec: `SPRINT-23-SPEC.md`, all nine sections. **Migration `0039`, written and
+NOT applied** — `SPRINT-23-DDL-NOTES.md` says how, in what order, and what
+breaks if the code goes first. `0040` is the next free number.
+
+### The four decisions, and the one that will be re-litigated if I do not write it down
+
+The product owner settled four questions against stated alternatives. Three of
+them are ordinary. The second is the one somebody will try to "fix":
+
+> **The principal grade scope is a visibility filter, not an authorization
+> boundary.** A principal's screens show only their grades and every
+> grade/section dropdown offers only their grades. **A crafted API request
+> outside their scope still succeeds.** That is a deliberate, recorded product
+> decision and not an oversight.
+
+There are no 403s in item 3. Not one write route was touched. `location_id`
+still comes from the verified session and nothing here relaxes that, so a missed
+narrowing is a defect and never a breach — which is exactly the posture
+`lib/principal-resolver.ts` was designed with in Sprint 13 and has said in its
+own docblock ever since. The other three: removal reprices `unpaid` only; the
+filter covers all four surface groups; any active member of staff may be a class
+teacher and one person may hold several sections.
+
+### The discount defect was not what §5bj called it
+
+§5bj recorded "applying a discount reprices an already-issued open voucher;
+removing one does not", which is the symptom. `closeStudentConcession` **was
+already calling** `repriceOpenChallans`. It did nothing because closing a grant
+dates `valid_until` to *yesterday* while `repriceOneChallan` prices each voucher
+against **the voucher's own due date** — so a voucher due on the 10th, corrected
+on the 27th, is priced as at the 10th, when the grant was still live. It keeps
+its discount and the reprice is a no-op that reports success.
+
+The existing docblock argued *for* that behaviour, and the argument is correct
+for the **passage of time** and wrong for a **correction**. The two are now
+separated by two explicit arguments rather than by a new function:
+`priceAsOf: 'today'` and `statuses: ['unpaid']`. Removal is the only caller that
+passes either; granting, amending and the sibling sweep are untouched and still
+reprice `unpaid` **and** `partial` against the due date. I found and checked
+every caller: `lib/concession-schemes.ts:487`, `lib/sibling-discounts.ts:671`,
+`app/api/school/fees/concessions/route.ts:237` and two in
+`.../concessions/[concessionId]/route.ts`. None of them changed.
+
+**`OPEN_CHALLAN_STATUSES` was not narrowed and must not be.** Eight modules read
+it to mean "still owed" — the defaulters list, the family voucher, the enrolment
+fee gate, the transfer clearance — and narrowing it to make one call site behave
+would change what a defaulter *is*. `PAYMENT_FREE_STATUSES` lives in
+`lib/student-discounts.ts`, beside the one caller that asks the different
+question.
+
+**The skip is read wide and reported by name.** `repriceOpenChallans` still
+selects both open statuses and skips the ineligible ones with a reason, rather
+than putting the narrow list in the `WHERE`. A part-paid voucher that simply
+vanished from the result is the silent half-correction this item exists to
+prevent; instead the panel says *"1 voucher was left unchanged because a payment
+has been recorded against it: LGS-V-000412."* Nothing touches the ledger and
+nothing may: a voucher with no payment has posted no transaction, which is
+precisely why this is safe under the append-only rule.
+
+### Item 3 is wiring, and the wiring is `lib/principal-visibility.ts`
+
+Sprint 13 shipped the resolver and wired it into **four** surfaces. Everything
+else showed a head the whole school. The new module is not a second resolver —
+every function in it calls `resolvePrincipalScope` — it is the two shapes the
+queries need (`visibleGradeIds`, `visibleSectionIds`) plus `visibleScopeFor`,
+the one line that turns a session uid into a scope, which the four existing call
+sites had each written out by hand.
+
+**Two narrowings in SQL, one in JavaScript, and the split is deliberate.** The
+grade ladder and the section list are tens of rows already fetched and already
+sorted, so `narrowGrades` / `narrowByGrade` filter them in TypeScript: fourteen
+new `inArray`s against fourteen slightly different statements would be fourteen
+chances at the ambiguous reference CLAUDE.md records shipping three times. The
+student roll, the voucher register, the outstanding list, the aged debt and the
+five narrowed report runners are paginated and **totalled in the database**, so
+those went into the `WHERE` — a JavaScript filter over one page would leave the
+totals answering for the whole school, which is the failure mode worth the risk.
+
+**`GET /api/school/grades` and `GET /api/school/sections` were the lever.**
+Between them they feed the enrolment wizard's placement step, the students
+filter bar, the grade setup grid, the voucher generator and the voucher list.
+Narrowing those two endpoints narrowed all of them at once, from the session.
+
+**`scopeAdmitsGrade` admits a null grade and I did not tighten it.** A student
+not yet placed stays visible to every head — hiding an unplaced admission from
+the only people who could place it is nobody's reading of "runs the O-Levels".
+The student profile therefore judges on the *placements*: a child with none is
+admitted, and a child with any placement inside the scope is admitted.
+
+**The staff directory narrows by campus, not by class, and that is the honest
+answer rather than a shortcut.** A `staff` row carries `branch_id` and carries
+no grade at all. There is no column saying which classes a bursar or a driver
+belongs to, and deriving one from `sections.class_teacher_id` would narrow the
+staff list to home-room teachers, which is not what "the staff at my campus"
+means to anybody. **So a head assigned a division but no campus still sees every
+member of staff.** That is what they saw before this sprint; narrowing it
+further needs a column the schema does not have.
+
+**The seven financial statements are not narrowed.** Balance sheet, P&L, day
+book, account summary, monthly accounts, expense detail, income/expense — they
+are read off `ledger_entries` and have no class dimension. Narrowing them would
+mean inventing an attribution of a school's electricity bill to a class, which
+this ledger does not record.
+
+### check-portals caught the deploy hazard, and it caught it because it runs
+
+`getPrincipalSettings` reads the new `schools.allow_shared_principal_grades`.
+The first version of it *replaced* `getPrincipalModel` — and `getPrincipalModel`
+is inside `resolvePrincipalScope`, which is on **every request a principal
+makes**. `npm run check-portals` failed immediately with `42703` on
+`getPrincipalModel`, which is exactly the class of thing a green typecheck says
+nothing about.
+
+Two mitigations, both of which look like tidy-up candidates and are not:
+
+* **`getPrincipalModel` reads one column and must keep reading one column.**
+  The two functions over one row are deliberate. Folding them together confines
+  nothing; keeping them apart confines the pre-migration blast radius from
+  "every screen a head opens" to the two screens that manage assignments.
+* **`GET /api/school/settings` does not select the new column, and neither does
+  `PATCH`'s response.** That route's GET is called by *every portal layout* to
+  fill the navbar, so selecting a column that does not exist yet would blank
+  every portal at the school — parents and students included. The Settings page
+  reads the flag server-side from `schools` directly, so the write is on the
+  route and neither read is.
+
+Five surfaces are still a 500 without `0039` and the DDL notes name all five.
+**Migration first, then the code.**
+
+### The class teacher: a flag that had quietly become a gate on nothing
+
+`listClassTeacherCandidates` required `staff.is_class_teacher = true`. Sprint 22
+made it ordinary to create a teacher from the invite path, which writes a `staff`
+row and does not set that flag — because "is this person eligible to be a
+home-room teacher" is not a question an invitation form asks. So at a school
+whose teachers all arrived that way the picker was **empty** and the option
+looked removed.
+
+The column stays and the HR control over it stays; it is a useful label and it
+is no longer a gate. `status = 'active'` is the one condition left. The control
+is now on the timetable screen **as well as** on `GradeSetupGrid` — two doors to
+one column, both writing `PATCH /api/school/sections/[sectionId]`. Moving it
+would have broken a workflow schools already have.
+
+One class teacher per section is **structural** — one column — and there is
+nothing to add for it. One teacher holding several sections is allowed, with no
+uniqueness index, and the picker notes *"also class teacher of 4-B"* beside the
+name so it is a choice rather than a February surprise. The label is built in
+SQL as `coalesce(nullif(display_name, ''), name) || '-' || sections.name`, and
+the `nullif` is load-bearing: `gradeLabel()` treats an *empty* display name as
+absent, and a label that disagreed by an empty string would tell a teacher they
+"also" hold the very section being edited.
+
+### The date field lost its month because the box was too narrow
+
+Reported as `dd------yyyy` on a 15.6" laptop, correct on a larger screen — which
+is the whole clue. A native `input[type="date"]` lays out three segments, two
+separators and a picker icon at an intrinsic width the browser decides from the
+operator's locale and font; below that, Chromium **clips a segment** rather than
+shrinking the text, and the one it clips is the middle one. There are 43 of
+these across `app/` and `components/`, so it is fixed once in `app/globals.css`
+on the element type — including for the ones nobody has written yet.
+
+`min-width: min(100%, 10.5rem)`, not a flat `min-width`. A flat one would make
+the field overflow its column on a phone, trading a clipped month for a
+horizontal scrollbar.
+
+### Decisions not to re-litigate
+
+* **`allow_shared_principal_grades` is a boolean, not `text` + CHECK.**
+  `principal_model` is `text` because "single"/"multiple" is a named choice with
+  an imaginable third member. There is no third answer to "may two principals
+  hold one grade", so there is nothing for a CHECK to constrain.
+* **The toggle is in Settings, not on the branch page.** The *assignments* are
+  per campus; the *rule* is one answer for the whole school. Four copies of it,
+  one per campus, is four controls a clerk could reasonably expect to set
+  differently.
+* **Existing overlaps are grandfathered and the migration alters no assignment.**
+  Ending somebody's assignment to satisfy a default nobody at that school has
+  seen is not a migration's business. The card chips it *"Also assigned to X"*.
+* **Only assignments *in force* clash, and a person never clashes with
+  themselves.** Refusing on an ended assignment makes a handover impossible;
+  refusing on your own row makes every save of your own assignment fail forever.
+* **An assignment with no grades claims nothing.** That is the "runs everything"
+  row, and treating it as a claim on all of them would make a school-wide head
+  block every other assignment the moment the setting is off — which is the
+  arrangement a group with an overall head *and* division heads actually has.
+* **The staff photograph is not `school_users.avatar_url`.** That is the sign-in
+  account's picture. An HR clerk filing a personnel photograph must not change
+  somebody's login identity.
+* **No placeholder silhouette.** `Avatar` draws initials, which are the person's
+  own; a grey outline is nobody's and reads as a broken image.
+* **The joining-date ceiling has no floor.** Schools file staff who joined in
+  1998. This is about a typo in the year, not about backdating, and it is the
+  same function and the same sentence on the invite route, the HR create and the
+  HR edit — §5bl's QA finding 1 was the two halves disagreeing about one person.
+* **No new permission keys.** The `role_permissions` CHECK is untouched (§5o).
+  The photo route rides on `hr.write`, which already edits the record it belongs
+  to; the class-teacher control on the timetable rides on `admissions.write`,
+  which is what `PATCH /api/school/sections/[sectionId]` already required.
+
+### `npm run check-sprint23` — 31 ok, 0 failed or not exercised
+
+`scripts/check-sprint23.ts`, in `check-sprint22`'s shape, with the two-halves
+split this sprint needs because it has a migration. It **reads whether `0039` is
+applied** out of `information_schema.columns` rather than being told, so the
+same command works on both sides of the deploy and flips its own expectation.
+On 2026-09-03 it reported `0039 is NOT applied` and passed with four predicted
+`42703`s — `getPrincipalSettings`, both forms of `listStaff`, and `getStaff`.
+
+Three things worth knowing about how it decides:
+
+* **A predicted failure is only evidence if the SQLSTATE is *exactly* `42703`.**
+  Any other error in the not-applied half is a real defect wearing a predicted
+  failure's clothes, and is reported as a failure.
+* **A half-applied database is its own failure.** `0039` adds both columns in
+  one transaction, so one present and one absent means somebody ran the
+  statements by hand — and reading that as "not applied" would predict a `42703`
+  for a statement about to succeed, leaving the run green over a state nothing
+  in this repository produces.
+* **`getPrincipalModel` is asserted to *succeed* on an unmigrated database.**
+  That is the deploy mitigation above, turned into a gate. If somebody folds the
+  two reads together, this is what fails.
+
+`visibleGradeIds` has four branches and three of them build SQL; all three are
+executed, and the fourth — the unassigned head — is asserted to return `[]`
+rather than `null`, because `null` there would hand them the whole school on a
+screen that looks entirely normal.
+
+### `check-sprint22` had to be taught about `0039`, and it is worth saying why
+
+`listStaff` and `getStaff` now select `staff.photo_url`, and `check-sprint22`
+exercises both. Its docblock said, in as many words, *"there is no
+predicted-failure half: every statement below must execute today… a `42703`
+here is not 'the migration is not applied yet'; it is a defect."* Sprint 23
+changed that from underneath it, and the gate went red on three assertions for
+exactly the reason the DDL notes predict.
+
+I made those three read the catalogue and flip, the same way `check-sprint23`
+does, rather than leaving the gate red until DevOps applies `0039`. **A red gate
+in the repository is read by the next person as a real defect**, and a note
+somewhere saying "ignore three failures for now" is the kind of instruction that
+outlives the reason for it. The docblock's claim is corrected in place rather
+than deleted, because the *reason* it was true — Sprint 22 had no migration — is
+still worth knowing.
+
+This is the second-order cost of a column: every gate that already executes a
+statement selecting that table becomes a deploy-order assertion. Worth checking
+for on the next sprint that adds one.
+
+### Gates run and green — fifteen
+
+`typecheck` (0 errors), `lint` (0 warnings), `check-loaders` (279 assertions,
+142 routes), `check-forms` (60), `check-address-phone` (50), `check-cnic` (36),
+`check-currency` (7), `check-sprint-periods` (107), `check-accounting` (121),
+`check-theme` (7 palettes), `check-branch-scope` (1415), `check-reports` (16
+runners), `check-dashboard` (47 aggregates), `check-portals` (18 of 22 reached,
+the same 4 NOT EXERCISED as Sprints 21 and 22) and **`check-sprint23` (31 ok)**.
+
+**`npm run build` was not run.** It is the DevOps step and needs
+`.claude/worktrees/node_modules` deleted first (§5f).
+
+### Still open
+
+* **Nothing here has been driven by a person.** `test-cases/TEST-CASES-SPRINT-23.md`
+  holds 59 cases and every one of them is unrun. The four to do first are (56)
+  the recorded consequence — a write outside a head's scope must still succeed,
+  because a decision nobody tested is a decision nobody kept; (55) a school
+  administrator seeing everything, which is the regression that matters most;
+  (7) the ledger row counts either side of a discount removal; and (57) the date
+  field at 1366×768, which is the width the fault was reported at.
+* **Announcements are not narrowed.** Communications was outside the spec's four
+  groups, so a head still sees the whole school's notice board and can address
+  any class. Half-narrowing it — the picker but not the list — would have been
+  worse than leaving it.
+* **The transfer screen still offers every class in the school**, on purpose: a
+  transfer's whole point is to cross campuses, and `students.transfer` is
+  school-admin-only by default.
+* **`/api/school/attendance/reports` is not narrowed**, and neither is any other
+  route that reads one named section. Under the recorded decision that is
+  correct — the picker is narrowed, the route obeys — but it is the place
+  somebody will look first when they misread the boundary.
+* **The `RepriceResult.skipped` reason is matched as a string** in
+  `closeStudentConcession`, to split "a payment has been recorded" from "it is
+  on a family voucher". A reason code would be better and would be a wider
+  change to a function five other callers share.
+* **`staff.user_id` is still there**, pointing at Sprint 1's `users` table.
+  §5bl said it was dead weight and it still is; nothing in this sprint touched
+  it.

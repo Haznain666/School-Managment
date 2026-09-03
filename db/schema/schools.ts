@@ -124,6 +124,28 @@ export const schools = pgTable(
       .notNull()
       .default('single')
       .$type<PrincipalModel>(),
+    /**
+     * May one grade be held by more than one principal? (Sprint 23, item 2.)
+     *
+     * False by default, which is both the product owner's instruction and the
+     * only safe default for rows that already exist: it changes nothing until
+     * somebody tries to *create* an overlap. A school that already has two
+     * heads on grade 3 keeps them — migration `0039` deletes and alters
+     * nothing — and the assignment card shows the overlap with a warning chip
+     * so an administrator resolves it deliberately.
+     *
+     * A boolean rather than `text` + CHECK, unlike `principal_model` directly
+     * above. That column is a named choice with an imaginable third member;
+     * this is a plain yes/no about one rule, and there is no third answer to
+     * "may two principals hold one grade" for a CHECK to constrain.
+     *
+     * It gates writes only. `resolvePrincipalScope` never reads it: what a head
+     * *sees* is the union of their own assignments and is unaffected by whether
+     * somebody else also holds a grade.
+     */
+    allowSharedPrincipalGrades: boolean('allow_shared_principal_grades')
+      .notNull()
+      .default(false),
     /** Convenience mirror of `school_branding.logo_url`. */
     logoUrl: text('logo_url'),
     /** Soft delete: deactivated schools keep their data but cannot be reached. */

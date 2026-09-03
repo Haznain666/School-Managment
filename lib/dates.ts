@@ -173,3 +173,59 @@ export function formatMonthYear(
  */
 export const DATE_INPUT_HINT =
   'Day, month and year — shown as DD-MMM-YYYY once saved.';
+
+/* -----------------------------------------------------------------------------
+ * The joining date, and the ceiling on it — Sprint 23, item 8.
+ * -------------------------------------------------------------------------- */
+
+/**
+ * How far ahead a joining date may be, in years.
+ *
+ * One. A school hiring for the coming session enters a start date months out
+ * and that is ordinary; a date five years out is a typo in the year, and it is
+ * the typo this exists to catch. `2036-09-01` typed for `2026-09-01` sorts to
+ * the bottom of every list, never appears on a payroll run, and nothing else in
+ * this product would ever say so.
+ */
+export const MAX_JOINING_YEARS_AHEAD = 1;
+
+/**
+ * The latest joining date that may be recorded today, as `YYYY-MM-DD`.
+ *
+ * Used for the `max` attribute on the input **and** as the server's own
+ * comparison, so the two cannot disagree about which day is the boundary. Both
+ * halves of Sprint 22 disagreeing about one person (STATE.md §5bl, QA finding
+ * 1) is the mistake this sprint is under instructions not to repeat.
+ */
+export function maxJoiningDate(from: Date = new Date()): string {
+  const limit = new Date(from);
+  /*
+   * `setFullYear` rather than adding 365 days: what anybody means by "a year
+   * from now" is the same date next year, and on a leap year those are
+   * different days. 29 February rolls to 1 March, which is JavaScript's own
+   * behaviour and is also the right answer — there is no 29 February to land
+   * on, and being a day generous once in four years costs nothing.
+   */
+  limit.setFullYear(limit.getFullYear() + MAX_JOINING_YEARS_AHEAD);
+  return limit.toISOString().slice(0, 10);
+}
+
+/**
+ * Whether a joining date is inside the ceiling. Blank and past are always fine.
+ *
+ * **A past date stays legal and unlimited.** Schools file staff who joined in
+ * 1998, and a floor here would make a real employment record unfileable. This
+ * rule is about a typo in the year, not about backdating.
+ *
+ * A string comparison, not a `Date` one: both sides are `YYYY-MM-DD`, which
+ * sorts lexically exactly as it sorts chronologically, and neither value has to
+ * cross a timezone to be compared.
+ */
+export function joiningDateProblem(value: string | null | undefined): string | null {
+  if (value === null || value === undefined || value === '') return null;
+
+  const ceiling = maxJoiningDate();
+  if (value <= ceiling) return null;
+
+  return `A joining date can be at most one year from today — ${ceiling} or earlier.`;
+}

@@ -4,6 +4,12 @@ import { principalAssignments } from '@/db/schema';
 import { withSchoolAuth } from '@/lib/api-auth';
 import { apiFailure, apiSuccess, handleApiError, readJsonBody } from '@/lib/api-response';
 import { db } from '@/lib/drizzle';
+import { listGrades } from '@/lib/admissions-queries';
+import {
+  claimedGrades,
+  getPrincipalSettings,
+  gradeClashProblem,
+} from '@/lib/principal-resolver';
 import { isIsoDate, isUuid, readOptionalString } from '@/lib/validation';
 
 /**
@@ -34,6 +40,11 @@ interface PatchBody {
   endsOn?: unknown;
 }
 
+/** Today, in the form the `date` columns hold. Same rule as the resolver's. */
+function todayIso(): string {
+  return new Date().toISOString().slice(0, 10);
+}
+
 export const PATCH = withSchoolAuth<RouteContext>(
   async (request, auth, context) => {
     try {
@@ -53,7 +64,12 @@ export const PATCH = withSchoolAuth<RouteContext>(
       }
 
       const existing = await db
-        .select({ startsOn: principalAssignments.startsOn })
+        .select({
+          startsOn: principalAssignments.startsOn,
+          endsOn: principalAssignments.endsOn,
+          schoolUserId: principalAssignments.schoolUserId,
+          gradeIds: principalAssignments.gradeIds,
+        })
         .from(principalAssignments)
         .where(
           and(
@@ -63,11 +79,42 @@ export const PATCH = withSchoolAuth<RouteContext>(
         )
         .limit(1);
 
-      if (existing[0] === undefined) {
+      const assignment = existing[0];
+      if (assignment === undefined) {
         return apiFailure('not_found', 'No such assignment.', 404);
       }
-      if (endsOn !== null && endsOn < existing[0].startsOn) {
+      if (endsOn !== null && endsOn < assignment.startsOn) {
         return apiFailure('invalid_body', 'An assignment cannot end before it starts.', 400);
+      }
+
+      /*
+       * Sprint 23, item 2. Reopening is the only way this route can create an
+       * overlap — ending one never can — so the clash is checked exactly when
+       * the row is being put *back* into force and its grades are not already
+       * claimed by it.
+       *
+       * `claimedGrades` reads the window as it stands *before* this update, so
+       * an assignment that is currently ended is absent from the claims and
+       * cannot clash with itself; `gradeClashProblem` excludes it by id in any
+       * case, for the row that is already in force and merely being re-dated.
+       */
+      const reopening =
+        assignment.gradeIds.length > 0 &&
+        assignment.startsOn <= todayIso() &&
+        (endsOn === null || endsOn >= todayIso());
+
+      if (reopening) {
+        const { allowSharedGrades } = await getPrincipalSettings(auth.locationId);
+        if (!allowSharedGrades) {
+          const ladder = await listGrades(auth.locationId);
+          const problem = gradeClashProblem(await claimedGrades(auth.locationId), {
+            gradeIds: assignment.gradeIds,
+            schoolUserId: assignment.schoolUserId,
+            assignmentId,
+            gradeNames: new Map(ladder.map((row) => [row.id, row.label])),
+          });
+          if (problem !== null) return apiFailure('grade_already_assigned', problem, 409);
+        }
       }
 
       await db

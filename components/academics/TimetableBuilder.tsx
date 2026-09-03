@@ -17,6 +17,7 @@ import {
 import { subjectShortLabel } from '@/db/schema/subjects';
 import { formatTimeOfDay } from '@/db/schema/timetable-slots';
 import { WEEKDAY_NAMES, WEEKDAY_SHORT_NAMES } from '@/db/schema/timetable-entries';
+import { ClassTeacherPicker } from '@/components/academics/ClassTeacherPicker';
 import { schoolErrorMessage, schoolFetch } from '@/lib/school-client';
 import { readableForeground } from '@/lib/color-contrast';
 
@@ -77,6 +78,17 @@ export interface TimetableBuilderProps {
   sections: readonly TimetableSectionOption[];
   subjects: readonly TimetableSubjectOption[];
   teachers: readonly TimetableTeacherOption[];
+  /**
+   * `admissions.write` — whether the class-teacher control may be used.
+   *
+   * A *different* key from the one that gates the grid itself
+   * (`academics.write`), because it writes a *different* column through a
+   * different route: `PATCH /api/school/sections/[sectionId]`. Somebody who may
+   * build a timetable and not restructure classes sees the control disabled
+   * rather than absent, because it is showing them a fact — who the class
+   * teacher is — that they are entitled to read.
+   */
+  canManageClassTeacher: boolean;
   /**
    * Bumped by the schedule editor below the grid, to force a refetch.
    *
@@ -148,6 +160,7 @@ export function TimetableBuilder({
   sections,
   subjects,
   teachers,
+  canManageClassTeacher,
   reloadKey = 0,
 }: TimetableBuilderProps) {
   const activeYear = academicYears.find((year) => year.isActive) ?? academicYears[0];
@@ -348,6 +361,21 @@ export function TimetableBuilder({
           />
         </div>
       </Card>
+
+      {/*
+        Sprint 23, item 4 — the class teacher, on the screen the class's week is
+        built on. Rendered under the selectors and above the grid because it is
+        a fact about the section rather than about a period, and it disappears
+        with the selectors when no section is chosen.
+      */}
+      <ClassTeacherPicker
+        sectionId={sectionId}
+        academicYearId={yearId}
+        sectionLabel={`${grades.find((grade) => grade.id === gradeId)?.label ?? ''}-${
+          sections.find((section) => section.id === sectionId)?.name ?? ''
+        }`}
+        canEdit={canManageClassTeacher}
+      />
 
       {error !== null && editing === null ? (
         <p role="alert" className="rounded-lg bg-status-danger-subtle px-3 py-2 text-sm text-status-danger-ink">

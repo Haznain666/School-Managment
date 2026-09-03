@@ -90,6 +90,16 @@ export interface DefaulterFilters {
   bucket?: AgingBucket | undefined;
   /** Ignore anyone owing less than this. Small residues are not defaults. */
   minimumAmount?: number | undefined;
+  /**
+   * BR4 — the grades a scoped principal may be shown (Sprint 23, item 3).
+   *
+   * `undefined`/`null` is every grade. An **empty array** is an unassigned head
+   * and matches no row, which is what `inArray` already renders. In the `WHERE`
+   * rather than filtered afterwards because the bucket totals and the summary
+   * are folded from these rows — a head shown their own students under the
+   * whole school's receivable would be reading a number that is not theirs.
+   */
+  scopeGradeIds?: string[] | null | undefined;
 }
 
 export interface DefaulterSummary {
@@ -139,6 +149,10 @@ export async function listDefaulters(
   }
   if (filters.gradeId !== undefined && filters.gradeId !== '') {
     conditions.push(eq(grades.id, filters.gradeId));
+  }
+  // BR4. Applied in addition to the filter above, never instead of it.
+  if (filters.scopeGradeIds != null) {
+    conditions.push(inArray(grades.id, filters.scopeGradeIds));
   }
 
   const rows = await db

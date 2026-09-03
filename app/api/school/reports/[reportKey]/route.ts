@@ -4,6 +4,7 @@ import { resolveBranchScope } from '@/lib/branch-scope';
 import { csvBody, csvFilename, csvHeaders } from '@/lib/csv-export';
 import { hasPermission } from '@/lib/permission-queries';
 import { isReportKey, parseReportParams, reportFor } from '@/lib/report-catalogue';
+import { visibleScopeFor } from '@/lib/principal-visibility';
 import { runReport } from '@/lib/report-queries';
 import { readSchoolSession } from '@/lib/school-auth';
 
@@ -110,12 +111,28 @@ export async function GET(
         : (branchScope.selected ?? branchScope.branchIds[0]),
   };
 
+  /*
+   * BR4 — Sprint 23, item 3. The export is narrowed by the same grade list the
+   * screen and the printed sheet are narrowed by.
+   *
+   * This is the one of the three a reader takes away and reconciles against a
+   * spreadsheet weeks later, so a CSV holding classes the screen did not show
+   * is exactly the defect the one-definition-three-renderers design exists to
+   * prevent — the same argument the campus resolution above makes.
+   */
+  const visible = await visibleScopeFor({
+    locationId: claims.locationId,
+    role: claims.role,
+    uid: claims.uid,
+  });
+
   const result = await runReport(
     definition.key,
     {
       locationId: claims.locationId,
       sessionBranchId: null,
       branchIds: branchScope.branchIds,
+      gradeIds: visible.gradeIds,
     },
     params,
   );

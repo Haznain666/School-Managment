@@ -1,6 +1,8 @@
 import { withSchoolAuth } from '@/lib/api-auth';
 import { apiSuccess, handleApiError } from '@/lib/api-response';
 import { listOutstandingChallans } from '@/lib/fee-queries';
+import { visibleScopeFor } from '@/lib/principal-visibility';
+
 
 /**
  * GET /api/school/fees/reports/outstanding
@@ -23,7 +25,12 @@ export const GET = withSchoolAuth(
     try {
       const url = new URL(request.url);
 
+      // BR4 — Sprint 23, item 3. A head's outstanding list is their own
+      // classes'. `null` is every grade and costs no query.
+      const visible = await visibleScopeFor(auth);
+
       const rows = await listOutstandingChallans(auth.locationId, {
+        scopeGradeIds: visible.gradeIds,
         gradeId: url.searchParams.get('gradeId') ?? undefined,
         sectionId: url.searchParams.get('sectionId') ?? undefined,
         academicYearId: url.searchParams.get('academicYearId') ?? undefined,

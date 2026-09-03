@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
 import { EmptyState } from '@/components/ui/EmptyState';
 import { PageHeader } from '@/components/ui/PageHeader';
+import { visibleScopeFor } from '@/lib/principal-visibility';
 import { requireSchoolPermission } from '@/lib/school-guard';
 import { listBranchOptions } from '@/lib/school-queries';
 
@@ -38,8 +39,28 @@ export const runtime = 'nodejs';
  * would bounce them — they are told what is missing and who can supply it.
  */
 export default async function InviteStaffPage() {
-  const { locationId, permissions } = await requireSchoolPermission('users.write');
-  const branches = await listBranchOptions(locationId);
+  const { claims, locationId, permissions } = await requireSchoolPermission('users.write');
+
+  /*
+   * BR4 — Sprint 23, item 3. The campus picker offers a head their own.
+   *
+   * The *campus* half of the scope, because a `school_users` row carries a
+   * branch and no grade — the same reasoning `ListStaffFilters.scopeBranchIds`
+   * spells out for the staff directory. A head assigned a division but no
+   * campus is offered every campus, which is what they had before.
+   *
+   * Visibility, not authorisation: `POST /api/school/invitations` still obeys a
+   * branch id posted from outside the list. That is the recorded decision.
+   */
+  const [allBranches, visible] = await Promise.all([
+    listBranchOptions(locationId),
+    visibleScopeFor({ locationId, role: claims.role, uid: claims.uid }),
+  ]);
+
+  const branches =
+    visible.branchIds === null
+      ? allBranches
+      : allBranches.filter((branch) => visible.branchIds?.includes(branch.id) ?? false);
 
   if (branches.length === 0 && permissions.includes('settings.write')) {
     redirect('/dashboard/branches/new?next=/dashboard/users/invite');

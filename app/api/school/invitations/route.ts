@@ -3,6 +3,7 @@ import { and, desc, eq, gt, isNull } from 'drizzle-orm';
 import { branches, schoolInvitations, staff } from '@/db/schema';
 import { apiFailure, apiSuccess, handleApiError, readJsonBody } from '@/lib/api-response';
 import { withSchoolAuth } from '@/lib/api-auth';
+import { joiningDateProblem } from '@/lib/dates';
 import { db } from '@/lib/drizzle';
 import { isValidEmail, normalizeEmail } from '@/lib/password-strength';
 import { hasPermission } from '@/lib/permission-queries';
@@ -217,6 +218,20 @@ export const POST = withSchoolAuth(
         if (joinedOn !== null && !isIsoDate(joinedOn)) {
           return apiFailure('invalid_body', 'Enter a valid joining date.', 400);
         }
+
+        /*
+         * Sprint 23, item 8 — no more than a year ahead.
+         *
+         * The same rule and the same function as `POST /api/school/hr/staff`,
+         * because the two routes file the same column on the same person and
+         * §5bl records what it costs when they disagree: a member of staff
+         * badged "no employment record" by one screen and refused by the other.
+         *
+         * A **past** date is unlimited on purpose. Schools file people who
+         * joined in 1998.
+         */
+        const problem = joiningDateProblem(joinedOn);
+        if (problem !== null) return apiFailure('invalid_body', problem, 400);
       }
 
       /*

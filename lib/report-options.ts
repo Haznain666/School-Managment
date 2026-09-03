@@ -62,6 +62,14 @@ export async function loadReportOptions(
    * every campus, which is what a school-wide administrator gets.
    */
   branchIds: string[] | null,
+  /**
+   * BR4 — the classes this caller may read (Sprint 23, item 3). `null` is all.
+   *
+   * The class dropdown narrows with the *principal* scope for the same reason
+   * it already narrows with the campus scope: a reader offered a class the
+   * runner will return no rows for reads an empty report as a broken one.
+   */
+  gradeIds: string[] | null = null,
 ): Promise<ReportOptions> {
   const wants = (filter: ReportDefinition['filters'][number]): boolean =>
     definition.filters.includes(filter);
@@ -102,6 +110,8 @@ export async function loadReportOptions(
               // The class list narrows with the campus list, so a reader is
               // never offered a class that belongs to a campus they cannot see.
               branchIds === null ? undefined : inArray(grades.branchId, branchIds),
+              // And with the principal scope, for the same reason (Sprint 23).
+              gradeIds === null ? undefined : inArray(grades.id, gradeIds),
             ),
           )
           .orderBy(asc(grades.sortOrder))

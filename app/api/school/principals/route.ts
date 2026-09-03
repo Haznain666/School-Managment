@@ -12,7 +12,9 @@ import { apiFailure, apiSuccess, handleApiError, readJsonBody } from '@/lib/api-
 import { db } from '@/lib/drizzle';
 import { listGrades } from '@/lib/admissions-queries';
 import {
-  getPrincipalModel,
+  claimedGrades,
+  getPrincipalSettings,
+  gradeClashProblem,
   listAssignablePrincipals,
   listPrincipalAssignments,
 } from '@/lib/principal-resolver';
@@ -43,14 +45,29 @@ export const dynamic = 'force-dynamic';
 export const GET = withSchoolAuth(
   async (_request, auth) => {
     try {
-      const [principalModel, assignments, principals, grades] = await Promise.all([
-        getPrincipalModel(auth.locationId),
+      const [settings, assignments, principals, grades, claims] = await Promise.all([
+        getPrincipalSettings(auth.locationId),
         listPrincipalAssignments(auth.locationId),
         listAssignablePrincipals(auth.locationId),
         listGrades(auth.locationId),
+        claimedGrades(auth.locationId),
       ]);
 
-      return apiSuccess({ principalModel, assignments, principals, grades });
+      /*
+       * The taken grades ride along so the picker can grey them out and label
+       * them rather than letting a clerk select one and then be refused
+       * (Sprint 23, item 2). The API is still the rule — POST re-reads the
+       * claims and decides for itself — and this is the courtesy, which is the
+       * same posture CLAUDE.md records for the guardian relationships.
+       */
+      return apiSuccess({
+        principalModel: settings.principalModel,
+        allowSharedGrades: settings.allowSharedGrades,
+        assignments,
+        principals,
+        grades,
+        claimedGrades: claims,
+      });
     } catch (error) {
       return handleApiError(error);
     }
@@ -164,9 +181,31 @@ export const POST = withSchoolAuth(
 
       // Grades are checked against this school's own list for the same reason.
       if (gradeIds.length > 0) {
-        const known = new Set((await listGrades(auth.locationId)).map((row) => row.id));
+        const ladder = await listGrades(auth.locationId);
+        const known = new Map(ladder.map((row) => [row.id, row.label]));
         if (gradeIds.some((id) => !known.has(id))) {
           return apiFailure('invalid_body', 'One of those classes is not this school’s.', 400);
+        }
+
+        /*
+         * Sprint 23, item 2 — one grade, one head, unless the school says
+         * otherwise.
+         *
+         * Read here rather than trusted from the picker: the greyed-out chips
+         * are a courtesy to whoever is looking at the screen, and a stale tab
+         * left open across another administrator's save would post a body that
+         * satisfies every other check. Only assignments *in force* clash, and a
+         * person never clashes with themselves — `gradeClashProblem` states
+         * both rules and this route states neither twice.
+         */
+        const { allowSharedGrades } = await getPrincipalSettings(auth.locationId);
+        if (!allowSharedGrades) {
+          const problem = gradeClashProblem(await claimedGrades(auth.locationId), {
+            gradeIds,
+            schoolUserId: body.schoolUserId,
+            gradeNames: known,
+          });
+          if (problem !== null) return apiFailure('grade_already_assigned', problem, 409);
         }
       }
 

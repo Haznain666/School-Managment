@@ -14,6 +14,7 @@ import {
   listExamTerms,
   listStudentTermHistory,
 } from '@/lib/exam-queries';
+import { narrowByGrade, visibleScopeFor } from '@/lib/principal-visibility';
 import { requireSchoolPermission } from '@/lib/school-guard';
 
 export const metadata: Metadata = {
@@ -88,11 +89,18 @@ export default async function AdminPromotionsPage({ searchParams }: PageProps) {
     );
   }
 
-  const [sections, terms, settings] = await Promise.all([
+  const [allSections, terms, settings, visible] = await Promise.all([
     listAllSectionsForYear(locationId, year.id, branchId),
     listExamTerms(locationId, { academicYearId: year.id }),
     getExamSettings(locationId),
+    // BR4 — Sprint 23, item 3. A head's promotion decisions are for their own
+    // classes. The empty state below already says "no classes in this
+    // session", which is the right sentence for an unassigned head too — and
+    // `PrincipalScopeNote` under the heading says who to ask about it.
+    visibleScopeFor({ locationId, role: claims.role, uid: claims.uid }),
   ]);
+
+  const sections = narrowByGrade(visible, allSections);
 
   if (sections.length === 0) {
     return (

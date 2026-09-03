@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { useCallback, useEffect, useState } from 'react';
 
+import { Avatar } from '@/components/ui/Avatar';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { Card, CardTitle } from '@/components/ui/Card';
@@ -18,6 +19,7 @@ import {
   type EmploymentType,
   type StaffStatus,
 } from '@/db/schema/staff';
+import { maxJoiningDate } from '@/lib/dates';
 import { schoolErrorMessage, schoolFetch } from '@/lib/school-client';
 import {
   BRANCH_REQUIRED_ROLES,
@@ -57,6 +59,8 @@ interface StaffRow {
   branchName: string | null;
   /** Null on every row in the product before this sprint. */
   schoolUserId: string | null;
+  /** The personnel photograph, or null (Sprint 23, item 5). */
+  photoUrl: string | null;
 }
 
 interface PortalAccountOption {
@@ -356,12 +360,20 @@ export function StaffManager({
       searchValue: (row) =>
         `${row.fullName} ${row.employeeCode} ${row.designation ?? ''} ${row.department ?? ''}`,
       cell: (row) => (
-        <>
-          <p className="font-medium text-ink">{row.fullName}</p>
-          {row.department === null ? null : (
-            <p className="text-xs text-ink-muted">{row.department}</p>
-          )}
-        </>
+        // Sprint 23, item 5. The photograph rides on the list row rather than
+        // being fetched per person: forty requests to draw one screen is the
+        // shape this product spends its whole loader budget avoiding. Nobody
+        // without a photograph gets a silhouette — `Avatar` draws their
+        // initials, which is what it already does everywhere else.
+        <div className="flex items-center gap-3">
+          <Avatar name={row.fullName} src={row.photoUrl} size="sm" />
+          <div className="min-w-0">
+            <p className="font-medium text-ink">{row.fullName}</p>
+            {row.department === null ? null : (
+              <p className="text-xs text-ink-muted">{row.department}</p>
+            )}
+          </div>
+        </div>
       ),
     },
     {
@@ -497,9 +509,13 @@ export function StaffManager({
                 setDraft({ ...draft, department: event.target.value });
               }}
             />
+            {/* Sprint 23, item 8. `max` is the courtesy — the server refuses
+                the same date through `joiningDateProblem`, which is the rule. */}
             <Input
               label="Joining date"
               type="date"
+              max={maxJoiningDate()}
+              hint="At most one year from today. A past date is fine."
               value={draft.joinedOn}
               onChange={(event) => {
                 setDraft({ ...draft, joinedOn: event.target.value });

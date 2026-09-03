@@ -14,6 +14,7 @@ import {
   reportFor,
 } from '@/lib/report-catalogue';
 import { loadReportOptions, selectedNames } from '@/lib/report-options';
+import { visibleScopeFor } from '@/lib/principal-visibility';
 import { runReport } from '@/lib/report-queries';
 import { requireSchoolRole } from '@/lib/school-guard';
 import { getSchoolBranding } from '@/lib/school-tenant';
@@ -91,12 +92,33 @@ export default async function ReportPrintPage({
 
   const reportParams = { ...requested, branchId: appliedBranch };
 
+
+  /*
+   * BR4 — Sprint 23, item 3. The third boundary on this screen.
+   *
+   * It composes with the campus rather than replacing it: a head of the
+   * O-Levels division viewing the Karachi campus gets O-Levels at Karachi, the
+   * same intersection the dashboard performs. Only the runners that join
+   * `grades` read it — the seven financial statements have no class dimension
+   * and are left whole, which `ReportScope.gradeIds` says at length.
+   */
+  const visible = await visibleScopeFor({
+    locationId,
+    role: claims.role,
+    uid: claims.uid,
+  });
+
   const [branding, options, result] = await Promise.all([
     getSchoolBranding(locationId),
-    loadReportOptions(definition, locationId, branchScope.branchIds),
+    loadReportOptions(definition, locationId, branchScope.branchIds, visible.gradeIds),
     runReport(
       definition.key,
-      { locationId, sessionBranchId: null, branchIds: branchScope.branchIds },
+      {
+        locationId,
+        sessionBranchId: null,
+        branchIds: branchScope.branchIds,
+        gradeIds: visible.gradeIds,
+      },
       reportParams,
     ),
   ]);

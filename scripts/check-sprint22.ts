@@ -11,11 +11,21 @@
  * how 42702 shipped three times (STATE.md §5bg, §5av), and it is the whole
  * reason `check-sprint20` and `check-sprint21` exist.
  *
- * ── There is no migration this time, and that changes the split ──────────
+ * ── There is no migration *in this sprint*, and there used to be no split ─
  * Sprint 22 is built entirely on `staff.school_user_id`, which has existed
- * since Sprint 7 and is already indexed. So there is **no** predicted-failure
- * half: every statement below must execute today, on the database as it stands.
- * A `42703` here is not "the migration is not applied yet"; it is a defect.
+ * since Sprint 7 and is already indexed. So nothing here needed a migration and
+ * a `42703` was, for one sprint, always a defect.
+ *
+ * **Sprint 23 changed that from underneath.** `0039` adds `staff.photo_url`,
+ * and `listStaff` and `getStaff` — two of the statements this script exercises
+ * — now select it. So three assertions below became "must fail with 42703 until
+ * 0039 is applied", and this script reads `information_schema.columns` to
+ * decide which it is rather than being told. That is `check-sprint23`'s own
+ * arrangement, borrowed, and the alternative was a permanently red gate that
+ * the next person would read as a real defect.
+ *
+ * Everything else here must still execute today, and a `42703` on any of it is
+ * a defect.
  *
  * ── What is exercised, and how reach is decided ──────────────────────────
  * Two classes of statement, and they need two different subjects:
@@ -186,6 +196,34 @@ async function mustReach<T>(
   pass(label, 'executed');
 }
 
+/**
+ * A statement Sprint 23's migration `0039` reaches into.
+ *
+ * Applied: it must execute, exactly as it always did. Not applied: it must fail
+ * with **exactly** `42703` and nothing else — any other SQLSTATE is a real
+ * defect wearing a predicted failure's clothes.
+ */
+function afterStaffPhoto(present: boolean) {
+  return async (label: string, run: () => Promise<unknown>): Promise<void> => {
+    if (present) {
+      await mustRun(label, run);
+      return;
+    }
+
+    try {
+      await run();
+      fail(label, 'it executed, but staff.photo_url is absent — 0039 is not applied');
+    } catch (error) {
+      const state = sqlState(error);
+      if (state === '42703') {
+        pass(label, 'predicted 42703 — waiting on Sprint 23’s 0039');
+        return;
+      }
+      fail(label, `expected 42703 while 0039 is unapplied, got ${describe(error)}`);
+    }
+  };
+}
+
 function assert(label: string, condition: boolean, detail: string): void {
   if (condition) {
     pass(label);
@@ -234,6 +272,29 @@ async function main(): Promise<void> {
     'staff.school_user_id exists',
     column?.present === true,
     'the column is absent — Sprint 22 would need a migration after all, and has none',
+  );
+
+  /*
+   * Sprint 23's `0039` adds `staff.photo_url`, and `listStaff` / `getStaff`
+   * select it. Read rather than assumed, so this script keeps telling the truth
+   * on both sides of that deploy.
+   */
+  const photoColumn = rows<{ present: boolean }>(
+    await db.execute(sql`
+      select exists (
+        select 1 from information_schema.columns
+         where table_schema = 'public'
+           and table_name = 'staff'
+           and column_name = 'photo_url'
+      ) as present`),
+  )[0];
+
+  const hasStaffPhoto = photoColumn?.present === true;
+  const withStaffPhoto = afterStaffPhoto(hasStaffPhoto);
+
+  console.log(
+    `  staff.photo_url (Sprint 23, 0039) is ${hasStaffPhoto ? 'PRESENT' : 'ABSENT'} — ` +
+      `the three staff reads below are expected to ${hasStaffPhoto ? 'execute' : 'fail with 42703'}.`,
   );
 
   const indexes = rows<{ indexname: string }>(
@@ -297,11 +358,11 @@ async function main(): Promise<void> {
     }),
   );
 
-  await mustRun('listStaff — the directory, now selecting school_user_id', () =>
+  await withStaffPhoto('listStaff — the directory, now selecting school_user_id', () =>
     listStaff(NOBODY, {}),
   );
 
-  await mustRun('listStaff — ?linked=none, the split records', () =>
+  await withStaffPhoto('listStaff — ?linked=none, the split records', () =>
     listStaff(NOBODY, { linked: 'none' }),
   );
 
@@ -317,7 +378,7 @@ async function main(): Promise<void> {
     nextEmployeeCode(NOBODY),
   );
 
-  await mustRun('getStaff — read by all three new write routes before they act', () =>
+  await withStaffPhoto('getStaff — read by all three new write routes before they act', () =>
     getStaff(NOBODY, NOBODY),
   );
 

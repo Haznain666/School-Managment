@@ -8,6 +8,7 @@ import { Card } from '@/components/ui/Card';
 import { Input } from '@/components/ui/Input';
 import { PhoneField } from '@/components/ui/PhoneField';
 import { Select } from '@/components/ui/Select';
+import { maxJoiningDate } from '@/lib/dates';
 import { isValidEmail } from '@/lib/password-strength';
 import {
   BRANCH_REQUIRED_ROLES,
@@ -141,6 +142,34 @@ export function InviteForm({ branches, canAddEmployment }: InviteFormProps) {
       cancelled = true;
     };
   }, [canAddEmployment]);
+
+  /**
+   * Designation follows the role, until somebody types something (Sprint 23,
+   * item 6).
+   *
+   * It is a *default*, not a constraint — the field stays free text, because
+   * "Senior Physics Teacher" is what a contract says and "Teacher" is not.
+   *
+   * The second clause is what makes changing the role twice behave. Overwriting
+   * only a blank field would leave "Teacher" in place after the operator
+   * corrects the role to Accountant, and overwriting unconditionally would
+   * throw away a title somebody had just typed. So it is overwritten when it is
+   * blank **or** when it still holds the label of the role being replaced, and
+   * left alone in every other case.
+   */
+  const defaultDesignationFor = (nextRole: string): void => {
+    if (!isUserRole(nextRole)) return;
+
+    setDesignation((current) => {
+      const typed = current.trim();
+      if (typed === '') return ROLE_LABELS[nextRole];
+
+      const isPreviousLabel = INVITABLE_ROLES.some(
+        (candidate) => ROLE_LABELS[candidate] === typed,
+      );
+      return isPreviousLabel ? ROLE_LABELS[nextRole] : current;
+    });
+  };
 
   const selectedRole = isUserRole(role) ? role : null;
   const branchRequired = selectedRole !== null && BRANCH_REQUIRED_ROLES.includes(selectedRole);
@@ -343,6 +372,7 @@ export function InviteForm({ branches, canAddEmployment }: InviteFormProps) {
             }
             onChange={(event) => {
               setRole(event.target.value);
+              defaultDesignationFor(event.target.value);
             }}
             disabled={isSubmitting}
           />
@@ -439,9 +469,13 @@ export function InviteForm({ branches, canAddEmployment }: InviteFormProps) {
                   setDepartment(event.target.value);
                 }}
               />
+              {/* Sprint 23, item 8. `POST /api/school/invitations` refuses the
+                  same date; this is the courtesy that stops it being typed. */}
               <Input
                 label="Joining date"
                 type="date"
+                max={maxJoiningDate()}
+                hint="At most one year from today. A past date is fine."
                 value={joinedOn}
                 disabled={isSubmitting}
                 onChange={(event) => {

@@ -5,7 +5,9 @@ import { Card } from '@/components/ui/Card';
 import { listAdmissionsBranches, listGrades, listSections } from '@/lib/admissions-queries';
 import { gradeLabels, sectionLabel } from '@/lib/class-labels';
 import { listExamTerms } from '@/lib/exam-queries';
+import { narrowByGrade, visibleScopeFor } from '@/lib/principal-visibility';
 import { requireSchoolPermission } from '@/lib/school-guard';
+import { PrincipalScopeNote } from '@/components/school/PrincipalScopeNote';
 import { PageHeader } from '@/components/ui/PageHeader';
 
 export const metadata: Metadata = {
@@ -16,14 +18,19 @@ export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 
 export default async function ReportCardsPage() {
-  const { locationId } = await requireSchoolPermission('exams.read');
+  const { claims, locationId } = await requireSchoolPermission('exams.read');
 
-  const [terms, sections, grades, branches] = await Promise.all([
+  const [terms, allSections, grades, branches, visible] = await Promise.all([
     listExamTerms(locationId),
     listSections(locationId, {}),
     listGrades(locationId),
     listAdmissionsBranches(locationId),
+    // BR4 — Sprint 23, item 3. A head prints report cards for their own
+    // classes; the picker offers nobody else's.
+    visibleScopeFor({ locationId, role: claims.role, uid: claims.uid }),
   ]);
+
+  const sections = narrowByGrade(visible, allSections);
 
   // Qualified by campus only where two grades share a name — see
   // `lib/class-labels.ts` for why that rule lives in one place now.
@@ -36,6 +43,8 @@ export default async function ReportCardsPage() {
         title="Report cards"
         description="A term of published results for one section, one card per child."
       />
+
+      <PrincipalScopeNote note={visible.note} />
 
       {terms.length === 0 ? (
         <Card>

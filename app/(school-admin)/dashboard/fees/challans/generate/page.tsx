@@ -3,9 +3,11 @@ import Link from 'next/link';
 
 import { ChallanGenerator } from '@/components/fees/ChallanGenerator';
 import { Card } from '@/components/ui/Card';
+import { PrincipalScopeNote } from '@/components/school/PrincipalScopeNote';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { listAcademicYears, listGrades } from '@/lib/admissions-queries';
 import { getDueDay, listFeeTypes } from '@/lib/fee-queries';
+import { narrowGrades, visibleScopeFor } from '@/lib/principal-visibility';
 import { requireSchoolPermission } from '@/lib/school-guard';
 
 export const metadata: Metadata = {
@@ -18,12 +20,18 @@ export const runtime = 'nodejs';
 export default async function GenerateChallansPage() {
   const { claims, locationId } = await requireSchoolPermission('fees.write');
 
-  const [academicYears, grades, feeTypes, dueDay] = await Promise.all([
+  const [academicYears, allGrades, feeTypes, dueDay, visible] = await Promise.all([
     listAcademicYears(locationId),
     listGrades(locationId, claims.branchId ?? undefined),
     listFeeTypes(locationId, { activeOnly: true }),
     getDueDay(locationId),
+    // BR4 — Sprint 23, item 3. A head raises this month's bills for their own
+    // classes. This is a visibility filter: the generation route itself still
+    // obeys a grade id posted from outside the scope, by decision.
+    visibleScopeFor({ locationId, role: claims.role, uid: claims.uid }),
   ]);
+
+  const grades = narrowGrades(visible, allGrades);
 
   const hasMonthlyType = feeTypes.some((feeType) => feeType.feeCategory === 'monthly');
 
@@ -33,6 +41,8 @@ export default async function GenerateChallansPage() {
         title="Generate vouchers"
         description="Raise this month&rsquo;s bills. A student who already holds a voucher for the period is skipped, so a run can safely be repeated."
       />
+
+      <PrincipalScopeNote note={visible.note} />
 
       {academicYears.length === 0 ? (
         <Card>
