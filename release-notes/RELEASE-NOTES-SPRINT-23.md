@@ -185,3 +185,106 @@ in 1998, and this is about a typo in the year, not about backdating.
   belongs to — so a head assigned a *division* but no campus still sees every
   member of staff. That is what they saw before, and narrowing it further needs
   a column the schema does not have.
+
+---
+
+## QA — driven in a browser, 2026-09-03
+
+Sprint 23 shipped before it had been clicked. It has now been driven at **Askari
+School System** against the live migrated database. **Seven of the eight items
+pass. The eighth is the interesting one.**
+
+Signed in through a platform **emergency-login link** rather than a password —
+15 minutes, single use, recorded in `emergency_login_tokens`. Sprints 20–22
+minted a throwaway `SUPER_ADMIN_PASSWORD_HASH_B64` into `.env.local` instead,
+and restoring that file byte-identical has cost a session an hour before now.
+`scripts/qa-emergency-link.mjs` is the replacement.
+
+**LGS could not host this run.** It is on `principal_model = 'single'`, so items
+2 and 3 do not exist there. Askari is the only school with two principals.
+
+### Item 1 — the test that nearly did not happen
+
+The obvious test proves nothing. A voucher due in November, with the grant
+removed in September, loses its discount under the **old** logic and the new one
+alike. It passes either way.
+
+The case that discriminates the fix is a voucher **due inside the grant's live
+window** — closing writes `valid_until = yesterday`, so a voucher due 2026-09-02
+is one the old code prices as at a day the grant was still live:
+
+| | Due | Before | After removal |
+| --- | --- | --- | --- |
+| `ASST-2026-10-0002` | **2 Sep** | 22,000 (concession 5,000) | **32,000, concession 0.00** |
+| `ASST-2027-01-0002` (part-paid) | 10 Jan | 22,000, 5,000 paid | **unchanged** |
+
+Old behaviour keeps the discount on the first row. `priceAsOf: today` is what
+drops it. That is the fix, proved on the only case that separates it from what
+it replaced.
+
+The part-paid voucher came back as
+`repricedVouchers: 0, paidVouchers: ["ASST-2027-01-0002"]` — **named by number**,
+and the panel renders the numbers, not a bare count. `ledger_transactions` went
+3 → 4 → 3 across the whole run: the only movement was a payment raised and
+removed. **The removal itself posts nothing**, which is the rule.
+
+### Item 2 — chips that had never rendered anywhere
+
+No school on the live database had an overlapping principal assignment, so the
+warning chip and the greyed-out grades had never been seen by anybody. An
+overlap was created to force them.
+
+409 naming the holder; toggle on, the same clash accepted; toggle off, **the
+overlap survived** — grandfathered, not deleted; and both rows then carried
+**"Also assigned to …"**, with the taken grades disabled and titled with the
+reason.
+
+### Items 3, 4, 5, 6, 8 — as specified
+
+A principal assigned 7 of 13 grades saw **1 of 3** students, **1 of 3** vouchers
+and exactly 7 grades in every picker; a school admin at the same school saw all
+of it. A teacher created through the **invite** path with no `is_class_teacher`
+flag appeared in the class-teacher picker — the reported bug — and holding two
+sections is allowed and annotated. Staff photo: 200, with a PDF refused 415 and
+3 MB refused 413. Designation follows the role, replaces a stale label, and
+**leaves a typed title alone**. A joining date 400 days out is refused naming the
+ceiling; a 1998 date is accepted.
+
+### ⚠️ Item 7 — the fix is real, the diagnosis was not
+
+This is the finding worth carrying forward.
+
+The comment shipped in `app/globals.css` asserted that Chromium clips the
+**middle** segment of a date input, losing the month. Measured by cloning a real
+date input at fixed widths on Chromium at 1366×768:
+
+    >=130px  dd/mm/yyyy      100px  dd/mm/
+     120px   dd/mm/yyy        80px  dd/m
+     110px   dd/mm/y          60px  dd
+
+It truncates **from the right**. The **year** goes first and **the month is never
+the segment lost**. The reported `dd------yyyy` — day and year present, month
+gone — is not something Chromium does at any width.
+
+And no field in the product can clip at all: the narrowest measured is **355px**
+against a threshold of ~130px.
+
+So the `min-width` rule stays — it protects genuinely narrow containers and every
+date field nobody has written yet — but **item 7 is not closed**, and the comment
+has been corrected to record the measurement instead of the assumption. The next
+place to look is the reporter's **browser and locale**: Firefox and Safari render
+date inputs differently, and a non-`en-GB` locale changes the mask.
+
+### Residue
+
+Read back rather than asserted. `QA23%` users and staff **0**, staff photos
+**0**, the storage object deleted, sections with a class teacher **0**, challans
+/ payments / ledger transactions back to **3 / 3 / 3**, principal assignments
+back to **2**, `allow_shared_principal_grades` restored to **false**, both grants
+reopened, emergency tokens **0**, outbox **0**.
+
+One thing by design that a cleanup must know: **deleting a school member leaves
+their `staff` row with `school_user_id` NULL.** `ON DELETE SET NULL` is Sprint
+22's deliberate choice — an employment record outlives a login — so removing a
+member does not remove their employment history, and this run had to delete the
+orphan explicitly.

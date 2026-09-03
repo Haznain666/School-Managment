@@ -142,16 +142,31 @@
   /*
    * A date field is wide enough for its own segments — Sprint 23, item 7.
    *
-   * ── The fault, and why it is not a format problem ────────────────────────
-   * On a 15.6" laptop (1366×768) a date input read `dd------yyyy`: the **month
-   * segment was missing**. It is correct on a larger screen, which is the whole
-   * clue. A native `input[type="date"]` lays out three segments, two
-   * separators and a calendar indicator at an intrinsic width the browser
-   * decides from the operator's own locale and font; when the box is narrower
-   * than that, Chromium **clips a segment** rather than shrinking the text. The
-   * clipped one is the middle one, so the field keeps its first and last
-   * segments and silently loses the month — the one segment a clerk cannot
-   * infer.
+   * ── What was reported, and what was then measured ────────────────────────
+   * The report: on a 15.6" laptop (1366×768) a date input read `dd------yyyy`
+   * — the **month segment missing**, correct on a larger screen.
+   *
+   * ⚠️ **An earlier version of this comment asserted that Chromium clips the
+   * *middle* segment. That is wrong, and QA measured the opposite.** Cloning a
+   * real date input at fixed widths on Chromium 1366×768 gives:
+   *
+   *     130px and above   dd/mm/yyyy      (intact)
+   *     120px             dd/mm/yyy
+   *     110px             dd/mm/y
+   *     100px             dd/mm/
+   *      80px             dd/m
+   *      60px             dd
+   *
+   * It truncates **from the right**: the *year* goes first and the month is
+   * never the segment lost. So this rule is real and worth keeping — it stops
+   * right-truncation in a genuinely narrow container — but **it does not
+   * explain the reported symptom**, and nobody should read it as having fixed
+   * that. No field in the product currently renders below ~130px (the narrowest
+   * measured is 355px on Invite staff), so no field here can clip at all.
+   *
+   * The reported `dd------yyyy` remains unreproduced on Chromium at any width
+   * and is most likely browser- or locale-specific. Do not close it on the
+   * strength of this rule; it needs the reporter's browser to pin down.
    *
    * ── Fixed once, in the shared layer ─────────────────────────────────────
    * There are 43 `type="date"` inputs across `app/` and `components/`, in

@@ -1,9 +1,15 @@
 # Sprint 23 test cases — the principal's grades, the class teacher, and the discount
 
-**Status: written, NOT driven.** Every row below is a case somebody has to open
-a browser and run. Nothing here is marked PASS on the strength of a gate, and
-the gates that *were* run are listed separately at the foot so the two are never
-confused.
+**Status: DRIVEN 2026-09-03** against Askari School System, on a local
+`next dev` pointed at the **live migrated database**, entered through a
+platform emergency-login link (`scripts/qa-emergency-link.mjs`) rather than by
+typing a password. **The run's results are recorded in §"QA run" at the foot of
+this file** — read that before trusting any expectation above it, because two
+of the expectations below turned out to be wrong about the browser.
+
+Every row below is a case somebody has to open a browser and run. Nothing here
+is marked PASS on the strength of a gate, and the gates that *were* run are
+listed separately at the foot so the two are never confused.
 
 **Migration `0039` must be applied before any of this.** Five surfaces are a 500
 without it — `SPRINT-23-DDL-NOTES.md` names them — so a run started on an
@@ -153,3 +159,186 @@ deploy instead of being red with a note beside it.
 catalogue and flips its own expectation, so the same command asserts the other
 half: all thirty-one statements executing, plus the two columns' type,
 nullability and default.
+
+---
+
+# QA run — 2026-09-03, Askari School System
+
+Driven in the in-app browser against a local `next dev` pointed at the **live
+migrated database**. Signed in through a platform emergency-login link — 15
+minutes, single use, recorded in `emergency_login_tokens` — so **no password was
+typed and `.env.local` was never touched**. That is a change from Sprints 20–22,
+which minted a throwaway `SUPER_ADMIN_PASSWORD_HASH_B64`; the script is
+`scripts/qa-emergency-link.mjs` and its docblock says why.
+
+**Askari, not LGS.** LGS is on `principal_model = 'single'`, so items 2 and 3
+cannot be exercised there at all. Askari is the only school with `multiple` and
+two principals, and it is where every principal case below was run.
+
+## Result
+
+| Item | Verdict | Evidence |
+| --- | --- | --- |
+| **1 — discount repricing** | ✅ **PASS**, including the case that discriminates the fix | below |
+| **2 — distinct grades + toggle** | ✅ **PASS**, chips rendered for the first time | below |
+| **3 — principal visibility** | ✅ **PASS** on students, fees and the grade pickers | below |
+| **4 — class teacher** | ✅ **PASS** | below |
+| **5 — staff photo** | ✅ **PASS** | below |
+| **6 — designation default** | ✅ **PASS**, all three clauses | below |
+| **7 — the date field** | ⚠️ **FIX PRESENT, SYMPTOM NOT REPRODUCED** — see the finding | below |
+| **8 — joining date ceiling** | ✅ **PASS** | below |
+
+## Item 1 — and the test that actually discriminates it
+
+The obvious test does **not** prove the fix. A voucher due in November, with the
+grant removed in September, is dropped by the *old* logic and the *new* one
+alike — both agree the grant is dead by November. It passed, and it proved
+nothing.
+
+The discriminating case is a voucher whose **due date falls inside the grant's
+live window and before the close date**. Closing writes `valid_until` to
+yesterday (2026-09-02), so a voucher due 2026-09-02 is one the old logic prices
+as at a day the grant was still live.
+
+| | Voucher | Due | Before | After removal |
+| --- | --- | --- | --- | --- |
+| Plain unpaid | `ASST-2026-11-0001` | 10 Nov | 25,600 (conc 6,400) | **32,000, conc 0.00** |
+| **Discriminating** | `ASST-2026-10-0002` | **2 Sep** | 22,000 (conc 5,000) | **32,000, conc 0.00** |
+| **Part-paid** | `ASST-2027-01-0002` | 10 Jan | 22,000, paid 5,000, `partial` | **unchanged** |
+
+Old behaviour would have kept the discount on the middle row. `priceAsOf: today`
+is what dropped it — that is the fix, proved on the only case that separates it
+from the behaviour it replaced.
+
+The removal response for the part-paid case was
+`repricedVouchers: 0`, `paidVouchers: ["ASST-2027-01-0002"]`, `skipped: []` —
+**named by number, not silently skipped** — and `StudentDiscountPanel` renders
+those numbers in the notice rather than a bare count. The three paid September
+vouchers were untouched throughout, figures read back from the database.
+
+`ledger_transactions` 3 → 4 → 3 and `ledger_entries` 6 → 8 → 6 across the run:
+the only movement was the part payment I raised and then removed. **The removal
+itself posted nothing**, which is what item 1's "do not touch the ledger" requires.
+
+## Item 2 — the chips, rendered for the first time
+
+No school on the live database had an overlapping assignment, which is why this
+had never been seen. I created one.
+
+- `POST` a grade Principal 1 holds, sharing **off** → **409**: *"Class 1 is
+  already assigned to ASS Principal 1. Turn on ‘Allow a class to have more than
+  one principal’ in Settings, or remove it from their assignment first."*
+- An unheld grade → **201**.
+- Toggle **on** → the identical clash → **201**.
+- Toggle back **off** → **the overlap survived**. Nothing was deleted, which is
+  the grandfathering rule.
+- The screen then rendered **"Also assigned to ASS Principal 2"** on one row and
+  **"Also assigned to ASS Principal 1"** on the other, and the taken grades are
+  disabled buttons titled *"Already assigned to ASS Principal 1. Turn on…"*.
+
+⚠️ **A malformed probe of mine is worth recording so nobody repeats it.**
+`PATCH /api/school/principals/[id]` with `gradeIds` returns **200 and ignores
+them** — the route only ends or reopens an assignment, exactly as its docblock
+says. That is correct, not a defect. Grades are edited by delete-and-recreate.
+
+## Item 3 — the visibility filter
+
+Signed in as **ASS Principal 1** (Pre-Nursery → Class 4 of thirteen grades):
+
+- Students list: **1 of 3** students — Student 1 (Pre-Nursery). Students 2 and 3
+  (Class 5) hidden.
+- Grade dropdown: exactly the seven assigned. Class 5–10 absent.
+- `GET /api/school/grades`: the same seven.
+- Vouchers: **1 of 3** — Student 1's only.
+- As **School Admin** at the same school: all three students, all thirteen
+  grades, all three vouchers. The narrowing is a no-op for everyone else.
+
+## Items 4, 5, 6, 8
+
+**4.** `QA23 Probe2`, created through the **invite** path with no
+`is_class_teacher` flag, **appeared in the class-teacher picker** — the exact bug
+reported. Assigned to two sections: both `200`, and the note read
+`alsoClassTeacherOf: ["Pre-Nursery-A", "Class 5-A"]`. One class teacher per
+section stays structural — it is one column.
+
+**5.** Valid PNG → **200**, stored at
+`<location_id>/staff/<staff_id>/photo.png` — inside the school's own prefix. A
+PDF → **415** *"must be a PNG, JPG or WebP image."* A 3 MB PNG → **413** *"must
+be 2 MB or smaller."* `photoUrl` read back on the record.
+
+**6.** All three clauses, on a clean page: blank → **"Branch Administrator"**;
+role changed to Accountant → **"Accountant"** (the stale label replaced); a typed
+*"Senior Finance Officer"* → **survived** a further role change untouched.
+
+**8.** `joinedOn` at **+400 days** → **400**, *"A joining date can be at most one
+year from today — 2027-09-03 or earlier."* A **1998** date → **201**, employment
+created. Past dates stay unlimited, as specified.
+
+⚠️ A second malformed probe, recorded for the same reason: sending
+`createStaffRecord` / `joinedOn` at the **top level** of the invitation body
+makes the route skip its whole employment block and answer `201` with
+`employment: null`. The fields belong under `employment`. Nothing is wrong with
+the route; the request was.
+
+## ⚠️ Item 7 — the finding
+
+**The fix is present and harmless. It does not explain the reported symptom, and
+the comment shipped beside it was wrong.**
+
+`app/globals.css` asserted that Chromium clips the **middle** segment of a date
+input. Measured on Chromium at 1366×768 by cloning a real date input at fixed
+widths:
+
+| width | renders |
+| --- | --- |
+| ≥130px | `dd/mm/yyyy` |
+| 120px | `dd/mm/yyy` |
+| 110px | `dd/mm/y` |
+| 100px | `dd/mm/` |
+| 80px | `dd/m` |
+| 60px | `dd` |
+
+It truncates **from the right**. The **year** is lost first; **the month is
+never the segment dropped**. The reported `dd------yyyy` — day and year present,
+month missing — is not a thing Chromium does at any width.
+
+Further, **no field in the product is narrow enough to clip**: the narrowest
+measured is **355px** (Joining date, Invite staff, 1366×768), against a
+threshold of ~130px.
+
+So the `min-width` rule is worth keeping — it protects a genuinely narrow
+container and every date field nobody has written yet — but **item 7 must not be
+closed on it**. The comment has been corrected in this sprint to record what was
+measured rather than what was assumed. The remaining question is the reporter's
+**browser and locale**; a Firefox or Safari date input, or a non-`en-GB` locale,
+renders differently and is the next place to look.
+
+## Residue — read back, not asserted
+
+Everything created was removed and the removal was read out of the database:
+
+| | After |
+| --- | --- |
+| `QA23%` school_users / staff | **0 / 0** |
+| staff holding a photo | **0** |
+| storage object | deleted; the prefix lists empty |
+| sections with a class teacher | **0** |
+| fee_challans / payments / ledger_transactions | **3 / 3 / 3** — the originals |
+| principal_assignments | **2** — the originals; QA rows **0** |
+| `allow_shared_principal_grades` | **false** — restored |
+| open concessions | **2** — both grants restored to an open `valid_until` |
+| emergency_login_tokens | **0** |
+| `email_outbox` to `qa23%` | **0** |
+
+⚠️ **One thing that is by design and surprised the cleanup:** deleting a school
+member leaves their `staff` row behind with `school_user_id` set to NULL. That
+is `ON DELETE SET NULL` doing what Sprint 22 chose — an employment record is a
+separate fact from a login, and a person who has left still has an employment
+history. It is not a defect, but a cleanup that deletes only the member leaves
+an orphan, and this one had to be removed explicitly.
+
+## Gates re-run after the comment correction
+
+`typecheck` 0 · `lint` 0 · `check-loaders` 279 · `check-forms` 60 ·
+`check-cnic` 36 · `check-currency` 7 · `check-accounting` 121 ·
+**`check-sprint23` 33 ok, 0 failed, 0 not exercised** (`0039` APPLIED).
