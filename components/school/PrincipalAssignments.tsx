@@ -69,11 +69,22 @@ interface BranchOption {
   name: string;
 }
 
+/** One grade already held by one head, under an assignment in force today. */
+interface GradeClaim {
+  gradeId: string;
+  schoolUserId: string;
+  assignmentId: string;
+  principalName: string;
+}
+
 interface Payload {
   principalModel: PrincipalModel;
+  /** Sprint 23, item 2. Set in Settings; the picker only reports it. */
+  allowSharedGrades: boolean;
   assignments: AssignmentRow[];
   principals: PrincipalOption[];
   grades: GradeOption[];
+  claimedGrades: GradeClaim[];
 }
 
 function todayIso(): string {
@@ -132,6 +143,37 @@ export function PrincipalAssignments({
     () => new Map((payload?.grades ?? []).map((grade) => [grade.id, grade.name])),
     [payload],
   );
+
+  /*
+   * Which grades are spoken for, and by whom — Sprint 23, item 2.
+   *
+   * Keyed by grade so the picker can answer "taken, by X" in one lookup per
+   * chip. Claims held by the principal *currently selected in the form* are
+   * dropped: a person does not clash with themselves, and greying out the
+   * grades somebody already holds would make it impossible to add a second
+   * assignment to the same head.
+   */
+  const takenBy = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const claim of payload?.claimedGrades ?? []) {
+      if (claim.schoolUserId === newPrincipal) continue;
+      if (!map.has(claim.gradeId)) map.set(claim.gradeId, claim.principalName);
+    }
+    return map;
+  }, [payload, newPrincipal]);
+
+  /** Everyone else in force on a grade this row holds. The warning chip. */
+  const overlapsFor = (row: AssignmentRow): string[] => [
+    ...new Set(
+      (payload?.claimedGrades ?? [])
+        .filter(
+          (claim) =>
+            claim.schoolUserId !== row.schoolUserId &&
+            row.gradeIds.includes(claim.gradeId),
+        )
+        .map((claim) => claim.principalName),
+    ),
+  ];
 
   const setModel = async (model: PrincipalModel): Promise<void> => {
     setBusy(true);
@@ -332,6 +374,23 @@ export function PrincipalAssignments({
                           .join(', ')
                       )}
                     </p>
+
+                    {/*
+                      Sprint 23, item 2 — the grandfathered overlap, stated.
+
+                      A school may already have two heads on one class, and the
+                      migration deliberately did not unassign either of them.
+                      Shown as a chip rather than left to be discovered: an
+                      administrator who turns the new rule on and then wonders
+                      why it "did not work" is looking at rows that predate it.
+                    */}
+                    {overlapsFor(row).length > 0 ? (
+                      <p className="mt-1">
+                        <Badge variant="warning">
+                          Also assigned to {overlapsFor(row).join(', ')}
+                        </Badge>
+                      </p>
+                    ) : null}
                   </div>
 
                   {canEdit ? (
@@ -445,11 +504,31 @@ export function PrincipalAssignments({
                     <div className="mt-2 flex flex-wrap gap-2">
                       {payload.grades.map((grade) => {
                         const on = newGrades.includes(grade.id);
+                        /*
+                         * Sprint 23, item 2. A grade another head holds is
+                         * offered disabled and *labelled with their name*,
+                         * rather than being selectable and then refused. The
+                         * server refuses regardless — this is the courtesy.
+                         *
+                         * With the school-wide setting on, nothing is greyed:
+                         * sharing is what the school has asked for.
+                         */
+                        const heldBy = payload.allowSharedGrades
+                          ? undefined
+                          : takenBy.get(grade.id);
+                        const blocked = heldBy !== undefined && !on;
+
                         return (
                           <button
                             key={grade.id}
                             type="button"
                             aria-pressed={on}
+                            disabled={blocked}
+                            title={
+                              blocked
+                                ? `Already assigned to ${heldBy}. Turn on “Allow a class to have more than one principal” in Settings, or remove it from their assignment first.`
+                                : undefined
+                            }
                             onClick={() =>
                               setNewGrades((prev) =>
                                 on
@@ -460,10 +539,13 @@ export function PrincipalAssignments({
                             className={
                               on
                                 ? 'rounded-full bg-brand-primary px-3 py-1 text-xs font-medium text-brand-onPrimary'
-                                : 'rounded-full bg-surface-sunken px-3 py-1 text-xs font-medium text-ink-muted hover:bg-line'
+                                : blocked
+                                  ? 'cursor-not-allowed rounded-full bg-surface-sunken px-3 py-1 text-xs font-medium text-ink-faint'
+                                  : 'rounded-full bg-surface-sunken px-3 py-1 text-xs font-medium text-ink-muted hover:bg-line'
                             }
                           >
                             {grade.name}
+                            {blocked ? ` · ${heldBy}` : ''}
                           </button>
                         );
                       })}

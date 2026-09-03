@@ -4,6 +4,7 @@ import { isEmploymentType, isGender, isStaffStatus, staff } from '@/db/schema';
 import { withSchoolAuth, canAccessBranch } from '@/lib/api-auth';
 import { apiFailure, apiSuccess, handleApiError, readJsonBody } from '@/lib/api-response';
 import { normalizeCnic } from '@/lib/national-id';
+import { joiningDateProblem } from '@/lib/dates';
 import { db } from '@/lib/drizzle';
 import { getStaff, getStaffSalaryStructure } from '@/lib/hr-queries';
 import { getSchoolUserById } from '@/lib/school-queries';
@@ -176,6 +177,19 @@ export const PATCH = withSchoolAuth<RouteContext>(
         if (value !== null && !isIsoDate(value)) {
           return apiFailure('invalid_body', 'Enter a valid date.', 400);
         }
+
+        /*
+         * Sprint 23, item 8, applied on the edit as well as the create.
+         *
+         * A ceiling enforced only on creation is a ceiling a clerk gets past by
+         * saving twice, and the profile panel is where a joining date is most
+         * often corrected — which is exactly where the year gets mistyped.
+         */
+        if (field === 'joinedOn') {
+          const problem = joiningDateProblem(value);
+          if (problem !== null) return apiFailure('invalid_body', problem, 400);
+        }
+
         updates[field] = value;
       }
 

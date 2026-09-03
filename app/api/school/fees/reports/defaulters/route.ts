@@ -1,6 +1,7 @@
 import { withSchoolAuth } from '@/lib/api-auth';
 import { apiSuccess, handleApiError } from '@/lib/api-response';
 import { listOutstandingChallans } from '@/lib/fee-queries';
+import { visibleScopeFor } from '@/lib/principal-visibility';
 import { maskDisplayPhone } from '@/lib/phone-formats';
 import { toPaise } from '@/lib/money';
 
@@ -35,7 +36,12 @@ export const GET = withSchoolAuth(
       const minDaysOverdue =
         Number.isFinite(raw) && raw >= 0 && raw <= 3650 ? raw : DEFAULT_MIN_DAYS;
 
+      // BR4 — Sprint 23, item 3. The chase list is narrowed by the same grade
+      // list as the outstanding report it shares a query with.
+      const visible = await visibleScopeFor(auth);
+
       const rows = await listOutstandingChallans(auth.locationId, {
+        scopeGradeIds: visible.gradeIds,
         minDaysOverdue,
         gradeId: url.searchParams.get('gradeId') ?? undefined,
         sectionId: url.searchParams.get('sectionId') ?? undefined,

@@ -101,10 +101,54 @@ function today(): string {
 }
 
 /**
+ * Whether a school runs one head or several, and whether a grade may be shared.
+ *
+ * ── Two functions over one row, deliberately ─────────────────────────────
+ * `getPrincipalModel` below reads **only** `principal_model` and this reads
+ * both. The obvious tidy-up is to delete the first and take `principalModel`
+ * off this — and it must not be done, for a reason that is about the deploy and
+ * not about the code.
+ *
+ * `allow_shared_principal_grades` arrives in migration `0039`.
+ * `getPrincipalModel` sits inside `resolvePrincipalScope`, which is on **every
+ * request a principal makes** — so folding the new column into it would mean
+ * that between the code deploying and the migration running, every screen a
+ * head opens is a 500. Keeping the narrow read narrow confines that window to
+ * the two places that genuinely need the new column: the Settings toggle and
+ * `/api/school/principals`. `SPRINT-23-DDL-NOTES.md` states exactly that.
+ *
+ * The second read costs one indexed lookup on a table already in the request's
+ * path, and only on the screens that manage assignments.
+ */
+export const getPrincipalSettings = cache(
+  async (
+    locationId: string,
+  ): Promise<{ principalModel: PrincipalModel; allowSharedGrades: boolean }> => {
+    const rows = await db
+      .select({
+        principalModel: schools.principalModel,
+        allowSharedGrades: schools.allowSharedPrincipalGrades,
+      })
+      .from(schools)
+      .where(eq(schools.locationId, locationId))
+      .limit(1);
+
+    return {
+      principalModel: rows[0]?.principalModel ?? 'single',
+      // False for a school that does not exist, which is the same answer the
+      // column's default gives and the conservative one either way.
+      allowSharedGrades: rows[0]?.allowSharedGrades ?? false,
+    };
+  },
+);
+
+/**
  * Whether a school runs one head or several.
  *
  * Request-memoised because the scope resolver and the settings screen both ask,
  * and it is one indexed lookup on a table already in every request's path.
+ *
+ * **Reads one column and must keep reading one column** — see the note above.
  */
 export const getPrincipalModel = cache(
   async (locationId: string): Promise<PrincipalModel> => {
@@ -117,6 +161,116 @@ export const getPrincipalModel = cache(
     return rows[0]?.principalModel ?? 'single';
   },
 );
+
+/** One grade, held by one head, under an assignment that is in force today. */
+export interface GradeClaim {
+  gradeId: string;
+  schoolUserId: string;
+  assignmentId: string;
+  principalName: string;
+}
+
+/**
+ * Which grades are already spoken for, and by whom (Sprint 23, item 2).
+ *
+ * ── Only assignments *in force* count ────────────────────────────────────
+ * Exactly the resolver's own window — `starts_on <= today AND (ends_on IS NULL
+ * OR ends_on >= today)`. A former head of grade 1 whose assignment ended is
+ * **not** a clash; refusing on their row would make a handover impossible,
+ * because the incoming head could never be assigned until somebody deleted the
+ * outgoing one's record of having held the post.
+ *
+ * ── Flattened in JavaScript, not with `unnest` ───────────────────────────
+ * `grade_ids` is a `text[]` and a school has tens of assignments, not
+ * thousands. An `unnest` here would be a raw `sql` template joined against
+ * `school_users`, which is the shape CLAUDE.md's alias rule exists about, for
+ * a set small enough to sort by hand.
+ *
+ * ── An assignment with no grades claims nothing ──────────────────────────
+ * An empty `grade_ids` is the "every class" row, and it deliberately produces
+ * no claims. Treating it as a claim on all of them would make the school-wide
+ * head block every other assignment the moment the setting is off — which is
+ * the arrangement a group with an overall head *and* division heads actually
+ * has, and it must keep working.
+ */
+export async function claimedGrades(locationId: string): Promise<GradeClaim[]> {
+  const now = today();
+
+  const rows = await db
+    .select({
+      assignmentId: principalAssignments.id,
+      schoolUserId: principalAssignments.schoolUserId,
+      principalName: schoolUsers.name,
+      gradeIds: principalAssignments.gradeIds,
+    })
+    .from(principalAssignments)
+    .innerJoin(schoolUsers, eq(schoolUsers.id, principalAssignments.schoolUserId))
+    .where(
+      and(
+        eq(principalAssignments.locationId, locationId),
+        lte(principalAssignments.startsOn, now),
+        or(
+          isNull(principalAssignments.endsOn),
+          gte(principalAssignments.endsOn, now),
+        ),
+      ),
+    )
+    .orderBy(asc(schoolUsers.name));
+
+  return rows.flatMap((row) =>
+    row.gradeIds.map((gradeId) => ({
+      gradeId,
+      schoolUserId: row.schoolUserId,
+      assignmentId: row.assignmentId,
+      principalName: row.principalName,
+    })),
+  );
+}
+
+/**
+ * The one sentence a refused assignment is answered with, or null if it is fine.
+ *
+ * ── A person does not clash with themselves ──────────────────────────────
+ * Claims held by the same `school_user_id` are ignored, and so is the
+ * assignment being edited. Editing Ayesha's own row to keep grade 3 must not
+ * be refused because Ayesha holds grade 3 — which is what a naive intersection
+ * would do, on every save, for ever.
+ *
+ * ── Grades are already per-campus ────────────────────────────────────────
+ * `grades.branch_id` has been NOT NULL since Sprint 19a, so distinctness falls
+ * out per campus with no special rule: two campuses' grade 3s are two rows with
+ * two ids, and nothing here has to know that.
+ */
+export function gradeClashProblem(
+  claims: readonly GradeClaim[],
+  input: {
+    gradeIds: readonly string[];
+    schoolUserId: string;
+    /** The row being edited, if this is an edit. Never clashes with itself. */
+    assignmentId?: string | undefined;
+    /** The class names, for the message. Missing ids fall back to "That class". */
+    gradeNames: ReadonlyMap<string, string>;
+  },
+): string | null {
+  const wanted = new Set(input.gradeIds);
+
+  const clash = claims.find(
+    (claim) =>
+      wanted.has(claim.gradeId) &&
+      claim.schoolUserId !== input.schoolUserId &&
+      claim.assignmentId !== input.assignmentId,
+  );
+
+  if (clash === undefined) return null;
+
+  const name = input.gradeNames.get(clash.gradeId) ?? 'That class';
+
+  return (
+    `${name} is already assigned to ${clash.principalName}. ` +
+    'Turn on “Allow a class to have more than one principal” in Settings, or ' +
+    'remove it from their assignment first.'
+  );
+}
 
 /**
  * The assignments in force for one person today.

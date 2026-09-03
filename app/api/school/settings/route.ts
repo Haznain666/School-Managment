@@ -30,6 +30,13 @@ import { USER_ROLES } from '@/types/school-auth';
  * complaint that produced this route. The last three are printed on the fee
  * voucher and only when set.
  *
+ * Sprint 23 adds an eighth, and it is a different kind of thing: whether a
+ * class may have more than one principal. It is a *rule* rather than a detail,
+ * but it passes the same test — it is a decision about how this school is run,
+ * it is school-wide rather than per campus, and nothing outside the school
+ * depends on it. It is also the only non-string field here, which is why it is
+ * read separately from the loop below rather than through `readOptionalString`.
+ *
  * Not editable here, at any permission: `name`, `slug`, `school_code`, `city`
  * and `is_active`. The slug is the hostname the tenant resolves on, the school
  * code prefixes every student ID and every challan and payslip number already
@@ -89,6 +96,7 @@ interface UpdateSettingsBody {
   ntn?: unknown;
   website?: unknown;
   financeEmail?: unknown;
+  allowSharedPrincipalGrades?: unknown;
 }
 
 /**
@@ -126,6 +134,41 @@ export const PATCH = withSchoolAuth(
           return apiFailure('invalid_body', 'That value is too long.', 400);
         }
         updates[field] = value;
+      }
+
+      /*
+       * Sprint 23, item 2 — the eighth editable field, and the first that is
+       * not a string.
+       *
+       * It is read outside the loop above rather than being wedged into it:
+       * `readOptionalString` would turn `false` into the string "false", which
+       * is truthy, and a school turning the rule *off* would be turning it on.
+       * A strict `typeof` test also means an absent key and an explicit
+       * `false` are read differently, which matters because every other field
+       * on this route treats absent as "leave it alone".
+       *
+       * It belongs in Settings rather than beside the assignments on the branch
+       * page: it is one rule for the whole school, and the branch card is about
+       * one campus.
+       *
+       * ── Written here, and deliberately never read back here ────────────
+       * The column arrives in migration `0039`, and this route's **GET** is
+       * called by every portal layout to fill the navbar. Selecting a column
+       * that does not exist yet would blank every portal in the window between
+       * the code deploying and the migration running — for a value only the
+       * Settings page needs, and that page reads it server-side from `schools`
+       * directly. So the write is here and neither read is.
+       * `SPRINT-23-DDL-NOTES.md` records this as the deploy-order mitigation.
+       */
+      if (body.allowSharedPrincipalGrades !== undefined) {
+        if (typeof body.allowSharedPrincipalGrades !== 'boolean') {
+          return apiFailure(
+            'invalid_body',
+            'Whether a class may have more than one principal is a yes or a no.',
+            400,
+          );
+        }
+        updates.allowSharedPrincipalGrades = body.allowSharedPrincipalGrades;
       }
 
       if (Object.keys(updates).length === 0) {

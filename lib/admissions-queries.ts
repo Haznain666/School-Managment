@@ -1150,6 +1150,8 @@ export interface EnrollmentRow {
   id: string;
   academicYearId: string;
   academicYearName: string;
+  /** The class this placement is in. Read by BR4's profile narrowing. */
+  gradeId: string;
   gradeName: string;
   sectionName: string;
   branchName: string | null;
@@ -1179,6 +1181,10 @@ export async function listEnrollmentHistory(
       academicYearName: academicYears.name,
       startYear: academicYears.startYear,
       isActiveYear: academicYears.isActive,
+      // BR4 — Sprint 23, item 3. The id, not only the name: the student profile
+      // uses it to decide whether a scoped head may see this record at all, and
+      // matching on a *name* would put two campuses' "Class 5" in one bucket.
+      gradeId: grades.id,
       gradeName: grades.name,
       gradeDisplayName: grades.displayName,
       sectionName: sections.name,
@@ -1206,6 +1212,7 @@ export async function listEnrollmentHistory(
     id: row.id,
     academicYearId: row.academicYearId,
     academicYearName: row.academicYearName,
+    gradeId: row.gradeId,
     gradeName: gradeLabel({ name: row.gradeName, displayName: row.gradeDisplayName }),
     sectionName: row.sectionName,
     branchName: row.branchName,

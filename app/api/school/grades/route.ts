@@ -6,6 +6,7 @@ import { apiFailure, apiSuccess, handleApiError, readJsonBody } from '@/lib/api-
 import { listGrades } from '@/lib/admissions-queries';
 import { db } from '@/lib/drizzle';
 import { getGradesForCurriculum } from '@/lib/predefined-grades';
+import { visibleScopeFor } from '@/lib/principal-visibility';
 import { isUuid, readString } from '@/lib/validation';
 
 /**
@@ -32,8 +33,30 @@ export const GET = withSchoolAuth(
       const requested = url.searchParams.get('branchId') ?? undefined;
       const branchId = auth.branchId ?? requested;
 
+      /*
+       * BR4 — Sprint 23, item 3. This route is the feeder for almost every
+       * grade picker in the product: the enrolment wizard's placement step, the
+       * students filter bar, the grade setup grid, the section picker's parent.
+       * Narrowing it here narrows all of them at once, from the session rather
+       * than from anything the browser sends.
+       *
+       * A **visibility filter, not an authorization boundary**: a head who
+       * posts a grade id outside their scope to a write route is still
+       * obeyed. That is `SPRINT-23-SPEC.md` §3's recorded decision, and the
+       * consequence is deliberate.
+       *
+       * `null` is "every grade" and is what every non-principal gets, without a
+       * query. An **empty list** is a head with no assignment and means no
+       * grades, which is why the two are not collapsed with `?? []`.
+       */
+      const visible = await visibleScopeFor(auth);
+      const rows = await listGrades(auth.locationId, branchId ?? undefined);
+
       return apiSuccess({
-        grades: await listGrades(auth.locationId, branchId ?? undefined),
+        grades:
+          visible.gradeIds === null
+            ? rows
+            : rows.filter((row) => visible.gradeIds?.includes(row.id) ?? false),
       });
     } catch (error) {
       return handleApiError(error);

@@ -2,6 +2,8 @@ import { isEmploymentType, isGender, isStaffStatus, staff } from '@/db/schema';
 import { withSchoolAuth } from '@/lib/api-auth';
 import { apiFailure, apiSuccess, handleApiError, readJsonBody } from '@/lib/api-response';
 import { normalizeCnic } from '@/lib/national-id';
+import { joiningDateProblem } from '@/lib/dates';
+import { visibleScopeFor } from '@/lib/principal-visibility';
 import { db } from '@/lib/drizzle';
 import { listDepartments, listStaff } from '@/lib/hr-queries';
 import { hasPermission } from '@/lib/permission-queries';
@@ -62,8 +64,18 @@ export const GET = withSchoolAuth(
 
       const statusParam = url.searchParams.get('status');
 
+      /*
+       * BR4 — Sprint 23, item 3. A head sees their own campuses' staff.
+       *
+       * The *campus* half of the scope, because `staff` carries a branch and no
+       * grade — see `ListStaffFilters.scopeBranchIds` for why that is the
+       * honest narrowing rather than a contrived one.
+       */
+      const visible = await visibleScopeFor(auth);
+
       const [rows, departments] = await Promise.all([
         listStaff(auth.locationId, {
+          scopeBranchIds: visible.branchIds,
           search: url.searchParams.get('search') ?? undefined,
           status: isStaffStatus(statusParam) ? statusParam : undefined,
           branchId: branchId ?? undefined,
@@ -181,6 +193,13 @@ export const POST = withSchoolAuth(
       const joinedOn = readOptionalString(body.joinedOn);
       if (joinedOn !== null && !isIsoDate(joinedOn)) {
         return apiFailure('invalid_body', 'Enter a valid joining date.', 400);
+      }
+
+      // Sprint 23, item 8. The identical rule `POST /api/school/invitations`
+      // applies, through the identical function — see the note there.
+      const joiningProblem = joiningDateProblem(joinedOn);
+      if (joiningProblem !== null) {
+        return apiFailure('invalid_body', joiningProblem, 400);
       }
 
       const dateOfBirth = readOptionalString(body.dateOfBirth);

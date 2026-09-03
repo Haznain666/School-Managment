@@ -10,6 +10,7 @@ import {
   listSections,
 } from '@/lib/admissions-queries';
 import { gradeLabels, sectionLabel } from '@/lib/class-labels';
+import { narrowGrades, visibleScopeFor } from '@/lib/principal-visibility';
 import { requireSchoolPermission } from '@/lib/school-guard';
 
 export const metadata: Metadata = {
@@ -55,7 +56,14 @@ export default async function ImportStudentsPage() {
     );
   }
 
-  const grades = await listGrades(locationId, claims.branchId ?? undefined);
+  // BR4 — Sprint 23, item 3. A bulk import lands children in a class, so the
+  // classes offered are the ones this head runs.
+  const [allGrades, visible] = await Promise.all([
+    listGrades(locationId, claims.branchId ?? undefined),
+    visibleScopeFor({ locationId, role: claims.role, uid: claims.uid }),
+  ]);
+
+  const grades = narrowGrades(visible, allGrades);
 
   const sectionLists = await Promise.all(
     grades.map(async (grade) => ({

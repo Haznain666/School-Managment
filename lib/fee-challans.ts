@@ -15,6 +15,7 @@ import {
   studentProfiles,
   gradeLabel,
   OPEN_CHALLAN_STATUSES,
+  type ChallanStatus,
 } from '@/db/schema';
 
 import { resolveAdmissionFee } from './admission-fee';
@@ -1163,6 +1164,50 @@ export interface RepriceResult {
 }
 
 /**
+ * The two axes a caller may move, and neither has a default that surprises.
+ *
+ * ── Why explicit options rather than a boolean ───────────────────────────
+ * A `repriceOpenChallans(db, params, true)` would be unreadable at every call
+ * site and would make the next axis a second positional boolean. Both fields
+ * are optional and both default to exactly what every caller did before
+ * Sprint 23, so adding this changed nothing until a call site asked it to.
+ */
+export interface RepriceOptions {
+  /**
+   * Which date the concessions are looked up as at.
+   *
+   * `'due-date'` — the default and the historic behaviour. Each voucher is
+   * priced against **its own due date**, so a grant that only starts next term
+   * does not reach last term's bill, and a grant that has since expired still
+   * counts on a bill raised while it was live. That is right for the *passage
+   * of time*.
+   *
+   * `'today'` — priced as at now. `closeStudentConcession` passes this and it
+   * is the only caller that does, because removal is a **correction** rather
+   * than the passage of time. Closing a grant sets `valid_until` to yesterday;
+   * under `'due-date'` a voucher due on the 10th and corrected on the 27th is
+   * priced as at the 10th, when the grant was still live, so it keeps its
+   * discount and the whole reprice is a no-op. That is precisely the defect
+   * STATE.md §5bj recorded as "removing a discount does not reprice".
+   */
+  priceAsOf?: 'due-date' | 'today';
+  /**
+   * Which voucher statuses are eligible to move.
+   *
+   * Defaults to `OPEN_CHALLAN_STATUSES` — `['unpaid', 'partial']` — which is
+   * what granting and amending a discount have always done and must keep
+   * doing. Removal passes the narrower `['unpaid']`: a voucher with **any**
+   * money recorded against it is treated exactly like a settled one.
+   *
+   * Do not widen `OPEN_CHALLAN_STATUSES` to express this. Eight other modules
+   * read that constant to mean "still owed", and a discount removed from the
+   * wrong child must not silently rewrite a bill a parent has already part
+   * paid at a counter.
+   */
+  statuses?: readonly ChallanStatus[];
+}
+
+/**
  * Re-applies a student's concessions to every challan they still owe on.
  *
  * ── The rule this implements, verbatim ───────────────────────────────────
@@ -1188,6 +1233,11 @@ export interface RepriceResult {
  *  * A challan folded into a family voucher. The voucher is the piece of paper
  *    the parent is holding and it is priced as a whole; silently changing one
  *    member's share would leave the two disagreeing. Reported, not edited.
+ *  * On a **removal** (`statuses: ['unpaid']`), a `partial` challan as well.
+ *    It is reported through `skipped` with the reason naming the payment, so a
+ *    discount taken off the wrong child cannot look like it worked. See
+ *    `RepriceOptions` for why that list is passed at the call site rather than
+ *    by narrowing `OPEN_CHALLAN_STATUSES`.
  *
  * ── The floor, and where the surplus goes ────────────────────────────────
  * A discount can exceed what is left to collect — a large concession on a
@@ -1203,14 +1253,31 @@ export interface RepriceResult {
  */
 export async function repriceOpenChallans(
   db: Database,
-  params: { locationId: string; studentProfileId: string; actorUid: string },
+  params: {
+    locationId: string;
+    studentProfileId: string;
+    actorUid: string;
+  } & RepriceOptions,
 ): Promise<RepriceResult> {
   const result: RepriceResult = { repriced: [], skipped: [] };
 
+  const eligible = params.statuses ?? OPEN_CHALLAN_STATUSES;
+
+  /*
+   * Read against the wider set, then report the difference.
+   *
+   * A narrowed caller could have put its own list straight into the `WHERE`,
+   * and then a part-paid voucher would simply not be in the result — which is
+   * the silent half-correction this sprint exists to prevent. It is read and
+   * skipped *by name* instead, so the panel can say "one voucher was left
+   * alone because a payment has been recorded against it" with the voucher
+   * number beside it.
+   */
   const challans = await db
     .select({
       id: feeChallans.id,
       challanNumber: feeChallans.challanNumber,
+      status: feeChallans.status,
       dueDate: feeChallans.dueDate,
       concessionAmount: feeChallans.concessionAmount,
       creditApplied: feeChallans.creditApplied,
@@ -1229,6 +1296,14 @@ export async function repriceOpenChallans(
     );
 
   for (const challan of challans) {
+    if (!eligible.includes(challan.status)) {
+      result.skipped.push({
+        challanNumber: challan.challanNumber,
+        reason: 'A payment has been recorded against it.',
+      });
+      continue;
+    }
+
     if (challan.familyChallanId !== null) {
       result.skipped.push({
         challanNumber: challan.challanNumber,
@@ -1243,6 +1318,7 @@ export async function repriceOpenChallans(
         locationId: params.locationId,
         studentProfileId: params.studentProfileId,
         actorUid: params.actorUid,
+        priceAsOf: params.priceAsOf ?? 'due-date',
         challan,
       });
 
@@ -1269,6 +1345,8 @@ async function repriceOneChallan(
     locationId: string;
     studentProfileId: string;
     actorUid: string;
+    /** See `RepriceOptions.priceAsOf`. Resolved by the caller, never defaulted here. */
+    priceAsOf: 'due-date' | 'today';
     challan: {
       id: string;
       challanNumber: string;
@@ -1300,9 +1378,22 @@ async function repriceOneChallan(
           eq(feeChallanItems.challanId, challan.id),
         ),
       ),
-    // Priced against the challan's own due date, exactly as generation is, so a
-    // concession that only starts next term does not reach last term's bill.
-    listActiveConcessions(input.locationId, input.studentProfileId, challan.dueDate),
+    /*
+     * The date the grants are looked up as at, and the whole of Sprint 23's
+     * item 1 is this one argument.
+     *
+     * `'due-date'` is generation's own rule and the default: a concession that
+     * only starts next term does not reach last term's bill. `'today'` is what
+     * a *removal* passes, because closing a grant dates it to yesterday and
+     * pricing a voucher as at its own due date would look the grant up on a
+     * day it was still live — the reprice would find nothing to change and the
+     * clerk would watch a discount refuse to come off.
+     */
+    listActiveConcessions(
+      input.locationId,
+      input.studentProfileId,
+      input.priceAsOf === 'today' ? toDateOnly(new Date()) : challan.dueDate,
+    ),
   ]);
 
   if (lines.length === 0) return null;

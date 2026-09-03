@@ -1,8 +1,9 @@
 'use client';
 
 import Link from 'next/link';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
+import { Avatar } from '@/components/ui/Avatar';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { Card, CardTitle } from '@/components/ui/Card';
@@ -29,9 +30,9 @@ import {
 } from '@/db/schema/staff';
 import { GENDERS } from '@/db/schema/student-profiles';
 import type { ComponentCalculation, ComponentKind } from '@/db/schema/salary-components';
-import { DATE_INPUT_HINT } from '@/lib/dates';
+import { DATE_INPUT_HINT, maxJoiningDate } from '@/lib/dates';
 import { formatPkr, toPaise } from '@/lib/money';
-import { schoolErrorMessage, schoolFetch } from '@/lib/school-client';
+import { schoolErrorMessage, schoolFetch, withSchoolParam } from '@/lib/school-client';
 import {
   BRANCH_REQUIRED_ROLES,
   INVITABLE_ROLES,
@@ -78,6 +79,8 @@ interface StaffDetail {
   branchId: string | null;
   isClassTeacher: boolean;
   schoolUserId: string | null;
+  /** The personnel photograph, or null (Sprint 23, item 5). */
+  photoUrl: string | null;
 }
 
 /** The portal account this record is joined to, when there is one. */
@@ -199,6 +202,12 @@ export function StaffDetailPanel({
   const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
 
+  // Sprint 23, item 5. Its own error, not the panel's: a photo that failed to
+  // upload must not clear the message about the salary row that did not save.
+  const photoInput = useRef<HTMLInputElement>(null);
+  const [photoBusy, setPhotoBusy] = useState(false);
+  const [photoError, setPhotoError] = useState<string | null>(null);
+
   const load = useCallback(async () => {
     try {
       const [staffPayload, salaryPayload] = await Promise.all([
@@ -248,6 +257,50 @@ export function StaffDetailPanel({
   useEffect(() => {
     void load();
   }, [load]);
+
+  /*
+   * The photograph, uploaded through the server — Sprint 23, item 5.
+   *
+   * A raw `fetch` with `FormData` rather than `schoolFetch`, exactly as
+   * `StudentProfileCard` does it: `schoolFetch` sets a JSON content type, and a
+   * multipart body needs the browser to set its own boundary. `withSchoolParam`
+   * is what carries the tenant on a platform-session preview, so it is applied
+   * by hand here instead.
+   */
+  const uploadPhoto = async (file: File): Promise<void> => {
+    setPhotoBusy(true);
+    setPhotoError(null);
+
+    try {
+      const body = new FormData();
+      body.append('photo', file);
+
+      const response = await fetch(
+        withSchoolParam(`/api/school/hr/staff/${staffId}/photo`),
+        { method: 'POST', body },
+      );
+
+      if (!response.ok) {
+        const payload = (await response.json().catch(() => null)) as {
+          error?: { message?: string };
+        } | null;
+
+        setPhotoError(
+          payload?.error?.message ??
+            `The photo could not be uploaded (HTTP ${String(response.status)}).`,
+        );
+        return;
+      }
+
+      await load();
+    } catch (caught) {
+      setPhotoError(schoolErrorMessage(caught, 'The photo could not be uploaded.'));
+    } finally {
+      setPhotoBusy(false);
+      // Cleared so selecting the *same* file again still fires `change`.
+      if (photoInput.current !== null) photoInput.current.value = '';
+    }
+  };
 
   const setField = (key: string, value: string): void => {
     setForm((current) => ({ ...current, [key]: value }));
@@ -481,6 +534,57 @@ export function StaffDetailPanel({
           />
         }
       >
+        {/*
+          The photograph — Sprint 23, item 5.
+
+          `Avatar` rather than a bare `<img>`, so a member of staff with no
+          photograph gets the initials that are already drawn everywhere else in
+          this product. There is deliberately no placeholder silhouette: a grey
+          outline of a person tells the reader nothing and looks like a broken
+          image, whereas two letters are the person's own.
+
+          Gated on `canEdit` (`hr.write`) — the same permission that saves every
+          other field on this card, and the same one the route checks again.
+        */}
+        <div className="mb-6 flex items-center gap-4">
+          <Avatar name={detail.fullName} src={detail.photoUrl} size="lg" />
+
+          {canEdit ? (
+            <div>
+              <input
+                ref={photoInput}
+                type="file"
+                accept="image/png,image/jpeg,image/webp"
+                className="hidden"
+                onChange={(event) => {
+                  const file = event.target.files?.[0];
+                  if (file !== undefined) void uploadPhoto(file);
+                }}
+              />
+              <button
+                type="button"
+                disabled={photoBusy}
+                className="text-sm font-medium text-brand-primary hover:underline disabled:text-ink-muted"
+                onClick={() => {
+                  photoInput.current?.click();
+                }}
+              >
+                {photoBusy
+                  ? 'Uploading…'
+                  : detail.photoUrl === null || detail.photoUrl === ''
+                    ? 'Add photo'
+                    : 'Change photo'}
+              </button>
+              <p className="mt-0.5 text-xs text-ink-muted">PNG, JPG or WebP, up to 2 MB.</p>
+              {photoError === null ? null : (
+                <p role="alert" className="mt-1 text-xs text-status-danger-ink">
+                  {photoError}
+                </p>
+              )}
+            </div>
+          ) : null}
+        </div>
+
         <div className="grid gap-4 sm:grid-cols-2">
           <Input
             label="First name"
@@ -533,9 +637,13 @@ export function StaffDetailPanel({
               setField('status', event.target.value);
             }}
           />
+          {/* Sprint 23, item 8. The same ceiling the create form carries and
+              the same one `PATCH /api/school/hr/staff/[staffId]` enforces. */}
           <Input
             label="Joining date"
             type="date"
+            max={maxJoiningDate()}
+            hint="At most one year from today. A past date is fine."
             value={form.joinedOn ?? ''}
             disabled={!canEdit}
             onChange={(event) => {

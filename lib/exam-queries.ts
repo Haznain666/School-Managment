@@ -8,6 +8,7 @@ import {
   eq,
   gte,
   inArray,
+  isNotNull,
   isNull,
   lte,
   ne,
@@ -2315,27 +2316,95 @@ export async function listAllSectionsForYear(
     .orderBy(asc(grades.sortOrder), asc(sections.name));
 }
 
-/** Staff who may be offered in a section's class-teacher picker. */
+/** One person the section's class-teacher picker may offer. */
+export interface ClassTeacherCandidate {
+  id: string;
+  name: string;
+  designation: string | null;
+  /**
+   * The other sections this person is already home-room teacher of, labelled
+   * `4-B`. Empty for most people.
+   *
+   * Shown as a note beside the name rather than used to disqualify anybody —
+   * decision 4 of Sprint 23 is that one teacher may hold several sections. The
+   * note exists so that setting a second one is a choice rather than a
+   * surprise discovered in February.
+   */
+  alsoClassTeacherOf: string[];
+}
+
+/**
+ * Staff who may be offered in a section's class-teacher picker.
+ *
+ * ── Any active member of staff, since Sprint 23 ──────────────────────────
+ * This used to require `staff.is_class_teacher = true`, and that made the
+ * picker **empty** at a school whose teachers all arrived through Sprint 22's
+ * invite path — which writes a `staff` row and does not set the flag, because
+ * "is this person eligible to be a home-room teacher" is not a question an
+ * invitation form asks. The control looked removed rather than unpopulated,
+ * and a school with no home-room teachers has no promotion overrides either.
+ *
+ * The column stays and the HR control over it stays: it is still a useful
+ * label on a personnel record. It is simply no longer a gate. `status =
+ * 'active'` is the one condition left, and it is the right one — a resigned
+ * teacher must not be offered a class starting in September.
+ *
+ * ── Two statements rather than one with an aggregate ─────────────────────
+ * The sections each candidate already holds are read separately. An ordered
+ * aggregate over `sections` joined into the statement above would be exactly
+ * the raw-`sql` subquery shape CLAUDE.md's alias rule is about, on a set small
+ * enough that a school's whole answer is a few dozen rows either way.
+ */
 export async function listClassTeacherCandidates(
   locationId: string,
   branchId: string | null,
-): Promise<Array<{ id: string; name: string; designation: string | null }>> {
+): Promise<ClassTeacherCandidate[]> {
   const conditions: SQL[] = [
     eq(staff.locationId, locationId),
-    eq(staff.isClassTeacher, true),
     eq(staff.status, 'active'),
   ];
   if (branchId !== null) conditions.push(eq(staff.branchId, branchId));
 
-  return db
-    .select({
-      id: staff.id,
-      name: sql<string>`${staff.firstName} || ' ' || ${staff.lastName}`,
-      designation: staff.designation,
-    })
-    .from(staff)
-    .where(and(...conditions))
-    .orderBy(asc(staff.firstName), asc(staff.lastName));
+  const [candidates, held] = await Promise.all([
+    db
+      .select({
+        id: staff.id,
+        name: sql<string>`${staff.firstName} || ' ' || ${staff.lastName}`,
+        designation: staff.designation,
+      })
+      .from(staff)
+      .where(and(...conditions))
+      .orderBy(asc(staff.firstName), asc(staff.lastName)),
+    db
+      .select({
+        classTeacherId: sections.classTeacherId,
+        /*
+         * `nullif`, not a bare `coalesce`. `gradeLabel()` in
+         * `db/schema/grades.ts` treats an **empty** display name as absent, and
+         * the browser filters this label against one it builds with that
+         * function — a label that disagreed by an empty string would show a
+         * teacher as "also class teacher of" the very section being edited.
+         */
+        label: sql<string>`coalesce(nullif(${grades.displayName}, ''), ${grades.name}) || '-' || ${sections.name}`,
+      })
+      .from(sections)
+      .innerJoin(grades, eq(grades.id, sections.gradeId))
+      .where(
+        and(
+          eq(sections.locationId, locationId),
+          eq(sections.isActive, true),
+          isNotNull(sections.classTeacherId),
+        ),
+      )
+      .orderBy(asc(grades.sortOrder), asc(sections.name)),
+  ]);
+
+  return candidates.map((candidate) => ({
+    ...candidate,
+    alsoClassTeacherOf: held
+      .filter((row) => row.classTeacherId === candidate.id)
+      .map((row) => row.label),
+  }));
 }
 
 // -----------------------------------------------------------------------------

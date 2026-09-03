@@ -3,9 +3,11 @@ import Link from 'next/link';
 
 import { AgedDebtTable } from '@/components/fees/AgedDebtTable';
 import { Card, CardTitle } from '@/components/ui/Card';
+import { PrincipalScopeNote } from '@/components/school/PrincipalScopeNote';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { AGING_BUCKETS, BUCKET_LABELS, listDefaulters } from '@/lib/defaulters';
 import { formatPkr } from '@/lib/money';
+import { visibleScopeFor } from '@/lib/principal-visibility';
 import { requireSchoolPermission } from '@/lib/school-guard';
 
 export const metadata: Metadata = {
@@ -48,8 +50,21 @@ export default async function DefaultersPage() {
   // A branch-scoped admin sees their own campus and cannot widen it. This is
   // the one narrowing that stays on the server: it is an authorisation
   // boundary, not a filter, and a control the reader may not clear.
+  /*
+   * BR4 — Sprint 23, item 3. A head's aged debt is their own classes', and the
+   * bucket totals above the table are folded from exactly these rows: a head
+   * shown their own students under the whole school's receivable would be
+   * reading a number that is not theirs, with nothing on the screen saying so.
+   */
+  const visible = await visibleScopeFor({
+    locationId,
+    role: claims.role,
+    uid: claims.uid,
+  });
+
   const { rows, summary } = await listDefaulters(locationId, {
     branchId: claims.branchId ?? undefined,
+    scopeGradeIds: visible.gradeIds,
   });
 
   return (
@@ -82,6 +97,8 @@ export default async function DefaultersPage() {
           </>
         }
       />
+
+      <PrincipalScopeNote note={visible.note} />
 
       <Card
         header={

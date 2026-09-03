@@ -114,6 +114,22 @@ export interface ReportScope {
    * and a boundary.
    */
   branchIds?: string[] | null | undefined;
+  /**
+   * BR4 — the grades a scoped principal may be shown (Sprint 23, item 3).
+   *
+   * `undefined`/`null` is every grade, which is what every non-principal and
+   * every `single`-model school resolves to. An **empty array** is an
+   * unassigned head and matches no row.
+   *
+   * Applied only by the runners that *have* a class dimension. The seven
+   * financial statements — balance sheet, P&L, day book, account summary,
+   * monthly accounts, expense detail, income/expense — are read off
+   * `ledger_entries` and have no grade to narrow on. Narrowing them would mean
+   * inventing an attribution of a school's electricity bill to a class, which
+   * is not a thing this ledger records; they are left whole and this is where
+   * that is written down rather than in seven separate places.
+   */
+  gradeIds?: string[] | null | undefined;
 }
 
 export interface ReportResult {
@@ -155,6 +171,23 @@ function effectiveBranch(scope: ReportScope, params: ReportParams): string | und
  * `date` column compared against an empty string is a Postgres *error*, not an
  * empty result. Defaulting here means no runner can be handed one.
  */
+/**
+ * BR4 — the grade filter, or nothing (Sprint 23, item 3).
+ *
+ * Written once and applied identically in the five runners that join `grades`,
+ * because five hand-written `inArray`s are five chances to narrow one report by
+ * a different rule from the next — and a head reading two reports that
+ * disagree about their own division has no way to tell which is wrong.
+ *
+ * `inArray` with an empty list renders as `false` in Drizzle, which is exactly
+ * the reading wanted for an unassigned head: no rows, and the screen says why.
+ */
+function scopedGrades(scope: ReportScope): SQL | undefined {
+  const ids = scope.gradeIds ?? null;
+  if (ids === null) return undefined;
+  return inArray(grades.id, ids);
+}
+
 function range(params: ReportParams): { from: string; to: string } {
   const fallback = defaultDateRange();
   return { from: params.from ?? fallback.from, to: params.to ?? fallback.to };
@@ -223,6 +256,9 @@ async function attendanceSummary(
         eq(studentEnrollments.locationId, scope.locationId),
         eq(studentEnrollments.status, 'active'),
         branchId === undefined ? undefined : eq(grades.branchId, branchId),
+        // BR4 — Sprint 23, item 3. Beside the campus filter, never instead of
+        // it: the two boundaries compose exactly as they do on the dashboard.
+        scopedGrades(scope),
         params.gradeId === undefined || params.gradeId === ''
           ? undefined
           : eq(grades.id, params.gradeId),
@@ -349,6 +385,9 @@ async function subjectAttendance(
         // A closure is not teaching time, so it is in neither side of this.
         ne(attendanceRecords.status, 'holiday'),
         branchId === undefined ? undefined : eq(grades.branchId, branchId),
+        // BR4 — Sprint 23, item 3. Beside the campus filter, never instead of
+        // it: the two boundaries compose exactly as they do on the dashboard.
+        scopedGrades(scope),
         params.gradeId === undefined || params.gradeId === ''
           ? undefined
           : eq(grades.id, params.gradeId),
@@ -441,6 +480,9 @@ async function feeCollection(
         // fees should see that in its collection rate, not have it hidden.
         ne(feeChallans.status, 'cancelled'),
         branchId === undefined ? undefined : eq(grades.branchId, branchId),
+        // BR4 — Sprint 23, item 3. Beside the campus filter, never instead of
+        // it: the two boundaries compose exactly as they do on the dashboard.
+        scopedGrades(scope),
         params.gradeId === undefined || params.gradeId === ''
           ? undefined
           : eq(grades.id, params.gradeId),
@@ -565,6 +607,9 @@ async function outstandingAging(
         inArray(feeChallans.status, ['unpaid', 'partial']),
         sql`${feeChallans.totalAmount} - ${feeChallans.paidAmount} > 0`,
         branchId === undefined ? undefined : eq(grades.branchId, branchId),
+        // BR4 — Sprint 23, item 3. Beside the campus filter, never instead of
+        // it: the two boundaries compose exactly as they do on the dashboard.
+        scopedGrades(scope),
         params.gradeId === undefined || params.gradeId === ''
           ? undefined
           : eq(grades.id, params.gradeId),
@@ -673,6 +718,9 @@ async function academicResults(
         // honours it — through `effectiveBranch`, which still lets a
         // branch-bound caller's own scope override whatever the URL says.
         branchId === undefined ? undefined : eq(grades.branchId, branchId),
+        // BR4 — Sprint 23, item 3. Beside the campus filter, never instead of
+        // it: the two boundaries compose exactly as they do on the dashboard.
+        scopedGrades(scope),
       ),
     )
     .orderBy(asc(branches.name), asc(grades.sortOrder), asc(exams.examDate));

@@ -9,6 +9,7 @@ import { listSubjects } from '@/lib/academics-queries';
 import { listAdmissionsBranches, listGrades } from '@/lib/admissions-queries';
 import { gradeLabels } from '@/lib/class-labels';
 import { getExamTerm, listExamSchedules, listGradeCriteria } from '@/lib/exam-queries';
+import { narrowGrades, visibleScopeFor } from '@/lib/principal-visibility';
 import { requireSchoolPermission } from '@/lib/school-guard';
 
 export const metadata: Metadata = {
@@ -32,18 +33,24 @@ interface PageProps {
  */
 export default async function TermSchedulesPage({ params }: PageProps) {
   const { termId } = await params;
-  const { locationId, permissions } = await requireSchoolPermission('exams.read');
+  const { claims, locationId, permissions } = await requireSchoolPermission('exams.read');
 
   const term = await getExamTerm(locationId, termId);
   if (term === null) notFound();
 
-  const [schedules, grades, branches, subjects, criteria] = await Promise.all([
-    listExamSchedules(locationId, termId),
-    listGrades(locationId),
-    listAdmissionsBranches(locationId),
-    listSubjects(locationId, { activeOnly: true }),
-    listGradeCriteria(locationId, term.academicYearId),
-  ]);
+  const [schedules, allGrades, branches, subjects, criteria, visible] =
+    await Promise.all([
+      listExamSchedules(locationId, termId),
+      listGrades(locationId),
+      listAdmissionsBranches(locationId),
+      listSubjects(locationId, { activeOnly: true }),
+      listGradeCriteria(locationId, term.academicYearId),
+      // BR4 — Sprint 23, item 3. A datesheet is written per class, so the
+      // columns a head is offered are the classes they run.
+      visibleScopeFor({ locationId, role: claims.role, uid: claims.uid }),
+    ]);
+
+  const grades = narrowGrades(visible, allGrades);
 
   // Qualified by campus only where two grades share a name — see
   // `lib/class-labels.ts`.

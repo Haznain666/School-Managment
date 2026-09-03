@@ -307,18 +307,39 @@ export function StudentDiscountPanel({
     setNotice(null);
 
     try {
-      const result = await schoolFetch<{ repricedVouchers: number }>(
-        '/api/school/fees/student-discounts',
-        {
-          method: 'PATCH',
-          body: JSON.stringify({ studentProfileId, concessionId: grant.id }),
-        },
-      );
+      const result = await schoolFetch<{
+        repricedVouchers: number;
+        paidVouchers: string[];
+        skipped: Array<{ challanNumber: string; reason: string }>;
+      }>('/api/school/fees/student-discounts', {
+        method: 'PATCH',
+        body: JSON.stringify({ studentProfileId, concessionId: grant.id }),
+      });
+
+      /*
+       * The count of vouchers that did **not** move is the point of this
+       * sentence, not a footnote to it (Sprint 23, item 1).
+       *
+       * A discount removed from the wrong child, where this month's voucher is
+       * already part paid, must not read as a completed correction. Nothing
+       * else on this screen would ever say so — the grant chip goes grey either
+       * way — so the number is rendered here, with the voucher numbers, rather
+       * than logged.
+       */
+      const paid = result.paidVouchers.length;
 
       setNotice(
-        `“${grant.concessionName}” removed. ${String(result.repricedVouchers)} open ` +
-          `voucher${result.repricedVouchers === 1 ? '' : 's'} repriced. Vouchers already ` +
-          'issued keep the discount they were raised with.',
+        `“${grant.concessionName}” removed. ${String(result.repricedVouchers)} unpaid ` +
+          `voucher${result.repricedVouchers === 1 ? '' : 's'} repriced.` +
+          (paid === 0
+            ? ''
+            : ` ${String(paid)} voucher${paid === 1 ? ' was' : 's were'} left unchanged ` +
+              `because a payment has been recorded against ${paid === 1 ? 'it' : 'them'}: ` +
+              `${result.paidVouchers.join(', ')}.`) +
+          (result.skipped.length === 0
+            ? ''
+            : ` ${String(result.skipped.length)} more could not be repriced: ` +
+              `${result.skipped.map((row) => row.challanNumber).join(', ')}.`),
       );
       await load();
     } catch (caught) {

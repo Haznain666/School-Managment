@@ -14,6 +14,7 @@ import {
 } from '@/lib/admissions-queries';
 import { effectiveBranchIds, resolveBranchScope } from '@/lib/branch-scope';
 import { gradeLabels, sectionLabel } from '@/lib/class-labels';
+import { narrowGrades, visibleScopeFor } from '@/lib/principal-visibility';
 import { requireSchoolPermission } from '@/lib/school-guard';
 
 export const metadata: Metadata = {
@@ -58,7 +59,7 @@ export default async function PromoteStudentsPage({
     Array.isArray(requested) ? requested[0] : requested,
   );
 
-  const [years, activeYear, grades, branches] = await Promise.all([
+  const [years, activeYear, allGrades, branches, visible] = await Promise.all([
     // Years the chosen campus actually runs, plus every school-wide year —
     // which is all of them until somebody attaches a campus. A group whose
     // Karachi campus runs April–March must not be offered Lahore's sessions.
@@ -66,7 +67,13 @@ export default async function PromoteStudentsPage({
     getActiveAcademicYear(locationId),
     listGrades(locationId, undefined, effectiveBranchIds(scope)),
     listAdmissionsBranches(locationId),
+    // BR4 — Sprint 23, item 3. Composes with the campus scope above rather
+    // than replacing it: a head of the O-Levels at Karachi promotes O-Levels
+    // at Karachi.
+    visibleScopeFor({ locationId, role: claims.role, uid: claims.uid }),
   ]);
+
+  const grades = narrowGrades(visible, allGrades);
 
   const selector =
     scope.options.length === 0 ? null : (

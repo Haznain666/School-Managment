@@ -138,6 +138,41 @@
   :where(a, button, input, select, textarea, summary, [tabindex]):focus-visible {
     @apply outline-none ring-2 ring-[rgb(var(--focus-ring))] ring-offset-2 ring-offset-surface;
   }
+
+  /*
+   * A date field is wide enough for its own segments — Sprint 23, item 7.
+   *
+   * ── The fault, and why it is not a format problem ────────────────────────
+   * On a 15.6" laptop (1366×768) a date input read `dd------yyyy`: the **month
+   * segment was missing**. It is correct on a larger screen, which is the whole
+   * clue. A native `input[type="date"]` lays out three segments, two
+   * separators and a calendar indicator at an intrinsic width the browser
+   * decides from the operator's own locale and font; when the box is narrower
+   * than that, Chromium **clips a segment** rather than shrinking the text. The
+   * clipped one is the middle one, so the field keeps its first and last
+   * segments and silently loses the month — the one segment a clerk cannot
+   * infer.
+   *
+   * ── Fixed once, in the shared layer ─────────────────────────────────────
+   * There are 43 `type="date"` inputs across `app/` and `components/`, in
+   * two-column grids, inside modals, and beside currency fields. A per-screen
+   * width would be 43 chances to miss one, and the next date field added would
+   * arrive broken. The rule is on the element type, so every one of them —
+   * including the ones nobody has written yet — is wide enough.
+   *
+   * ── `min()`, not a bare `min-width` ─────────────────────────────────────
+   * A flat `min-width: 10.5rem` would make the field overflow its own column on
+   * a narrow phone, which trades a clipped month for a horizontal scrollbar.
+   * `min(100%, 10.5rem)` says "at least 10.5rem, but never wider than the space
+   * you have", so a genuinely tiny container degrades the way it did before
+   * rather than breaking the layout around it.
+   */
+  input[type='date'],
+  input[type='datetime-local'],
+  input[type='month'],
+  input[type='time'] {
+    min-width: min(100%, 10.5rem);
+  }
 }
 
 /*

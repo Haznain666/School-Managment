@@ -44,11 +44,20 @@ interface SectionRow {
   classTeacherId: string | null;
 }
 
-/** A member of staff the school has marked as a class teacher. */
+/**
+ * A member of staff the picker may offer.
+ *
+ * Since Sprint 23 that is **any active member of staff**, not only the ones HR
+ * has ticked "Class Teacher (Home Room)" on — the flag stayed, and stopped
+ * being a gate, because Sprint 22's invite path creates teachers without it and
+ * this picker was empty at every school whose teachers arrived that way.
+ */
 interface ClassTeacherOption {
   id: string;
   name: string;
   designation: string | null;
+  /** Other sections this person already holds, e.g. `['4-B']`. */
+  alsoClassTeacherOf: string[];
 }
 
 export function GradeSetupGrid({
@@ -356,13 +365,28 @@ function GradeRowItem({
           </div>
 
           {/* The class teacher owns this class's promotions — see
-              `/api/school/terms/[termId]/sections/[sectionId]/results`. Only
-              staff whose record says "Class Teacher (Home Room)" are offered,
-              which is why the list can be empty and says so rather than
-              rendering an empty dropdown. */}
+              `/api/school/terms/[termId]/sections/[sectionId]/results`.
+
+              Every **active** member of staff is offered (Sprint 23, item 4).
+              The `is_class_teacher` flag used to gate this list and made the
+              dropdown empty at any school whose teachers arrived through the
+              invite path, which writes no such flag. The same control is now
+              also on the timetable screen — two doors to one column, because
+              the timetable is built per section and that is where a school
+              looks for "whose class is this". Both write
+              `PATCH /api/school/sections/[sectionId]`. */}
           {canEdit && sections.length > 0 ? (
             <div className="space-y-2">
-              {sections.map((section) => (
+              {sections.map((section) => {
+                // The label this very section is listed under, so a teacher
+                // already holding it is not told they "also" hold it.
+                const selfLabel = `${
+                  grade.displayName === null || grade.displayName === ''
+                    ? grade.name
+                    : grade.displayName
+                }-${section.name}`;
+
+                return (
                 <label
                   key={section.id}
                   className="flex flex-wrap items-center gap-2 text-xs text-ink-muted"
@@ -378,18 +402,28 @@ function GradeRowItem({
                   >
                     <option value="">
                       {classTeachers.length === 0
-                        ? 'No staff marked as class teachers'
+                        ? 'No active staff to choose from'
                         : 'None'}
                     </option>
                     {classTeachers.map((option) => (
                       <option key={option.id} value={option.id}>
                         {option.name}
                         {option.designation === null ? '' : ` — ${option.designation}`}
+                        {/* One teacher may hold several sections (Sprint 23,
+                            decision 4). The note is what makes that a choice
+                            rather than something discovered in February. */}
+                        {option.alsoClassTeacherOf.filter((label) => label !== selfLabel)
+                          .length === 0
+                          ? ''
+                          : ` · also class teacher of ${option.alsoClassTeacherOf
+                              .filter((label) => label !== selfLabel)
+                              .join(', ')}`}
                       </option>
                     ))}
                   </select>
                 </label>
-              ))}
+                );
+              })}
             </div>
           ) : null}
 

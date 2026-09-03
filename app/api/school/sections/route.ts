@@ -6,6 +6,7 @@ import { apiFailure, apiSuccess, handleApiError, readJsonBody } from '@/lib/api-
 import { listSections } from '@/lib/admissions-queries';
 import { db } from '@/lib/drizzle';
 import { listClassTeacherCandidates } from '@/lib/exam-queries';
+import { visibleScopeFor } from '@/lib/principal-visibility';
 import { isUuid, readString } from '@/lib/validation';
 
 /**
@@ -31,15 +32,27 @@ export const GET = withSchoolAuth(
       // The class-teacher candidates ride along: the setup grid draws a picker
       // per section, and asking for the same short list once per row would be
       // one request per class on a screen that already has sixteen.
-      const [rows, classTeachers] = await Promise.all([
+      const [rows, classTeachers, visible] = await Promise.all([
         listSections(auth.locationId, {
           gradeId: url.searchParams.get('gradeId') ?? undefined,
           academicYearId: url.searchParams.get('academicYearId') ?? undefined,
         }),
         listClassTeacherCandidates(auth.locationId, auth.branchId),
+        // BR4 — Sprint 23, item 3. The companion to the narrowing on
+        // `/api/school/grades`: this route feeds the section pickers on the
+        // enrolment wizard, the students filter, the voucher generator and the
+        // voucher list, and narrowing the grades without narrowing these would
+        // leave a head offered sections of classes they cannot see.
+        visibleScopeFor(auth),
       ]);
 
-      return apiSuccess({ sections: rows, classTeachers });
+      return apiSuccess({
+        sections:
+          visible.gradeIds === null
+            ? rows
+            : rows.filter((row) => visible.gradeIds?.includes(row.gradeId) ?? false),
+        classTeachers,
+      });
     } catch (error) {
       return handleApiError(error);
     }
