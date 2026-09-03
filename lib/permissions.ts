@@ -53,6 +53,10 @@ export const PERMISSIONS = [
   'comms.read',
   'comms.write',
   'comms.send',
+  'chat.read',
+  'chat.send',
+  'chat.grant',
+  'chat.moderate',
   'settings.read',
   'settings.write',
   'branches.manage',
@@ -121,6 +125,11 @@ export const PERMISSION_GROUPS: readonly PermissionGroup[] = [
     label: 'Communications',
     permissions: ['comms.read', 'comms.write', 'comms.send'],
   },
+  {
+    key: 'chat',
+    label: 'Chat',
+    permissions: ['chat.read', 'chat.send', 'chat.grant', 'chat.moderate'],
+  },
   { key: 'hr', label: 'HR', permissions: ['hr.read', 'hr.write'] },
   {
     key: 'accounting',
@@ -167,6 +176,10 @@ export const PERMISSION_LABELS: Record<Permission, string> = {
   'comms.read': 'See announcements and who they reached',
   'comms.write': 'Write and schedule announcements',
   'comms.send': 'Send an announcement, and email it to its audience',
+  'chat.read': 'Open the chat inbox',
+  'chat.send': 'Start conversations and reply to them',
+  'chat.grant': 'Open chat for a class or a pupil, and close it again',
+  'chat.moderate': 'Read reported messages, remove one, and ban somebody from chat',
   'hr.read': 'See staff records and leave',
   'hr.write': 'Add staff, set salaries and decide leave',
   'payroll.read': 'See payroll runs and payslips',
@@ -192,6 +205,12 @@ export const PERMISSION_DESCRIPTIONS: Partial<Record<Permission, string>> = {
   'comms.send':
     'Sending puts a notice in front of every parent it is addressed to, and ' +
     'an email cannot be recalled. Separate from comms.write on purpose.',
+  'chat.grant':
+    'Lets a teacher open chat for a whole class for a set time. It cannot lift ' +
+    'a ban issued by somebody senior — that is decided by rank, not by this.',
+  'chat.moderate':
+    'Reading conversations that involve a pupil, and banning a parent from ' +
+    'chat. Grant it to the people a safeguarding complaint would go to.',
   'results.enter':
     'A teacher needs this for their own papers. It does not let them publish.',
   'results.publish':
@@ -356,6 +375,10 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<UserRole, readonly Permission[]> =
     'comms.write',
     'comms.send',
     'hr.read',
+    'chat.read',
+    'chat.send',
+    'chat.grant',
+    'chat.moderate',
     'settings.read',
   ],
 
@@ -386,6 +409,11 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<UserRole, readonly Permission[]> =
     // school earns and spends is a head's job, running the books is not.
     // `accounting.write` and `accounting.settle` are deliberately absent.
     'accounting.read',
+    // A head is who a safeguarding complaint reaches, so they moderate.
+    'chat.read',
+    'chat.send',
+    'chat.grant',
+    'chat.moderate',
     'settings.read',
   ],
 
@@ -408,6 +436,12 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<UserRole, readonly Permission[]> =
     'comms.write',
     'comms.send',
     'hr.read',
+    // Opens chat for a class; does not review a report. `chat.moderate` is
+    // deliberately absent — a deputy standing in still refers a safeguarding
+    // matter up rather than closing it.
+    'chat.read',
+    'chat.send',
+    'chat.grant',
     'settings.read',
   ],
 
@@ -425,6 +459,9 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<UserRole, readonly Permission[]> =
     // Drafts a notice; the head releases it.
     'comms.read',
     'comms.write',
+    'chat.read',
+    'chat.send',
+    'chat.grant',
     'settings.read',
   ],
 
@@ -445,6 +482,12 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<UserRole, readonly Permission[]> =
     'attendance.mark',
     'exams.read',
     'results.enter',
+    // `chat.grant` is what opens a class for two hours. A teacher may open her
+    // own sections and nothing else — the resolver checks the scope against
+    // `listTeacherSections`, so the permission is the door and not the room.
+    'chat.read',
+    'chat.send',
+    'chat.grant',
   ],
 
   // Sprint 13.5 gives the accountant the module named after them, and stops
@@ -464,6 +507,8 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<UserRole, readonly Permission[]> =
     'payroll.read',
     'accounting.read',
     'accounting.write',
+    'chat.read',
+    'chat.send',
     'settings.read',
   ],
 
@@ -478,6 +523,8 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<UserRole, readonly Permission[]> =
     'hr.write',
     'payroll.read',
     'payroll.write',
+    'chat.read',
+    'chat.send',
     'settings.read',
   ],
 
@@ -489,6 +536,8 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<UserRole, readonly Permission[]> =
     'students.update',
     'comms.read',
     'comms.write',
+    'chat.read',
+    'chat.send',
     'settings.read',
   ],
 

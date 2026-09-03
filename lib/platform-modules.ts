@@ -13,6 +13,7 @@ export const PLATFORM_MODULES = [
   { key: 'admissions', label: 'Admissions & Enrollment', phase: 1 },
   { key: 'fee_management', label: 'Fee Management', phase: 1 },
   { key: 'academics', label: 'Academics & Timetable', phase: 1 },
+  { key: 'chat', label: 'Chat & Messaging', phase: 2 },
   { key: 'lms', label: 'LMS (Learning Management)', phase: 2 },
   { key: 'hr_payroll', label: 'HR & Payroll', phase: 2 },
   { key: 'accounts', label: 'Accounts & Finance', phase: 2 },
@@ -113,6 +114,12 @@ export type BulkFlagBaseline = BulkFlagChoice | 'mixed';
  *
  * `0028` removes the `whatsapp` rows and rewrites the CHECK constraint to
  * match. Anything that comes back — chat, push — is a module or it is nothing.
+ *
+ * ── And chat came back, as a module ──────────────────────────────────────
+ * Sprint 24 adds `chat` to `PLATFORM_MODULES` above, which is this sentence
+ * being honoured rather than an exception to it. `0040` rewrites the CHECK to
+ * take the new key; a module key added here without that DDL is refused by the
+ * database at the first toggle, which is the trap worth naming twice.
  */
 export const SCHOOL_FLAG_KEYS: readonly string[] = [...PLATFORM_MODULE_KEYS];
 

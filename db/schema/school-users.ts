@@ -69,6 +69,25 @@ export const schoolUsers = pgTable(
     invitedAt: timestamp('invited_at', { withTimezone: true }),
     /** Set when the invite is accepted and the account becomes usable. */
     joinedAt: timestamp('joined_at', { withTimezone: true }),
+    /**
+     * When a pupil was issued a sign-in credential (Sprint 24).
+     *
+     * Null for every member of staff and every parent — they arrive through
+     * `school_invitations` and `password_setup_tokens`, and `joined_at` already
+     * records that. This column is only about the one account type that has no
+     * invitation flow: a pupil, whose address is minted by the school rather
+     * than supplied by them.
+     *
+     * The address itself lives in `email` above, deliberately and not in a
+     * column of its own. A second address column would be a second thing for
+     * the login lookup to disagree with, and `STATE.md` §5bk is the incident
+     * report about what that costs — a father permanently signed in as his own
+     * daughter. One address column means `0038`'s partial unique index protects
+     * a pupil's identity exactly as it protects everyone else's.
+     */
+    studentCredentialIssuedAt: timestamp('student_credential_issued_at', {
+      withTimezone: true,
+    }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
