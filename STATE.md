@@ -4,7 +4,61 @@
 resume without re-deriving context. Updated at the end of every development
 step, before the session ends.
 
-**Last updated:** 2026-09-01 (**Sprint 22 — one person, one record — §5bl. A
+**Last updated:** 2026-09-03 (**Sprint 23 — the principal's grades, the class
+teacher, and the discount that would not come off — §5bm. Shipped: `0039`
+applied and verified against the catalogue first, then the code, in that order,
+because five surfaces are a 500 without it.
+
+✅ **DEPLOYED, LIVE AND MIGRATED.** PR
+[#55](https://github.com/Haznain666/School-Managment/pull/55) merged 11:53:39Z,
+live 11:56:14Z as `f72271652c99` — **2m35s**, CDN purged and proven (`Age`
+220s → absent) and the smoke test 9 of 9. **`0039` is APPLIED — 39 bookkeeping
+rows → 40**, entry `id=40` stamped `1788609600000` to match the journal,
+applied through drizzle-orm's own `postgres-js` migrator on the session pooler
+(5432) because `drizzle-kit migrate` still hangs on the unescaped `@`.
+
+✅ **Verified against the catalogue, not the exit code** —
+`scripts/verify-0039.mjs`, 16 of 16. Both columns' `data_type`, `is_nullable`
+and `column_default` read out of `information_schema.columns` one by one:
+`schools.allow_shared_principal_grades` boolean / NO / `false`, and
+`staff.photo_url` text / YES / no default. **Zero schools sharing** — the point
+of reading the default rather than trusting it, because `true` would have
+switched the whole new rule off at every school with no screen saying so. The
+`NOT NULL` was made to refuse a null with `23502` inside a `SAVEPOINT` (§5bh),
+and the enclosing transaction rolled back. Row counts identical either side —
+`schools` 3 → 3, `staff` 7 → 7, `principal_assignments` 5 → 5 — because this
+migration rewrites nothing. Zero grandfathered overlaps exist today.
+
+✅ **`check-sprint23` flipped itself, which is the cheapest proof there is.**
+Before: `0039 is NOT applied`, 31 ok with four predicted `42703`s. After:
+`0039 is APPLIED`, **33 ok, 0 failed and 0 not exercised**, with the two
+columns' catalogue shape asserted as the two extra checks.
+
+✅ **All five migration-dependent surfaces were driven, not assumed.** The
+Sprint 23 standalone artifact was served against the live migrated database and
+entered as LGS through a Super Admin hand-off: `GET /api/school/hr/staff` 200
+carrying `photoUrl`, `GET /api/school/hr/staff/[id]` 200, `/dashboard/hr/staff`
+and `/dashboard/settings` both 200, and `GET /api/school/principals` 200
+answering `allowSharedGrades: false`. The photo upload was exercised in all
+three directions: a 3 MB JPEG refused **413** *"The photo must be 2 MB or
+smaller."*, a PDF refused **415** *"The photo must be a PNG, JPG or WebP
+image."*, and a real JPEG accepted, landing at
+`<location_id>/staff/<staff_id>/photo.jpg` — inside the school's own prefix —
+and read back on both the profile and the directory. **Everything written was
+removed and the removal read back**: `photo_url` back to null, the object
+deleted, `staff` at 7 rows with 0 photographs, storage prefix empty.
+
+⚠ **Two things a later session should not rediscover.** The worktree
+`node_modules` stub does not only break the *next build* — it breaks *serving*
+the standalone artifact too, with `Cannot find module './cpu-profile'`, because
+`next` resolves to the partial copy before the real install. And `curl` reached
+`schoolhub.codexmill.com` cleanly today, so §5bl's 403 JS challenge is
+intermittent rather than permanent: try it before dispatching the workflow.
+
+⚠ **Not verified: nobody clicked the grade chips.** The *"Also assigned to X"*
+chip and the toggle's effect on chip selectability were not exercised — no
+school has an overlap to display, so there is nothing on the live database that
+would render one.**); 2026-09-01 (**Sprint 22 — one person, one record — §5bl. A
 member of staff could exist twice in this product and the two halves never met:
 `staff.school_user_id` has existed since Sprint 7, is indexed, and **no screen
 ever set it**. `listUnlinkedSchoolUsers`, written "for the link picker", was
@@ -11161,9 +11215,45 @@ only symptom was "Incorrect email or password." Use `printf '\n%s\n'`.
 
 ## 5bm. Sprint 23 — the principal's grades, the class teacher, and the discount that would not come off — 2026-09-03
 
-Spec: `SPRINT-23-SPEC.md`, all nine sections. **Migration `0039`, written and
-NOT applied** — `SPRINT-23-DDL-NOTES.md` says how, in what order, and what
-breaks if the code goes first. `0040` is the next free number.
+Spec: `SPRINT-23-SPEC.md`, all nine sections. **Migration `0039` is APPLIED and
+verified — 2026-09-03.** The bookkeeping table held **39 rows before and 40
+after**, entry `id=40` stamped `1788609600000` to match the journal.
+`SPRINT-23-DDL-NOTES.md` says how, in what order, and what breaks if the code
+goes first. **`0040` is the next free migration number.**
+
+### How `0039` was applied, and how it was verified
+
+`drizzle-kit migrate` was not used and still cannot be — `DATABASE_URL` holds an
+unescaped literal `@` in the password and Sprint 18 watched it hang for five
+minutes and apply nothing (§5bg). `0039`, like `0034` through `0038`, went in
+through **drizzle-orm's own `postgres-js` migrator** — same statements, same
+`drizzle.__drizzle_migrations` bookkeeping — against the **pooler host on port
+5432** (session mode; 6543 is transaction mode and will not do DDL, and the
+direct `db.<ref>.supabase.co` host is IPv6-only, §5c). It returned in 1.4s.
+`scripts/apply-0039.mjs` is the script, and it takes a census either side rather
+than only counting bookkeeping rows: `schools` 3 → 3, `staff` 7 → 7,
+`principal_assignments` 5 → 5. **This migration must rewrite nothing, so the
+identical counts are the evidence and the exit code is not.**
+
+`scripts/verify-0039.mjs` is the read-only half, 16 of 16. Both columns' type,
+nullability and default read out of `information_schema.columns` one by one —
+`schools.allow_shared_principal_grades` boolean / NOT NULL / `false`, and
+`staff.photo_url` text / nullable / no default. Zero schools holding null and
+**zero schools sharing**: reading the default back matters here precisely
+because there is no constraint to fire, and a default of `true` would have
+switched the new rule off everywhere in silence. The `NOT NULL` was made to
+refuse a null with `23502` inside a `SAVEPOINT` per §5bh, and the enclosing
+transaction rolled back with every row unchanged.
+
+### The deploy order held: migration first, then the code
+
+`0039` was applied and verified **before** PR #55 was opened, so the five
+surfaces in the DDL notes were never a 500 on the live site. PR #55 merged
+11:53:39Z; Hostinger served `f72271652c99` at 11:56:14Z, **2m35s**; the CDN was
+purged and the purge proven by `Age` 220s → absent; the smoke test passed 9 of
+9. The five surfaces were then driven against the live migrated database — the
+detail is in the header block above, including the photo upload's two refusals
+and the write that was made and then removed.
 
 ### The four decisions, and the one that will be re-litigated if I do not write it down
 
