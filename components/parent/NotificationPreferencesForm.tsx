@@ -24,14 +24,15 @@ import { schoolErrorMessage, schoolFetch } from '@/lib/school-client';
  * had been told nothing was owed.
  *
  * ── Every category is sent on every save ─────────────────────────────────
- * The API requires all three, so an absent key can never mean two things. That
+ * The API requires every one of them, so an absent key can never mean two
+ * things. That
  * is the ambiguity the bulk module screen was rebuilt to remove (`STATE.md`
  * §5s), and it is cheaper to refuse it here than to discover it once.
  */
 
 type Settings = Record<NotificationCategory, boolean>;
 
-const ALL_ON: Settings = { announcements: true, fees: true, attendance: true };
+const ALL_ON: Settings = { announcements: true, fees: true, attendance: true, chat: true };
 
 export function NotificationPreferencesForm() {
   const [settings, setSettings] = useState<Settings | null>(null);

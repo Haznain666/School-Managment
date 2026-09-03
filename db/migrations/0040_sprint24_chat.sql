@@ -1,9 +1,10 @@
 -- Sprint 24 — internal chat, part 1.
 --
--- Eight new tables, two CHECK rewrites, one row-level-security policy, and one
--- new column on `school_users`. Nothing here rewrites an existing row and
+-- Eight new tables, two CHECK rewrites, one row-level-security policy, and two
+-- new columns on tables that already exist. Nothing here rewrites an existing row and
 -- nothing here can fail on data: every table is new, both CHECK rewrites only
--- widen, and the one added column is nullable with no default.
+-- widen, and the two added columns are a nullable timestamp and a boolean
+-- defaulted to the value every existing row would have chosen.
 --
 -- This is the module that replaces WhatsApp. `ROADMAP.md` §5 decided that on
 -- 2026-08-07, `0028` removed the WhatsApp flag on 2026-08-22, and
@@ -12,7 +13,7 @@
 --
 -- ── Atomic without a BEGIN ───────────────────────────────────────────────
 -- drizzle-orm's migrator runs each migration file inside one transaction, so
--- all eleven steps commit together or not at all. An explicit `BEGIN` here
+-- all twelve steps commit together or not at all. An explicit `BEGIN` here
 -- would be a nested transaction the migrator did not ask for.
 --
 -- ── The two rewrites that break at runtime rather than here ──────────────
@@ -233,6 +234,7 @@ CREATE TABLE IF NOT EXISTS "chat_participants" (
   "joined_at" timestamp with time zone DEFAULT now() NOT NULL,
   "last_read_at" timestamp with time zone,
   "muted_until" timestamp with time zone,
+  "digested_at" timestamp with time zone,
   "left_at" timestamp with time zone,
   CONSTRAINT "chat_participants_role_check"
     CHECK (participant_role IN ('owner', 'member', 'observer')),
@@ -250,6 +252,13 @@ CREATE UNIQUE INDEX IF NOT EXISTS "chat_participants_conversation_user_idx"
 
 CREATE INDEX IF NOT EXISTS "chat_participants_user_read_idx"
   ON "chat_participants" ("school_user_id", "last_read_at");--> statement-breakpoint
+
+-- The digest sweep claims on this. `digested_at` is on the participant row
+-- rather than on `school_users` because it is what the conditional
+-- `UPDATE … RETURNING` moves, and a column on `school_users` would put a chat
+-- concern on the row every request in the product already reads.
+CREATE INDEX IF NOT EXISTS "chat_participants_digested_idx"
+  ON "chat_participants" ("digested_at");--> statement-breakpoint
 
 CREATE UNIQUE INDEX IF NOT EXISTS "chat_participants_one_student_idx"
   ON "chat_participants" ("conversation_id") WHERE "is_student";--> statement-breakpoint
@@ -541,7 +550,21 @@ ALTER TABLE "role_permissions" ADD CONSTRAINT "role_permissions_permission_check
   )
 );--> statement-breakpoint
 
--- ── Step 11: the pupil's credential ──────────────────────────────────────
+-- ── Step 11: the chat email preference ───────────────────────────────────
+--
+-- `notification_preferences` gains a fourth category. Its own docblock states
+-- the rule this follows: a category exists here only if something in the
+-- codebase sends mail of that kind, and Sprint 24's digest sweep is that
+-- sender.
+--
+-- Default true, matching the three beside it, and absent-row-means-everything-
+-- on stays the posture. What it governs is *only* the digest — a school cannot
+-- switch off the messages themselves, which arrive in the portal whatever this
+-- says, exactly as the notice board is never suppressible.
+ALTER TABLE "notification_preferences"
+  ADD COLUMN IF NOT EXISTS "email_chat" boolean NOT NULL DEFAULT true;--> statement-breakpoint
+
+-- ── Step 12: the pupil's credential ──────────────────────────────────────
 --
 -- The blocker this sprint had to clear before any of the above matters.
 --

@@ -16,6 +16,7 @@ import {
   type PromotionRun,
 } from '@/db/schema';
 
+import { freezeConversationsOnDeparture } from './chat-threads';
 import { db } from './drizzle';
 import { reconcileFamilyAfterDeparture } from './sibling-discounts';
 
@@ -505,6 +506,19 @@ export async function applyPromotionRun(
       studentProfileId,
       actorUid,
     });
+
+    /*
+     * Sprint 24. A graduate's conversations freeze: read-only, retained, and
+     * still readable by an administrator. Same placement and same reasoning as
+     * the reconciliation above it — after the transaction, swallowing its own
+     * failure, because a chat table refusing a write must not roll a whole
+     * class back into last year.
+     */
+    await freezeConversationsOnDeparture(
+      run.locationId,
+      studentProfileId,
+      'The student left the school at the end of the year.',
+    );
   }
 
   return result;

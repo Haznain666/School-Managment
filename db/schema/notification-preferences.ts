@@ -38,13 +38,14 @@ import { schools } from './schools';
  */
 
 /** What a school can email a parent about, as far as a parent may choose. */
-export const NOTIFICATION_CATEGORIES = ['announcements', 'fees', 'attendance'] as const;
+export const NOTIFICATION_CATEGORIES = ['announcements', 'fees', 'attendance', 'chat'] as const;
 export type NotificationCategory = (typeof NOTIFICATION_CATEGORIES)[number];
 
 export const NOTIFICATION_CATEGORY_LABELS: Record<NotificationCategory, string> = {
   announcements: 'School announcements',
   fees: 'Fee vouchers and reminders',
   attendance: 'Absence notices',
+  chat: 'Unread chat messages',
 };
 
 export const NOTIFICATION_CATEGORY_DESCRIPTIONS: Record<NotificationCategory, string> = {
@@ -52,6 +53,9 @@ export const NOTIFICATION_CATEGORY_DESCRIPTIONS: Record<NotificationCategory, st
     'Notices the school sends to parents. They always appear on your notice board; this only controls the email.',
   fees: 'A new voucher, and reminders while one is unpaid. Your fee page always shows what is owed.',
   attendance: 'An email on a day one of your children is marked absent.',
+  chat:
+    'A note when a conversation is waiting for you, at most once an hour. The '
+    + 'messages themselves are never emailed — you read them in the portal.',
 };
 
 export function isNotificationCategory(value: unknown): value is NotificationCategory {
@@ -80,6 +84,12 @@ export const notificationPreferences = pgTable(
     emailAnnouncements: boolean('email_announcements').notNull().default(true),
     emailFees: boolean('email_fees').notNull().default(true),
     emailAttendance: boolean('email_attendance').notNull().default(true),
+    /**
+     * Sprint 24. The unread-chat digest, and only the digest — a school
+     * cannot switch off the messages themselves, which arrive in the portal
+     * whatever this says. Same posture as the notice board above it.
+     */
+    emailChat: boolean('email_chat').notNull().default(true),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [

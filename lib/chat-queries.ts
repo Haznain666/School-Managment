@@ -47,7 +47,7 @@ import {
   type ScopeKey,
   turnTakingProblem,
 } from './chat-permissions';
-import { batch, db, type Tx } from './drizzle';
+import { batch, db } from './drizzle';
 
 /**
  * The database half of the chat permission model.
@@ -799,37 +799,6 @@ export function claimableInboxes(role: UserRole): RoleInboxKey[] {
   return ROLE_INBOXES.filter((inbox) =>
     (inbox.claimableBy as readonly string[]).includes(role),
   ).map((inbox) => inbox.key);
-}
-
-/**
- * Freezes every conversation about a pupil who has left.
- *
- * Read-only for everyone, retained, and still readable by an administrator. A
- * withdrawal must not be a way to erase a safeguarding record — the same
- * argument `CLAUDE.md` makes about the ledger, applied to the one thing a
- * school is least able to survive losing.
- *
- * Takes a `Tx` so it commits with the withdrawal that caused it.
- */
-export async function freezeConversationsForStudent(
-  tx: Tx,
-  locationId: string,
-  studentProfileId: string,
-  reason: string,
-): Promise<number> {
-  const frozen = await tx
-    .update(chatConversations)
-    .set({ status: 'frozen', frozenAt: new Date(), frozenReason: reason, updatedAt: new Date() })
-    .where(
-      and(
-        eq(chatConversations.locationId, locationId),
-        eq(chatConversations.studentProfileId, studentProfileId),
-        ne(chatConversations.status, 'frozen'),
-      ),
-    )
-    .returning({ id: chatConversations.id });
-
-  return frozen.length;
 }
 
 /* ------------------------------------------------------------------------

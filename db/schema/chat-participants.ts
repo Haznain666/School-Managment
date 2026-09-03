@@ -111,6 +111,16 @@ export const chatParticipants = pgTable(
     joinedAt: timestamp('joined_at', { withTimezone: true }).notNull().defaultNow(),
     lastReadAt: timestamp('last_read_at', { withTimezone: true }),
     mutedUntil: timestamp('muted_until', { withTimezone: true }),
+    /**
+     * When this person was last emailed that something is waiting.
+     *
+     * It lives on the participant row rather than on the account because it
+     * is what the digest sweep **claims**: one conditional `UPDATE … RETURNING`
+     * across all of a person's rows, so exactly one of the seven server
+     * processes mails them. A column on `school_users` would have done the
+     * same job and put a chat concern on the row every request already reads.
+     */
+    digestedAt: timestamp('digested_at', { withTimezone: true }),
     /** Left the thread. Kept rather than deleted: they read what was said. */
     leftAt: timestamp('left_at', { withTimezone: true }),
   },
@@ -122,6 +132,8 @@ export const chatParticipants = pgTable(
     ),
     // The inbox read, and the unread badge.
     index('chat_participants_user_read_idx').on(table.schoolUserId, table.lastReadAt),
+    // The digest sweep's claim predicate.
+    index('chat_participants_digested_idx').on(table.digestedAt),
     /**
      * Student-to-student, refused by the database. See the docblock; this is
      * the single most load-bearing line in the chat module.

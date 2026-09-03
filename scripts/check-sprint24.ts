@@ -531,6 +531,72 @@ async function main(): Promise<void> {
     'it did not refuse an unreachable target, so the reachable read did not run',
   );
 
+  console.log('\nStatements written inline in the routes:');
+
+  /*
+   * The moderation queue joins `chat_reports` to `chat_messages` and orders by
+   * two columns. It is written inline in the route rather than in the query
+   * layer, which means nothing else would ever execute it — exactly the gap
+   * this script exists to close.
+   */
+  await newTable('the moderation queue — chat_reports joined to chat_messages', () =>
+    db.execute(sql`
+      select r.id, r.severity, r.status, m.body, m.sender_name, m.redacted_at
+        from chat_reports r
+        join chat_messages m on m.id = r.message_id
+       where r.location_id = ${NOBODY} and r.status = 'open'
+       order by r.severity desc, r.created_at desc
+       limit 200`),
+  );
+
+  await newTable('the live-grants screen — the open/standing predicate', () =>
+    db.execute(sql`
+      select id, scope_type, scope_id, effect, ends_at, granted_by_rank
+        from chat_grants
+       where location_id = ${NOBODY}
+         and revoked_at is null
+         and (ends_at is null or ends_at > now())
+       order by created_at desc
+       limit 200`),
+  );
+
+  await newTable('the desk-claim lookup, before the conditional UPDATE', () =>
+    db.execute(sql`
+      select role_inbox, branch_id
+        from chat_conversations
+       where location_id = ${NOBODY} and id = ${NOBODY} and kind = 'role_inbox'
+       limit 1`),
+  );
+
+  await newTable('the per-person settings read', () =>
+    db.execute(sql`
+      select students_may_initiate, quiet_hours_from, quiet_hours_to
+        from chat_settings
+       where location_id = ${NOBODY} and school_user_id = ${NOBODY}
+       limit 1`),
+  );
+
+  /*
+   * The settings upsert names the unique index by its columns. A mismatch
+   * between `onConflictDoUpdate`'s target and the index that actually exists is
+   * a 42P10 at runtime and compiles perfectly, so the index is asserted rather
+   * than the statement executed — the statement writes.
+   */
+  if (applied) {
+    const settingsIndex = rows<{ indexdef: string }>(
+      await db.execute(sql`
+        select indexdef from pg_indexes
+         where schemaname = 'public'
+           and indexname = 'chat_settings_location_user_idx'`),
+    );
+
+    assert(
+      'chat_settings has the unique index the upsert conflicts on',
+      settingsIndex[0] !== undefined && settingsIndex[0].indexdef.includes('UNIQUE'),
+      'onConflictDoUpdate would fail with 42P10 — no matching unique constraint',
+    );
+  }
+
   console.log('\nThe pupil credential column:');
 
   /*
