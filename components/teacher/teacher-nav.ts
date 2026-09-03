@@ -18,7 +18,11 @@ import type { PortalNavItem } from '@/components/school/PortalSidebar';
  * same person, because a link is not a permission and a typed URL would
  * otherwise walk straight in.
  */
-export function teacherNav(unreadNotices = 0, isClassTeacher = false): PortalNavItem[] {
+export function teacherNav(
+  unreadNotices = 0,
+  isClassTeacher = false,
+  unreadChats = 0,
+): PortalNavItem[] {
   return [
     { label: 'My Dashboard', href: '/teacher', icon: 'dashboard' },
     { label: 'My Timetable', href: '/teacher/timetable', icon: 'timetable' },
@@ -37,6 +41,12 @@ export function teacherNav(unreadNotices = 0, isClassTeacher = false): PortalNav
         ]
       : []),
     { label: 'Lesson Plans', href: '/teacher/lesson-plans', icon: 'academics' },
+    {
+      label: 'Messages',
+      href: '/teacher/chat',
+      icon: 'chat',
+      ...(unreadChats > 0 ? { badge: unreadChats } : {}),
+    },
     {
       label: 'Announcements',
       href: '/teacher/announcements',

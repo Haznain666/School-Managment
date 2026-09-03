@@ -335,3 +335,62 @@ export function SkeletonDocument({ className }: SkeletonProps) {
     </div>
   );
 }
+
+/**
+ * A chat inbox and thread placeholder — a list beside a run of bubbles.
+ *
+ * The sixth shape, added by Sprint 24 rather than hand-placing boxes in four
+ * route files, which is what `CLAUDE.md` asks for. It exists because none of
+ * the five fitted: a chat screen is two columns of different things, and the
+ * table skeleton drew six equal rows across both, promising a layout that then
+ * jumped.
+ *
+ * The bubbles alternate sides and vary in width. A run of identical centred
+ * bars reads as a loading spinner in disguise; what is arriving is a
+ * conversation, and the skeleton is worth having only when it is the shape of
+ * what is coming.
+ */
+export function SkeletonChat({ className }: SkeletonProps) {
+  const widths = ['w-3/5', 'w-2/5', 'w-4/5', 'w-1/2', 'w-3/4'];
+
+  return (
+    <div
+      role="status"
+      aria-label="Loading conversations"
+      className={cn('grid gap-4 lg:grid-cols-[20rem_1fr]', className)}
+    >
+      <div
+        className="rounded-card border border-line bg-surface-raised p-3"
+        aria-hidden="true"
+      >
+        {Array.from({ length: 6 }, (_, index) => (
+          <div key={index} className="flex items-center gap-3 border-b border-line py-3 last:border-0">
+            <Skeleton className="h-9 w-9 shrink-0 rounded-full" />
+            <div className="min-w-0 flex-1">
+              <Skeleton className="h-3 w-2/3" />
+              <Skeleton className="mt-2 h-3 w-full" />
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <div
+        className="flex min-h-[24rem] flex-col rounded-card border border-line bg-surface-raised p-4"
+        aria-hidden="true"
+      >
+        <Skeleton className="h-4 w-48" />
+        <div className="mt-6 flex-1 space-y-4">
+          {widths.map((width, index) => (
+            <div
+              key={index}
+              className={cn('flex', index % 2 === 1 ? 'justify-end' : 'justify-start')}
+            >
+              <Skeleton className={cn('h-12 rounded-card', width)} />
+            </div>
+          ))}
+        </div>
+        <Skeleton className="mt-4 h-11 w-full" />
+      </div>
+    </div>
+  );
+}

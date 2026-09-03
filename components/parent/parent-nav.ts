@@ -17,13 +17,19 @@ import type { PortalNavItem } from '@/components/school/PortalSidebar';
  * entry carries an unread count. A badge that showed a number from build time
  * would be worse than no badge — it would be a number that never changed.
  */
-export function parentNav(unreadNotices = 0): PortalNavItem[] {
+export function parentNav(unreadNotices = 0, unreadChats = 0): PortalNavItem[] {
   return [
     { label: 'My Dashboard', href: '/parent', icon: 'dashboard' },
     { label: 'My Children', href: '/parent/children', icon: 'children' },
     { label: 'Attendance', href: '/parent/attendance', icon: 'attendance' },
     { label: 'Results', href: '/parent/results', icon: 'marks' },
     { label: 'Fees', href: '/parent/fees', icon: 'fees' },
+    {
+      label: 'Messages',
+      href: '/parent/chat',
+      icon: 'chat',
+      ...(unreadChats > 0 ? { badge: unreadChats } : {}),
+    },
     {
       label: 'Announcements',
       href: '/parent/announcements',

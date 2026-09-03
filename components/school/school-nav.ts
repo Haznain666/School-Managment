@@ -102,6 +102,15 @@ export function schoolNav({ role, permissions, moduleFlags }: SchoolNavProps): {
     });
   }
 
+  // Chat is module-gated and Communications is not, and the difference is the
+  // point. Every school tells people things; not every school is ready to let
+  // parents and pupils write back, and `chat` is the flag that says which — see
+  // `lib/platform-modules.ts`, which has said since `0028` that anything coming
+  // back is a module or it is nothing.
+  if (moduleFlags.chat && can('chat.read')) {
+    items.push({ label: 'Chat', href: '/dashboard/chat', icon: 'chat' });
+  }
+
   // Reports is a single destination for the same reason Communications is: one
   // index leads to all nine, and a section holding one link is a folder.
   //

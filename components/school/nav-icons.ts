@@ -15,6 +15,7 @@ import {
   Layers,
   ListChecks,
   Megaphone,
+  MessageSquare,
   MessageSquareText,
   MoveUpRight,
   Receipt,
@@ -100,6 +101,7 @@ export const NAV_ICONS = {
   cashCounters: Coins,
 
   announcements: Megaphone,
+  chat: MessageSquare,
   children: Users,
   marks: ListChecks,
   schools: Building2,
