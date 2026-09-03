@@ -55,10 +55,40 @@ the standalone artifact too, with `Cannot find module './cpu-profile'`, because
 `schoolhub.codexmill.com` cleanly today, so §5bl's 403 JS challenge is
 intermittent rather than permanent: try it before dispatching the workflow.
 
-⚠ **Not verified: nobody clicked the grade chips.** The *"Also assigned to X"*
-chip and the toggle's effect on chip selectability were not exercised — no
-school has an overlap to display, so there is nothing on the live database that
-would render one.**); 2026-09-01 (**Sprint 22 — one person, one record — §5bl. A
+✅ **QA IS DONE — driven in a browser at Askari, and seven of the eight items
+pass.** Signed in through the product's own **emergency-login link** rather than
+a minted password hash, so `.env.local` was never opened
+(`scripts/qa-emergency-link.mjs`). **LGS cannot host this test** — it is
+`principal_model = 'single'`; Askari is the only `multiple` school.
+
+✅ **The grade chips now HAVE been clicked** — the line that stood here saying
+they had not is superseded. An overlap was created to force them: 409 naming the
+holder, toggle on and the same clash accepted, toggle off and **the overlap
+survived** (grandfathered, not deleted), both rows carrying *"Also assigned
+to X"* with the taken grades disabled and titled with the reason. Then removed.
+
+✅ **Item 1 was proved on the only case that discriminates it.** A voucher due
+in November loses its discount under the old logic *and* the new one — that test
+passes vacuously. The case that separates them is a voucher **due inside the
+grant's live window**: `ASST-2026-10-0002`, due 2 Sep, went 22,000 → **32,000,
+concession 0.00**, where the old code would have kept the discount. The
+part-paid voucher did not move and came back **named by number** in
+`paidVouchers`. `ledger_transactions` 3 → 4 → 3: the removal posts nothing.
+
+🔴 **Item 7 is NOT fixed, and the comment that shipped with it was wrong.** The
+CSS asserted Chromium clips the *middle* segment of a date input. Measured by
+cloning a real input at fixed widths, it truncates **from the right** — `dd/mm/yyy`
+at 120px, `dd/mm/` at 100px, `dd` at 60px. **The year goes first; the month is
+never lost**, so the reported `dd------yyyy` is not something Chromium does at
+any width — and no field in the product is narrow enough to clip anyway (355px
+narrowest, ~130px threshold). The `min-width` rule is kept as cheap protection;
+the comment is corrected to carry the measurement. **This needs the reporter's
+browser and locale, not more code.**
+
+⚠ **A cleanup trap, by design:** deleting a school member leaves their `staff`
+row with `school_user_id` NULL (`ON DELETE SET NULL`, §5bl's choice — employment
+outlives a login). Residue was read back to zero on every table only after
+deleting that orphan explicitly.**); 2026-09-01 (**Sprint 22 — one person, one record — §5bl. A
 member of staff could exist twice in this product and the two halves never met:
 `staff.school_user_id` has existed since Sprint 7, is indexed, and **no screen
 ever set it**. `listUnlinkedSchoolUsers`, written "for the link picker", was
@@ -11540,3 +11570,99 @@ the same 4 NOT EXERCISED as Sprints 21 and 22) and **`check-sprint23` (31 ok)**.
 * **`staff.user_id` is still there**, pointing at Sprint 1's `users` table.
   §5bl said it was dead weight and it still is; nothing in this sprint touched
   it.
+
+### QA — driven in a browser at Askari, 2026-09-03
+
+The sprint shipped before it had been clicked; it has now been driven against the
+live migrated database. **Seven items pass. Item 7 does not, and the way it
+fails is the useful part.**
+
+**Signed in without a password.** Sprints 20–22 minted a throwaway
+`SUPER_ADMIN_PASSWORD_HASH_B64` into `.env.local` and restored it afterwards —
+the step whose failure mode (`cat >>` gluing onto `SMTP_PORT=465`, symptom
+"Incorrect email or password") cost §5bl an hour. This run used the product's own
+`emergency_login_tokens` instead: 15 minutes, single use, bound to one existing
+member, recorded rather than deleted. `scripts/qa-emergency-link.mjs`.
+**`.env.local` was never opened.** Use it next time.
+
+**LGS cannot host a principal test.** It is `principal_model = 'single'`, so
+items 2 and 3 do not exist there. Askari is the only `multiple` school, and every
+principal case ran there.
+
+#### Item 1 — the obvious test proves nothing, and that is worth remembering
+
+A voucher due in November with the grant removed in September loses its discount
+under the **old** logic and the new one alike. It passes either way and
+discriminates nothing.
+
+The case that separates them is a voucher **due inside the grant's live window**.
+Closing writes `valid_until = yesterday`, so a voucher due 2026-09-02 is priced
+by the old code as at a day the grant was still live:
+
+| Voucher | Due | Before | After removal |
+| --- | --- | --- | --- |
+| `ASST-2026-10-0002` | **2 Sep** | 22,000, concession 5,000 | **32,000, concession 0.00** |
+| `ASST-2027-01-0002` part-paid | 10 Jan | 22,000, 5,000 paid | **unchanged** |
+
+`priceAsOf: today` is what drops the first. The part-paid voucher returned
+`repricedVouchers: 0, paidVouchers: ["ASST-2027-01-0002"]` — named, and rendered
+by number in the panel rather than counted. `ledger_transactions` 3 → 4 → 3
+across the run: the only movement was a payment raised and then removed, so **the
+removal posts nothing**, as `CLAUDE.md` requires.
+
+**The general rule this is an instance of:** when a sprint changes *when* a
+value is computed rather than *what* is computed, the test has to be built on
+the interval where the two answers differ. Everything else passes vacuously.
+§5ay said the same thing about the mean and the ratio being equal at 100 marks.
+
+#### Item 2 — a screen nobody could have seen
+
+No school on the live database had an overlapping principal assignment, so the
+*"Also assigned to X"* chip and the greyed taken-grades had **never rendered
+anywhere**. An overlap was created to force them, then removed.
+
+409 naming the holder; toggle on and the identical clash is accepted; toggle off
+and **the overlap survives** — grandfathered, not deleted; both rows then carry
+the chip, and taken grades are disabled buttons titled with the reason.
+
+⚠️ Two malformed probes of mine are recorded in the test-case file so the next
+person does not repeat them and mistake either for a defect:
+`PATCH /api/school/principals/[id]` **ignores `gradeIds` by design** (it only
+ends or reopens), and the invitation route's employment fields belong **under
+`employment`**, not at the top level — sent flat, the whole block is skipped and
+the response is a truthful `201` with `employment: null`.
+
+#### ⚠️ Item 7 — the fix is sound and the diagnosis shipped with it was wrong
+
+The comment in `app/globals.css` asserted Chromium clips the **middle** segment
+of a date input, losing the month. Cloning a real date input at fixed widths on
+Chromium at 1366×768 gives the opposite:
+
+    >=130px  dd/mm/yyyy      100px  dd/mm/
+     120px   dd/mm/yyy        80px  dd/m
+     110px   dd/mm/y          60px  dd
+
+It truncates **from the right**. The **year** goes first; **the month is never
+the segment lost**. The reported `dd------yyyy` — day and year present, month
+gone — is not a thing Chromium does at any width. And no field in the product can
+clip regardless: the narrowest measured is **355px** against a ~130px threshold.
+
+The `min-width` rule is kept — it protects narrow containers and every date field
+nobody has written yet — but **item 7 is not closed and must not be recorded as
+fixed.** The comment has been corrected to carry the measurement instead of the
+assumption. The open question is the reporter's **browser and locale**: Firefox
+and Safari render date inputs differently and a non-`en-GB` locale changes the
+mask. That needs one screenshot from the reporter, not more code.
+
+#### Residue — read back
+
+`QA23%` users and staff **0**, staff photos **0**, storage object deleted,
+sections with a class teacher **0**, challans / payments / ledger transactions
+**3 / 3 / 3**, principal assignments **2**, `allow_shared_principal_grades`
+**false**, both grants reopened, emergency tokens **0**, outbox **0**.
+
+⚠️ **Deleting a school member leaves their `staff` row with `school_user_id`
+NULL.** `ON DELETE SET NULL` is §5bl's deliberate choice — an employment record
+outlives a login — so a cleanup that removes only the member leaves an orphan.
+Not a defect; it had to be deleted explicitly here and the next cleanup will hit
+the same thing.
