@@ -12153,11 +12153,19 @@ week.
 ### Four defects found by driving it, three in code this sprint did not write
 
 - **The chat digest was emailing pupils at their `.invalid` address.** Found by
-  reading `email_outbox`. Nothing was delivered — the TLD cannot resolve — but
-  every pupil produced a queue row per hour that could only end `failed`,
-  burying real delivery failures, and §5bn's claim that no code path can email a
-  minor had quietly stopped being true. `isStudentCredentialAddress` existed for
-  this and was called nowhere.
+  reading `email_outbox`. ⚠ **Corrected after first writing this up:** these
+  rows do not end `failed`, they end **`sent`** — 44 of them in one 24-hour
+  window, in an outbox that was otherwise 165-for-165 healthy. The SMTP relay
+  accepts the message and the address fails downstream, where this product never
+  sees it. So there was no failure signal at all, which is worse than the noisy
+  one first assumed: the outbox reads perfect while a slice of it is
+  undeliverable by construction. §5bn's claim that no code path can email a
+  minor had quietly stopped being true, and `isStudentCredentialAddress` existed
+  for exactly this and was called nowhere.
+
+  **The 44 historical rows are harmless and were left alone** — they are a
+  record of sends that happened, and `email_outbox` is a log rather than a
+  queue to tidy.
 - **Messages opened *inside* a thread on a phone**, because the workspace
   auto-selects the newest conversation — right for two panes, wrong for
   master/detail. Now gated on the same 1024px the `lg:` classes use.
