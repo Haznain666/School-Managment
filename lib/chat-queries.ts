@@ -995,6 +995,48 @@ export async function markConversationRead(
     );
 }
 
+/**
+ * Whether a conversation is one a moderator may read without being seated.
+ *
+ * ── The gap this closes ──────────────────────────────────────────────────
+ * `ROADMAP.md` agreed on 2026-08-07 that **school admins can read conversations
+ * involving students**, and every pupil thread carries a banner telling its
+ * participants exactly that. Until this existed the promise was only half kept:
+ * the moderation queue showed a reported *message*, and
+ * `/conversations/[id]/messages` refused the thread it sat in, because an
+ * administrator is deliberately not seated as a participant.
+ *
+ * So a head investigating "he said something to my daughter" saw one sentence
+ * with no conversation around it — which is the one thing a safeguarding
+ * investigation cannot work from.
+ *
+ * ── Narrow on purpose ────────────────────────────────────────────────────
+ * **Only threads about a pupil.** `student_profile_id IS NOT NULL` is the whole
+ * condition, and it is what stops this being a licence to read anything: a
+ * staff-to-staff thread and a parent's fee query to the Accounts desk are not
+ * the safeguarding case, were never agreed to be readable, and stay unreadable.
+ *
+ * The permission is checked by the caller; this answers only "is this the kind
+ * of conversation that permission covers".
+ */
+export async function isModeratableConversation(
+  locationId: string,
+  conversationId: string,
+): Promise<boolean> {
+  const rows = await db
+    .select({ studentProfileId: chatConversations.studentProfileId })
+    .from(chatConversations)
+    .where(
+      and(
+        eq(chatConversations.locationId, locationId),
+        eq(chatConversations.id, conversationId),
+      ),
+    )
+    .limit(1);
+
+  return rows[0]?.studentProfileId != null;
+}
+
 /** Whether this person is seated in this conversation at all. */
 export async function isParticipant(
   locationId: string,
