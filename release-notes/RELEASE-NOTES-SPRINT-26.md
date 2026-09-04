@@ -202,10 +202,13 @@ that exists only where there is somewhere to go back to.
 
 - **Chat was emailing pupils at an address that cannot receive email.** The
   digest read `school_users.email` without asking what kind of address was in
-  it, so every pupil generated a queue row per hour that could only ever end
-  `failed` — burying real delivery failures. Nothing was delivered, because the
-  TLD cannot resolve, but the docblock claiming no code path can email a minor
-  had quietly stopped being true.
+  it, so every pupil generated a queue row per hour. **44 such rows exist in the
+  last 24 hours alone, and every one is marked `sent`** — the SMTP relay accepts
+  the message and the address fails downstream, where this product never sees
+  it. So there was no failure signal at all, which is worse than the noisy one
+  first assumed: the outbox reads 100% healthy while a slice of it is
+  undeliverable by construction. The docblock claiming no code path can email a
+  minor had quietly stopped being true.
 - **An emergency link for somebody with no account reported success.** A member
   who has never set a password has no `auth_user_id`; the route answered `ok`
   and the next request bounced to the login page with no explanation. It is
