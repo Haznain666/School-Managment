@@ -244,6 +244,54 @@ async function main(): Promise<void> {
     `expected kind "none", got "${asBranchAdmin.kind}"`,
   );
 
+  console.log('\nModeration reach — the second door, which QA found disagreed with the first:');
+
+  /*
+   * A branch administrator holds `chat.moderate` and not `chat.oversight`.
+   * Folding the two together would have refused them every reported message at
+   * their own campus, so reach is derived separately. Asserted here because it
+   * could not be exercised in a browser: neither school with a branch
+   * administrator has a pupil conversation at their campus to moderate.
+   */
+  const baReach = await oversight.resolveModerationReach(NOBODY, 'branch_admin', NOBODY, NOBODY);
+  assert(
+    'a branch administrator moderates their own campus and no other',
+    baReach.kind === 'scoped' &&
+      Array.isArray(baReach.branchIds) &&
+      baReach.branchIds.length === 1 &&
+      baReach.gradeIds === null,
+    `expected one campus and no grade narrowing, got ${JSON.stringify(baReach)}`,
+  );
+
+  const baNoBranch = await oversight.resolveModerationReach(NOBODY, 'branch_admin', NOBODY, null);
+  assert(
+    'a branch administrator with no campus on their session reaches nothing',
+    baNoBranch.kind === 'scoped' &&
+      Array.isArray(baNoBranch.branchIds) &&
+      baNoBranch.branchIds.length === 0,
+    `expected an empty campus list, got ${JSON.stringify(baNoBranch)}`,
+  );
+
+  const adminReach = await oversight.resolveModerationReach(NOBODY, 'school_admin', NOBODY, null);
+  assert(
+    'a School Administrator moderates the whole school',
+    adminReach.kind === 'all',
+    `expected kind "all", got "${adminReach.kind}"`,
+  );
+
+  /*
+   * The one that is easy to get backwards. A role that oversees nothing but was
+   * granted `chat.moderate` by a school's own matrix must not be silently
+   * refused everything — that would be this sprint quietly removing a duty the
+   * school assigned on purpose.
+   */
+  const teacherReach = await oversight.resolveModerationReach(NOBODY, 'teacher', NOBODY, null);
+  assert(
+    "a role a school granted chat.moderate to is taken at that school's word",
+    teacherReach.kind === 'all',
+    `expected kind "all" for a non-scoped moderator, got "${teacherReach.kind}"`,
+  );
+
   console.log('\nThe oversight statements, executed against the real schema:');
 
   /*

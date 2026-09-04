@@ -392,3 +392,66 @@ export const NO_OVERSIGHT: OversightScope = { kind: 'none' };
 
 /** Exported for the check script, which asserts the resolver's shape. */
 export const OVERSIGHT_UNSCOPED = UNSCOPED;
+
+/* ------------------------------------------------------------------------
+ * Moderation reach
+ * --------------------------------------------------------------------- */
+
+/**
+ * How far a **moderator's** read extends, which is not the same question as
+ * oversight and must not be answered with the same function.
+ *
+ * ── The hole this closes, found by driving it ────────────────────────────
+ * Sprint 25 opened one door: `chat.moderate` plus a thread *about a pupil* is
+ * readable, so a head investigating a report sees the conversation and not one
+ * orphaned sentence. It asks what **kind** of conversation this is and never
+ * asks whose it is.
+ *
+ * Sprint 26 then narrowed the *listing*: a head given particular grades lists
+ * only those grades' pupil threads. QA drove the two together and found they
+ * disagreed — Askari's Principal 1 (Pre-Nursery to Class 4) could not see a
+ * Class 5 thread in their list and could read it perfectly well by asking the
+ * transcript route for it by id, because the moderation door answered first and
+ * `chat.moderate` is in their default set. A rule enforced in the list and not
+ * at the door is advisory, and CLAUDE.md is explicit that a link is not a
+ * permission.
+ *
+ * ── Why not simply require oversight for both ────────────────────────────
+ * Because a Branch Administrator holds `chat.moderate` and deliberately **not**
+ * `chat.oversight`. Folding the two together would refuse them every reported
+ * message at their own campus — removing the one chat duty the product owner
+ * kept for that role while trying to tighten a different one.
+ *
+ * So reach is derived from what the caller *is*, independently of which door
+ * they came through:
+ *
+ * | Role | Reads, when they hold `chat.moderate` |
+ * | --- | --- |
+ * | School Administrator | the whole school |
+ * | Principal | their campuses, and their grades' pupil threads |
+ * | Branch Administrator | their own campus |
+ * | anyone else | the whole school — no default role is in this position, and a school that grants `chat.moderate` to one has said what they mean |
+ */
+export async function resolveModerationReach(
+  locationId: string,
+  role: UserRole,
+  uid: string,
+  branchId: string | null,
+): Promise<OversightScope> {
+  // A campus administrator moderates their campus. `branchId` comes off the
+  // verified session, not a parameter, so there is nothing here to tamper with.
+  if (role === 'branch_admin') {
+    return {
+      kind: 'scoped',
+      branchIds: branchId === null ? [] : [branchId],
+      gradeIds: null,
+      note: null,
+    };
+  }
+
+  // Everybody else moderates exactly as far as they oversee — and a role that
+  // oversees nothing but was granted `chat.moderate` by a school's own matrix
+  // is taken at that school's word.
+  const scope = await resolveOversightScope(locationId, role, uid);
+  return scope.kind === 'none' ? { kind: 'all', note: null } : scope;
+}

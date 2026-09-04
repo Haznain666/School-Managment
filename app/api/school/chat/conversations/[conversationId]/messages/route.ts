@@ -4,7 +4,11 @@ import { chatAttachments } from '@/db/schema/chat-attachments';
 import { MESSAGE_BODY_MAX } from '@/db/schema/chat-messages';
 import { withSchoolAuth } from '@/lib/api-auth';
 import { apiFailure, apiSuccess, handleApiError, readJsonBody } from '@/lib/api-response';
-import { oversightAdmits, resolveOversightScope } from '@/lib/chat-oversight';
+import {
+  oversightAdmits,
+  resolveModerationReach,
+  resolveOversightScope,
+} from '@/lib/chat-oversight';
 import { containsLink } from '@/lib/chat-permissions';
 import {
   isModeratableConversation,
@@ -74,9 +78,31 @@ export const GET = withSchoolAuth<RouteContext>(
       const seated = await isParticipant(auth.locationId, conversationId, me.id);
 
       if (!seated) {
+        /*
+         * Moderation: a reported message's thread, and only a thread about a
+         * pupil.
+         *
+         * `resolveModerationReach` is Sprint 26's correction and QA found the
+         * need for it by driving the two doors together. `chat.moderate` asks
+         * what *kind* of conversation this is and never asked whose — so
+         * Askari's Principal 1, whose grades stop at Class 4, could not see a
+         * Class 5 thread in their list and could read it by asking for it by
+         * id. The reach is now derived from what the caller is, so the rule
+         * holds at the door and not only in the listing.
+         */
         const mayModerate =
           (await hasPermission(auth.locationId, auth.role, 'chat.moderate')) &&
-          (await isModeratableConversation(auth.locationId, conversationId));
+          (await isModeratableConversation(auth.locationId, conversationId)) &&
+          (await oversightAdmits(
+            auth.locationId,
+            await resolveModerationReach(
+              auth.locationId,
+              auth.role,
+              auth.uid,
+              auth.branchId,
+            ),
+            conversationId,
+          ));
 
         /*
          * Sprint 26's second door, and it is wider than the first on purpose.
