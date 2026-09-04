@@ -7399,93 +7399,112 @@ section id and made to run.
 
 ## 6. Open items for the user
 
-1. ~~Install GitHub CLI~~ — **CLOSED 2026-08-26.** `gh` **is** on PATH at
-   `/c/Program Files/GitHub CLI/gh`. The 2026-08-08 note that it was not is
-   stale and cost Sprint 16 a check. Opening a PR still needs the branch
-   pushed, so a session told not to push cannot open one — that is a
-   permission, not a missing tool.
-2. ~~Do students and parents have email addresses?~~ — moot. The internal chat
-   decision (§3.3) removes the dependency on either email or phone reach.
-3. ~~Create the Supabase database~~ — done, see §5c.
-4. **The domain name** — it fills `PLATFORM_BASE_DOMAIN`,
-   `NEXT_PUBLIC_APP_DOMAIN`, `INVITE_LINK_BASE_URL`, `GHL_REDIRECT_URI`.
-5. **Which school is the pilot?** Still unanswered, and still the highest-value
-   thing outstanding — everything in `ROADMAP.md` is guesswork until one real
-   school uses it.
-6. ~~Start JazzCash / Easypaisa merchant onboarding~~ — **begun** (user,
-   2026-08-12). Still externally paced.
-7. **Open product questions** blocking POS, the wallet and chat — `ROADMAP.md`
+**Reconciled against reality on 2026-09-05**, because it had drifted far enough
+to be misleading: it was still asking for the Hostinger MCP to be authorised
+(used successfully all day), still describing SMTP as broken (165 of 165
+messages sent in 24 hours), and still asking for a manual hPanel restart that
+deploys now do by themselves. A list a session reads to decide what to bother
+the user about is expensive when it is wrong in that direction — every stale
+line is a thing somebody is asked for twice.
+
+Everything closed is kept below, struck through with the evidence that closed
+it, so no future session re-opens it on a hunch.
+
+---
+
+### Still open
+
+1. 🔴 **Rotate the Titan mailbox password.** A session transcript printed
+   `SMTP_PASS_B64` in clear on 2026-09-04 — a masking regex was `^[A-Z_]+=`,
+   which does not match a key containing digits. Rotate the mailbox password,
+   regenerate with `npm run smtp-encode`, and update **both** `.env.local` and
+   the Hostinger panel. *A reminder is scheduled for 2026-09-10.*
+
+   ⚠ Any script comparing env key sets must use `^[A-Z_][A-Z0-9_]*=`. The same
+   regex bug also made `SMTP_PASS_B64` look absent from `.env.local` when it was
+   there.
+
+2. 🔴 **Which school is the pilot?** Still unanswered and still the
+   highest-value thing outstanding — everything in `ROADMAP.md` is guesswork
+   until one real school uses it.
+
+3. **Open product questions** blocking POS, the wallet and chat — `ROADMAP.md`
    §7. Uniform size/colour variants is the one that cannot be retrofitted.
-8. **Register the Apple Developer ($99/yr) and Google Play ($25) accounts** —
-   in progress; the user will confirm when they are ready. Needed to *ship*
-   **Sprint 34** *(renumbered from 19.7, `SPRINTS.md` §1.2)*, not to build it.
-9. **Confirm the first school's biometric device model** and that its firmware
-   supports push/ADMS — needed before **Sprint 33** *(renumbered from 19.6,
-   `SPRINTS.md` §1.2)*, §5x.
-10. ~~Decide the video vendor~~ — **self-hosted Jitsi, confirmed 2026-08-12.**
-    A VPS is now platform infrastructure to provision and operate (§5x).
-11. ~~**A *working* Google Maps API key**, if the address picker is wanted.~~
-    **CLOSED 2026-08-19 (§5an) — nothing needs one.** The key supplied on
-    2026-08-18 never worked (unbilled project, and its API restrictions excluded
-    Maps JavaScript API), and three console steps were outstanding to fix it.
-    Address autocomplete now runs on Mapbox instead, and **no Google account is
-    needed at all**. `NEXT_PUBLIC_GOOGLE_MAPS_API_KEY` is read by nothing and can
-    be deleted from the hosting panel.
 
-    ⚠️ **One action replaced it, and it is smaller: set `NEXT_PUBLIC_MAPBOX_TOKEN`
-    in the hosting panel.** A token was briefly committed as a fallback so this
-    would need no panel action; GitHub push protection refused the push because
-    this repository is public, and the fallback was removed (§5ao). Until the
-    variable is set, every address field is the plain text box it always was and
-    says so — nothing breaks. Restrict the token by URL in the Mapbox console.
-    **Known limitation, not a configuration fault:** Mapbox finds Pakistani
-    cities and localities but very few streets and almost no buildings, so most
-    school addresses are typed rather than picked — the field is built for that.
-12. **Set `SMTP_PASS_B64` in the hosting panel and DELETE `SMTP_PASS`**, then
-    restart, then press *Retry abandoned messages* on the Super Admin dashboard.
-    ~~Fix `SMTP_USER`/`SMTP_PASS`; only the panel's copy is wrong (§5al).~~
-    **That was wrong — the credentials are correct and always were (§5am).** The
-    password contains a `#`, and an unquoted `#` in a `.env` line silently
-    truncates the value; on Hostinger the panel *is* a `.env` file. Re-typing it
-    cannot help, which is why it never did. Get the value from
-    `npm run smtp-encode` (it is already in `.env.local`). Thirteen messages are
-    waiting — 7 queued, 6 failed — and the drainer never touches a `failed` row
-    on its own.
+4. **Register the Apple Developer ($99/yr) and Google Play ($25) accounts** —
+   in progress. Needed to *ship* **Sprint 34**, not to build it.
 
-    Confirm it landed, rather than assuming: `POST /api/internal/smtp-check`
-    with `{"verify":true}` should report `password.length` **17**,
-    `password.fingerprint` **`3e92ffa00be4`**, and `auth.accepted` **true**.
-    Call it twice — more than one process serves this site (§5ak). Unset
-    `SUPER_ADMIN_DIAGNOSTICS_SECRET` afterwards.
+5. **Confirm the first school's biometric device model** and that its firmware
+   supports push/ADMS — needed before **Sprint 33**, §5x.
 
-12b. **Press *Provision / Re-check* on all three schools** once this deploys.
-    Each is stuck at "Not connected" with no certificate because a wildcard made
-    provisioning skip writing their DNS record (§5am). The button is idempotent.
-13. **Restart the application in hPanel.** Multiple instances serve the site and
-    a git push does not restart all of them, so old and new code are being
-    served side by side right now (§5ak). No session can do this — there is no
-    API, and the Actions workflow that could is `workflow_dispatch` with secrets
-    the repo does not hold.
-14. **Drive the *school* form by hand, once** — the branch form was driven in a
-    browser on 2026-08-18 (§5aj) and behaved correctly; the school creation form
-    still has not been submitted end to end by a person. No plaintext Super
-    Admin password exists — only `SUPER_ADMIN_PASSWORD_HASH` — so the 2026-08-18
-    batch was verified by 60 scripted assertions and a rendered chart rather
-    than by clicking. Someone who can sign in should create one school and one
-    branch end to end. §5ai.
-15. 🔴 **Close the ~1s edge→origin hop in hPanel (§5aq).** Proven to be
-    transport, not code — the same build answers in 10ms locally and ~1s live,
-    and a page that executes nothing pays the same ~1s. Three things, in order:
-    (a) which **datacenter** the origin is in, relative to the Kuala Lumpur CDN
-    edge; (b) whether the **CDN helps Pakistani traffic at all** — Lahore → KL →
-    origin may be slower than Lahore → origin, and it is one toggle plus an
-    afternoon of measurement; (c) whether §5ak's **two Node processes** are
-    still running. **Authorise the Hostinger MCP server** and a session can read
-    and change all three; it is connected but unauthenticated today.
+6. **Drive the *school* creation form by hand, once.** The branch form was
+   driven in a browser on 2026-08-18 (§5aj) and behaved correctly; the school
+   creation form still has not been submitted end to end by a person. No
+   plaintext Super Admin password exists — only the hash — so the 2026-08-18
+   batch was verified by 60 scripted assertions and a rendered chart rather than
+   by clicking. §5ai.
+
+7. **The edge→origin hop, re-measured 2026-09-05 and still real but smaller.**
+   `/api/internal/build` executes nothing and returns a constant:
+
+   ```
+   ttfb  1.137s  0.468s  0.557s  0.604s  0.544s
+   connect 0.348  0.087   0.106   0.122   0.113
+   ```
+
+   So roughly **0.45s of server time on a route that does no work**, against the
+   ~1s §5aq recorded — better, not fixed. Two things left, and the third is now
+   answerable rather than blocked:
+
+   - which **datacenter** the origin sits in, relative to the Kuala Lumpur edge;
+   - whether the **CDN helps Pakistani traffic at all** — Lahore → KL → origin
+     may be slower than Lahore → origin. One toggle plus an afternoon of
+     measurement.
+
+   ⚠ **These numbers are from the development machine, not from Lahore**, which
+   is the only place the answer matters. A measurement from a Pakistani
+   connection is worth more than any of the above.
 
 ---
 
----
+### Closed, with what closed them
+
+- ~~**Install GitHub CLI**~~ — **CLOSED 2026-08-26.** `gh` is on PATH and was
+  used to open and merge PRs #61 and #62 on 2026-09-04. Opening a PR still needs
+  the branch pushed first: that is a permission, not a missing tool.
+- ~~**Do students and parents have email addresses?**~~ — moot. Internal chat
+  (§3.3) removed the dependency, and Sprint 26 made a pupil's sign-in reach
+  their *guardians'* addresses rather than needing one of their own.
+- ~~**Create the Supabase database**~~ — done, §5c.
+- ~~**The domain name**~~ — **CLOSED.** `schoolhub.codexmill.com` is live, and
+  `PLATFORM_BASE_DOMAIN`, `NEXT_PUBLIC_APP_DOMAIN`, `INVITE_LINK_BASE_URL` and
+  `GHL_REDIRECT_URI` are all set on the host.
+- ~~**Start JazzCash / Easypaisa merchant onboarding**~~ — begun 2026-08-12,
+  externally paced.
+- ~~**Decide the video vendor**~~ — self-hosted Jitsi, confirmed 2026-08-12.
+- ~~**A working Google Maps API key**~~ — **CLOSED 2026-08-19 (§5an).** Address
+  autocomplete runs on Mapbox; no Google account is needed.
+  `NEXT_PUBLIC_GOOGLE_MAPS_API_KEY` is read by nothing and is already absent
+  from the host's 21 keys.
+- ~~**Set `NEXT_PUBLIC_MAPBOX_TOKEN` in the hosting panel**~~ — **CLOSED
+  2026-09-05.** Confirmed present in the live environment.
+  *Known limitation, not a fault:* Mapbox finds Pakistani cities and localities
+  but few streets and almost no buildings, so most school addresses are typed.
+- ~~**Set `SMTP_PASS_B64` and delete `SMTP_PASS`, then retry abandoned
+  messages**~~ — **CLOSED.** The host holds `SMTP_PASS_B64` and no `SMTP_PASS`,
+  and the outbox shows **165 of 165 messages `sent`** in the 24 hours to
+  2026-09-05, including a live student-portal credential email. Nothing is
+  queued or failed.
+- ~~**Press *Provision / Re-check* on all three schools**~~ — **CLOSED
+  2026-09-05.** All three subdomains serve HTTPS 200 with a valid certificate:
+  `lgs`, `askari-school-system` and `beacon-house-school-system`.
+- ~~**Restart the application in hPanel after a push**~~ — **CLOSED.** A merge to
+  `main` triggers a Hostinger build that restarts the app: PR #61 merged at
+  18:17:34Z and `/api/internal/build` reported the new id **180 seconds** later.
+  No manual restart is needed.
+- ~~**Authorise the Hostinger MCP server**~~ — **CLOSED.** It is authenticated.
+  Used on 2026-09-04–05 to read builds, list websites and confirm the
+  environment key set.
 
 ## 5as. Sprint 13.8 — sibling identity — 2026-08-20
 
