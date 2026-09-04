@@ -279,7 +279,15 @@ export function schoolNav({ role, permissions, moduleFlags }: SchoolNavProps): {
     sections.push({
       label: 'Payroll',
       icon: 'payroll',
-      items: [{ label: 'Payroll Runs', href: '/dashboard/payroll', icon: 'payroll' }],
+      items: [
+        { label: 'Payroll Runs', href: '/dashboard/payroll', icon: 'payroll' },
+        // Sprint 27. Where a head signs the teachers and coordinators they are
+        // answerable for. Shown to anybody with `payroll.read` rather than
+        // gated on `payroll.approve`: HR opening it sees who has signed and who
+        // has not, which is the question they are asked all week, and the
+        // buttons are what `payroll.approve` decides.
+        { label: 'Approvals', href: '/dashboard/payroll/approvals', icon: 'payroll' },
+      ],
     });
   }
 

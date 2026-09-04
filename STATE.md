@@ -4,10 +4,32 @@
 resume without re-deriving context. Updated at the end of every development
 step, before the session ends.
 
-**Last updated:** 2026-09-04 (**Sprint 26 — the campus dropdown, chat for every
+**Last updated:** 2026-09-05 (**Sprint 27 — the pre-paid voucher, the school's
+own calendar, and the payroll a principal signs — §5bq.**
+
+🔴 **Migration `0043` is WRITTEN AND NOT APPLIED.** It is the largest since
+`0040`: two partial unique indexes replacing one plain one, three new tables,
+eleven new columns, `payroll_runs.status` widened, and
+`role_permissions_permission_check` rewritten with two new keys. Applying it is
+`sprint-devops`. **Until it runs, six screens are a 500** — the four calendars,
+the Saturday roster and the payroll approvals — `pending_approval` is refused
+with `23514`, and `calendar.manage` / `payroll.approve` work by default and
+cannot be *overridden* on the permissions screen.
+
+`npm run check-sprint27` reads whether `0043` is applied out of the catalogue
+rather than being told, so it is green on both sides: **66 ok, 0 failed** today,
+with every migration-dependent statement required to fail with exactly `42P01`
+or `42703` and doing so. Re-run it after applying and every one must execute.
+
+⚠ **Three live defects were found while reading for this sprint and all three
+are fixed in it** — a family payment that had never reached the ledger, a
+payroll that docked teachers for days the school was shut, and a bell that had
+never rung for an announcement. §5bq has the detail.
+
+Previously: **Sprint 26 — the campus dropdown, chat for every
 role, the pupil's own sign-in, and a phone-sized header — §5bp.**
 
-**There is NO migration. `0042` is still the next free number.** There is a
+**Sprint 26 has NO migration.** There is a
 **data step** and it is not optional: `scripts/apply-sprint26-data.mjs`
 (dry-run by default, `--apply` to write). It has been **applied** — chat is on
 at 3 of 3 schools and the student-login threshold is Year 6 at LGS, Class 6 at
@@ -12216,3 +12238,162 @@ Two ways out, both cheap:
 Note also that `document.querySelector('aside')` finds the **portal sidebar**,
 not a page's own aside — one round of measurements was wrong for that reason
 alone.
+
+---
+
+## 5bq. Sprint 27 — the pre-paid voucher, the school's own calendar, and the payroll a principal signs — 2026-09-05
+
+**Branch `feature/sprint-27-vouchers-holidays`. Three commits. Migration `0043`
+is WRITTEN AND NOT APPLIED — that is `sprint-devops`, and until it runs, five
+screens are a 500 and the two new permission keys are inert.** `0042` was the
+last applied.
+
+Three parts, shipped together because two of them meet in the payroll run: a
+holiday is what stops a teacher being docked, and the payroll approval is who
+says so.
+
+### What `0043` does, in the order it does it
+
+| | |
+| --- | --- |
+| A1 | `fee_challans_student_month_year_idx` re-created **partial on `status <> 'cancelled'`**; `family_challans_guardian_month_idx` added, preceded by a census that names offending guardians |
+| A3 | `family_challans.origin` — `combined` \| `generated` |
+| A5 | four `auto_generate_*` columns on `late_fee_rules` |
+| B1 | `holidays`, with two partial unique indexes for the null-branch case |
+| B3 | `saturday_duty_policies`, `staff.saturday_ordinals` |
+| B8 | `holiday_notifications` — the claim row |
+| C2 | `payroll_runs.status` widened with `pending_approval`; `payroll_run_approvals`; four override columns on `payslips` |
+| — | `role_permissions_permission_check` rewritten with the full 44-key list |
+
+`notifications.kind` needed no statement: the column is free-form by design and
+carries no CHECK. Adding `announcement` to `NOTIFICATION_KINDS` is the whole of
+that change.
+
+### Three live defects were found while reading, and all three are fixed
+
+🔴 **`recordFamilyPayment` had never posted to the ledger.** It wrote a
+`fee_payments` row per child and moved every balance, and posted nothing. The
+single-challan route has posted since Sprint 13.5; the family path never did. So
+**every family payment any school has ever taken understated its income**, in
+exactly the way CLAUDE.md warns about — silently. The receipt printed, the
+children showed as paid, the defaulter list emptied, and only the trial balance
+disagreed with the cash box. One posting for the whole payment, inside the same
+transaction, with `ledger_transaction_id` on every child's row and
+`source_id` on the first.
+
+🔴 **`attendanceTallyByStaff` counted every `absent` row in the month regardless
+of date.** A school that marked its register on Eid, on a Sunday, or on a
+Saturday half its staff are not expected in on **docked them for it** —
+`staff_attendance`'s own docblock says in so many words that must never happen,
+and nothing enforced it because there was no calendar to enforce it against. The
+`GROUP BY` had to go: the exclusion is per person, and the aggregate has thrown
+the date away before anybody can ask.
+
+🔴 **`sendAnnouncement` had never written a `notifications` row.** The bell in
+every portal header has not moved for an announcement since Sprint 11. It was
+correct and empty, which is the worst combination — nothing to find and nothing
+to fix. `deliverAnnouncement` now writes one row per recipient, `kind:
+'announcement'`, `href` pointing at that portal's own notice board.
+
+### Decisions that should not be re-litigated
+
+**The month is occupied by a *live* voucher, not by any voucher.** Both new
+indexes are partial on `status <> 'cancelled'`, and every read that decides
+"already billed" carries the same predicate. `waived` still occupies the month —
+waiving is a decision a human made, and re-billing would undo it silently. That
+is the rule `fee_challans_admission_once_idx` already set in Sprint 20.
+
+**A family voucher raised is not a family voucher assembled.**
+`createFamilyChallan` clubs what exists and stays; `generateFamilyChallan`
+raises the month for every enrolled sibling *and* the wrapper. `origin` is
+stored rather than derived because the two are indistinguishable afterwards, and
+it decides what cancelling does: a `combined` voucher releases its members, a
+`generated` one takes them with it. A member carrying any payment is released,
+never cancelled, whatever the origin.
+
+⚠ **`generateFamilyChallan` is *n + 1* transactions, not one.** `generateChallan`
+opens its own per child — that is what makes a bulk run of four hundred survive
+one child's bad data — and forking it would fork the pricing path, which is how
+two children in one family come to be charged differently for the same class.
+The gap is closed by compensation: if the wrapper cannot be written, the
+seconds-old unpaid vouchers this call raised are cancelled again. Stated here so
+nobody "fixes" it into a single transaction by rewriting the pricer.
+
+**Automatic generation is off and stays off.** Worse than `auto_send_vouchers`
+in one respect: that emails vouchers a person decided to raise, this decides to
+raise them. `auto_generate_family_vouchers` defaults to **true**, and that is not
+an inconsistency — it decides nothing until the flag above it is on.
+
+**A holiday is one row however many days it runs, and weekends are never rows.**
+Eid is one holiday of three days and a school moving it moves one row.
+104 weekend rows a year per school is a table that will eventually disagree with
+itself and nothing will say which half is right. Sunday is always off; Saturday
+is a duty roster.
+
+**The Saturday roster is per role *and* per person, and it names *which*
+Saturdays.** "Four coordinators each come on one distinct Saturday" cannot be
+said with a count. `staff.saturday_ordinals` distinguishes **null** — use the
+role policy — from **`[]`** — no Saturdays. They are one character apart and
+opposite, and `effectiveSaturdayOrdinals` is the only place the `??` lives.
+
+**Every Islamic date is written tentative, without exception.**
+`lib/islamic-calendar.ts` is the tabular (arithmetical) calendar — civil epoch
+1948440, 15-based leap rule — as a pure function of the Julian day number. No
+table of years to go stale, no network call. Pakistan decides these by moon
+sighting and the arithmetic lands within a day or two, which is not a defect to
+hide behind a confident date: it is why HR and a Branch Administrator can move
+them, why every screen badges them, why editing a date clears the flag, and why
+the seed never overwrites a row a school has moved. `check-sprint27` asserts six
+known dates, because a wrong epoch or a 16-based leap rule moves everything by a
+day and is invisible without a fixture.
+
+**Reading the calendar needs no permission key.** Every portal user sees it;
+that is the requirement. `calendar.manage` gates the writes and only the writes.
+
+**`payroll.approve` is deliberately not HR's.** The person who computes the
+payroll is not the person who signs it off — the same control `accounting.settle`
+exists to draw. `hr_manager` *does* hold `calendar.manage`: the school's year is
+HR's to keep, and it is what stops a teacher being docked.
+
+**A school with no principal is not blocked.** `resolveRunApprovers` returns
+nobody, `draft → approved` stays legal, and the run behaves exactly as it did
+before this sprint. Freezing a working school's payroll behind a role they have
+never appointed would be a regression wearing a governance costume. Staff nobody
+covers are returned as `uncovered` and **named** on the run screen, so
+`payroll.write` can sign that slice knowing it exists.
+
+**The payslip override is a replacement, not a delta, and the original is
+kept.** `0.00` waives the deduction, which is the common case. A teacher asking
+why they were paid more than the register implies is owed both numbers.
+
+**The run's `working_days` counts a Saturday as working when *anybody* is
+rostered on it.** It is one number for a whole run while the roster is per
+person, so there is no single true answer; the union under-docks by a fraction
+rather than docking somebody for a Saturday nobody told them about. The register
+itself is exact — `attendanceTallyByStaff` excludes each person's own non-working
+days, per person, with the date in hand.
+
+### What is still open
+
+1. **`0043` is not applied.** Until it is: `/dashboard/calendar`,
+   `/teacher/calendar`, `/parent/calendar`, `/student/calendar`,
+   `/dashboard/hr/saturday-duty` and `/dashboard/payroll/approvals` are 500s;
+   the staff register's `dayOff` read fails; `pending_approval` is refused with
+   `23514`; and both new permission keys work by default and cannot be
+   *overridden* on the permissions screen. `npm run check-sprint27` flips itself
+   the moment it is applied — 66 ok either side.
+2. **Nothing in this sprint has been driven in a browser.** No QA round has
+   been run; the build is green and the statements execute, and that is all that
+   is claimed.
+3. **The Islamic dates for any year beyond the six asserted** in
+   `check-sprint27` are the arithmetic's, not a school's. They are tentative by
+   construction.
+4. **The staff register is not narrowed by `PrincipalScope`.** B6 asked for a
+   principal to mark only the staff their assignment admits; the register still
+   lists every active staff member to anybody holding `hr.read`. The *day-off*
+   half of B6 is built — the register says which kind of day it is, defaults to
+   `holiday` per person, and past dates were always markable. The narrowing
+   needs the teaching-grades resolver applied to a staff list, which
+   `lib/payroll-approval.ts` now has and the register does not call.
+5. **The bell's `href` is a fixed map of four routes.** A fifth portal would
+   need a line in `noticeHrefFor`.

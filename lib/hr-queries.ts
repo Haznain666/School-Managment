@@ -1055,7 +1055,18 @@ export interface PayslipRow {
   grossEarnings: string;
   totalDeductions: string;
   lossOfPayDays: string;
+  /** What the register implies. Never overwritten by an override. */
   lossOfPayAmount: string;
+  /**
+   * A head's replacement for it, or null (Sprint 27).
+   *
+   * Both numbers are carried, deliberately: a teacher asking why they were paid
+   * more than the register implies is owed the figure the attendance produced
+   * *and* the figure the head decided. `net_payable` is computed from this one
+   * when it is set.
+   */
+  lossOfPayOverride: string | null;
+  overrideReason: string | null;
   netPayable: string;
   status: PayslipStatus;
   paymentMode: PaymentMode | null;
@@ -1078,6 +1089,8 @@ export async function listPayslipsForRun(
       totalDeductions: payslips.totalDeductions,
       lossOfPayDays: payslips.lossOfPayDays,
       lossOfPayAmount: payslips.lossOfPayAmount,
+      lossOfPayOverride: payslips.lossOfPayOverride,
+      overrideReason: payslips.overrideReason,
       netPayable: payslips.netPayable,
       status: payslips.status,
       paymentMode: payslips.paymentMode,
@@ -1127,6 +1140,8 @@ export async function getPayslipDetail(
       totalDeductions: payslips.totalDeductions,
       lossOfPayDays: payslips.lossOfPayDays,
       lossOfPayAmount: payslips.lossOfPayAmount,
+      lossOfPayOverride: payslips.lossOfPayOverride,
+      overrideReason: payslips.overrideReason,
       netPayable: payslips.netPayable,
       status: payslips.status,
       paymentMode: payslips.paymentMode,
