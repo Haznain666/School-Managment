@@ -1,8 +1,9 @@
 import 'server-only';
 
-import { and, eq, inArray } from 'drizzle-orm';
+import { and, eq, inArray, ne } from 'drizzle-orm';
 
 import {
+  familyChallans,
   feeChallanItems,
   feeChallans,
   feeTypes,
@@ -353,6 +354,18 @@ export async function previewChallan(
 export interface GenerateChallanParams extends PreviewParams {
   actorUid: string;
   notes?: string | null | undefined;
+  /**
+   * Skip the per-voucher email this normally queues.
+   *
+   * Set by exactly one caller: `generateFamilyChallan`, which raises three or
+   * four of these in a row and then sends **one** email naming every child.
+   * Without it a parent with four children here receives five messages about
+   * the same money, which is the opposite of what a family voucher is for.
+   *
+   * Deliberately not a general "quiet mode". Every other path emails, because
+   * a voucher that reaches nobody is a voucher a child has to carry home.
+   */
+  suppressVoucherEmail?: boolean | undefined;
 }
 
 export interface GeneratedChallan {
@@ -379,9 +392,28 @@ export async function generateChallan(
 ): Promise<GeneratedChallan> {
   const preview = await previewChallan(db, params);
 
+  /*
+   * The month is taken — by whom, and on what document.
+   *
+   * ── Why `ne(status, 'cancelled')` and not "any row" ──────────────────
+   * `fee_challans_student_month_year_idx` became partial on
+   * `status <> 'cancelled'` in Sprint 27, so a cancelled voucher no longer
+   * occupies the month. Reading every row here would refuse a re-bill the
+   * database would have accepted — a school that cancelled October in order to
+   * club a family would be told the month was taken by a voucher it had itself
+   * torn up.
+   *
+   * A `waived` row still counts, because the index still counts it, and the
+   * two have to agree: the read is what produces a sentence a clerk can act
+   * on, and the index is what makes it true under a double click.
+   */
   const existing = await db
-    .select({ challanNumber: feeChallans.challanNumber })
+    .select({
+      challanNumber: feeChallans.challanNumber,
+      familyChallanNumber: familyChallans.challanNumber,
+    })
     .from(feeChallans)
+    .leftJoin(familyChallans, eq(familyChallans.id, feeChallans.familyChallanId))
     .where(
       and(
         eq(feeChallans.locationId, params.locationId),
@@ -389,6 +421,7 @@ export async function generateChallan(
         eq(feeChallans.academicYearId, params.academicYearId),
         eq(feeChallans.billingMonth, params.billingMonth),
         eq(feeChallans.billingYear, params.billingYear),
+        ne(feeChallans.status, 'cancelled'),
       ),
     )
     .limit(1);
@@ -396,7 +429,7 @@ export async function generateChallan(
   if (existing[0] !== undefined) {
     throw new ChallanGenerationError(
       'already_exists',
-      `${preview.studentName} already has voucher ${existing[0].challanNumber} for this month.`,
+      alreadyBilledMessage(preview.studentName, existing[0]),
       409,
     );
   }
@@ -412,71 +445,89 @@ export async function generateChallan(
 
   const challanId = crypto.randomUUID();
 
-  await batch(db, (tx) => [
-    tx.insert(feeChallans).values({
-      id: challanId,
-      locationId: params.locationId,
-      studentProfileId: params.studentProfileId,
-      academicYearId: params.academicYearId,
-      challanNumber,
-      billingMonth: params.billingMonth,
-      billingYear: params.billingYear,
-      dueDate: preview.dueDate,
-      subtotal: preview.subtotal,
-      concessionAmount: preview.concessionAmount,
-      creditApplied: preview.creditApplied,
-      totalAmount: preview.totalAmount,
-      status: 'unpaid',
-      notes: params.notes ?? null,
-      generatedByUid: params.actorUid,
-    }),
-    ...preview.items.map((item) =>
-      tx.insert(feeChallanItems).values({
+  try {
+    await batch(db, (tx) => [
+      tx.insert(feeChallans).values({
+        id: challanId,
         locationId: params.locationId,
-        challanId,
-        feeTypeId: item.feeTypeId,
-        description: item.description,
-        amount: item.amount,
-        concessionAmount: item.concessionAmount,
-        netAmount: item.netAmount,
-        // Frozen with the line, like `description`. A scheme renamed in March
-        // must not rewrite what February's slip said it was.
-        concessionDetail: item.concessionDetail,
+        studentProfileId: params.studentProfileId,
+        academicYearId: params.academicYearId,
+        challanNumber,
+        billingMonth: params.billingMonth,
+        billingYear: params.billingYear,
+        dueDate: preview.dueDate,
+        subtotal: preview.subtotal,
+        concessionAmount: preview.concessionAmount,
+        creditApplied: preview.creditApplied,
+        totalAmount: preview.totalAmount,
+        status: 'unpaid',
+        notes: params.notes ?? null,
+        generatedByUid: params.actorUid,
       }),
-    ),
-    // Inside the same transaction as the challan, never after it. A credit
-    // spent by a challan that was then not written is a credit lost, and
-    // nothing on any screen would ever report it missing — the parent would
-    // simply be billed twice for money the school already owed them.
-    ...consumeCreditStatements(tx, {
-      locationId: params.locationId,
-      studentProfileId: params.studentProfileId,
-      challanId,
-      creditApplied: preview.creditApplied,
-      actorUid: params.actorUid,
-    }),
-    ...grantOverflowStatements(tx, {
-      locationId: params.locationId,
-      studentProfileId: params.studentProfileId,
-      challanId,
-      overflowPaise: preview.overflowPaise,
-      actorUid: params.actorUid,
-    }),
-  ]);
+      ...preview.items.map((item) =>
+        tx.insert(feeChallanItems).values({
+          locationId: params.locationId,
+          challanId,
+          feeTypeId: item.feeTypeId,
+          description: item.description,
+          amount: item.amount,
+          concessionAmount: item.concessionAmount,
+          netAmount: item.netAmount,
+          // Frozen with the line, like `description`. A scheme renamed in March
+          // must not rewrite what February's slip said it was.
+          concessionDetail: item.concessionDetail,
+        }),
+      ),
+      // Inside the same transaction as the challan, never after it. A credit
+      // spent by a challan that was then not written is a credit lost, and
+      // nothing on any screen would ever report it missing — the parent would
+      // simply be billed twice for money the school already owed them.
+      ...consumeCreditStatements(tx, {
+        locationId: params.locationId,
+        studentProfileId: params.studentProfileId,
+        challanId,
+        creditApplied: preview.creditApplied,
+        actorUid: params.actorUid,
+      }),
+      ...grantOverflowStatements(tx, {
+        locationId: params.locationId,
+        studentProfileId: params.studentProfileId,
+        challanId,
+        overflowPaise: preview.overflowPaise,
+        actorUid: params.actorUid,
+      }),
+    ]);
+  } catch (error) {
+    // The other half of the read above. A second click that slipped past it
+    // comes back as the same refusal rather than as a 500 on a screen where
+    // the clerk did nothing wrong. Without the number, deliberately: the row
+    // that won the race was written by another request a millisecond ago, and
+    // re-reading it here to decorate a message would be a fourth round trip
+    // spent on a case that is already an answer.
+    if (!isMonthlyRaceViolation(error)) throw error;
+
+    throw new ChallanGenerationError(
+      'already_exists',
+      `${preview.studentName} already has a voucher for this month.`,
+      409,
+    );
+  }
 
   // Item 6a. The voucher reaches the parent by itself rather than waiting for
   // a child to carry the slip home.
-  queueVoucherEmails(db, params.locationId, [
-    {
-      studentProfileId: params.studentProfileId,
-      studentName: preview.studentName,
-      challanNumber,
-      periodLabel: formatMonthYear(params.billingMonth, params.billingYear),
-      dueDate: preview.dueDate,
-      totalAmount: preview.totalAmount,
-      items: preview.items,
-    },
-  ]);
+  if (params.suppressVoucherEmail !== true) {
+    queueVoucherEmails(db, params.locationId, [
+      {
+        studentProfileId: params.studentProfileId,
+        studentName: preview.studentName,
+        challanNumber,
+        periodLabel: formatMonthYear(params.billingMonth, params.billingYear),
+        dueDate: preview.dueDate,
+        totalAmount: preview.totalAmount,
+        items: preview.items,
+      },
+    ]);
+  }
 
   return {
     id: challanId,
@@ -764,6 +815,49 @@ async function grantedOverflowPaise(
 }
 
 /**
+ * "Already billed" — with the document that took the month named.
+ *
+ * ── Why the family voucher is in the sentence ────────────────────────────
+ * A clerk told "Ali Raza already has voucher GVS-2026-10-0042 for this month"
+ * goes looking for that number in the register, finds it folded into a family
+ * voucher, and has spent two screens learning something this sentence could
+ * have said. It is one `leftJoin` and it is the difference between a refusal
+ * that is an answer and a refusal that is a puzzle.
+ */
+function alreadyBilledMessage(
+  studentName: string,
+  existing: { challanNumber: string; familyChallanNumber: string | null },
+): string {
+  const where =
+    existing.familyChallanNumber === null
+      ? ''
+      : `, on family voucher ${existing.familyChallanNumber}`;
+
+  return `${studentName} already has voucher ${existing.challanNumber} for this month${where}.`;
+}
+
+/**
+ * Whether a thrown error is the monthly index refusing a second voucher.
+ *
+ * ── The read is the message; the constraint is the guarantee ─────────────
+ * `generateChallan` reads before it inserts, and that read is what produces a
+ * sentence naming the voucher. It is also a read followed by an insert, which
+ * two clicks a hundred milliseconds apart both pass. The index settles it, and
+ * this is what turns the `23505` back into the same sentence rather than a
+ * generic 500 on a screen where the clerk did nothing wrong.
+ */
+function isMonthlyRaceViolation(error: unknown): boolean {
+  if (typeof error !== 'object' || error === null) return false;
+
+  const { code, constraint_name: constraintName } = error as {
+    code?: unknown;
+    constraint_name?: unknown;
+  };
+
+  return code === '23505' && constraintName === 'fee_challans_student_month_year_idx';
+}
+
+/**
  * Whether a thrown error is the admission index refusing a second voucher.
  *
  * postgres-js surfaces the server's fields on the error object, so the
@@ -847,6 +941,16 @@ export interface BulkCandidate {
   sectionName: string;
   /** The challan they already hold for this period, when they do. */
   existingChallanNumber: string | null;
+  /**
+   * The family voucher that challan sits on, when it sits on one.
+   *
+   * Null both when the student is unbilled and when their voucher stands
+   * alone, which the screen distinguishes by reading `existingChallanNumber`
+   * first. Carried so that "already billed" can say *where* — a clerk who has
+   * to open the register to find out why a child is being skipped is one click
+   * short of an answer the query already had.
+   */
+  existingFamilyChallanNumber: string | null;
 }
 
 /**
@@ -895,18 +999,31 @@ export async function listBulkCandidates(
 
   if (enrolled.length === 0) return [];
 
+  /*
+   * Who is already billed, and on what.
+   *
+   * `ne(status, 'cancelled')` matches the partial index the run will hit —
+   * Sprint 27 made `fee_challans_student_month_year_idx` partial, so a
+   * cancelled voucher no longer occupies the month and a student holding only
+   * one is billable again. Reading every row here would have the preview say
+   * "already billed" of a student the generator would then bill, which is a
+   * count a school reads and acts on.
+   */
   const existing = await db
     .select({
       studentProfileId: feeChallans.studentProfileId,
       challanNumber: feeChallans.challanNumber,
+      familyChallanNumber: familyChallans.challanNumber,
     })
     .from(feeChallans)
+    .leftJoin(familyChallans, eq(familyChallans.id, feeChallans.familyChallanId))
     .where(
       and(
         eq(feeChallans.locationId, params.locationId),
         eq(feeChallans.academicYearId, params.academicYearId),
         eq(feeChallans.billingMonth, params.billingMonth),
         eq(feeChallans.billingYear, params.billingYear),
+        ne(feeChallans.status, 'cancelled'),
         inArray(
           feeChallans.studentProfileId,
           enrolled.map((row) => row.studentProfileId),
@@ -915,17 +1032,25 @@ export async function listBulkCandidates(
     );
 
   const alreadyBilled = new Map(
-    existing.map((row) => [row.studentProfileId, row.challanNumber]),
+    existing.map((row) => [
+      row.studentProfileId,
+      { challanNumber: row.challanNumber, familyChallanNumber: row.familyChallanNumber },
+    ]),
   );
 
   return enrolled
-    .map((row) => ({
-      studentProfileId: row.studentProfileId,
-      studentName: row.studentName,
-      studentId: row.studentId,
-      sectionName: row.sectionName,
-      existingChallanNumber: alreadyBilled.get(row.studentProfileId) ?? null,
-    }))
+    .map((row) => {
+      const taken = alreadyBilled.get(row.studentProfileId);
+
+      return {
+        studentProfileId: row.studentProfileId,
+        studentName: row.studentName,
+        studentId: row.studentId,
+        sectionName: row.sectionName,
+        existingChallanNumber: taken?.challanNumber ?? null,
+        existingFamilyChallanNumber: taken?.familyChallanNumber ?? null,
+      };
+    })
     .sort((left, right) => left.studentName.localeCompare(right.studentName));
 }
 
@@ -936,6 +1061,20 @@ export interface BulkGenerateResult {
   challans: Array<{ challanNumber: string; studentName: string; totalAmount: string }>;
   /** Why individual students were skipped, for the result summary. */
   problems: Array<{ studentName: string; reason: string }>;
+  /**
+   * The already-billed, **named** rather than counted (Sprint 27).
+   *
+   * Skipping is what makes an interrupted run of two hundred safe to repeat,
+   * and it stays. What did not stay is reporting it as a number: "14 skipped"
+   * is a figure a school either ignores or has to go and investigate by hand,
+   * and the run already knew all fourteen names and voucher numbers when it
+   * decided to skip them.
+   */
+  alreadyBilled: Array<{
+    studentName: string;
+    challanNumber: string;
+    familyChallanNumber: string | null;
+  }>;
 }
 
 /**
@@ -962,8 +1101,23 @@ export async function bulkGenerateChallans(
   );
   const skipped = candidates.length - pending.length;
 
+  const alreadyBilled: BulkGenerateResult['alreadyBilled'] = candidates
+    .filter((candidate) => candidate.existingChallanNumber !== null)
+    .map((candidate) => ({
+      studentName: candidate.studentName,
+      challanNumber: candidate.existingChallanNumber ?? '',
+      familyChallanNumber: candidate.existingFamilyChallanNumber,
+    }));
+
   if (pending.length === 0) {
-    return { generated: 0, skipped, failed: 0, challans: [], problems: [] };
+    return {
+      generated: 0,
+      skipped,
+      failed: 0,
+      challans: [],
+      problems: [],
+      alreadyBilled,
+    };
   }
 
   const dueDate =
@@ -1138,7 +1292,14 @@ export async function bulkGenerateChallans(
 
   queueVoucherEmails(db, params.locationId, notices);
 
-  return { generated: challans.length, skipped, failed, challans, problems };
+  return {
+    generated: challans.length,
+    skipped,
+    failed,
+    challans,
+    problems,
+    alreadyBilled,
+  };
 }
 
 /** What a repricing did to one challan. */

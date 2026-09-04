@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 
+import { FamilyVoucherGenerator } from '@/components/fees/FamilyVoucherGenerator';
 import { FamilyVoucherRegister } from '@/components/fees/FamilyVoucherRegister';
 import { Button } from '@/components/ui/Button';
 import { Card, CardTitle } from '@/components/ui/Card';
@@ -69,12 +70,25 @@ export interface FamilyVouchersProps {
   canWrite: boolean;
   defaultMonth: number;
   defaultYear: number;
+  /**
+   * The school's active academic year, and the month a voucher raised today
+   * would be *for* — next month, because fees here are pre-paid.
+   *
+   * Null when the school has no active year: generation has nothing to price
+   * against and the panel says so rather than offering a button that fails.
+   */
+  activeAcademicYearId: string | null;
+  nextBillingMonth: number;
+  nextBillingYear: number;
 }
 
 export function FamilyVouchers({
   canWrite,
   defaultMonth,
   defaultYear,
+  activeAcademicYearId,
+  nextBillingMonth,
+  nextBillingYear,
 }: FamilyVouchersProps) {
   /* ---------------------------------------------------------- the listing */
   const [candidates, setCandidates] = useState<FamilyCandidate[] | null>(null);
@@ -312,6 +326,22 @@ export function FamilyVouchers({
           noResultDescription="Clear it, or use the search below to look across every month."
         />
       </Card>
+
+      {/*
+        Sprint 27, item A3. Raising the month rather than clubbing what is
+        already raised — above the clubbing wizard, because on the 25th it is
+        the thing a clerk came here to do.
+      */}
+      {canWrite && activeAcademicYearId !== null ? (
+        <FamilyVoucherGenerator
+          academicYearId={activeAcademicYearId}
+          defaultMonth={nextBillingMonth}
+          defaultYear={nextBillingYear}
+          onGenerated={() => {
+            setIssuedToken((token) => token + 1);
+          }}
+        />
+      ) : null}
 
       {canWrite ? (
         <Card

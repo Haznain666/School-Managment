@@ -195,13 +195,30 @@ export const feeChallans = pgTable(
     index('fee_challans_location_id_status_idx').on(table.locationId, table.status),
     index('fee_challans_location_id_due_date_idx').on(table.locationId, table.dueDate),
     index('fee_challans_family_challan_id_idx').on(table.familyChallanId),
-    // What makes a re-run of bulk generation skip rather than duplicate.
-    uniqueIndex('fee_challans_student_month_year_idx').on(
-      table.studentProfileId,
-      table.billingMonth,
-      table.billingYear,
-      table.academicYearId,
-    ),
+    /*
+     * One **live** monthly voucher per student per month, decided by Postgres.
+     *
+     * What makes a re-run of bulk generation skip rather than duplicate, and —
+     * since Sprint 27 — partial on `status <> 'cancelled'` so that cancelling
+     * October's individual vouchers makes room for October's family voucher.
+     * It counted cancelled rows until then, which refused exactly the flow a
+     * school performs when it decides to club a family mid-month: the clerk
+     * cancelled three vouchers, pressed Generate, and got a duplicate-key error
+     * naming an index.
+     *
+     * `waived` still occupies the month, exactly as
+     * `fee_challans_admission_once_idx` below decided for admission vouchers.
+     * Waiving is a decision a human made; re-billing the month would undo it
+     * with nothing on any screen saying so.
+     */
+    uniqueIndex('fee_challans_student_month_year_idx')
+      .on(
+        table.studentProfileId,
+        table.billingMonth,
+        table.billingYear,
+        table.academicYearId,
+      )
+      .where(sql`${table.status} <> 'cancelled'`),
     /*
      * One live admission voucher per student per year, decided by Postgres.
      *

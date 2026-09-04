@@ -1,22 +1,40 @@
 import 'server-only';
 
-import { and, asc, desc, eq, inArray, isNull, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, isNotNull, isNull, ne, or, sql } from 'drizzle-orm';
 
 import {
   familyChallans,
   feeChallans,
   feePayments,
+  grades,
+  ledgerTransactions,
   schoolUsers,
   schools,
+  sections,
+  studentEnrollments,
   studentGuardians,
   studentProfiles,
+  isPaymentMethod,
   OPEN_CHALLAN_STATUSES,
+  type FamilyChallanOrigin,
 } from '@/db/schema';
 
+import { landingAccountFor, twoSidedLines } from './accounting';
+import { schoolUserIdForUid } from './accounting-queries';
 import { generateChallanNumber } from './challan-number';
 import { formatMonthYear } from './dates';
 import { db } from './drizzle';
+import { generateChallan } from './fee-challans';
+import { defaultDueDate } from './fee-calculator';
 import { sendFeeVouchers } from './fee-notices';
+import { getDueDay } from './fee-queries';
+import {
+  cashAccountForStaff,
+  loadSystemAccounts,
+  postTransaction,
+  requireSystemAccount,
+  LedgerError,
+} from './ledger';
 import { formatPkr, paiseToNumeric, toPaise } from './money';
 import { normalizeCnic } from './national-id';
 
@@ -413,8 +431,17 @@ export async function createFamilyChallan(params: {
   guardianId: string;
   challanIds: readonly string[];
   dueDate: string;
+  /**
+   * How the voucher came to exist. `combined` — the default and everything
+   * before Sprint 27 — is one assembled over vouchers the school had already
+   * raised. `generated` is set only by `generateFamilyChallan` below, which
+   * raised its members itself, and it is what makes cancelling take them with
+   * it rather than release them.
+   */
+  origin?: FamilyChallanOrigin;
 }): Promise<{ id: string; challanNumber: string; total: string; members: number }> {
   const { locationId, guardianId, challanIds, dueDate, actorUid } = params;
+  const origin = params.origin ?? 'combined';
 
   if (challanIds.length < 2) {
     throw new FamilyChallanError('A family voucher needs at least two vouchers.');
@@ -542,6 +569,7 @@ export async function createFamilyChallan(params: {
       // carry over, or the voucher would demand money the school has.
       paidAmount: paid,
       status: Number(paid) > 0 ? 'partial' : 'unpaid',
+      origin,
       generatedByUid: actorUid,
     });
 
@@ -591,8 +619,463 @@ export async function createFamilyChallan(params: {
   return { id, challanNumber, total, members: members.length };
 }
 
+/* -----------------------------------------------------------------------------
+ * Raising a family voucher, rather than assembling one (Sprint 27)
+ * -------------------------------------------------------------------------- */
+
+/** One enrolled sibling, as the family generator sees them. */
+export interface FamilySibling {
+  studentProfileId: string;
+  studentName: string;
+  studentNumber: string;
+}
+
+/** A sibling whose month is already spoken for, named on the refusal. */
+export interface FamilyMonthClash {
+  studentProfileId: string;
+  studentName: string;
+  challanId: string;
+  challanNumber: string;
+  /** The family voucher that challan already sits on, when it sits on one. */
+  familyChallanNumber: string | null;
+  /** Anything received against it. `> 0` means it can never be cancelled. */
+  paidAmount: string;
+}
+
 /**
- * Records a payment against a family voucher and distributes it.
+ * The month is taken, and here is exactly by whom.
+ *
+ * A distinct class so the route can put the list in the response body rather
+ * than only in the sentence. The screen turns it into *"Cancel these and
+ * continue"* — one click, which is what the product owner asked for, instead of
+ * the three screens a clerk walks today: find each child, open each voucher,
+ * cancel it, come back.
+ */
+export class FamilyMonthTakenError extends FamilyChallanError {
+  readonly clashes: FamilyMonthClash[];
+
+  constructor(clashes: FamilyMonthClash[]) {
+    super(
+      `${clashes
+        .map((clash) => `${clash.studentName} (${clash.challanNumber})`)
+        .join(', ')} already ${
+        clashes.length === 1 ? 'has a voucher' : 'have vouchers'
+      } for this month.`,
+      409,
+    );
+    this.name = 'FamilyMonthTakenError';
+    this.clashes = clashes;
+  }
+}
+
+/**
+ * The guardian a family voucher would be addressed to, given any one child.
+ *
+ * ── Why the screen starts from a pupil and not a parent ──────────────────
+ * Every other family surface on this screen searches families that already
+ * have *open vouchers*, because clubbing needs vouchers to club. Generation is
+ * the opposite case by definition — the month has not been billed — so that
+ * search finds nothing, and a feature reachable only from a list it can never
+ * appear in is a feature nobody can use.
+ *
+ * A clerk always knows a child. This resolves the child's **primary contact**,
+ * which is the row `groupOpenChallans` groups on and the person the school
+ * writes to, and everything else follows from there.
+ */
+export async function primaryGuardianFor(
+  locationId: string,
+  studentProfileId: string,
+): Promise<{ id: string; name: string; phone: string } | null> {
+  const rows = await db
+    .select({
+      id: studentGuardians.id,
+      name: studentGuardians.name,
+      phone: studentGuardians.phone,
+    })
+    .from(studentGuardians)
+    .where(
+      and(
+        eq(studentGuardians.locationId, locationId),
+        eq(studentGuardians.studentProfileId, studentProfileId),
+        eq(studentGuardians.isPrimaryContact, true),
+      ),
+    )
+    .limit(1);
+
+  return rows[0] ?? null;
+}
+
+/**
+ * The children of one guardian who are actually on the roll for a given year.
+ *
+ * ── Why this is not `listSiblings` ───────────────────────────────────────
+ * `lib/siblings.ts` answers "who else is in this family", against the school's
+ * **active** year, and it deliberately includes children who have left — an
+ * admin looking at a withdrawn elder brother is looking at the reason the
+ * younger one has a discount. Neither is right here: a voucher is raised for a
+ * named academic year, and billing a child who withdrew in June for October
+ * would be a demand the school cannot defend.
+ *
+ * So the matching rule is borrowed — same CNIC or same phone, canonicalised —
+ * and the placement is an INNER join through the year being billed.
+ */
+export async function enrolledSiblingsFor(
+  locationId: string,
+  guardianId: string,
+  academicYearId: string,
+): Promise<FamilySibling[]> {
+  const guardianRows = await db
+    .select({ cnic: studentGuardians.cnic, phone: studentGuardians.phone })
+    .from(studentGuardians)
+    .where(
+      and(
+        eq(studentGuardians.locationId, locationId),
+        eq(studentGuardians.id, guardianId),
+      ),
+    )
+    .limit(1);
+
+  const guardian = guardianRows[0];
+  if (guardian === undefined) return [];
+
+  // Only a whole, canonical CNIC is a key — the same rule `groupOpenChallans`
+  // above states at length. A half-recorded number matching another
+  // half-recorded number would invent a family and then bill it as one.
+  const cnic = normalizeCnic(guardian.cnic);
+  const matchers = [
+    ...(cnic === null
+      ? []
+      : [and(isNotNull(studentGuardians.cnic), eq(studentGuardians.cnic, cnic))]),
+    ...(guardian.phone === '' ? [] : [eq(studentGuardians.phone, guardian.phone)]),
+  ];
+
+  if (matchers.length === 0) return [];
+
+  return db
+    .selectDistinctOn([schoolUsers.name, studentProfiles.id], {
+      studentProfileId: studentProfiles.id,
+      studentName: schoolUsers.name,
+      studentNumber: studentProfiles.studentId,
+    })
+    .from(studentGuardians)
+    .innerJoin(studentProfiles, eq(studentProfiles.id, studentGuardians.studentProfileId))
+    .innerJoin(schoolUsers, eq(schoolUsers.id, studentProfiles.schoolUserId))
+    .innerJoin(
+      studentEnrollments,
+      and(
+        eq(studentEnrollments.studentProfileId, studentProfiles.id),
+        eq(studentEnrollments.locationId, locationId),
+        eq(studentEnrollments.academicYearId, academicYearId),
+        eq(studentEnrollments.status, 'active'),
+      ),
+    )
+    .where(and(eq(studentGuardians.locationId, locationId), or(...matchers)))
+    .orderBy(asc(schoolUsers.name), asc(studentProfiles.id));
+}
+
+/**
+ * Live vouchers these children already hold for a month, with their wrapper.
+ *
+ * Exported because the *dialog* needs it before the POST does: the screen asks
+ * what would happen, draws the children by name and voucher number, and offers
+ * to cancel them. The generator re-runs the same read a moment later and
+ * refuses on what it finds then — the browser's list is a courtesy, never the
+ * input, which is the same discipline `createFamilyChallan` applies to its
+ * member list.
+ */
+export async function monthClashesForGuardian(
+  locationId: string,
+  academicYearId: string,
+  studentProfileIds: readonly string[],
+  billingMonth: number,
+  billingYear: number,
+): Promise<FamilyMonthClash[]> {
+  return db
+    .select({
+      studentProfileId: feeChallans.studentProfileId,
+      studentName: schoolUsers.name,
+      challanId: feeChallans.id,
+      challanNumber: feeChallans.challanNumber,
+      familyChallanNumber: familyChallans.challanNumber,
+      paidAmount: feeChallans.paidAmount,
+    })
+    .from(feeChallans)
+    .innerJoin(studentProfiles, eq(studentProfiles.id, feeChallans.studentProfileId))
+    .innerJoin(schoolUsers, eq(schoolUsers.id, studentProfiles.schoolUserId))
+    .leftJoin(familyChallans, eq(familyChallans.id, feeChallans.familyChallanId))
+    .where(
+      and(
+        eq(feeChallans.locationId, locationId),
+        eq(feeChallans.academicYearId, academicYearId),
+        eq(feeChallans.billingMonth, billingMonth),
+        eq(feeChallans.billingYear, billingYear),
+        // The same predicate the partial unique index carries, so that what
+        // this read calls "taken" is exactly what Postgres would refuse.
+        ne(feeChallans.status, 'cancelled'),
+        inArray(feeChallans.studentProfileId, [...studentProfileIds]),
+      ),
+    )
+    .orderBy(asc(schoolUsers.name));
+}
+
+export interface GenerateFamilyChallanParams {
+  locationId: string;
+  actorUid: string;
+  guardianId: string;
+  academicYearId: string;
+  billingMonth: number;
+  billingYear: number;
+  dueDate?: string | undefined;
+  /**
+   * Cancel the siblings' existing vouchers for the month and carry on.
+   *
+   * Off by default and always an explicit second request: the first one
+   * refuses with the children named, the screen shows them, and a person
+   * decides. A generator that cancelled by default would tear up vouchers a
+   * parent may already be holding.
+   */
+  cancelExisting?: boolean | undefined;
+}
+
+export interface GeneratedFamilyChallan {
+  id: string;
+  challanNumber: string;
+  total: string;
+  members: number;
+  /** Vouchers cancelled to make room, when `cancelExisting` was asked for. */
+  cancelled: string[];
+}
+
+/**
+ * Raises the month's voucher for every enrolled sibling **and** the wrapper.
+ *
+ * ── Why this exists beside `createFamilyChallan` ─────────────────────────
+ * `createFamilyChallan` clubs vouchers that already exist, which is the right
+ * tool once the month has been billed. It is the wrong one for the thing a
+ * school actually wants to do on the 25th: raise October for the Rehmans, as
+ * one slip, in one action. Doing that today means running the bulk generator,
+ * finding the three children in a register of four hundred, and clubbing them.
+ *
+ * ── Same pricing, same numbering, same everything ────────────────────────
+ * Each child's voucher goes through `generateChallan`, unchanged and
+ * unbranched: the same concessions, the same carried-forward credit, the same
+ * discount-overflow banking and the same number issuer. A second pricing path
+ * for family billing is how two children in one family come to be charged
+ * differently for the same class, with nothing on any screen saying why.
+ *
+ * ── One action, and the honest limit of that claim ───────────────────────
+ * `generateChallan` opens its own transaction per child — that is what makes a
+ * bulk run of four hundred survive one child's bad data — so this is *n + 1*
+ * transactions and not one. What closes the gap is the compensation at the
+ * bottom: if the wrapper cannot be written, the vouchers this call just raised
+ * are cancelled again. They are seconds old, unpaid and unseen, so cancelling
+ * them is exact rather than approximate, and the alternative — three vouchers
+ * nobody asked for left in the register — is the outcome worth avoiding.
+ */
+export async function generateFamilyChallan(
+  params: GenerateFamilyChallanParams,
+): Promise<GeneratedFamilyChallan> {
+  const { locationId, guardianId, academicYearId, billingMonth, billingYear } = params;
+
+  const siblings = await enrolledSiblingsFor(locationId, guardianId, academicYearId);
+
+  if (siblings.length < 2) {
+    throw new FamilyChallanError(
+      siblings.length === 0
+        ? 'That guardian has no children enrolled in this academic year.'
+        : 'A family voucher needs at least two children enrolled here. This guardian has one.',
+    );
+  }
+
+  const clashes = await monthClashesForGuardian(
+    locationId,
+    academicYearId,
+    siblings.map((sibling) => sibling.studentProfileId),
+    billingMonth,
+    billingYear,
+  );
+
+  const cancelled: string[] = [];
+
+  if (clashes.length > 0) {
+    if (params.cancelExisting !== true) throw new FamilyMonthTakenError(clashes);
+
+    // A voucher carrying money is never cancelled, whatever was asked for. A
+    // cancelled voucher with a receipt against it is a receipt pointing at
+    // nothing, and no amount of confirming on a screen makes that acceptable.
+    const paid = clashes.filter((clash) => Number(clash.paidAmount) > 0);
+    if (paid.length > 0) {
+      const names = paid
+        .map((clash) => `${clash.studentName} (${clash.challanNumber})`)
+        .join(', ');
+
+      throw new FamilyChallanError(
+        `${names} ${paid.length === 1 ? 'has' : 'have'} already paid something towards this month, so ${paid.length === 1 ? 'that voucher' : 'those vouchers'} cannot be cancelled. Settle the month for ${paid.length === 1 ? 'that child' : 'those children'} separately.`,
+        409,
+      );
+    }
+
+    const wrapperIds = [
+      ...new Set(
+        clashes
+          .filter((clash) => clash.familyChallanNumber !== null)
+          .map((clash) => clash.familyChallanNumber ?? ''),
+      ),
+    ];
+
+    await db.transaction(async (tx) => {
+      await tx
+        .update(feeChallans)
+        .set({ status: 'cancelled', familyChallanId: null, updatedAt: new Date() })
+        .where(
+          and(
+            eq(feeChallans.locationId, locationId),
+            inArray(
+              feeChallans.id,
+              clashes.map((clash) => clash.challanId),
+            ),
+          ),
+        );
+
+      /*
+       * A wrapper left holding nothing but cancelled members is cancelled too.
+       *
+       * Without this, re-clubbing a family that was already clubbed leaves the
+       * old voucher live and unpaid beside the new one — two numbers for one
+       * month, which is exactly what `family_challans_guardian_month_idx`
+       * refuses a moment later, with a duplicate-key error naming an index
+       * instead of anything a clerk can act on.
+       */
+      if (wrapperIds.length > 0) {
+        await tx
+          .update(familyChallans)
+          .set({ status: 'cancelled', updatedAt: new Date() })
+          .where(
+            and(
+              eq(familyChallans.locationId, locationId),
+              inArray(familyChallans.challanNumber, wrapperIds),
+            ),
+          );
+      }
+    });
+
+    cancelled.push(...clashes.map((clash) => clash.challanNumber));
+  }
+
+  const dueDate =
+    params.dueDate ??
+    defaultDueDate(billingMonth, billingYear, await getDueDay(locationId));
+
+  const raised: string[] = [];
+
+  try {
+    for (const sibling of siblings) {
+      const challan = await generateChallan(db, {
+        locationId,
+        studentProfileId: sibling.studentProfileId,
+        academicYearId,
+        billingMonth,
+        billingYear,
+        dueDate,
+        actorUid: params.actorUid,
+        // The wrapper sends one email naming every child. Letting each child's
+        // own voucher mail as well would put four slips in the same inbox,
+        // which is the opposite of what a family voucher is for.
+        suppressVoucherEmail: true,
+      });
+
+      raised.push(challan.id);
+    }
+
+    const created = await createFamilyChallan({
+      locationId,
+      actorUid: params.actorUid,
+      guardianId,
+      challanIds: raised,
+      dueDate,
+      origin: 'generated',
+    });
+
+    return { ...created, cancelled };
+  } catch (error) {
+    // The compensation the docblock promises. Cancelled rather than deleted,
+    // because `fee_challans` is a billing record and the numbers it burnt are
+    // burnt either way — and because cancelling is the one operation the
+    // partial unique index treats as making the month free again.
+    if (raised.length > 0) {
+      try {
+        await db
+          .update(feeChallans)
+          .set({ status: 'cancelled', updatedAt: new Date() })
+          .where(
+            and(eq(feeChallans.locationId, locationId), inArray(feeChallans.id, raised)),
+          );
+      } catch (rollback) {
+        console.error(
+          `[family-challans] could not roll back ${String(raised.length)} voucher(s) at ${locationId}:`,
+          rollback,
+        );
+      }
+    }
+
+    throw error;
+  }
+}
+
+/**
+ * The two accounts a family fee payment moves between, or null if there are none.
+ *
+ * The same decision `…/challans/[challanId]/payments/route.ts` makes for a
+ * single voucher, taken here rather than imported because the route's copy is a
+ * private function on a route module. What matters is that the *rule* is the
+ * same one: money lands where it actually went — the clerk's own drawer for
+ * cash, `1020 Cheques in Hand` for a cheque, the bank for a transfer — and Fee
+ * Income is credited.
+ *
+ * Returns null rather than throwing when the school has no chart of accounts. A
+ * parent is standing at a counter with cash; refusing it because the books are
+ * unset would be the wrong trade, and the response says the posting did not
+ * happen.
+ */
+async function resolveFamilyPosting(input: {
+  locationId: string;
+  collector: string | null;
+  paymentMethod: 'cash' | 'bank_transfer' | 'cheque';
+}): Promise<{ landingAccountId: string; incomeAccountId: string } | null> {
+  try {
+    const systemAccounts = await loadSystemAccounts(input.locationId);
+    const income = requireSystemAccount(systemAccounts, 'fee_income', 'Fee Income');
+    const landingKey = landingAccountFor(input.paymentMethod);
+    const landing = requireSystemAccount(
+      systemAccounts,
+      landingKey,
+      landingKey === 'bank'
+        ? 'Bank Account'
+        : landingKey === 'cheques_in_hand'
+          ? 'Cheques in Hand'
+          : 'Cash in Hand',
+    );
+
+    // Only cash sits in a person's drawer. A transfer is already at the bank
+    // and a cheque is paper the office files, so neither belongs to whoever
+    // happened to key it in.
+    const account =
+      landingKey === 'cash_in_hand'
+        ? await cashAccountForStaff(input.locationId, input.collector, landing)
+        : landing;
+
+    return { landingAccountId: account.id, incomeAccountId: income.id };
+  } catch (error) {
+    if (error instanceof LedgerError) {
+      console.warn('[family-challans] payment not posted to the ledger:', error.message);
+      return null;
+    }
+    throw error;
+  }
+}
+
+/**
+ * Records a payment against a family voucher, distributes it, and posts it.
  *
  * **Spread evenly.** Every child who still owes something takes an equal share,
  * capped at their own balance, with anything a capped child could not absorb
@@ -603,6 +1086,32 @@ export async function createFamilyChallan(params: {
  * has to reach them — a family payment that only moved the voucher's own
  * `paid_amount` would leave three children reported as defaulters by a system
  * that has their money.
+ *
+ * ── The posting, added in Sprint 27, and what was wrong before it ────────
+ * 🔴 This function wrote `fee_payments` rows and moved balances and **posted
+ * nothing to the ledger**, from Sprint 10 until now. The single-voucher route
+ * beside it has posted since Sprint 13.5; the family path never did. So every
+ * family payment any school has ever taken understated its income, and
+ * understated it in the way CLAUDE.md warns about — silently. Nothing on any
+ * screen would have said so: the receipt printed, the children showed as paid,
+ * the defaulter list emptied, and only the trial balance disagreed with the
+ * cash box.
+ *
+ * ── One posting, not one per child ───────────────────────────────────────
+ * The money arrived once, across one counter, in one transaction. Posting it
+ * per child would put three entries in the day book for one event and make
+ * reconciling a day's takings against the ledger a matching exercise rather
+ * than a comparison. The per-child detail lives in `fee_payments`, which is
+ * where a parent's question — *"what did you put against Ali?"* — is answered,
+ * and every one of those rows carries `ledger_transaction_id` so each child's
+ * receipt names the posting that carries it.
+ *
+ * ── Inside the transaction, not beside it ────────────────────────────────
+ * CLAUDE.md: *taking money in code — post it in the same transaction as the
+ * record of it.* The posting commits with the payment or the payment does not
+ * happen. The one exception is a school with no chart of accounts, which
+ * records the payment un-posted and says so, exactly as the single route does:
+ * a counter must not stop because the books are unset.
  */
 export async function recordFamilyPayment(params: {
   locationId: string;
@@ -611,7 +1120,16 @@ export async function recordFamilyPayment(params: {
   amount: number;
   paymentMethod: string;
   reference: string | null;
-}): Promise<{ distributed: Array<{ challanId: string; amount: string }> }> {
+}): Promise<{
+  distributed: Array<{ challanId: string; amount: string }>;
+  /**
+   * Null only at a school with no chart of accounts. The receipt screen says
+   * so rather than staying quiet: a payment that did not reach the books is a
+   * reconciliation problem, and the person who can fix it is the one standing
+   * at the counter.
+   */
+  ledgerTransactionId: string | null;
+}> {
   const { locationId, familyChallanId, amount } = params;
 
   if (!(amount > 0)) {
@@ -674,7 +1192,90 @@ export async function recordFamilyPayment(params: {
   );
   const shares = spreadEvenly(balances, paymentPaisa);
 
-  await db.transaction(async (tx) => {
+  const guardianRows = await db
+    .select({ name: studentGuardians.name })
+    .from(studentGuardians)
+    .where(eq(studentGuardians.id, voucher.guardianId))
+    .limit(1);
+
+  /*
+   * The campus this money was taken at, or null when the family straddles two.
+   *
+   * A family is a family across campuses — `lib/siblings.ts` says so at length
+   * and `check-branch-scope` asserts it — so a family voucher genuinely can
+   * cover children at two of them. There is no honest single answer in that
+   * case, and inventing one would attribute a campus's income to its neighbour
+   * on the owner's dashboard, which is the exact defect Sprint 19a fixed for
+   * the single-voucher route. Null is the truthful value: school-wide.
+   */
+  const campuses = await db
+    .selectDistinct({ branchId: grades.branchId })
+    .from(feeChallans)
+    .innerJoin(
+      studentEnrollments,
+      and(
+        eq(studentEnrollments.studentProfileId, feeChallans.studentProfileId),
+        eq(studentEnrollments.academicYearId, feeChallans.academicYearId),
+        eq(studentEnrollments.locationId, locationId),
+      ),
+    )
+    .innerJoin(sections, eq(sections.id, studentEnrollments.sectionId))
+    .innerJoin(grades, eq(grades.id, sections.gradeId))
+    .where(eq(feeChallans.familyChallanId, familyChallanId));
+
+  const postingBranchId = campuses.length === 1 ? (campuses[0]?.branchId ?? null) : null;
+
+  // Resolved before the transaction opens: indexed reads that do not need to
+  // be inside it, and keeping them out shortens the window the rows are held.
+  const collector = await schoolUserIdForUid(locationId, params.actorUid);
+  /*
+   * `paymentMethod` reaches this function as a plain string — the route
+   * validates it and the column has a CHECK — so it is narrowed here rather
+   * than cast. An unrecognised method posts nothing instead of guessing which
+   * account the money landed in, and guessing is the one thing a ledger must
+   * never do.
+   */
+  const posting = isPaymentMethod(params.paymentMethod)
+    ? await resolveFamilyPosting({
+        locationId,
+        collector,
+        paymentMethod: params.paymentMethod,
+      })
+    : null;
+
+  const paymentDate = new Date().toISOString().slice(0, 10);
+
+  const ledgerTransactionId = await db.transaction(async (tx) => {
+    /*
+     * The posting is written **first**, so that every `fee_payments` row this
+     * transaction inserts can carry its id. One transaction for the whole
+     * family payment: the money arrived once.
+     *
+     * Built on `tx`, like everything else here. A statement built on `db` runs
+     * outside the transaction even when awaited inside one — `lib/drizzle.ts`
+     * says so — and a posting that committed separately from the payments it
+     * describes is worse than the missing posting this replaces.
+     */
+    const transactionId =
+      posting === null
+        ? null
+        : await postTransaction(tx, {
+            locationId,
+            branchId: postingBranchId,
+            entryDate: paymentDate,
+            memo: `Fee received — ${guardianRows[0]?.name ?? 'family'} (${voucher.challanNumber})`,
+            source: 'fee_payment',
+            referenceNumber: params.reference,
+            createdByUid: params.actorUid,
+            lines: twoSidedLines(
+              posting.landingAccountId,
+              posting.incomeAccountId,
+              paymentPaisa,
+            ),
+          });
+
+    let firstPaymentId: string | null = null;
+
     for (const [index, member] of members.entries()) {
       const applyPaisa = shares[index] ?? 0;
       // A child who owes nothing takes nothing, and gets no `fee_payments` row
@@ -685,14 +1286,23 @@ export async function recordFamilyPayment(params: {
       const applied = paiseToNumeric(applyPaisa);
       const nowPaid = paiseToNumeric(toPaise(member.paidAmount) + applyPaisa);
 
-      await tx.insert(feePayments).values({
-        locationId,
-        challanId: member.id,
-        amount: applied,
-        paymentMethod: params.paymentMethod as never,
-        referenceNumber: params.reference,
-        collectedByUid: params.actorUid,
-      });
+      const [payment] = await tx
+        .insert(feePayments)
+        .values({
+          locationId,
+          challanId: member.id,
+          amount: applied,
+          paymentMethod: params.paymentMethod as never,
+          referenceNumber: params.reference,
+          paymentDate,
+          collectedByUid: params.actorUid,
+          // Every child's row, not just the first. Each receipt names the
+          // posting that carries it, and they all name the same one.
+          ledgerTransactionId: transactionId,
+        })
+        .returning({ id: feePayments.id });
+
+      firstPaymentId ??= payment?.id ?? null;
 
       await tx
         .update(feeChallans)
@@ -708,6 +1318,17 @@ export async function recordFamilyPayment(params: {
       distributed.push({ challanId: member.id, amount: applied });
     }
 
+    // `source_id` points at the first child's payment row, as the
+    // single-voucher route points at its only one. It is what the day book's
+    // "what caused this" link resolves, and what stops the `0027` backfill
+    // touching a payment that already has a posting.
+    if (transactionId !== null && firstPaymentId !== null) {
+      await tx
+        .update(ledgerTransactions)
+        .set({ sourceId: firstPaymentId })
+        .where(eq(ledgerTransactions.id, transactionId));
+    }
+
     const voucherPaisa = toPaise(voucher.paidAmount) + paymentPaisa;
     const voucherTotalPaisa = toPaise(voucher.totalAmount);
 
@@ -719,9 +1340,11 @@ export async function recordFamilyPayment(params: {
         updatedAt: new Date(),
       })
       .where(eq(familyChallans.id, familyChallanId));
+
+    return transactionId;
   });
 
-  return { distributed };
+  return { distributed, ledgerTransactionId };
 }
 
 /* -----------------------------------------------------------------------------
@@ -910,19 +1533,53 @@ export async function listFamilyChallans(
     .limit(limit);
 }
 
+/** What cancelling a family voucher did to its members. */
+export interface FamilyCancellation {
+  origin: FamilyChallanOrigin;
+  /** Members returned to being billed individually, by voucher number. */
+  released: string[];
+  /** Members cancelled along with the wrapper, by voucher number. */
+  cancelled: string[];
+}
+
 /**
- * Cancels a voucher, releasing its members back to individual billing.
+ * Cancels a voucher and does the right thing with its members.
  *
- * Refused once anything has been paid against it: the payments have already
- * been distributed to the child challans and undoing that means deciding which
- * child's receipt to tear up, which is a counter decision and not a button.
+ * ── Cancelling follows origin, and it has to ─────────────────────────────
+ * A `combined` voucher was assembled over vouchers the school had already
+ * raised. Those vouchers are still what the school intends to collect, so
+ * cancelling the wrapper **releases** them: `family_challan_id` back to null,
+ * each child billed individually again. That is what this function has always
+ * done and it stays right.
+ *
+ * A `generated` voucher raised its members itself. They exist only because it
+ * does, and releasing them would leave three vouchers nobody asked for, in a
+ * month a school has just decided not to bill that way — invisible on the
+ * family screen, present on the defaulter list. So they are **cancelled with
+ * it**, in one transaction.
+ *
+ * ── A member carrying money is released, never cancelled ─────────────────
+ * Whatever the origin. A cancelled voucher with a receipt against it is a
+ * receipt pointing at nothing, and there is no flow that makes that acceptable
+ * — so a paid or part-paid member is set loose to stand on its own and the
+ * caller is told which ones, by number, so the school can see what it is left
+ * holding.
+ *
+ * The wrapper itself is still refused once anything has been paid *against the
+ * wrapper*: those payments have already been distributed to the children, and
+ * undoing that means deciding whose receipt to tear up, which is a counter
+ * decision and not a button.
  */
 export async function cancelFamilyChallan(
   locationId: string,
   familyChallanId: string,
-): Promise<void> {
+): Promise<FamilyCancellation> {
   const rows = await db
-    .select({ paidAmount: familyChallans.paidAmount, status: familyChallans.status })
+    .select({
+      paidAmount: familyChallans.paidAmount,
+      status: familyChallans.status,
+      origin: familyChallans.origin,
+    })
     .from(familyChallans)
     .where(
       and(
@@ -944,15 +1601,62 @@ export async function cancelFamilyChallan(
     );
   }
 
+  const members = await db
+    .select({
+      id: feeChallans.id,
+      challanNumber: feeChallans.challanNumber,
+      paidAmount: feeChallans.paidAmount,
+    })
+    .from(feeChallans)
+    .where(
+      and(
+        eq(feeChallans.locationId, locationId),
+        eq(feeChallans.familyChallanId, familyChallanId),
+      ),
+    )
+    .orderBy(asc(feeChallans.challanNumber));
+
+  const takesTheMembers = voucher.origin === 'generated';
+
+  const toCancel = takesTheMembers
+    ? members.filter((member) => Number(member.paidAmount) <= 0)
+    : [];
+  const toRelease = members.filter((member) => !toCancel.includes(member));
+
   await db.transaction(async (tx) => {
-    await tx
-      .update(feeChallans)
-      .set({ familyChallanId: null, updatedAt: new Date() })
-      .where(eq(feeChallans.familyChallanId, familyChallanId));
+    if (toRelease.length > 0) {
+      await tx
+        .update(feeChallans)
+        .set({ familyChallanId: null, updatedAt: new Date() })
+        .where(
+          inArray(
+            feeChallans.id,
+            toRelease.map((member) => member.id),
+          ),
+        );
+    }
+
+    if (toCancel.length > 0) {
+      await tx
+        .update(feeChallans)
+        .set({ status: 'cancelled', familyChallanId: null, updatedAt: new Date() })
+        .where(
+          inArray(
+            feeChallans.id,
+            toCancel.map((member) => member.id),
+          ),
+        );
+    }
 
     await tx
       .update(familyChallans)
       .set({ status: 'cancelled', updatedAt: new Date() })
       .where(eq(familyChallans.id, familyChallanId));
   });
+
+  return {
+    origin: voucher.origin,
+    released: toRelease.map((member) => member.challanNumber),
+    cancelled: toCancel.map((member) => member.challanNumber),
+  };
 }

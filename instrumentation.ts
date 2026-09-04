@@ -4,8 +4,9 @@
  *
  * ── What runs here, and what must not ────────────────────────────────────
  * The email outbox drainer, the announcement scheduler (Sprint 11), the monthly
- * voucher auto-send (Sprint 18), the sibling-discount sweep (Sprint 20) and the
- * chat digest (Sprint 24).
+ * voucher auto-send (Sprint 18), the sibling-discount sweep (Sprint 20), the
+ * chat digest (Sprint 24), and — Sprint 27 — the monthly voucher *generation*
+ * and the holiday notice.
  * Anything started here runs forever in a process that also serves every
  * request, so the bar is high: it must be idempotent, it must not hold the
  * process open, and it must never throw into the runtime. All of these meet
@@ -48,6 +49,15 @@ export async function register(): Promise<void> {
     // same reason: the import must not be recorded in the Edge compilation.
     const { startVoucherAutoSend } = await import('./lib/voucher-auto-send');
     startVoucherAutoSend();
+
+    // Sprint 27. The other half of the same idea and the sharper one: this
+    // raises **next month's** vouchers rather than emailing this month's, so a
+    // duplicate is a document in a register and not a repeated email. Off at
+    // every school until one asks, and claimed with the same conditional
+    // UPDATE for the same reason. Same positive `=== 'nodejs'` block, for the
+    // same reason: the import must not be recorded in the Edge compilation.
+    const { startVoucherAutoGenerate } = await import('./lib/voucher-auto-generate');
+    startVoucherAutoGenerate();
 
     // Sprint 20, item 9b. The backstop that closes a sibling discount once a
     // family is down to one child here — the two synchronous hooks do the work
