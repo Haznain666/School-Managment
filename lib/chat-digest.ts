@@ -13,6 +13,7 @@ import { inQuietHours } from './chat-permissions';
 import { describeError } from './describe-error';
 import { db } from './drizzle';
 import { enqueueEmail } from './email-outbox';
+import { isStudentCredentialAddress } from './student-credentials';
 import { sweepPushNotifications } from './push';
 import { filterByEmailPreference } from './notification-preferences';
 
@@ -206,6 +207,30 @@ export async function sweepChatDigests(now: Date = new Date()): Promise<number> 
 
   for (const person of candidates) {
     if (person.email === null || person.email === '') continue;
+
+    /*
+     * Never a pupil's credential address. Found in QA by reading `email_outbox`
+     * and seeing a row addressed to
+     * `asst-2026-0002@students.askari-school-system.invalid`.
+     *
+     * `lib/student-credentials.ts` mints that address precisely so that a pupil
+     * has an identity for GoTrue which is **provably not a delivery target** —
+     * RFC 2606 reserves the TLD — and its docblock says the property that
+     * matters is that no code path can accidentally email a minor. This path
+     * was doing exactly that: `school_users.email` is the same column for a
+     * pupil as for a member of staff, and the digest reads the column without
+     * asking what kind of address is in it.
+     *
+     * Nothing was delivered, because the address cannot resolve. What it
+     * actually cost was a queue row per pupil per hour that could only ever end
+     * `failed`, burying real delivery failures in noise — and a claim in a
+     * docblock that had quietly stopped being true. `isStudentCredentialAddress`
+     * exists for this and was not being called anywhere.
+     *
+     * A pupil is not left unnotified: they see the message in their own portal,
+     * which is where a school wants a child reading it.
+     */
+    if (isStudentCredentialAddress(person.email)) continue;
 
     // Quiet hours defer the notification and never the message. The message
     // has already landed; this is only about whether their phone lights up.

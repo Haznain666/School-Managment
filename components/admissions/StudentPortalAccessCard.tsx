@@ -143,6 +143,21 @@ export function StudentPortalAccessCard({
       {!state.eligible && state.reason !== null ? (
         <p className="mt-4 rounded-card bg-surface px-3 py-2 text-sm text-ink-muted">
           {state.reason}
+          {/*
+            A student can be below the threshold *and* already have a sign-in:
+            they were issued one, and the school then raised the class it starts
+            at. QA hit this the moment the threshold moved and the card read
+            "Access sent" directly above "Year 2 is below it", which answers the
+            question a clerk is actually asking — can this child log in — with a
+            contradiction.
+
+            Nothing revokes a credential when the threshold moves, and nothing
+            should: the school changed a rule about who gets one next, not a
+            decision about who already has one. So the card says so.
+          */}
+          {issued
+            ? ' Their existing sign-in still works — raising the class stops a new password being issued from here, it does not take away one already given.'
+            : ''}
         </p>
       ) : null}
 

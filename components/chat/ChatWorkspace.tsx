@@ -166,7 +166,25 @@ export function ChatWorkspace({
       try {
         const rows = await loadInbox();
         const first = rows[0];
-        if (first !== undefined) setSelectedId(first.conversationId);
+
+        /*
+         * Opening the newest conversation is right on a desk, where both panes
+         * are on screen and the right-hand one would otherwise be an empty box
+         * beside a full list. It is wrong on a phone: below `lg` the panes are
+         * master/detail, so pre-selecting drops somebody *inside* a thread when
+         * they asked for their inbox — and the only way back to the list is a
+         * button they have not been given a reason to look for.
+         *
+         * QA caught this by opening Messages at 375px and finding the list
+         * hidden on arrival. Matching the same 1024px the `lg:` classes use,
+         * read in an effect so the server render and the first client render
+         * agree and nothing hydrates differently.
+         */
+        const roomForBoth =
+          typeof window !== 'undefined' &&
+          window.matchMedia('(min-width: 1024px)').matches;
+
+        if (first !== undefined && roomForBoth) setSelectedId(first.conversationId);
       } catch (caught) {
         setError(schoolErrorMessage(caught, 'Your conversations could not be loaded.'));
       }
