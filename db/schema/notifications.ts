@@ -48,6 +48,17 @@ export const NOTIFICATION_KINDS = [
   'feedback_submitted',
   'feedback_status',
   'feedback_reply',
+  /*
+   * Sprint 27. `sendAnnouncement` has written `announcement_recipients` and the
+   * notice board since Sprint 11 and **nothing here**, so the bell in every
+   * portal header has never moved for an announcement in the product's life.
+   * `NotificationBell` was correct and the table was empty.
+   *
+   * No migration is needed for this line: `kind` is free-form by design — see
+   * the docblock above — and carries no CHECK. The list is a label for grouping
+   * and for choosing an icon, and keeping it here is how a reader sees the set.
+   */
+  'announcement',
 ] as const;
 export type NotificationKind = (typeof NOTIFICATION_KINDS)[number];
 

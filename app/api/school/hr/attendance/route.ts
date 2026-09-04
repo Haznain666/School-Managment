@@ -9,6 +9,12 @@ import {
 import { withSchoolAuth } from '@/lib/api-auth';
 import { apiFailure, apiSuccess, handleApiError, readJsonBody } from '@/lib/api-response';
 import { batch, db, type Tx } from '@/lib/drizzle';
+import {
+  expandHolidays,
+  isWorkingDay,
+  saturdayOrdinal,
+} from '@/lib/holiday-calendar';
+import { listHolidays, saturdayOrdinalsByStaff } from '@/lib/holiday-queries';
 import { getStaffAttendanceForDate, listStaff } from '@/lib/hr-queries';
 import { isIsoDate, isUuid, readOptionalString } from '@/lib/validation';
 
@@ -27,6 +33,17 @@ import { isIsoDate, isUuid, readOptionalString } from '@/lib/validation';
  *
  * The GET returns the staff list alongside the marks so the screen can render
  * a full register on a day nobody has marked yet, rather than an empty table.
+ *
+ * ── `dayOff`, added in Sprint 27 ─────────────────────────────────────────
+ * It also says whether the date is a holiday or a Saturday nobody is rostered
+ * on, **and for whom**. The register could always mark a past date and always
+ * had a `holiday` status; what it could not do was say the day was one, so a
+ * person marking Eid saw forty rows defaulted to `present` and had to remember
+ * to change every one of them.
+ *
+ * Per staff member rather than per date, because a Saturday is: two teachers
+ * can legitimately disagree about whether the third Saturday was a working day,
+ * and that is what the roster exists to record.
  */
 
 export const runtime = 'nodejs';
@@ -47,15 +64,54 @@ export const GET = withSchoolAuth(
       const branchId =
         auth.branchId ?? (requested === null || requested === '' ? null : requested);
 
-      const [roster, marks] = await Promise.all([
+      const [roster, marks, holidayRows, saturdays] = await Promise.all([
         listStaff(auth.locationId, {
           status: 'active',
           branchId: branchId ?? undefined,
         }),
         getStaffAttendanceForDate(auth.locationId, date, branchId),
+        // One day's window. The overlap test in `listHolidays` is what makes a
+        // three-day Eid entered as one row answer for its middle day.
+        listHolidays(auth.locationId, date, date, branchId),
+        saturdayOrdinalsByStaff(auth.locationId),
       ]);
 
-      return apiSuccess({ date, staff: roster, attendance: marks });
+      /*
+       * Whether this date is a day off, and for whom — Sprint 27, item B6.
+       *
+       * The requirement is that HR and a head can record who actually came in
+       * on a day the school was shut, and the register already can: past dates
+       * are markable and `holiday` has been in `STAFF_ATTENDANCE_STATUSES`
+       * since Sprint 12. What it could not do was **say** the day was a day
+       * off, so a person marking Eid saw forty rows defaulted to `present` and
+       * had to know, from memory, to change every one of them.
+       *
+       * Answered per staff member because a Saturday is: two teachers can
+       * disagree about whether the third Saturday was a working day, and the
+       * whole point of the roster is that they are allowed to.
+       */
+      const holidayDates = new Set(
+        expandHolidays(holidayRows, date, date).keys(),
+      );
+
+      const dayOffStaffIds = roster
+        .filter(
+          (row) => !isWorkingDay(date, holidayDates, saturdays.get(row.id) ?? []),
+        )
+        .map((row) => row.id);
+
+      return apiSuccess({
+        date,
+        staff: roster,
+        attendance: marks,
+        dayOff: {
+          holidayNames: holidayRows.map((row) => row.name),
+          /** 1–5 when the date is a Saturday, 0 when it is not. */
+          saturdayOrdinal: saturdayOrdinal(date),
+          /** Whom the school was shut for. Empty on an ordinary working day. */
+          staffIds: dayOffStaffIds,
+        },
+      });
     } catch (error) {
       return handleApiError(error);
     }

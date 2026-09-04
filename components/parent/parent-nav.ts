@@ -40,6 +40,10 @@ export function parentNav(
     { label: 'Attendance', href: '/parent/attendance', icon: 'attendance' },
     { label: 'Results', href: '/parent/results', icon: 'marks' },
     { label: 'Fees', href: '/parent/fees', icon: 'fees' },
+    // Sprint 27. When the school is closed. The one screen on this portal a
+    // parent looks at before booking anything, and the reason the calendar is
+    // published at all.
+    { label: 'Calendar', href: '/parent/calendar', icon: 'calendar' },
     ...(chatEnabled
       ? ([
           {

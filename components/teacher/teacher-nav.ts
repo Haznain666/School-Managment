@@ -54,6 +54,10 @@ export function teacherNav(
         ]
       : []),
     { label: 'Lesson Plans', href: '/teacher/lesson-plans', icon: 'academics' },
+    // Sprint 27. When the school is shut, and which Saturdays this teacher is
+    // on duty. Not gated on anything: a teacher who cannot see the calendar is
+    // a teacher planning a lesson for a day the school is closed.
+    { label: 'Calendar', href: '/teacher/calendar', icon: 'calendar' },
     ...(chatEnabled
       ? ([
           {

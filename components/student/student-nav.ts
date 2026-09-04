@@ -40,6 +40,10 @@ export function studentNav(
     { label: 'My Exams', href: '/student/exams', icon: 'exams' },
     { label: 'My Results', href: '/student/results', icon: 'marks' },
     { label: 'Fee Status', href: '/student/fees', icon: 'fees' },
+    // Sprint 27. When the school is closed, read-only. The Saturday rota is a
+    // staff rota and is deliberately not shown here — a pupil asking about
+    // Saturday is asking a different question from a teacher on duty.
+    { label: 'Calendar', href: '/student/calendar', icon: 'calendar' },
     ...(chatEnabled
       ? ([
           {

@@ -78,6 +78,15 @@ export async function register(): Promise<void> {
     // compilation.
     const { startChatDigest } = await import('./lib/chat-digest');
     startChatDigest();
+
+    // Sprint 27. The day-before holiday notice. Claimed with an
+    // `INSERT … ON CONFLICT DO NOTHING RETURNING` rather than a conditional
+    // UPDATE — the same rule in the shape a first-time event takes — so seven
+    // server processes produce one notice. Same positive `=== 'nodejs'` block,
+    // for the same reason: the import must not be recorded in the Edge
+    // compilation.
+    const { startHolidayNotifier } = await import('./lib/holiday-notifier');
+    startHolidayNotifier();
   }
 }
 

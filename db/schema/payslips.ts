@@ -13,6 +13,7 @@ import {
 
 import { branches } from './branches';
 import { payrollRuns } from './payroll-runs';
+import { schoolUsers } from './school-users';
 import { schools } from './schools';
 import { staff } from './staff';
 
@@ -92,7 +93,39 @@ export const payslips = pgTable(
     lossOfPayAmount: numeric('loss_of_pay_amount', { precision: 12, scale: 2 })
       .notNull()
       .default('0'),
-    /** grossEarnings - totalDeductions - lossOfPayAmount, never below zero. */
+    /**
+     * A head's replacement for `loss_of_pay_amount`, or null (Sprint 27).
+     *
+     * ── The replacement, not a delta ─────────────────────────────────────
+     * Null means no override. A value means *this is the loss of pay for this
+     * payslip* — `0.00` waives the deduction entirely, which is the common
+     * case and the reason it is a replacement: a delta of "minus everything"
+     * is a number somebody has to compute, and computing it wrong pays a
+     * teacher more than their gross.
+     *
+     * ── `loss_of_pay_amount` is kept, never overwritten ──────────────────
+     * A teacher asking why they were paid more than the register implies is
+     * owed **both** numbers: what the attendance said, and what the head
+     * decided. Overwriting the first would erase the question along with the
+     * answer, and the payslip would be a document that had never disagreed
+     * with anything.
+     */
+    lossOfPayOverride: numeric('loss_of_pay_override', { precision: 12, scale: 2 }),
+    /**
+     * Why the deduction was changed. Required by the API whenever the override
+     * is set, because a waived deduction with no reason is a figure nobody can
+     * defend six months later.
+     */
+    overrideReason: text('override_reason'),
+    overriddenBy: uuid('overridden_by').references(() => schoolUsers.id, {
+      onDelete: 'set null',
+    }),
+    overriddenAt: timestamp('overridden_at', { withTimezone: true }),
+    /**
+     * grossEarnings - totalDeductions - (override ?? lossOfPayAmount), never
+     * below zero. Recomputed when an override is set, and the CHECK below
+     * still holds — an override cannot pay somebody a negative salary.
+     */
     netPayable: numeric('net_payable', { precision: 12, scale: 2 }).notNull().default('0'),
 
     status: text('status').notNull().default('unpaid').$type<PayslipStatus>(),

@@ -57,6 +57,10 @@ export const NAV_ICONS = {
   lms: BookOpen,
   events: CalendarDays,
   settings: Settings,
+  // Sprint 27. The school's own calendar — closures and the Saturday rota. The
+  // same glyph as Academic Years and the timetable, because to a reader they
+  // are the same kind of thing: dates the school runs on.
+  calendar: CalendarDays,
 
   admissions: UserPlus,
   academicYears: CalendarDays,

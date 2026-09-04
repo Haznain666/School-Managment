@@ -60,6 +60,9 @@ export interface PayrollRunDetailProps {
 
 const RUN_VARIANT: Record<PayrollRunStatus, 'success' | 'warning' | 'danger' | 'neutral'> = {
   draft: 'warning',
+  // Awaiting a head's signature reads as the same kind of "not finished yet"
+  // as a draft does, because to whoever is looking at the list it is.
+  pending_approval: 'warning',
   approved: 'neutral',
   paid: 'success',
   cancelled: 'danger',

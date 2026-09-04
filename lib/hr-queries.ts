@@ -46,6 +46,8 @@ import { INVITABLE_ROLES } from '@/types/school-auth';
 
 import { sharedOrOwnedBy } from './branch-scope';
 import { db } from './drizzle';
+import { isWorkingDay } from './holiday-calendar';
+import { holidayDatesIn, saturdayOrdinalsByStaff } from './holiday-queries';
 import { toPaise } from './money';
 import {
   leaveDaysInMonth,
@@ -890,11 +892,32 @@ export async function attendanceTallyByStaff(
 ): Promise<Map<string, AttendanceTally>> {
   const { start, end } = payrollMonthRange(month, year);
 
+  /*
+   * Row by row rather than `GROUP BY`, since Sprint 27.
+   *
+   * ── What was wrong, and why nobody could see it ────────────────────────
+   * This counted every `absent` row in the month regardless of what day it
+   * fell on. So a school that marked its register on a Sunday, on Eid, or on a
+   * Saturday half its staff are not expected in on **docked them for it** —
+   * silently, on a payslip whose only clue was a number one day larger than it
+   * should have been. `db/schema/staff-attendance.ts` says in so many words
+   * that a person must not be docked for a day the school was shut; nothing
+   * enforced it until there was a calendar to enforce it against.
+   *
+   * The aggregate had to go because the exclusion is **per person**: two
+   * teachers can disagree about whether the third Saturday was a working day,
+   * and `GROUP BY status` has already thrown away the date by the time anybody
+   * could ask.
+   *
+   * The extra cost is one row per marked day per member of staff for one month
+   * — a few thousand at the largest school here, over an indexed range — and it
+   * buys a payslip that matches the calendar.
+   */
   const rows = await db
     .select({
       staffId: staffAttendance.staffId,
       status: staffAttendance.status,
-      total: count(),
+      date: staffAttendance.date,
     })
     .from(staffAttendance)
     .where(
@@ -903,12 +926,27 @@ export async function attendanceTallyByStaff(
         gte(staffAttendance.date, start),
         lte(staffAttendance.date, end),
       ),
-    )
-    .groupBy(staffAttendance.staffId, staffAttendance.status);
+    );
+
+  const [holidayDates, saturdaysByStaff] = await Promise.all([
+    holidayDatesIn(locationId, start, end),
+    saturdayOrdinalsByStaff(locationId),
+  ]);
 
   const byStaff = new Map<string, AttendanceTally>();
 
   for (const row of rows) {
+    /*
+     * A day the school was shut for this person is not an absence, whatever
+     * the register says. It is counted as nothing at all rather than as
+     * present: a teacher who genuinely came in on Eid is recorded `present` by
+     * B6's register and *that* row is what the school pays her for, and
+     * inventing a present day out of an absent one would be a different lie.
+     */
+    if (!isWorkingDay(row.date, holidayDates, saturdaysByStaff.get(row.staffId) ?? [])) {
+      continue;
+    }
+
     const tally = byStaff.get(row.staffId) ?? {
       absentDays: 0,
       halfDays: 0,
@@ -917,10 +955,10 @@ export async function attendanceTallyByStaff(
 
     // `leave` is deliberately not counted here: whether it docks anyone is the
     // leave request's business, and counting it in both places would dock twice.
-    if (row.status === 'absent') tally.absentDays += row.total;
-    else if (row.status === 'half_day') tally.halfDays += row.total;
+    if (row.status === 'absent') tally.absentDays += 1;
+    else if (row.status === 'half_day') tally.halfDays += 1;
     else if (row.status === 'present' || row.status === 'late') {
-      tally.presentDays += row.total;
+      tally.presentDays += 1;
     }
 
     byStaff.set(row.staffId, tally);

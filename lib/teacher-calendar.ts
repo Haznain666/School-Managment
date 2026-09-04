@@ -17,6 +17,8 @@ import {
 } from '@/db/schema';
 
 import { db } from './drizzle';
+import { expandHolidays } from './holiday-calendar';
+import { listHolidays } from './holiday-queries';
 import { minutesFromTime } from '@/db/schema/timetable-slots';
 
 /**
@@ -30,14 +32,22 @@ import { minutesFromTime } from '@/db/schema/timetable-slots';
  * already say, and every edit to the rule would have to rewrite the rest of the
  * year. So the calendar is computed from the rules on read, per date range.
  *
- * The cost of that is the honest one: this calendar knows the teaching week and
- * nothing about the school's holidays, because no holiday table exists yet. A
- * day the school is shut still shows its periods. When a school calendar
- * arrives, it subtracts here and nowhere else.
+ * ── Holidays are subtracted here, and nowhere else ──────────────────────
+ * This docblock said, from Sprint 12 until Sprint 27, that the calendar knew
+ * the teaching week and nothing about the school's holidays *because no holiday
+ * table existed yet*, and that when one arrived it would subtract here. One has
+ * arrived and it does: a date inside a holiday yields **no lessons** and carries
+ * the holiday's name instead, so a teacher opening Eid sees why the day is
+ * empty rather than a blank the screen cannot explain.
  *
- * What it *does* know is leave. An approved leave request greys the day and
- * says who is covering the gap, because a head of department opening this
- * screen is usually asking exactly that question.
+ * Only holidays. The Saturday roster is deliberately not applied — a timetable
+ * rule's `day_of_week` is 0–4 by CHECK, so no Saturday has ever carried a
+ * lesson and there is nothing to subtract. A person's Saturday duty is a rota
+ * question and it is answered on `/teacher/calendar`, not here.
+ *
+ * What it also knows is leave. An approved leave request greys the day and says
+ * who is covering the gap, because a head of department opening this screen is
+ * usually asking exactly that question.
  */
 
 /** A lesson on one real date. */
@@ -73,6 +83,14 @@ export interface TeacherCalendar {
   structureNames: string[];
   lessons: CalendarLesson[];
   leave: CalendarLeave[];
+  /**
+   * Dates in the range the school is closed, and what for.
+   *
+   * The reason a day is empty. Without it a holiday and a day whose timetable
+   * has not been built yet look identical, and the second is something a
+   * coordinator has to fix while the first is not.
+   */
+  holidays: Array<{ date: string; names: string[] }>;
 }
 
 export type CalendarView = 'day' | 'week' | 'month';
@@ -235,11 +253,26 @@ export async function getTeacherCalendar(
     )
     .orderBy(asc(timetableEntries.dayOfWeek), asc(timetableSlots.orderIndex));
 
+  /*
+   * The school's closures over this range, read once.
+   *
+   * `listHolidays` is the only reader of the table and `expandHolidays` the
+   * only thing that turns a row into dates — so a three-day Eid entered as one
+   * row closes three days here without anybody re-deriving what a range means.
+   */
+  const holidayRows = await listHolidays(locationId, range.from, range.to);
+  const holidaysByDate = expandHolidays(holidayRows, range.from, range.to);
+
   // Projection. Weekends carry no rules, so they simply produce nothing —
   // `day_of_week` is 0–4 by CHECK constraint and `isoWeekday` returns 5 and 6
   // for Saturday and Sunday, which match no rule.
   const lessons: CalendarLesson[] = [];
   for (const date of datesInRange(range.from, range.to)) {
+    // A day the school is shut has no lessons, whatever the rules say. This is
+    // the subtraction the docblock above promises, and it is one line because
+    // it is one place.
+    if (holidaysByDate.has(date)) continue;
+
     const weekday = isoWeekday(date);
     for (const rule of rules) {
       if (rule.dayOfWeek !== weekday) continue;
@@ -329,5 +362,11 @@ export async function getTeacherCalendar(
       leaveTypeName: row.leaveTypeName,
       status: row.status,
     })),
+    // Sorted, because a Map iterates in insertion order and the expansion walks
+    // one holiday at a time — a two-day closure entered after a one-day one
+    // would otherwise come back out of date order.
+    holidays: [...holidaysByDate.entries()]
+      .map(([date, rows]) => ({ date, names: rows.map((row) => row.name) }))
+      .sort((left, right) => left.date.localeCompare(right.date)),
   };
 }
