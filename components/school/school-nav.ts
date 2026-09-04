@@ -107,8 +107,13 @@ export function schoolNav({ role, permissions, moduleFlags }: SchoolNavProps): {
   // parents and pupils write back, and `chat` is the flag that says which — see
   // `lib/platform-modules.ts`, which has said since `0028` that anything coming
   // back is a module or it is nothing.
+  //
+  // ── Called "Messages", which is what the other three portals call it ─────
+  // Sprint 26. It said "Chat" here and "Messages" in the teacher, parent and
+  // pupil sidebars, so an administrator told by a teacher to "check your
+  // messages" was looking for a word that was not on their screen. One name.
   if (moduleFlags.chat && can('chat.read')) {
-    items.push({ label: 'Chat', href: '/dashboard/chat', icon: 'chat' });
+    items.push({ label: 'Messages', href: '/dashboard/chat', icon: 'chat' });
   }
 
   // Reports is a single destination for the same reason Communications is: one

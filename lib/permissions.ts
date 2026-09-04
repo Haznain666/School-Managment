@@ -57,6 +57,7 @@ export const PERMISSIONS = [
   'chat.send',
   'chat.grant',
   'chat.moderate',
+  'chat.oversight',
   'settings.read',
   'settings.write',
   'branches.manage',
@@ -128,7 +129,13 @@ export const PERMISSION_GROUPS: readonly PermissionGroup[] = [
   {
     key: 'chat',
     label: 'Chat',
-    permissions: ['chat.read', 'chat.send', 'chat.grant', 'chat.moderate'],
+    permissions: [
+      'chat.read',
+      'chat.send',
+      'chat.grant',
+      'chat.moderate',
+      'chat.oversight',
+    ],
   },
   { key: 'hr', label: 'HR', permissions: ['hr.read', 'hr.write'] },
   {
@@ -180,6 +187,7 @@ export const PERMISSION_LABELS: Record<Permission, string> = {
   'chat.send': 'Start conversations and reply to them',
   'chat.grant': 'Open chat for a class or a pupil, and close it again',
   'chat.moderate': 'Read reported messages, remove one, and ban somebody from chat',
+  'chat.oversight': 'Read every conversation in reach, not only reported ones',
   'hr.read': 'See staff records and leave',
   'hr.write': 'Add staff, set salaries and decide leave',
   'payroll.read': 'See payroll runs and payslips',
@@ -211,6 +219,12 @@ export const PERMISSION_DESCRIPTIONS: Partial<Record<Permission, string>> = {
   'chat.moderate':
     'Reading conversations that involve a pupil, and banning a parent from ' +
     'chat. Grant it to the people a safeguarding complaint would go to.',
+  'chat.oversight':
+    'The whole correspondence, not one reported message: staff to staff, ' +
+    'teacher to teacher, and every thread about a pupil. A School ' +
+    'Administrator reads the school; a Principal reads their own campuses, ' +
+    'and one given particular grades reads those grades. Everybody in a ' +
+    'conversation is told it can be read.',
   'results.enter':
     'A teacher needs this for their own papers. It does not let them publish.',
   'results.publish':
@@ -379,6 +393,12 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<UserRole, readonly Permission[]> =
     'chat.send',
     'chat.grant',
     'chat.moderate',
+    // `chat.oversight` is deliberately absent, and this is the one place in
+    // this file where an omission is the decision rather than an oversight.
+    // A campus administrator runs the campus office; reading what its teachers
+    // say to each other, and what parents say to them, is the head's job and
+    // the head's accountability. `chat.moderate` still lets them act on a
+    // *reported* message, which is the thing an office actually has to do.
     'settings.read',
   ],
 
@@ -414,6 +434,11 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<UserRole, readonly Permission[]> =
     'chat.send',
     'chat.grant',
     'chat.moderate',
+    // Sprint 26. A head reads the correspondence of the campuses they run, and
+    // a head given particular grades reads those grades — the same
+    // `PrincipalScope` that already narrows their students, their registers and
+    // their marks, applied to conversations. It narrows sight and nothing else.
+    'chat.oversight',
     'settings.read',
   ],
 

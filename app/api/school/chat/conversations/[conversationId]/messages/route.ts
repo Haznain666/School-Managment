@@ -4,6 +4,7 @@ import { chatAttachments } from '@/db/schema/chat-attachments';
 import { MESSAGE_BODY_MAX } from '@/db/schema/chat-messages';
 import { withSchoolAuth } from '@/lib/api-auth';
 import { apiFailure, apiSuccess, handleApiError, readJsonBody } from '@/lib/api-response';
+import { oversightAdmits, resolveOversightScope } from '@/lib/chat-oversight';
 import { containsLink } from '@/lib/chat-permissions';
 import {
   isModeratableConversation,
@@ -77,7 +78,30 @@ export const GET = withSchoolAuth<RouteContext>(
           (await hasPermission(auth.locationId, auth.role, 'chat.moderate')) &&
           (await isModeratableConversation(auth.locationId, conversationId));
 
-        if (!mayModerate) {
+        /*
+         * Sprint 26's second door, and it is wider than the first on purpose.
+         *
+         * Moderation admits a pupil thread because somebody reported a message
+         * in it. Oversight admits the correspondence a person is accountable
+         * for — the whole school for an administrator, their own campuses for a
+         * head, their own grades' pupil threads for a head given grades. Both
+         * are read-only: posting goes through `sendProblem`, which requires a
+         * seat, so neither of these can write into a thread.
+         *
+         * The scope is re-derived here rather than trusted from the list the
+         * screen was drawn from. `oversightAdmits` runs the same `WHERE` the
+         * list ran, against the one id in this URL.
+         */
+        const mayOversee =
+          !mayModerate &&
+          (await hasPermission(auth.locationId, auth.role, 'chat.oversight')) &&
+          (await oversightAdmits(
+            auth.locationId,
+            await resolveOversightScope(auth.locationId, auth.role, auth.uid),
+            conversationId,
+          ));
+
+        if (!mayModerate && !mayOversee) {
           // 404 rather than 403: whether a conversation exists is itself
           // something a non-participant should not learn.
           return apiFailure('not_found', 'No such conversation.', 404);

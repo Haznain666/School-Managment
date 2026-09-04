@@ -9,7 +9,7 @@ import { requireSchoolRole } from '@/lib/school-guard';
 import { countUnreadNotices } from '@/lib/announcement-queries';
 import { countUnreadConversations } from '@/lib/chat-queries';
 import { countUnreadNotifications } from '@/lib/notifications';
-import { getSchoolUserByUid } from '@/lib/school-queries';
+import { getModuleFlags, getSchoolUserByUid } from '@/lib/school-queries';
 import { getSchoolBranding } from '@/lib/school-tenant';
 import { listPortalChildren } from '@/lib/siblings';
 
@@ -59,10 +59,19 @@ export default async function ParentLayout({ children }: { children: ReactNode }
 
   const schoolName = branding?.name ?? 'School';
 
+
+  /*
+   * Sprint 26. The `chat` module flag gates the Messages entry here as it has
+   * always gated the administrative sidebar's — before this the flag gated one
+   * portal of four, so a school with it unset showed teachers, parents and
+   * pupils an inbox their own administrators could not see.
+   */
+  const chatEnabled = (await getModuleFlags(locationId)).chat;
+
   return (
     <div style={brandStyle} className="bg-brand-background text-brand-text">
       <PortalFrame
-        items={parentNav(unreadNotices, unreadChats)}
+        items={parentNav(unreadNotices, unreadChats, chatEnabled)}
         ariaLabel="Parent navigation"
         drawerTitle={schoolName}
         header={

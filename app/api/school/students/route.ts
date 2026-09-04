@@ -2,6 +2,7 @@ import { withSchoolAuth } from '@/lib/api-auth';
 import { apiFailure, apiSuccess, handleApiError, readJsonBody } from '@/lib/api-response';
 import { listStudents, STUDENT_SORT_COLUMNS } from '@/lib/admissions-queries';
 import { db } from '@/lib/drizzle';
+import { autoIssuePortalAccess } from '@/lib/student-portal-access';
 import {
   enrollStudent,
   EnrollmentError,
@@ -167,6 +168,21 @@ export const POST = withSchoolAuth(
         student.name,
       );
 
+      /*
+       * Sprint 26. A child admitted into a class at or above the school's own
+       * threshold gets their portal sign-in without anybody pressing anything,
+       * and the password goes to their guardians.
+       *
+       * Beside the GHL sync and the discounts rather than inside the enrolment
+       * batch, and for the same reason they are: an admission is a fact. This
+       * never throws — the worst it does is report that nothing was sent, and
+       * the profile this redirects to carries a button that sends it.
+       */
+      const portalAccess = await autoIssuePortalAccess({
+        locationId: auth.locationId,
+        studentProfileId: enrolled.studentProfileId,
+      });
+
       return apiSuccess(
         {
           student: {
@@ -180,6 +196,7 @@ export const POST = withSchoolAuth(
             guardiansSynced: Object.keys(sync.guardianContactIds).length,
           },
           discounts,
+          portalAccess,
         },
         201,
       );

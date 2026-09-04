@@ -17,6 +17,7 @@ import {
 } from '@/db/schema';
 
 import { freezeConversationsOnDeparture } from './chat-threads';
+import { autoIssuePortalAccess } from './student-portal-access';
 import { db } from './drizzle';
 import { reconcileFamilyAfterDeparture } from './sibling-discounts';
 
@@ -519,6 +520,30 @@ export async function applyPromotionRun(
       studentProfileId,
       'The student left the school at the end of the year.',
     );
+  }
+
+  /*
+   * Sprint 26. A child promoted *into* the school's login class gets their
+   * portal sign-in, and their guardians get the password.
+   *
+   * ── Why over everybody who moved, and not only the obvious ones ────────
+   * `autoIssuePortalAccess` reads the pupil's **new** active enrollment and
+   * compares it against the school's threshold, so a child who was already
+   * above it is skipped by `student_credential_issued_at` and a child still
+   * below it is skipped by the threshold. Filtering here as well would be a
+   * second copy of the rule, and the two would eventually disagree.
+   *
+   * Same placement and same reasoning as the two loops above: after the
+   * transaction, never inside it, swallowing its own failure. A promotion is a
+   * decision the school has taken, and no email failure may undo it.
+   */
+  for (const entry of actionable) {
+    if (entry.decision === 'graduate') continue;
+
+    await autoIssuePortalAccess({
+      locationId: run.locationId,
+      studentProfileId: entry.studentProfileId,
+    });
   }
 
   return result;

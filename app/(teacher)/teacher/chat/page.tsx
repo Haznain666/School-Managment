@@ -1,13 +1,15 @@
 import type { Metadata } from 'next';
 
 import { BroadcastComposer } from '@/components/chat/BroadcastComposer';
+import { ChatDisabledNotice } from '@/components/chat/ChatDisabledNotice';
 import { ChatWorkspace } from '@/components/chat/ChatWorkspace';
 import { ClassChatAccess } from '@/components/chat/ClassChatAccess';
+import { OVERSIGHT_NOTICE } from '@/lib/chat-oversight';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { getActiveAcademicYear } from '@/lib/admissions-queries';
 import { listTeacherSections } from '@/lib/academics-queries';
 import { requireSchoolRole } from '@/lib/school-guard';
-import { getSchoolUserByUid } from '@/lib/school-queries';
+import { getModuleFlags, getSchoolUserByUid } from '@/lib/school-queries';
 
 export const metadata: Metadata = {
   title: 'Messages',
@@ -28,6 +30,9 @@ export const runtime = 'nodejs';
  */
 export default async function TeacherChatPage() {
   const { claims, locationId } = await requireSchoolRole(['teacher']);
+  // Sprint 26: the module flag is honoured on every portal, not only the
+  // administrative one. A link is not a permission, so the page refuses too.
+  if (!(await getModuleFlags(locationId)).chat) return <ChatDisabledNotice />;
   const me = await getSchoolUserByUid(locationId, claims.uid);
 
   if (me === null) {
@@ -62,7 +67,7 @@ export default async function TeacherChatPage() {
         meId={me.id}
         canAttach
         canInitiate
-        auditNotice="Conversations involving a student can be reviewed by school administrators."
+        auditNotice={OVERSIGHT_NOTICE}
         emptyMessage="Nothing yet. Start a conversation with a parent or a colleague."
       />
     </div>

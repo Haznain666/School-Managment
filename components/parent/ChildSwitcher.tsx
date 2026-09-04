@@ -66,7 +66,10 @@ export function ChildSwitcher({ students }: ChildSwitcherProps) {
 
   if (students.length === 1) {
     return (
-      <div className="hidden min-w-0 border-l border-brand-onPrimary/20 pl-3 sm:block">
+      // Sprint 26: visible on a phone too. The navbar hides the school name
+      // below `sm` when this slot is filled, so a one-child parent whose
+      // switcher hid itself was left with a logo and three icons.
+      <div className="min-w-0 border-l border-brand-onPrimary/20 pl-2 sm:pl-3">
         <p className="text-[0.6875rem] uppercase tracking-wide opacity-70">Viewing</p>
         <p className="truncate text-sm font-medium">{shown.name}</p>
       </div>
@@ -87,7 +90,7 @@ export function ChildSwitcher({ students }: ChildSwitcherProps) {
   };
 
   return (
-    <div className="min-w-0 border-l border-brand-onPrimary/20 pl-3">
+    <div className="min-w-0 flex-1 border-l border-brand-onPrimary/20 pl-2 sm:pl-3">
       <label
         htmlFor="child-switcher"
         className="block text-[0.6875rem] uppercase tracking-wide opacity-70"
@@ -108,7 +111,17 @@ export function ChildSwitcher({ students }: ChildSwitcherProps) {
           why each option sets an explicit one — on a dark primary the
           inherited white would otherwise be white-on-white in the open menu.
         */
-        className="-ml-1 max-w-[12rem] cursor-pointer truncate rounded border-0 bg-transparent px-1 py-0.5 text-sm font-medium text-brand-onPrimary outline-none focus-visible:ring-2 focus-visible:ring-brand-onPrimary/60 disabled:opacity-60"
+        /*
+          `w-full` with a `min-w-0` parent, rather than `max-w-[12rem]`.
+
+          A `<select>`'s intrinsic width is its widest option, and a flex child
+          does not shrink below its intrinsic width unless it is told it may. So
+          at 375px the box stayed as wide as "Student 1 — ASST-2026-0001" and
+          overlapped the search icon and the bell to its right, which is exactly
+          what the bug report's screenshot shows. `truncate` could not help: the
+          element was never narrower than its content.
+        */
+        className="-ml-1 w-full max-w-full cursor-pointer truncate rounded border-0 bg-transparent px-1 py-0.5 text-sm font-medium text-brand-onPrimary outline-none focus-visible:ring-2 focus-visible:ring-brand-onPrimary/60 disabled:opacity-60 sm:max-w-[12rem]"
       >
         {students.map((child) => (
           <option

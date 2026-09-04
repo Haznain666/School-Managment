@@ -71,8 +71,30 @@ export function SchoolNavbar({
   const isPlatformSession = platformAdminEmail !== null && platformAdminEmail !== '';
 
   return (
-    <header className="flex h-16 shrink-0 items-center justify-between gap-4 bg-brand-primary px-4 text-brand-onPrimary sm:px-6">
-      <div className="flex min-w-0 items-center gap-3">
+    /*
+      ── Sprint 26: what changes below `sm`, and why ─────────────────────────
+      Reported as "the header is all cluttered" with a 375px screenshot: the
+      child switcher's text ran under the search icon and the bell. It was not a
+      wrapping bug. Nine things were competing for 375 pixels on one 64px row —
+      menu, logo, school name, portal label, child switcher, search, bell, role
+      chip, sign out — and the two that carry live state (which school, which
+      child) are the two that lost, because they are the only two that are text.
+
+      So on a phone the row now carries the menu, the logo, whichever context
+      the portal put in the slot, and the three controls. `gap-2` instead of
+      `gap-4`, and the three things that are duplicated elsewhere come off:
+
+        · the school name  — the logo is beside it and the drawer's title
+                             repeats it in full;
+        · the portal label — the sidebar it opens is the parent portal;
+        · the role chip    — it says "Parent" next to a portal called Parent.
+
+      They all return at `sm`. Nothing is removed from the product; three
+      redundant labels stop crowding out the one piece of state a parent
+      actually navigates by.
+    */
+    <header className="flex h-16 shrink-0 items-center justify-between gap-2 bg-brand-primary px-4 text-brand-onPrimary sm:gap-4 sm:px-6">
+      <div className="flex min-w-0 flex-1 items-center gap-2 sm:gap-3">
         {/*
           The only way to the navigation below 768px, where the sidebar does not
           render. It reaches `PortalFrame`'s state through context rather than a
@@ -99,10 +121,16 @@ export function SchoolNavbar({
           </span>
         )}
 
-        <div className="min-w-0">
+        {/*
+          Hidden below `sm` only when the portal put something in the slot. A
+          portal with nothing there — teacher, pupil, administrator — keeps its
+          school name on a phone, because otherwise the header would be a logo
+          and three icons and say nothing at all.
+        */}
+        <div className={contextSlot === undefined ? 'min-w-0' : 'hidden min-w-0 sm:block'}>
           <p className="truncate text-sm font-semibold">{schoolName}</p>
           {portalLabel !== undefined ? (
-            <p className="text-xs opacity-75">{portalLabel}</p>
+            <p className="truncate text-xs opacity-75">{portalLabel}</p>
           ) : null}
         </div>
 
@@ -173,7 +201,12 @@ export function SchoolNavbar({
             Platform Super Admin
           </span>
         ) : null}
-        <span className="rounded-full bg-brand-onPrimary/10 px-2 py-0.5 text-xs font-medium">
+        {/*
+          The platform-operator chip above stays at every width — it is a
+          safety signal and the one thing nobody may miss. This one is an
+          ordinary label and duplicates the portal name, so it waits for room.
+        */}
+        <span className="hidden rounded-full bg-brand-onPrimary/10 px-2 py-0.5 text-xs font-medium sm:inline-block">
           {ROLE_LABELS[role]}
         </span>
         <span className="hidden truncate text-sm opacity-90 sm:inline">

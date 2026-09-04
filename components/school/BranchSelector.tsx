@@ -1,7 +1,7 @@
 'use client';
 
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
-import { useState } from 'react';
+import { useState, useTransition } from 'react';
 
 import { Select } from '@/components/ui/Select';
 
@@ -35,6 +35,28 @@ import { Select } from '@/components/ui/Select';
  * campus is a navigation, so the control disables itself until the new render
  * arrives — otherwise a second change lands on top of the first and the two
  * race.
+ *
+ * ── And the pending state has to end by itself ───────────────────────────
+ * It is spelled `useTransition` and not `useState(false)`, and that is the
+ * whole of Sprint 26's item 1. `?branch=` changes the *search params* of the
+ * route this component is already mounted on, so React keeps the same instance
+ * across the navigation: a `setPending(true)` before `router.push` has nothing
+ * downstream that ever sets it back, the control stays disabled with
+ * *"Loading that campus…"* under it for ever, and the only way to pick a third
+ * campus is to reload the page. The dashboard behind it had updated correctly
+ * the whole time, which is what made it read as a stuck dropdown rather than a
+ * failed navigation.
+ *
+ * A transition's `isPending` is owned by React and falls back to false when the
+ * new render commits, whether that render is a different campus, the same one
+ * again, or an error. There is no path that leaves it stuck.
+ *
+ * ── `chosen` exists because the select is controlled ─────────────────────
+ * `selected` is a server prop and does not change until the new render lands,
+ * so a controlled `<select>` would snap visibly back to the old campus for the
+ * length of the request and then forward again. Holding the chosen id locally
+ * while the transition runs is what stops that flicker; it is display only and
+ * `resolveBranchScope` on the server remains the only thing that decides scope.
  */
 export function BranchSelector({
   options,
@@ -52,7 +74,8 @@ export function BranchSelector({
   const router = useRouter();
   const pathname = usePathname();
   const search = useSearchParams();
-  const [pending, setPending] = useState(false);
+  const [pending, startTransition] = useTransition();
+  const [chosen, setChosen] = useState<string | null>(null);
 
   if (options.length === 0) return null;
 
@@ -67,15 +90,18 @@ export function BranchSelector({
     // page four of a campus with two pages.
     next.delete('page');
 
-    setPending(true);
+    setChosen(value);
     const query = next.toString();
-    router.push(query === '' ? pathname : `${pathname}?${query}`);
+
+    startTransition(() => {
+      router.push(query === '' ? pathname : `${pathname}?${query}`);
+    });
   };
 
   return (
     <Select
       label={label}
-      value={selected ?? ''}
+      value={pending && chosen !== null ? chosen : (selected ?? '')}
       disabled={pending}
       hint={pending ? 'Loading that campus…' : undefined}
       options={[
