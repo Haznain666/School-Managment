@@ -345,9 +345,48 @@ announcement the school believes went out and nobody received.
 
 ---
 
+## RULE: a new permission key needs a migration, not just a line in the list
+
+**Adding a key to `PERMISSIONS` in `lib/permissions.ts` without widening the
+CHECK on `role_permissions.permission` ships a screen that fails the first time
+somebody uses it.**
+
+Enforced by `npm run check-branch-scope`, which runs in CI on every push. It
+compares the code's list against the newest migration defining
+`role_permissions_permission_check` and fails naming the missing key.
+
+| You are | Also do |
+| --- | --- |
+| adding a key to `PERMISSIONS` | a migration that drops and re-adds `role_permissions_permission_check` with the full list |
+| removing one | the same rewrite, plus decide what happens to rows already holding it |
+
+### Why the default matrix hides it
+
+`DEFAULT_ROLE_PERMISSIONS` lives in code, so a new permission **works
+immediately** for every role that holds it by default — no row in
+`role_permissions` is needed, and every browser test passes. The constraint is
+only reached when a school *overrides* the default: granting the key to another
+role, or taking it away. That is a screen most testing never touches, so the
+failure waits until a real administrator saves the permission matrix and gets a
+`23514` on a form that had never failed before.
+
+Sprint 26 did exactly this with `chat.oversight`. `0040`'s Step 10 comment had
+predicted it in those words two sprints earlier, and it still happened, because
+the prediction was in a migration nobody re-reads and not in this file.
+
+### Prove the constraint by attempt, not by reading it
+
+A CHECK that was dropped and never re-added leaves every row count identical.
+`scripts/apply-0042.mjs` is the pattern: it reads the definition out of
+`pg_constraint`, then **tries** a key outside the list and requires `23514`, and
+**tries** the new key and requires acceptance — both inside transactions that
+are always rolled back, with the row count read back afterwards.
+
+---
+
 ## Green build
 
-All ten must pass before anything is merged:
+All twelve must pass before anything is merged:
 
 ```
 npm run typecheck
@@ -357,10 +396,18 @@ npm run check-forms
 npm run check-address-phone
 npm run check-cnic
 npm run check-currency
+npm run check-theme
 npm run check-sprint-periods
 npm run check-accounting
+npm run check-branch-scope
 npm run build
 ```
+
+⚠ **`check-theme` and `check-branch-scope` were missing from this list and are
+in CI**, which is the worst way round: a sprint that ran exactly what this file
+named still went red on `main`. Sprint 26 shipped `chat.oversight` that way.
+This list and `.github/workflows/ci.yml` are the same set; if you add a check to
+one, add it to the other.
 
 Plus whichever of the other `check-*` scripts covers the area you touched —
 `check-reports`, `check-dashboard`, `check-portals`, `check-provisioning`,
@@ -391,9 +438,10 @@ hides behind an early return.
 
 Copy the script, rename it, and point it at your sprint's statements.
 
-`.github/workflows/ci.yml` runs the eight that need no database —
+`.github/workflows/ci.yml` runs the nine that need no database —
 `check-loaders`, `check-forms`, `check-address-phone`, `check-cnic`,
-`check-currency`, `check-theme`, `check-sprint-periods` and `check-accounting` —
+`check-currency`, `check-theme`, `check-sprint-periods`, `check-accounting` and
+`check-branch-scope` —
 on every push and pull request, so the loader, CNIC, currency and double-entry
 rules are enforced by the repository and not only by whoever remembers them. The rest execute against the real schema and stay on a
 machine that holds the credentials.
