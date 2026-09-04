@@ -355,6 +355,20 @@ async function main(): Promise<void> {
        limit 200`),
   );
 
+  /*
+   * The moderator's read of a pupil thread they are not seated in — the gap the
+   * Sprint 24/25 QA run found and closed. Narrow by construction:
+   * `student_profile_id IS NOT NULL` is the whole condition, so a staff-to-staff
+   * thread stays unreadable to somebody who is not in it.
+   */
+  await newTable('isModeratableConversation — the moderator context read', () =>
+    db.execute(sql`
+      select student_profile_id
+        from chat_conversations
+       where location_id = ${NOBODY} and id = ${NOBODY}
+       limit 1`),
+  );
+
   console.log('\nStatements over columns 0041 adds to existing tables:');
 
   await newColumn('chat_settings.sound_enabled, as the settings route reads it', () =>

@@ -6,6 +6,7 @@ import { withSchoolAuth } from '@/lib/api-auth';
 import { apiFailure, apiSuccess, handleApiError, readJsonBody } from '@/lib/api-response';
 import { containsLink } from '@/lib/chat-permissions';
 import {
+  isModeratableConversation,
   isParticipant,
   listMessages,
   postMessage,
@@ -19,6 +20,7 @@ import {
 } from '@/lib/chat-safeguarding';
 import { attachmentProblem, attachmentsForMessages, staffOnlyProblem } from '@/lib/chat-attachments';
 import { db } from '@/lib/drizzle';
+import { hasPermission } from '@/lib/permission-queries';
 import { getSchoolUserByUid } from '@/lib/school-queries';
 import { buildStoragePath, uploadBuffer } from '@/lib/storage';
 import { USER_ROLES } from '@/types/school-auth';
@@ -55,10 +57,31 @@ export const GET = withSchoolAuth<RouteContext>(
       const me = await getSchoolUserByUid(auth.locationId, auth.uid);
       if (me === null) return apiFailure('not_found', 'No account at this school.', 404);
 
-      if (!(await isParticipant(auth.locationId, conversationId, me.id))) {
-        // 404 rather than 403: whether a conversation exists is itself
-        // something a non-participant should not learn.
-        return apiFailure('not_found', 'No such conversation.', 404);
+      /*
+       * Seated, or a moderator reading a pupil's thread.
+       *
+       * The second is what `ROADMAP.md` agreed and every pupil thread's banner
+       * already promises: administrators may review conversations involving a
+       * student. It is narrow — `isModeratableConversation` is true only for
+       * threads *about a pupil*, so a staff-to-staff thread and a parent's fee
+       * query stay unreadable to somebody who is not in them.
+       *
+       * Without it a head investigating a report saw the one reported sentence
+       * and none of the conversation around it, which is the one thing a
+       * safeguarding investigation cannot work from.
+       */
+      const seated = await isParticipant(auth.locationId, conversationId, me.id);
+
+      if (!seated) {
+        const mayModerate =
+          (await hasPermission(auth.locationId, auth.role, 'chat.moderate')) &&
+          (await isModeratableConversation(auth.locationId, conversationId));
+
+        if (!mayModerate) {
+          // 404 rather than 403: whether a conversation exists is itself
+          // something a non-participant should not learn.
+          return apiFailure('not_found', 'No such conversation.', 404);
+        }
       }
 
       const sinceRaw = new URL(request.url).searchParams.get('since');

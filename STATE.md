@@ -4,7 +4,22 @@
 resume without re-deriving context. Updated at the end of every development
 step, before the session ends.
 
-**Last updated:** 2026-09-04 (**Sprint 24 — internal chat, part 1 — §5bn.**
+**Last updated:** 2026-09-04 (**Sprint 25 — chat part 2 — §5bo.** Broadcast to a
+whole class, Supabase Realtime, Web Push, a notification chime, the three-option
+student-removal dialog, and staff-only attachments. **`0041` is APPLIED and
+verified** — bookkeeping 41 → 42, three tables, five columns, and `chat_signals`
+added to the `supabase_realtime` publication.
+
+**Sprints 24 AND 25 are MERGED, DEPLOYED AND LIVE** as `8d8e697` (PR #58),
+verified by `/api/internal/build`. QA driven end to end against the live
+migrated database — see `test-cases/TEST-CASES-SPRINT-24-25.md`. Real-time was
+proved by watching an event arrive over the websocket, not by assuming
+`SUBSCRIBED` meant anything.
+
+⚠ **`VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` are still unset on Hostinger**, so
+Web Push is inert by design. Everything else is live.
+
+Previously: **Sprint 24 — internal chat, part 1 — §5bn.**
 `0040` is **APPLIED and verified**: 40 bookkeeping rows → 41, eight new tables,
 two widened CHECK constraints, one RLS policy, three columns, and every existing
 row count identical either side. `scripts/verify-0040.mjs` proved the two
@@ -11685,7 +11700,8 @@ Spec: `ROADMAP.md` §5 (decided 2026-08-07) plus `SPRINTS.md` §24. **Migration
 `0040` is APPLIED and verified — 2026-09-04.** The bookkeeping table held **40
 rows before and 41 after**, entry `id=41` stamped `1789041600000` to match the
 journal. `SPRINT-24-DDL-NOTES.md` says how, in what order, and what breaks if
-the code goes first. **`0041` is the next free migration number.**
+the code goes first. `0041` was taken by Sprint 25 — **`0042` is the
+next free migration number.**
 
 `0040` is the largest migration in this project: eight tables, two widened CHECK
 constraints, one RLS policy, three columns. It rewrites no existing row, so the
@@ -11818,3 +11834,127 @@ retention purge. All Sprint 25. `ROADMAP.md:550` — *"Do not build 24 and stop"
 a conditional `UPDATE` so seven processes send one rather than seven. It is the
 only thing reaching a parent who has not opened the portal, and it is why the
 sweep is in `instrumentation.ts` rather than deferred.
+
+## 5bo. Sprint 25 — chat part 2: broadcast, real-time, push, sound, removal, attachments — 2026-09-04
+
+Spec: `SPRINT-25-SPEC.md`. **Migration `0041` is APPLIED and verified —
+2026-09-04.** Bookkeeping 41 → 42, entry `id=42`. Three tables, five columns,
+one publication change. Every existing row count identical either side.
+**`0042` is the next free migration number.**
+
+**Sprint 24 and 25 both shipped in one PR (#58), merged as `8d8e697`, live and
+verified.** The apex `/api/internal/build` returns `8d8e69755e85`.
+
+### Three things I got wrong in Sprint 24's write-up, corrected here
+
+1. **`@supabase/supabase-js` was already a dependency** (2.112.2), along with
+   `@supabase/ssr`. §5bn says the repo "has deliberately never depended on it" —
+   that was reading `lib/storage.ts`'s raw-REST comment as a repo-wide policy. It
+   is a comment about *Storage*. Realtime needed no new dependency at all.
+2. **The Hostinger MCP is authenticated**, contrary to §5c-era notes. Env vars
+   and builds are reachable from a session that has it.
+3. **`ALTER PUBLICATION` was not the only silent failure in the real-time
+   path.** See below — there was a second one, and it was worse.
+
+### The real-time failure that nearly shipped, and how it was caught
+
+`SPRINTS.md:933` specified Postgres Changes on `chat_signals` with RLS as the
+gate. The policy is `USING (recipient_auth_user_id = auth.uid()::text)`.
+
+**`lib/supabase-auth.ts` sets the session cookie `httpOnly: true`.** So browser
+JavaScript cannot read the access token, a client built from `{url, anonKey}`
+authenticates as `anon`, `auth.uid()` is null, no row matches — and the channel
+reports **`SUBSCRIBED`** and delivers nothing, forever, with no error anywhere.
+The poll fallback would have covered for it and nobody would ever have reported
+it.
+
+Two things now stop that:
+
+- `/api/school/chat/realtime-config` returns the **access token** as well, held
+  in a closure in `useChatStream` and never in `localStorage`. The route's
+  docblock states what that costs: near nothing, because any XSS able to read a
+  cookie could already call that endpoint with it.
+- **The socket is proven, not assumed.** `SUBSCRIBED` is exactly what a channel
+  on an unpublished table reports, so nothing turns the poll off until a real
+  event has arrived over the wire. Any error, close or timeout puts it back.
+
+Proved in QA by subscribing from Node, inserting a `chat_signals` row and
+watching the event arrive. Channel state `joined`. **If real-time ever "stops
+working", check publication membership first** — `verify-0041.mjs` and
+`check-sprint25` both assert it.
+
+### The broadcast could not have been a group, and that is the design
+
+`chat_participants_one_student_idx` makes a second pupil in a conversation a
+`23505`. So "message the whole class" fans out into N *separate* `direct`
+threads, each carrying `broadcast_id`. QA confirmed: "Class 5 A and their
+parents" → `recipient_count 4`, four conversations, each holding exactly one
+pupil, with the parent seated `observer / can_post=false` on their child's
+thread **and** `member / can_post=true` in their own — simultaneously, without
+violating the one-posting-parent index, because they are different rows in
+different conversations.
+
+A refusal is a **skip reported by name**, not a failed send. `resolveGrant(...)
+.allowed === false` is the wrong test for "is this person banned" — it is false
+for nearly every pupil nearly always, since reply-only is the default. The right
+test is `matched.effect === 'deny'`, and `isBanned` in `lib/chat-broadcast.ts`
+is spelled that way.
+
+### The bug QA found, and the promise it was breaking
+
+**A moderator could read a reported *message* but not the *conversation* it sat
+in.** `ROADMAP.md` agreed admins may read conversations involving students, and
+every pupil thread's banner says so — but the transcript route required
+`isParticipant`, and an administrator is deliberately never seated. A head
+investigating a report saw one sentence with no context.
+
+`isModeratableConversation` closes it, narrowly: `chat.moderate` **plus**
+`student_profile_id IS NOT NULL`. Re-tested — admin reads a pupil thread (200),
+is still refused a staff↔parent thread (404).
+
+### Three findings from reading the code that changed the plan
+
+1. **There was no withdrawal endpoint.** `DELETE /students/[id]` has refused
+   since Sprint 19 with *"Withdraw the student instead"* and no such route
+   existed — a dead end the product had been pointing clerks at.
+   `POST /students/[id]/withdraw` now exists.
+2. **`transferStudent` is inter-campus only** — the pupil stays actively
+   enrolled. So `applyDeparture` is **safe by construction**: it acts only when
+   no active enrollment remains, which makes calling it from a campus move a
+   correct no-op. A rule expressed as a condition beats one expressed as
+   "remember not to call this there".
+3. **`sniffImageType` cannot sniff a PDF** and says so deliberately — two other
+   upload paths depend on it meaning "an image this product will store". The
+   `%PDF-` check therefore lives in `lib/chat-attachments.ts`, not in the shared
+   module.
+
+### A latent bug fixed in passing
+
+`filterByEmailPreference` mapped categories to columns with a ternary chain
+ending in an `else` that meant `attendance`. A fourth category would have
+silently filtered chat digests by whether the parent wanted *absence* emails.
+Now `satisfies Record<NotificationCategory, …>`.
+
+### Agent isolation — worth knowing before delegating
+
+`sprint-developer` runs in its **own worktree pinned to `main`** and cannot
+write into this one. It could not build on unmerged Sprint 24 code and correctly
+refused to reconstruct it. `sprint-devops` and `sprint-qa` were **not** isolated
+and worked normally. Delegate development only for work that lives on `main`.
+
+### Outstanding
+
+⚠ **`VAPID_PUBLIC_KEY` and `VAPID_PRIVATE_KEY` are NOT set on Hostinger.** Web
+Push is therefore inert — `pushConfigured()` gates every send, the UI reports it
+honestly and nothing errors, but no notification can be delivered until they are
+set. The values are in `.env.local` and documented in `.env.example`.
+
+Setting them is a **full replace** of the Hostinger variable set: all 27 existing
+keys with real values, plus these two, → 29. Neither is `NEXT_PUBLIC_*`, so a
+process restart suffices — no rebuild. This was deliberately not done from a
+session transcript, because a full replace means writing every platform secret
+into a chat log.
+
+⚠ **The deploy-verification workflow needs the FULL sha.** It does
+`cut -c1-12` and compares against a 12-character build id, so a 7-character sha
+never matches and reports a false failure.
