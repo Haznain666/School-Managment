@@ -32,6 +32,16 @@ import { useChatStream } from './useChatStream';
  * verbatim rather than mapping it to "Something went wrong". A refusal a person
  * cannot act on is the same as a bug to them.
  *
+ * ── One pane at a time on a phone, two on a desk ─────────────────────────
+ * Sprint 26. Below `lg` the list and the thread used to stack, so a phone
+ * showed a 32rem-tall inbox and the conversation began somewhere past the fold
+ * — every reply meant scrolling past the whole list to find the box, and the
+ * transcript's own scroll fought the page's. It is now master/detail: the list
+ * until something is open, the thread once something is, and a Back control
+ * that is the only way between them. Above `lg` both are visible and nothing
+ * has changed; `hidden lg:flex` rather than a media-query hook, so the two
+ * panes are one DOM and a resize does not remount the composer mid-draft.
+ *
  * ── The banner is a safeguarding control, not decoration ─────────────────
  * A thread involving a pupil says who can read it, to everybody in it.
  * `ROADMAP.md` agreed that administrators may read pupil conversations; the
@@ -156,7 +166,25 @@ export function ChatWorkspace({
       try {
         const rows = await loadInbox();
         const first = rows[0];
-        if (first !== undefined) setSelectedId(first.conversationId);
+
+        /*
+         * Opening the newest conversation is right on a desk, where both panes
+         * are on screen and the right-hand one would otherwise be an empty box
+         * beside a full list. It is wrong on a phone: below `lg` the panes are
+         * master/detail, so pre-selecting drops somebody *inside* a thread when
+         * they asked for their inbox — and the only way back to the list is a
+         * button they have not been given a reason to look for.
+         *
+         * QA caught this by opening Messages at 375px and finding the list
+         * hidden on arrival. Matching the same 1024px the `lg:` classes use,
+         * read in an effect so the server render and the first client render
+         * agree and nothing hydrates differently.
+         */
+        const roomForBoth =
+          typeof window !== 'undefined' &&
+          window.matchMedia('(min-width: 1024px)').matches;
+
+        if (first !== undefined && roomForBoth) setSelectedId(first.conversationId);
       } catch (caught) {
         setError(schoolErrorMessage(caught, 'Your conversations could not be loaded.'));
       }
@@ -311,6 +339,15 @@ export function ChatWorkspace({
 
   const nothingAtAll = conversations.length === 0 && !composing;
 
+  /*
+   * Whether the right-hand pane is the one to show on a phone.
+   *
+   * Composing counts: the "To" picker and the subject field are the thread
+   * pane's content, and leaving the list on screen underneath them was how a
+   * new conversation ended up half below the fold.
+   */
+  const paneOpen = composing || selectedId !== null;
+
   return (
     <div
       className="grid gap-4 lg:grid-cols-[20rem_1fr]"
@@ -326,7 +363,14 @@ export function ChatWorkspace({
         </div>
       </div>
 
-      <aside className="rounded-card border border-line bg-surface-raised">
+      <aside
+        className={cn(
+          'rounded-card border border-line bg-surface-raised',
+          // Master/detail below `lg`: the list steps aside once something is
+          // open. `lg:block` puts it back unconditionally on a desk.
+          paneOpen ? 'hidden lg:block' : 'block',
+        )}
+      >
         {canInitiate ? (
           <div className="border-b border-line p-3">
             <Button
@@ -385,7 +429,31 @@ export function ChatWorkspace({
         ) : null}
       </aside>
 
-      <section className="flex min-h-[24rem] flex-col rounded-card border border-line bg-surface-raised">
+      <section
+        className={cn(
+          'min-h-[24rem] flex-col rounded-card border border-line bg-surface-raised',
+          paneOpen ? 'flex' : 'hidden lg:flex',
+        )}
+      >
+        {/*
+          The way back, and it exists only where there is somewhere to go back
+          to. On a desk both panes are on screen, so a control that hides the
+          one you are reading would be a control that does nothing useful.
+        */}
+        <div className="border-b border-line p-3 lg:hidden">
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={() => {
+              setComposing(false);
+              setSelectedId(null);
+              setError(null);
+            }}
+          >
+            ← All conversations
+          </Button>
+        </div>
+
         {composing ? (
           <div className="space-y-3 border-b border-line p-4">
             <label className="block text-sm font-medium text-ink" htmlFor="chat-target">

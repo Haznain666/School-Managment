@@ -11,6 +11,7 @@ import { withSchoolAuth } from '@/lib/api-auth';
 import { apiFailure, apiSuccess, handleApiError, readJsonBody } from '@/lib/api-response';
 import { getApplicationDetail } from '@/lib/admissions-queries';
 import { db } from '@/lib/drizzle';
+import { autoIssuePortalAccess } from '@/lib/student-portal-access';
 import {
   enrollStudent,
   EnrollmentError,
@@ -244,10 +245,19 @@ export const POST = withSchoolAuth<RouteContext>(
         application.studentName,
       );
 
+      // Sprint 26: a converted applicant is a new enrolment like any other, so
+      // the same automatic sign-in applies. Never throws — the admission stands
+      // whatever happens to the email.
+      const portalAccess = await autoIssuePortalAccess({
+        locationId: auth.locationId,
+        studentProfileId: enrolled.studentProfileId,
+      });
+
       return apiSuccess(
         {
           studentProfileId: enrolled.studentProfileId,
           studentId: enrolled.studentId,
+          portalAccess,
         },
         201,
       );

@@ -68,6 +68,7 @@ export async function GET(request: NextRequest, context: RouteContext) {
         branchId: schoolUsers.branchId,
         isActive: schoolUsers.isActive,
         email: schoolUsers.email,
+        authUserId: schoolUsers.authUserId,
       })
       .from(schoolUsers)
       .where(
@@ -99,6 +100,33 @@ export async function GET(request: NextRequest, context: RouteContext) {
       return apiFailure(
         'no_account',
         'This member has no email address on file, so there is no account to open.',
+        409,
+      );
+    }
+
+    /*
+     * An address is not an account.
+     *
+     * `auth_user_id` is null until somebody has actually been through password
+     * setup, and a session minted for an address with nothing behind it is not
+     * a session: the cookie is written, this route answers `ok`, and the very
+     * next request bounces to the login page with no explanation anywhere.
+     *
+     * Found in Sprint 26 QA, where it cost an hour. A parent who had never
+     * accepted their invitation was signed in "successfully" and then refused
+     * by the parent portal, which looked exactly like a broken portal guard —
+     * so the search went to the layout, the tenancy check and the cookie, and
+     * the account itself was the last thing anybody looked at.
+     *
+     * Refused here rather than left to bounce, and named: the remedy is to send
+     * the member their access email, which is a different button on a different
+     * screen and nothing was pointing at it.
+     */
+    if (user.authUserId === null || user.authUserId === '') {
+      return apiFailure(
+        'no_account',
+        'This member has never set a password, so there is no account to open yet. ' +
+          'Send them their portal access first.',
         409,
       );
     }

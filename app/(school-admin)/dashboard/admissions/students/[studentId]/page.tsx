@@ -6,6 +6,7 @@ import { FeeClearancePanel } from '@/components/admissions/FeeClearancePanel';
 import { GuardianPanel } from '@/components/admissions/GuardianPanel';
 import { SiblingCard } from '@/components/admissions/SiblingCard';
 import { StudentDocumentsCard } from '@/components/admissions/StudentDocumentsCard';
+import { StudentPortalAccessCard } from '@/components/admissions/StudentPortalAccessCard';
 import { StudentProfileCard } from '@/components/admissions/StudentProfileCard';
 import { StudentDiscountPanel } from '@/components/fees/StudentDiscountPanel';
 import { Badge } from '@/components/ui/Badge';
@@ -31,6 +32,7 @@ import { getStudentCreditHistory } from '@/lib/fee-queries';
 import { listSiblings } from '@/lib/siblings';
 import { visibleScopeFor } from '@/lib/principal-visibility';
 import { requireSchoolPermission } from '@/lib/school-guard';
+import { portalAccessState } from '@/lib/student-portal-access';
 import { isUuid } from '@/lib/validation';
 
 export const metadata: Metadata = {
@@ -188,6 +190,18 @@ export default async function StudentProfilePage({
    * enforced is the wrong half of the pair to keep.
    */
   const canEdit = permissions.includes('students.update');
+
+  /*
+   * Sprint 26. The pupil's own sign-in — read after the scope check above, so a
+   * head who may not see this record never causes the read at all.
+   *
+   * `users.write` and not `students.update`: issuing a credential is the same
+   * act as inviting or deactivating a member, and it is what the route behind
+   * the button enforces. A button drawn on a permission the route does not
+   * check is the pair drifting apart, which is the mistake `canEdit` itself was
+   * fixed for in Sprint 18.
+   */
+  const portalAccess = await portalAccessState(locationId, student.studentProfileId);
   const canDelete = permissions.includes('students.delete');
   const current = enrollments.find((enrollment) => enrollment.isActiveYear) ?? null;
   const history = enrollments.filter((enrollment) => !enrollment.isActiveYear);
@@ -354,6 +368,20 @@ export default async function StudentProfilePage({
           {documentUploadProblem} The enrollment itself completed — add the
           missing documents below.
         </p>
+      )}
+
+      {portalAccess === null ? null : (
+        <StudentPortalAccessCard
+          studentProfileId={student.studentProfileId}
+          studentName={student.name}
+          canEdit={permissions.includes('users.write')}
+          access={{
+            ...portalAccess,
+            // Serialised rather than passed as a Date: the card is a client
+            // component and the boundary will not carry one.
+            issuedAt: portalAccess.issuedAt?.toISOString() ?? null,
+          }}
+        />
       )}
 
       <StudentDocumentsCard

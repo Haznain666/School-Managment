@@ -4,7 +4,36 @@
 resume without re-deriving context. Updated at the end of every development
 step, before the session ends.
 
-**Last updated:** 2026-09-04 (**Sprint 25 — chat part 2 — §5bo.** Broadcast to a
+**Last updated:** 2026-09-04 (**Sprint 26 — the campus dropdown, chat for every
+role, the pupil's own sign-in, and a phone-sized header — §5bp.**
+
+**There is NO migration. `0042` is still the next free number.** There is a
+**data step** and it is not optional: `scripts/apply-sprint26-data.mjs`
+(dry-run by default, `--apply` to write). It has been **applied** — chat is on
+at 3 of 3 schools and the student-login threshold is Year 6 at LGS, Class 6 at
+Askari, unset at Beacon House, which has no grades.
+
+**Run the data step BEFORE deploying the code, not after.** The code makes the
+`chat` module flag real on three more portals, so code-first would hide chat
+from *everybody* instead of from nobody.
+
+Three of the four reports were the same fault: a feature built, shipped, and
+with nothing pointing at it. **No school had a `chat` row in `school_modules` at
+all**, so the flag read false everywhere and gated exactly one thing — the admin
+sidebar link — while teachers and parents chatted at the same school. And
+`POST /students/[id]/credentials`, written in Sprint 24, **was called by nothing
+in the entire product**: no button on any screen, so no school had ever issued a
+pupil a login.
+
+⚠ **The trap that cost most of this session: `npm run build` into the same
+`.next` as `next dev` leaves the dev server serving a stale client bundle**, and
+the browser then caches it across a server restart. Three consecutive
+measurements were of code that had already been deleted, and one of them
+produced a *wrong conclusion I acted on*. Prove the bundle before trusting a
+browser reading — fetch the served script and grep it for a string the new code
+does not contain — or test against `npm run build && npm run start`.
+
+Previously: **Sprint 25 — chat part 2 — §5bo.** Broadcast to a
 whole class, Supabase Realtime, Web Push, a notification chime, the three-option
 student-removal dialog, and staff-only attachments. **`0041` is APPLIED and
 verified** — bookkeeping 41 → 42, three tables, five columns, and `chat_signals`
@@ -12012,3 +12041,151 @@ there — any script comparing env key sets must use `^[A-Z_][A-Z0-9_]*=`.
 build `124490117b11` restarted 13:27; both school subdomains serve; all twelve
 admin modules and both chat screens return 200; every chat API endpoint
 responds, with the moderation queue correctly showing one open report.
+
+## 5bp. Sprint 26 — the campus dropdown, chat for every role, the pupil's own sign-in, and a phone-sized header — 2026-09-04
+
+Four reports from the product owner. **No migration** — `0042` is still free.
+Release notes: `release-notes/RELEASE-NOTES-SPRINT-26.md`.
+
+### The data step is part of the deploy, and it goes first
+
+`scripts/apply-sprint26-data.mjs`. Dry-run by default; `--apply` writes. Both
+halves are derived per school rather than typed, which is why it is a script:
+
+| School | chat module | student sign-in starts at |
+| --- | --- | --- |
+| Lahore Grammar | on | Year 6 (`sort_order` 9) |
+| Askari | on | Class 6 (9) — **was Class 2 (5)** |
+| Beacon House | on | unset — the school has no grades at all |
+
+**Order matters.** The code makes the `chat` flag real on three more portals, so
+applying the code before the data would hide chat from everybody rather than
+from nobody. Reversible either way: delete the module row, null the column.
+
+### `sort_order` is not a grade number
+
+The owner's rule was "grade 6 or above". There is no column that means grade 6.
+At **both** LGS and Askari the class called "6" sits at `sort_order` **9**,
+because both run three pre-primary years first — so a literal `sort_order >= 6`
+would have issued portal logins to eight-year-olds at both schools. The
+threshold is therefore the school's own
+`chat_school_settings.student_login_min_grade_sort_order`, and the script finds
+each school's "6" **by name, once**, then stores the position. That keeps
+meaning the same thing after a rename, after a grade is inserted below it, and
+at the next school that names its classes differently.
+
+### Three of the four reports were features with nothing pointing at them
+
+1. **`chat` had no row in `school_modules` at any school.** The flag gated one
+   sidebar entry and nothing else — not the page it linked to, not one of the
+   twelve `/api/school/chat/**` routes, and not the teacher, parent or pupil
+   navigations, which never consulted it. The flag now means one thing on all
+   four portals and the pages enforce it.
+2. **`POST /students/[id]/credentials` was called by nothing.** Written in
+   Sprint 24, no button on any screen, so no school had ever issued a pupil a
+   login. §5bn describes the mechanism at length and never noticed that nothing
+   invoked it.
+3. **`DashboardPeriodSelector` had the campus dropdown's exact bug**, on the
+   same screen, unreported — because nobody had got past the campus one.
+
+### The campus dropdown, and two repairs that looked right and were not
+
+`setPending(true)` before `router.push`, with nothing to clear it: `?branch=`
+changes the *search params* of the route the component is already mounted on, so
+it is never remounted.
+
+**Both obvious fixes were tried in a browser and both failed.** `useTransition`
+left `isPending` true twenty seconds after the new dashboard had rendered. An
+effect watching the new `?branch=` never fired, because **this component is not
+re-rendered when the navigation lands** — the page's content changes and its
+props change, and this subtree is not re-rendered with them. Worth knowing
+before writing the same fix a third time.
+
+The answer was to delete the state. `components/ui/RouteProgress.tsx` is mounted
+in the root layout, counts every in-flight navigation by intercepting the
+`RSC: 1` fetch, and carries its own never-settles fallback. The per-control
+indicator was duplicating it and could wedge. The race the `disabled` guarded
+against is benign: the router supersedes the first push with the second and the
+page is idempotent per URL.
+
+### Oversight is a second permission, and reach is not the same question as moderation
+
+`chat.oversight` — School Admin reads the school, Principal reads their
+campuses, a Principal given grades reads those grades' pupil threads **plus all
+of their campuses' staff-to-staff**, Branch Admin reads nothing.
+`check-sprint26` asserts that last absence, because a tidy-up that grants the
+whole `chat` group to every administrative role would otherwise undo it
+silently.
+
+⚠ **QA found the rule held in the list and not at the door.** `chat.moderate`
+opens any thread *about a pupil* and never asked whose, so Askari's Principal 1
+(grades stop at Class 4) could not see a Class 5 thread in their list and could
+read it by asking for it by id. `resolveModerationReach` derives reach from what
+the caller *is*, independently of the door — and deliberately **not** by
+requiring oversight for both, because a Branch Admin holds `chat.moderate` and
+not `chat.oversight`, and folding them together would have refused them every
+reported message at their own campus.
+
+Verified across three callers: Askari School Admin 15 conversations and Class 5
+→ 200; Askari Principal 1 six conversations (all staff-only) and Class 5 →
+**404**; LGS Branch Admin oversight API **403**, staff thread **404**.
+
+### The pupil credential now goes to the guardians
+
+The login ID is still the `.invalid` address and the child is still never
+emailed; the password goes to the guardians at the addresses the school already
+holds, and **is no longer returned to the browser at all**. Sent automatically
+on a new enrolment, on a converted application, and on a promotion into an
+eligible class; re-sent from a button on the profile.
+
+⚠ **The trade, and it is a real one.** A password in a parent's inbox is
+readable by anyone who can open that inbox and reading it leaves no trace. The
+counter slip had the opposite profile. The owner chose this deliberately — a
+clerk handing a password to a child does not survive a Pakistani school office —
+and the mitigations are that there is no recovery flow to compromise, only
+reissue, and that a pupil account reaches a pupil's own portal and nothing else.
+
+**Deliberately not wired to the bulk import.** Eight hundred migrated children
+are not "a new student enrolling", and mailing eight hundred families a password
+because somebody imported a spreadsheet would put the office on the phone for a
+week.
+
+### Four defects found by driving it, three in code this sprint did not write
+
+- **The chat digest was emailing pupils at their `.invalid` address.** Found by
+  reading `email_outbox`. Nothing was delivered — the TLD cannot resolve — but
+  every pupil produced a queue row per hour that could only end `failed`,
+  burying real delivery failures, and §5bn's claim that no code path can email a
+  minor had quietly stopped being true. `isStudentCredentialAddress` existed for
+  this and was called nowhere.
+- **Messages opened *inside* a thread on a phone**, because the workspace
+  auto-selects the newest conversation — right for two panes, wrong for
+  master/detail. Now gated on the same 1024px the `lg:` classes use.
+- **The portal-access card contradicted itself**: "Access sent" above "Year 2 is
+  below it". A pupil can be below a threshold *and* already have a sign-in,
+  because the school raised the bar afterwards. Nothing revokes a credential
+  when the threshold moves; the card now says so.
+- **An emergency link for a member with no `auth_user_id` reported success** and
+  then bounced with no explanation. This cost an hour: a parent was signed in
+  "successfully" and refused by the parent portal, which looked exactly like a
+  broken portal guard. Refused and named now. Four of the five parent accounts
+  in the test data have never set a password — that is test data, not a defect.
+
+### ⚠ The measurement trap, and it produced a wrong conclusion
+
+**`npm run build` into the same `.next` as `next dev` leaves the dev server
+serving a stale client bundle**, and the browser caches that bundle across a
+server restart *and* across deleting `.next`. Three consecutive browser readings
+in this session were of code that had already been deleted, and one of them —
+"`useTransition` does not settle" — was acted on before it was disproved.
+
+Two ways out, both cheap:
+
+- fetch the served script and grep it for a string the new code does **not**
+  contain, before trusting any browser reading;
+- or test against `npm run build && npm run start`, which is what ships anyway.
+  Every acceptance result in this sprint's release notes was taken there.
+
+Note also that `document.querySelector('aside')` finds the **portal sidebar**,
+not a page's own aside — one round of measurements was wrong for that reason
+alone.

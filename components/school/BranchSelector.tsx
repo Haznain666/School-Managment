@@ -1,7 +1,6 @@
 'use client';
 
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
-import { useState } from 'react';
 
 import { Select } from '@/components/ui/Select';
 
@@ -29,12 +28,41 @@ import { Select } from '@/components/ui/Select';
  * dropdown with one option is a question with one answer, and it invites a
  * click that cannot change anything.
  *
- * ── Pending state is this component's job ────────────────────────────────
- * CLAUDE.md: `loading.tsx` covers the server render, and anything a client
- * fetches after mount carries its own visible pending state. Changing the
- * campus is a navigation, so the control disables itself until the new render
- * arrives — otherwise a second change lands on top of the first and the two
- * race.
+── Why this control has no pending state of its own ─────────────────────
+ * It had one — `useState(false)` set to true immediately before `router.push`
+ * — and that was Sprint 26's item 1. Changing the parameter changes the *search
+ * params* of the route the component is already mounted on, so it is not
+ * unmounted and remounted; nothing downstream ever set the flag back, and the
+ * control stayed disabled with a "Loading…" hint under it until the page was
+ * reloaded. The screen behind it updated correctly the whole time, which is
+ * what made it read as a stuck dropdown rather than a failed navigation.
+ *
+ * Two obvious repairs were tried in a browser against this app and **both
+ * failed**, which is why neither is here:
+ *
+ *   · `useTransition` around the push — `isPending` was still true twenty
+ *     seconds after the new page had finished rendering;
+ *   · clearing the flag from an effect on the new `?param=` — the effect never
+ *     ran, because this component does not re-render when the navigation lands.
+ *     The page's content changes and its props change; this subtree is not
+ *     re-rendered with them.
+ *
+ * Each of those is the same bug wearing a better disguise, and the second is
+ * worse than the first because it looks correct in review.
+ *
+ * So there is no local pending state at all, and there does not need to be:
+ * `components/ui/RouteProgress.tsx` is mounted once in the root layout, counts
+ * every in-flight App Router navigation by intercepting the `RSC: 1` fetch that
+ * `router.push` issues, and carries its own fallback timer for a request that
+ * never settles. It is the product's existing answer to exactly this gap, and
+ * CLAUDE.md names it as such. A second, private, per-control indicator was
+ * duplicating it — and unlike it, could wedge.
+ *
+ * ── And the race the `disabled` was for is benign ────────────────────────
+ * Two changes in quick succession are two pushes to the same route with
+ * different search params. The router supersedes the first with the second and
+ * the page is idempotent per URL, so the loser of that race is a render nobody
+ * sees. That is a much smaller cost than a control which cannot be used twice.
  */
 export function BranchSelector({
   options,
@@ -52,7 +80,6 @@ export function BranchSelector({
   const router = useRouter();
   const pathname = usePathname();
   const search = useSearchParams();
-  const [pending, setPending] = useState(false);
 
   if (options.length === 0) return null;
 
@@ -67,7 +94,6 @@ export function BranchSelector({
     // page four of a campus with two pages.
     next.delete('page');
 
-    setPending(true);
     const query = next.toString();
     router.push(query === '' ? pathname : `${pathname}?${query}`);
   };
@@ -76,8 +102,6 @@ export function BranchSelector({
     <Select
       label={label}
       value={selected ?? ''}
-      disabled={pending}
-      hint={pending ? 'Loading that campus…' : undefined}
       options={[
         ...(allowsAll ? [{ value: '', label: 'All campuses' }] : []),
         ...options.map((option) => ({ value: option.id, label: option.name })),

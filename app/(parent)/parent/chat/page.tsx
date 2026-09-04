@@ -1,9 +1,10 @@
 import type { Metadata } from 'next';
 
+import { ChatDisabledNotice } from '@/components/chat/ChatDisabledNotice';
 import { ChatWorkspace } from '@/components/chat/ChatWorkspace';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { requireSchoolRole } from '@/lib/school-guard';
-import { getSchoolUserByUid } from '@/lib/school-queries';
+import { getModuleFlags, getSchoolUserByUid } from '@/lib/school-queries';
 
 export const metadata: Metadata = {
   title: 'Messages',
@@ -26,6 +27,9 @@ export const runtime = 'nodejs';
  */
 export default async function ParentChatPage() {
   const { claims, locationId } = await requireSchoolRole(['parent']);
+  // Sprint 26: the module flag is honoured on every portal, not only the
+  // administrative one. A link is not a permission, so the page refuses too.
+  if (!(await getModuleFlags(locationId)).chat) return <ChatDisabledNotice />;
   const me = await getSchoolUserByUid(locationId, claims.uid);
 
   if (me === null) {

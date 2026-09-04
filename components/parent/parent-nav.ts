@@ -17,19 +17,39 @@ import type { PortalNavItem } from '@/components/school/PortalSidebar';
  * entry carries an unread count. A badge that showed a number from build time
  * would be worse than no badge — it would be a number that never changed.
  */
-export function parentNav(unreadNotices = 0, unreadChats = 0): PortalNavItem[] {
+/**
+ * ── `chatEnabled` — Sprint 26 ────────────────────────────────────────────
+ * The `chat` module flag now gates this entry, as it has always gated the
+ * administrative sidebar's. Before Sprint 26 it gated only that one, which had
+ * two consequences and both were defects: an administrator whose school had
+ * never had the flag set saw no Messages link while every teacher, parent and
+ * pupil at the same school did, and a school that switched Chat off kept a full
+ * inbox on three of its four portals. The flag means one thing now — chat is on
+ * here, or it is on nowhere.
+ *
+ * The page behind the link enforces it too. A link is not a permission.
+ */
+export function parentNav(
+  unreadNotices = 0,
+  unreadChats = 0,
+  chatEnabled = true,
+): PortalNavItem[] {
   return [
     { label: 'My Dashboard', href: '/parent', icon: 'dashboard' },
     { label: 'My Children', href: '/parent/children', icon: 'children' },
     { label: 'Attendance', href: '/parent/attendance', icon: 'attendance' },
     { label: 'Results', href: '/parent/results', icon: 'marks' },
     { label: 'Fees', href: '/parent/fees', icon: 'fees' },
-    {
-      label: 'Messages',
-      href: '/parent/chat',
-      icon: 'chat',
-      ...(unreadChats > 0 ? { badge: unreadChats } : {}),
-    },
+    ...(chatEnabled
+      ? ([
+          {
+            label: 'Messages',
+            href: '/parent/chat',
+            icon: 'chat',
+            ...(unreadChats > 0 ? { badge: unreadChats } : {}),
+          },
+        ] satisfies PortalNavItem[])
+      : []),
     {
       label: 'Announcements',
       href: '/parent/announcements',
