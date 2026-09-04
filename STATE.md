@@ -11958,3 +11958,57 @@ into a chat log.
 ⚠ **The deploy-verification workflow needs the FULL sha.** It does
 `cut -c1-12` and compares against a 12-character build id, so a 7-character sha
 never matches and reports a false failure.
+
+### Hostinger environment, rebuilt 2026-09-04 — 27 keys to 21
+
+`VAPID_PUBLIC_KEY` and `VAPID_PRIVATE_KEY` are now set, so **Web Push is live**.
+Verified on the production subdomain: `GET /api/school/chat/realtime-config`
+returns the public key, the Supabase URL, the anon key and an access token.
+
+The Hostinger env API is **full-replace only** — there is no add-one endpoint,
+and the REST path could not be discovered by probing (every candidate 404s;
+`/api/hosting/v1/websites/{domain}` answers 405, so the base is right and the
+sub-resource name is not guessable). So the whole set had to be rewritten, and
+three things came out of doing that carefully:
+
+**Eight of the 27 keys were dead.** `FIREBASE_SERVICE_ACCOUNT_KEY` (3.2 KB),
+the five `NEXT_PUBLIC_FIREBASE_*`, `NEXTAUTH_SECRET` and `NEXTAUTH_URL`. Neither
+`firebase` nor `next-auth` is a dependency, nothing imports either, and
+`app/api/auth/[...nextauth]/route.ts` says in its own docblock *"The path is
+`[...nextauth]` for historical reasons; this is not NextAuth."* They were
+dropped rather than carried forward.
+
+⚠ **The abandoned Firebase service-account key should be revoked in Google
+Cloud.** It is no longer read by anything here, which means nobody would notice
+if it were used elsewhere.
+
+**Two values in `.env.local` are local-only and must never be copied to
+production verbatim:**
+
+| Key | `.env.local` | Production |
+| --- | --- | --- |
+| `INVITE_LINK_BASE_URL` | `http://localhost:3000` | `https://schoolhub.codexmill.com` |
+| `SUPER_ADMIN_PASSWORD_HASH` | `"\$2b\$12\$…"` — shell-escaped | the raw 60-char bcrypt hash |
+
+The first decides whether an invitation email carries a working subdomain link
+or a `localhost` one (`lib/invite-links.ts` explains the branch). The second is
+the §5bl trap: a damaged hash never throws, it just answers "wrong password"
+for ever. `scripts/smoke-test-live.mjs` proved the hash landed correctly —
+**401 `invalid_credentials`, not 500 `server_misconfigured`**, which is the
+difference between "bcrypt ran" and "the env is missing".
+
+`SMTP_PASS` is deliberately **not** on Hostinger. Only `SMTP_PASS_B64` is —
+that is the whole point of the base64 form (§5bl), and putting the raw one on a
+panel reintroduces the `#`-truncation it exists to avoid.
+
+⚠ **A session transcript printed `SMTP_PASS_B64` in clear on 2026-09-04**
+because a masking regex was `^[A-Z_]+=`, which does not match a key containing
+digits. **Rotate the Titan mailbox password**, regenerate with
+`npm run smtp-encode`, and update both `.env.local` and Hostinger. The same
+regex bug also made `SMTP_PASS_B64` look absent from `.env.local` when it was
+there — any script comparing env key sets must use `^[A-Z_][A-Z0-9_]*=`.
+
+**Post-change live verification:** `smoke-test-live.mjs` DEPLOYMENT HEALTHY;
+build `124490117b11` restarted 13:27; both school subdomains serve; all twelve
+admin modules and both chat screens return 200; every chat API endpoint
+responds, with the moderation queue correctly showing one open report.
