@@ -17,8 +17,10 @@
  * school's own administrator would report it as data loss.
  *
  * ── What it covers ───────────────────────────────────────────────────────
- *  1. The catalogue: `branches.manage` is registered in both places, and
- *     migration `0035`'s CHECK is the same list as `PERMISSIONS`.
+ *  1. The catalogue: `branches.manage` is registered in both places, and the
+ *     `role_permissions` CHECK is the same list as `PERMISSIONS`. That CHECK is
+ *     read from **whichever migration last rewrote it**, not from a named file
+ *     — see `latestMigrationDefining`, and the CI failure that earned it.
  *  2. The resolver exists and exports the whole surface every caller needs.
  *  3. No `lib/*.ts` compares a **nullable** branch column with `eq`.
  *  4. Every exported `list*` function that selects from one of the nine
@@ -70,6 +72,39 @@ function section(title: string): void {
 
 const MIGRATION_PATH = 'db/migrations/0035_sprint19a_branch_boundary.sql';
 const MIGRATION = readFileSync(MIGRATION_PATH);
+
+/**
+ * The migration that *currently* defines `role_permissions_permission_check`.
+ *
+ * ── Why this is a search and not a constant ──────────────────────────────
+ * This assertion used to read `0035` by name, which was correct for exactly as
+ * long as `0035` was the last migration to touch that constraint. Sprint 24's
+ * `0040` widened it for the four `chat.*` keys and this check failed in CI
+ * saying the keys were "missing" — from a file that is no longer the authority.
+ *
+ * The claim being made is *"the live constraint admits every key in
+ * `PERMISSIONS`"*, and the file that answers it is the newest one to rewrite
+ * it. Naming a file makes the check stale the next time somebody widens the
+ * constraint correctly, which is the opposite of what it is for.
+ */
+function latestMigrationDefining(constraint: string): { path: string; source: string } {
+  const needle = `ADD CONSTRAINT "${constraint}"`;
+
+  const candidates = readdirSync('db/migrations')
+    .filter((name) => name.endsWith('.sql'))
+    .sort()
+    .reverse();
+
+  for (const name of candidates) {
+    const path = `db/migrations/${name}`;
+    const source = readFileSync(path);
+    if (source.includes(needle)) return { path, source };
+  }
+
+  return { path: '(none)', source: '' };
+}
+
+const PERMISSION_CHECK = latestMigrationDefining('role_permissions_permission_check');
 
 /**
  * The nine tables of decision D1, by their Drizzle export name and their SQL
@@ -151,9 +186,12 @@ ok(
  * schema file and the live database disagree — which is the exact failure that
  * constraint exists to prevent, and STATE.md §5aa records the cost of it.
  */
-const checkClause = /"permission" IN \(([\s\S]*?)\)\s*\);/.exec(MIGRATION);
+const checkClause = /"permission" IN \(([\s\S]*?)\)\s*\);/.exec(PERMISSION_CHECK.source);
 
-ok(checkClause !== null, `${MIGRATION_PATH} widens role_permissions_permission_check`);
+ok(
+  checkClause !== null,
+  `${PERMISSION_CHECK.path} widens role_permissions_permission_check`,
+);
 
 if (checkClause !== null) {
   const inMigration = new Set(
@@ -473,7 +511,7 @@ ok(
 
 console.log(
   failures === 0
-    ? `\nPASS — ${String(checks)} assertions across the catalogue, the resolver, the listings and migration 0035.`
+    ? `\nPASS — ${String(checks)} assertions across the catalogue, the resolver, the listings, migration 0035 and ${PERMISSION_CHECK.path}.`
     : `\nFAIL — ${String(failures)} of ${String(checks)} assertions failed.`,
 );
 

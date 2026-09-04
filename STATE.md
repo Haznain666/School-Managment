@@ -4,7 +4,18 @@
 resume without re-deriving context. Updated at the end of every development
 step, before the session ends.
 
-**Last updated:** 2026-09-03 (**Sprint 23 — the principal's grades, the class
+**Last updated:** 2026-09-04 (**Sprint 24 — internal chat, part 1 — §5bn.**
+`0040` is **APPLIED and verified**: 40 bookkeeping rows → 41, eight new tables,
+two widened CHECK constraints, one RLS policy, three columns, and every existing
+row count identical either side. `scripts/verify-0040.mjs` proved the two
+safeguarding indexes *refuse* rather than merely exist — two pupils in one
+conversation and two posting parents both rejected with `23505`, two observing
+parents permitted, all inside transactions that were rolled back.
+`npm run check-sprint24` executes 28 statements against the migrated schema,
+including the four-table `listInbox` join with its aliased aggregate. Build
+green; the code is **not yet merged or deployed**.
+
+Previously: **Sprint 23 — the principal's grades, the class
 teacher, and the discount that would not come off — §5bm. Shipped: `0039`
 applied and verified against the catalogue first, then the code, in that order,
 because five surfaces are a 500 without it.
@@ -11249,7 +11260,8 @@ Spec: `SPRINT-23-SPEC.md`, all nine sections. **Migration `0039` is APPLIED and
 verified — 2026-09-03.** The bookkeeping table held **39 rows before and 40
 after**, entry `id=40` stamped `1788609600000` to match the journal.
 `SPRINT-23-DDL-NOTES.md` says how, in what order, and what breaks if the code
-goes first. **`0040` is the next free migration number.**
+goes first. `0040` was taken by Sprint 24 — **`0041` is the next free
+migration number.**
 
 ### How `0039` was applied, and how it was verified
 
@@ -11666,3 +11678,143 @@ NULL.** `ON DELETE SET NULL` is §5bl's deliberate choice — an employment reco
 outlives a login — so a cleanup that removes only the member leaves an orphan.
 Not a defect; it had to be deleted explicitly here and the next cleanup will hit
 the same thing.
+
+## 5bn. Sprint 24 — internal chat, part 1 — 2026-09-04
+
+Spec: `ROADMAP.md` §5 (decided 2026-08-07) plus `SPRINTS.md` §24. **Migration
+`0040` is APPLIED and verified — 2026-09-04.** The bookkeeping table held **40
+rows before and 41 after**, entry `id=41` stamped `1789041600000` to match the
+journal. `SPRINT-24-DDL-NOTES.md` says how, in what order, and what breaks if
+the code goes first. **`0041` is the next free migration number.**
+
+`0040` is the largest migration in this project: eight tables, two widened CHECK
+constraints, one RLS policy, three columns. It rewrites no existing row, so the
+census either side is the evidence — `schools` 3 → 3, `school_users` 27 → 27,
+`role_permissions` 11 → 11, `notification_preferences` 0 → 0 — and the exit code
+is not.
+
+### The two indexes are the module, and they were *tried* rather than read
+
+Everything else in this sprint is arrangeable. This is not:
+
+```sql
+CREATE UNIQUE INDEX chat_participants_one_student_idx
+  ON chat_participants (conversation_id) WHERE is_student;
+CREATE UNIQUE INDEX chat_participants_one_posting_parent_idx
+  ON chat_participants (conversation_id) WHERE is_parent AND can_post;
+```
+
+The brief named four abuses — pupils flooding one another, forming their own
+groups, passing images around, passing links to where they formed those groups.
+**Every one needs a pupil to reach another pupil.** So it is not a permission, a
+setting or a rule in a resolver: at most one pupil per conversation, decided by
+Postgres under one lock. A resolver is bypassed by the next route that forgets
+to call it; this cannot be, and getting it back needs a migration somebody has
+to write and defend.
+
+`scripts/verify-0040.mjs` does something no earlier verify script does, and it
+is worth copying: **it proves the refusal instead of reading `pg_indexes` and
+believing it.**
+
+```
+  ok    two pupils in one conversation — refused with 23505
+  ok    two parents who can both post — refused with 23505
+  ok    two parents observing, plus the pupil and a teacher — permitted, as intended
+```
+
+Every attempt runs in a transaction that is always rolled back, and the script
+then asserts both tables are empty. The third assertion is the one that keeps
+the design honest — the parent index is narrowed to seats that can *post*, so a
+mother and a father may both observe their child's thread, and a future
+"tidy-up" that flattens it to one-parent-per-conversation fails here rather than
+in a school.
+
+⚠ **The first run of that script failed, correctly.** It picked
+`schools limit 1`, which has two accounts, and reported "cannot exercise the
+indexes" rather than skipping. It now picks the tenant with the most
+`school_users`. A verification that quietly skips is worse than one that fails.
+
+### `check-sprint24` caught the trap it exists for, on its first run
+
+It asserted the pupil branch of `resolveReachable` and **failed**. That branch
+opens with `getActiveAcademicYear`, which answers null for a nobody-tenant, and
+returns before it reaches `chat_grants` at all — so "it did not throw" was
+evidence about a statement Postgres had never seen. That is trap 2 from
+`CLAUDE.md` working exactly as written. It is now documented as not executed
+with its substitute named (`liveGrantsFor` across all five scope shapes).
+
+28 statements, all executed post-migration. The one it mainly exists for is
+`listInbox`: four tables and an ordered `string_agg` over `school_users.name` in
+a statement that also joins `school_users` — the exact shape Sprint 18 shipped a
+42702 with. Aliased `chat_counterparty_name`, which no joined table has, and now
+proven to plan.
+
+### Four places this extends the recorded §5 design, and why each was necessary
+
+1. **Pupils could not sign in.** `lib/enrollment.ts` mints a sentinel phone
+   (`student:GVS-2025-0001`) engineered so a pupil *cannot* request a passcode,
+   and gives them no email and no `auth_user_id`. Every control §5 describes —
+   the initiation toggle, the reply window, the class opened for two hours —
+   governed a person with no way to reach the product.
+   `lib/student-credentials.ts` mints
+   `<admission-number>@students.<slug>.invalid`: RFC 2606 reserves the TLD, so
+   it is an identity for GoTrue and **provably never a delivery target**, which
+   is the property that matters — no code path can accidentally email a minor.
+   It goes in the existing `email` column, deliberately, because a second
+   address column is a second thing for the login lookup to disagree with and
+   §5bk is the incident report about what that costs.
+
+2. **The per-teacher opt-in was too coarse.** §5 has one switch per teacher; the
+   product owner needs per-pupil, per-section and time-boxed. `chat_grants` is
+   one table where four controls used to be four features, and
+   `granted_by_rank` is the load-bearing column: rank is compared **before**
+   specificity, so a section-scoped teacher allow cannot beat a school-scoped
+   principal deny. Without it a ban is advisory and fails *silently*. The DELETE
+   half checks rank too — a junior who cannot out-vote a ban could otherwise
+   just delete it.
+
+3. **RLS cannot be the gate, and `SPRINTS.md:933` says it is.** The app connects
+   as the pooler user and the service role, neither subject to RLS; the
+   browser's GoTrue JWT goes stale on a role change, which `SPRINTS.md:1398`
+   forbids trusting for authorization. So `chat_signals` carries
+   `{conversationId, messageId}` and nothing readable, the API serves content
+   under `withSchoolAuth`, and RLS is back to being what the tenancy rules
+   already call it — *additional* defence. It also keeps the socket pointed at
+   Supabase rather than at a LiteSpeed proxy nobody has measured for WebSocket
+   behaviour.
+
+4. **The parent observes the child's thread**, read-only and disclosed. §5
+   agreed administrators may review; the parent seat is this sprint's decision.
+   The disclosure banner is the half that is easy to drop and the half that
+   makes it a deterrent rather than surveillance.
+
+### A latent bug found on the way, in code this sprint did not otherwise touch
+
+`filterByEmailPreference` mapped category → column with a ternary chain ending
+in an `else` that meant `attendance`. Adding a fourth category would have
+silently filtered chat digests by whether the parent wanted **absence** emails —
+a wrong answer nothing anywhere would have reported. It is now
+`satisfies Record<NotificationCategory, …>`, so the compiler names the gap.
+
+### The transport is polling, and the code says so
+
+`components/chat/useChatStream.ts` polls `/api/school/chat/signals` every 8s
+while the tab is visible. **This is not Supabase Realtime yet**, and the
+docblock states that plainly rather than implying otherwise.
+
+The server half is Realtime-ready — the table, the RLS, the policy. The client
+half needs `@supabase/supabase-js`, which this repo has deliberately never
+depended on (`lib/storage.ts` uses raw REST and says why) and which warns on the
+Node 20 the host pins. That is a dependency decision to make **against the real
+host**, so it is Sprint 25's first task. The contract behind the hook does not
+change when it lands, because the signal never carried content in the first
+place.
+
+### What is deliberately not built
+
+Groups, announcement channels, attachments, voice notes, Web Push, and the
+retention purge. All Sprint 25. `ROADMAP.md:550` — *"Do not build 24 and stop"*
+— is answered by the digest email: one summary per person per hour, claimed with
+a conditional `UPDATE` so seven processes send one rather than seven. It is the
+only thing reaching a parent who has not opened the portal, and it is why the
+sweep is in `instrumentation.ts` rather than deferred.

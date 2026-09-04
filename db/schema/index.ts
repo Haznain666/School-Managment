@@ -165,3 +165,36 @@ export * from './student-credits';
 // which is why it sits here rather than under Fees. After `branches`, which it
 // references with a nullable `branch_id` meaning *shared*.
 export * from './bank-accounts';
+
+// Sprint 24 — internal chat, part 1. Dependency order, and it is worth reading
+// in it: the two settings tables reference nothing but `schools`, a conversation
+// references a branch and a pupil, and everything after it references the
+// conversation.
+//
+// `chat-participants` is where the module's safeguarding actually lives. Its two
+// partial unique indexes make student-to-student and parent-to-parent messaging
+// a `23505` rather than a rule in a resolver, which is the difference between a
+// guarantee and a habit.
+//
+// `chat-signals` is last and is the only table in this schema with row-level
+// security on it — see its docblock for why the socket carries a signal and the
+// API carries the content.
+export * from './chat-school-settings';
+export * from './chat-settings';
+export * from './chat-broadcasts';
+export * from './chat-conversations';
+export * from './chat-participants';
+export * from './chat-messages';
+export * from './chat-attachments';
+export * from './chat-grants';
+export * from './chat-reports';
+export * from './chat-signals';
+
+// Sprint 25 — chat, part 2. `chat-broadcasts` is exported *before*
+// `chat-conversations` because a conversation now references it, and
+// `chat-attachments` after `chat-messages` for the same reason.
+//
+// `push-subscriptions` is not a chat table and is exported last on purpose: it
+// is a browser's registration with a push service, and the next feature that
+// wants to reach a phone should find it here rather than inventing a second one.
+export * from './push-subscriptions';

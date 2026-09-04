@@ -17,13 +17,19 @@ import type { PortalNavItem } from '@/components/school/PortalSidebar';
  * no navigation at all below 768px.
  */
 /** Built per request: the announcements entry carries an unread count. */
-export function studentNav(unreadNotices = 0): PortalNavItem[] {
+export function studentNav(unreadNotices = 0, unreadChats = 0): PortalNavItem[] {
   return [
     { label: 'My Dashboard', href: '/student', icon: 'dashboard' },
     { label: 'My Timetable', href: '/student/timetable', icon: 'timetable' },
     { label: 'My Exams', href: '/student/exams', icon: 'exams' },
     { label: 'My Results', href: '/student/results', icon: 'marks' },
     { label: 'Fee Status', href: '/student/fees', icon: 'fees' },
+    {
+      label: 'Messages',
+      href: '/student/chat',
+      icon: 'chat',
+      ...(unreadChats > 0 ? { badge: unreadChats } : {}),
+    },
     {
       label: 'Announcements',
       href: '/student/announcements',

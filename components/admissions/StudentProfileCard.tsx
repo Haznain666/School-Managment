@@ -9,6 +9,7 @@ import {
   nationalIdProblem,
   type NationalIdValue,
 } from '@/components/admissions/NationalIdField';
+import type { DepartureImpact } from '@/components/students/StudentRemovalDialog';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { Card, CardTitle } from '@/components/ui/Card';
@@ -133,6 +134,7 @@ export function StudentProfileCard({
   const [typedAdmissionNumber, setTypedAdmissionNumber] = useState('');
   const [isDeleting, setIsDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [impact, setImpact] = useState<DepartureImpact | null>(null);
   const [photoBusy, setPhotoBusy] = useState(false);
   const [photoError, setPhotoError] = useState<string | null>(null);
   const [photoNotice, setPhotoNotice] = useState<string | null>(null);
@@ -207,13 +209,17 @@ export function StudentProfileCard({
    * rather than as a toast, because the sentence it carries ("withdraw the
    * student instead") is the thing to read before closing.
    */
-  const deleteStudent = async (): Promise<void> => {
+  const deleteStudent = async (disablePortals: boolean): Promise<void> => {
     setIsDeleting(true);
     setDeleteError(null);
 
     try {
+      // The clerk's ruling travels as a parameter. The dialog is a courtesy;
+      // the server decides, and it defaults to *not* disabling, so a caller
+      // that never saw this screen cannot lock a family out by omission.
       await schoolFetch(`/api/school/students/${student.studentProfileId}`, {
         method: 'DELETE',
+        body: JSON.stringify({ disablePortals }),
       });
 
       // The record this page is about no longer exists, so there is nothing to
@@ -315,7 +321,20 @@ export function StudentProfileCard({
                     onClick={() => {
                       setTypedAdmissionNumber('');
                       setDeleteError(null);
+                      setImpact(null);
                       setIsConfirmingDelete(true);
+
+                      // Who is actually affected, fetched before the clerk
+                      // chooses. "Disable and continue" is a very different act
+                      // when it switches off two parents than when it switches
+                      // off none.
+                      void schoolFetch<DepartureImpact>(
+                        `/api/school/students/${student.studentProfileId}/withdraw`,
+                      )
+                        .then(setImpact)
+                        .catch(() => {
+                          setImpact({ losingLastChild: [], keptWithOtherChildren: [] });
+                        });
                     }}
                   >
                     Delete student
@@ -346,19 +365,62 @@ export function StudentProfileCard({
               Cancel
             </Button>
             <Button
+              variant="secondary"
+              isLoading={isDeleting}
+              disabled={typedAdmissionNumber.trim() !== student.studentId}
+              onClick={() => {
+                void deleteStudent(false);
+              }}
+            >
+              Continue without disabling
+            </Button>
+            <Button
               variant="danger"
               isLoading={isDeleting}
               disabled={typedAdmissionNumber.trim() !== student.studentId}
               onClick={() => {
-                void deleteStudent();
+                void deleteStudent(true);
               }}
             >
-              Delete {student.studentId}
+              Disable and continue
             </Button>
           </>
         }
       >
         <div className="space-y-4">
+          {impact !== null && impact.losingLastChild.length > 0 ? (
+            <div className="rounded-card bg-surface px-3 py-2 text-sm">
+              <p className="font-medium text-ink">
+                These parents have no other child at the school:
+              </p>
+              <ul className="mt-1 list-disc pl-5 text-ink-muted">
+                {impact.losingLastChild.map((guardian) => (
+                  <li key={guardian.schoolUserId}>{guardian.name}</li>
+                ))}
+              </ul>
+              <p className="mt-2 text-xs text-ink-muted">
+                Only these can be switched off by &ldquo;Disable and continue&rdquo;.
+              </p>
+            </div>
+          ) : null}
+
+          {impact !== null && impact.keptWithOtherChildren.length > 0 ? (
+            <div className="rounded-card bg-surface px-3 py-2 text-sm">
+              <p className="font-medium text-ink">
+                These parents keep their login either way:
+              </p>
+              <ul className="mt-1 list-disc pl-5 text-ink-muted">
+                {impact.keptWithOtherChildren.map((guardian) => (
+                  <li key={guardian.schoolUserId}>{guardian.name}</li>
+                ))}
+              </ul>
+              <p className="mt-2 text-xs text-ink-muted">
+                They have another child still enrolled, so switching them off would
+                lock them out of that child&rsquo;s fees and results.
+              </p>
+            </div>
+          ) : null}
+
           <p className="text-sm text-ink">
             Deleting <span className="font-medium">{student.name}</span> removes
             their guardians, their enrollment history, their concessions and their

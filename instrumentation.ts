@@ -4,7 +4,8 @@
  *
  * ── What runs here, and what must not ────────────────────────────────────
  * The email outbox drainer, the announcement scheduler (Sprint 11), the monthly
- * voucher auto-send (Sprint 18) and the sibling-discount sweep (Sprint 20).
+ * voucher auto-send (Sprint 18), the sibling-discount sweep (Sprint 20) and the
+ * chat digest (Sprint 24).
  * Anything started here runs forever in a process that also serves every
  * request, so the bar is high: it must be idempotent, it must not hold the
  * process open, and it must never throw into the runtime. All of these meet
@@ -56,6 +57,17 @@ export async function register(): Promise<void> {
     // reason: the import must not be recorded in the Edge compilation.
     const { startSiblingDiscountSweep } = await import('./lib/sibling-discounts');
     startSiblingDiscountSweep();
+
+    // Sprint 24. The unread-chat digest, the signal prune and the grant expiry,
+    // on one five-minute timer. `ROADMAP.md` is explicit that chat must not ship
+    // without something that reaches a parent who has not opened the portal —
+    // until Web Push arrives in Sprint 25, this email is that thing. Each
+    // person's digest is claimed with a conditional UPDATE, so seven server
+    // processes send one email rather than seven. Same positive `=== 'nodejs'`
+    // block, for the same reason: the import must not be recorded in the Edge
+    // compilation.
+    const { startChatDigest } = await import('./lib/chat-digest');
+    startChatDigest();
   }
 }
 

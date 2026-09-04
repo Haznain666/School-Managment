@@ -64,11 +64,44 @@ export const schoolUsers = pgTable(
     }),
     avatarUrl: text('avatar_url'),
     isActive: boolean('is_active').notNull().default(true),
+    /**
+     * When and why portal access was switched off (Sprint 25).
+     *
+     * `is_active` already said *that* an account is off. These say *why*, and
+     * the reason it is worth two columns is the support call: "this parent
+     * cannot sign in" is answered by "their only child left on 4 September
+     * and the clerk chose to disable" or it is answered by guessing.
+     *
+     * Written by the student-removal path, which asks the clerk to choose.
+     * Null on an account deactivated by hand from the users screen, which has
+     * a person standing behind it already.
+     */
+    deactivatedAt: timestamp('deactivated_at', { withTimezone: true }),
+    deactivatedReason: text('deactivated_reason'),
     /** Auth user id of whoever sent the invitation. */
     invitedByUid: text('invited_by_uid'),
     invitedAt: timestamp('invited_at', { withTimezone: true }),
     /** Set when the invite is accepted and the account becomes usable. */
     joinedAt: timestamp('joined_at', { withTimezone: true }),
+    /**
+     * When a pupil was issued a sign-in credential (Sprint 24).
+     *
+     * Null for every member of staff and every parent — they arrive through
+     * `school_invitations` and `password_setup_tokens`, and `joined_at` already
+     * records that. This column is only about the one account type that has no
+     * invitation flow: a pupil, whose address is minted by the school rather
+     * than supplied by them.
+     *
+     * The address itself lives in `email` above, deliberately and not in a
+     * column of its own. A second address column would be a second thing for
+     * the login lookup to disagree with, and `STATE.md` §5bk is the incident
+     * report about what that costs — a father permanently signed in as his own
+     * daughter. One address column means `0038`'s partial unique index protects
+     * a pupil's identity exactly as it protects everyone else's.
+     */
+    studentCredentialIssuedAt: timestamp('student_credential_issued_at', {
+      withTimezone: true,
+    }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },

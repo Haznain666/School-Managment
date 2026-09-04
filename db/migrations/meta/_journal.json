@@ -281,6 +281,20 @@
       "when": 1788609600000,
       "tag": "0039_sprint23_principal_grades_staff_photo",
       "breakpoints": true
+    },
+    {
+      "idx": 40,
+      "version": "7",
+      "when": 1789041600000,
+      "tag": "0040_sprint24_chat",
+      "breakpoints": true
+    },
+    {
+      "idx": 41,
+      "version": "7",
+      "when": 1789128000000,
+      "tag": "0041_sprint25_chat_part2",
+      "breakpoints": true
     }
   ]
 }

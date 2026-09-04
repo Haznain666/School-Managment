@@ -28,6 +28,7 @@ export interface NotificationSettings {
   announcements: boolean;
   fees: boolean;
   attendance: boolean;
+  chat: boolean;
 }
 
 /** What a person gets before they have chosen anything: all of it. */
@@ -35,6 +36,7 @@ export const DEFAULT_NOTIFICATION_SETTINGS: NotificationSettings = {
   announcements: true,
   fees: true,
   attendance: true,
+  chat: true,
 };
 
 /** One person's settings. Request-memoised — a page and its layout both ask. */
@@ -45,6 +47,7 @@ export const getNotificationSettings = cache(
         announcements: notificationPreferences.emailAnnouncements,
         fees: notificationPreferences.emailFees,
         attendance: notificationPreferences.emailAttendance,
+        chat: notificationPreferences.emailChat,
       })
       .from(notificationPreferences)
       .where(
@@ -68,6 +71,54 @@ export const getNotificationSettings = cache(
  * indexed read returns the opt-outs; everyone not named in it is opted in,
  * which is what makes the absent-row rule cheap as well as correct.
  */
+/**
+ * Who wants a push notification, out of a set of people.
+ *
+ * Separate from `filterByEmailPreference` rather than a fifth
+ * `NotificationCategory`, and the reason is that `push_chat` is not a *category*
+ * of thing to be told about — it is a different **channel** for the category
+ * that already exists. Adding `push` to `NOTIFICATION_CATEGORIES` would put a
+ * fifth switch on the parent's settings screen labelled as though it were a
+ * fifth subject, and would make `PREFERENCE_COLUMNS` claim that a channel and a
+ * subject are the same kind of thing.
+ *
+ * Absent row means yes, exactly like every category above.
+ */
+export async function filterByPushPreference(
+  locationId: string,
+  schoolUserIds: readonly string[],
+): Promise<Set<string>> {
+  const wanted = new Set(schoolUserIds);
+  if (wanted.size === 0) return wanted;
+
+  const rows = await db
+    .select({
+      schoolUserId: notificationPreferences.schoolUserId,
+      wants: notificationPreferences.pushChat,
+    })
+    .from(notificationPreferences)
+    .where(
+      and(
+        eq(notificationPreferences.locationId, locationId),
+        inArray(notificationPreferences.schoolUserId, [...wanted]),
+      ),
+    );
+
+  for (const row of rows) {
+    if (!row.wants) wanted.delete(row.schoolUserId);
+  }
+
+  return wanted;
+}
+
+/** Which column answers for each category. Exhaustive, and checked by TypeScript. */
+const PREFERENCE_COLUMNS = {
+  announcements: notificationPreferences.emailAnnouncements,
+  fees: notificationPreferences.emailFees,
+  attendance: notificationPreferences.emailAttendance,
+  chat: notificationPreferences.emailChat,
+} as const satisfies Record<NotificationCategory, unknown>;
+
 export async function filterByEmailPreference(
   locationId: string,
   schoolUserIds: readonly string[],
@@ -76,12 +127,12 @@ export async function filterByEmailPreference(
   const wanted = new Set(schoolUserIds);
   if (wanted.size === 0) return wanted;
 
-  const column =
-    category === 'announcements'
-      ? notificationPreferences.emailAnnouncements
-      : category === 'fees'
-        ? notificationPreferences.emailFees
-        : notificationPreferences.emailAttendance;
+  // A record rather than a chain of ternaries, and the difference is not style.
+  // The chain ended in an `else` that meant `attendance`, so Sprint 24 adding a
+  // fourth category would have silently filtered chat digests by whether the
+  // parent wanted absence emails — a wrong answer that nothing anywhere would
+  // have reported. A record makes the compiler name the gap instead.
+  const column = PREFERENCE_COLUMNS[category];
 
   const rows = await db
     .select({
@@ -124,6 +175,7 @@ export async function saveNotificationSettings(
       emailAnnouncements: settings.announcements,
       emailFees: settings.fees,
       emailAttendance: settings.attendance,
+      emailChat: settings.chat,
     })
     .onConflictDoUpdate({
       target: [notificationPreferences.locationId, notificationPreferences.schoolUserId],
@@ -131,6 +183,7 @@ export async function saveNotificationSettings(
         emailAnnouncements: settings.announcements,
         emailFees: settings.fees,
         emailAttendance: settings.attendance,
+        emailChat: settings.chat,
         updatedAt: new Date(),
       },
     });

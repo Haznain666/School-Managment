@@ -7,6 +7,7 @@ import { teacherNav } from '@/components/teacher/teacher-nav';
 import { paletteToCSSVars } from '@/lib/branding';
 import { requireSchoolRole } from '@/lib/school-guard';
 import { countUnreadNotices } from '@/lib/announcement-queries';
+import { countUnreadConversations } from '@/lib/chat-queries';
 import { countUnreadNotifications } from '@/lib/notifications';
 import { listClassTeacherSections } from '@/lib/exam-queries';
 import { getSchoolUserByUid } from '@/lib/school-queries';
@@ -56,6 +57,8 @@ export default async function TeacherLayout({ children }: { children: ReactNode 
    */
   const unreadNotifications = await countUnread(profile?.id ?? null);
 
+  const unreadChats = await countChats(locationId, profile?.id ?? null);
+
   const brandStyle = paletteToCSSVars(
     branding?.palette ?? null,
   ) as unknown as CSSProperties;
@@ -65,7 +68,7 @@ export default async function TeacherLayout({ children }: { children: ReactNode 
   return (
     <div style={brandStyle} className="bg-brand-background text-brand-text">
       <PortalFrame
-        items={teacherNav(unreadNotices, classTeacherSections.length > 0)}
+        items={teacherNav(unreadNotices, classTeacherSections.length > 0, unreadChats)}
         ariaLabel="Teacher navigation"
         drawerTitle={schoolName}
         header={
@@ -98,6 +101,26 @@ async function countUnread(schoolUserId: string | null): Promise<number> {
     return await countUnreadNotifications({ audience: 'school_user', schoolUserId });
   } catch (error) {
     console.error('[layout] notification count could not be read:', error);
+    return 0;
+  }
+}
+
+/**
+ * The chat badge, or zero when it cannot be read. Never an error page.
+ *
+ * Wrapped for the same reason `countUnread` above it is: `chat_participants`
+ * arrives in migration `0040`, this layout runs on **every** page of the
+ * portal, and §5aw is what an unguarded layout read costs when the schema has
+ * not caught up. A missing badge is a missing badge; a throw here is a portal
+ * nobody can open.
+ */
+async function countChats(locationId: string, schoolUserId: string | null): Promise<number> {
+  if (schoolUserId === null) return 0;
+
+  try {
+    return await countUnreadConversations(locationId, schoolUserId);
+  } catch (error) {
+    console.error('[layout] chat count could not be read:', error);
     return 0;
   }
 }

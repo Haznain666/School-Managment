@@ -50,6 +50,7 @@ interface PatchBody {
   announcements?: unknown;
   fees?: unknown;
   attendance?: unknown;
+  chat?: unknown;
 }
 
 export const PATCH = withSchoolAuth(
@@ -60,7 +61,8 @@ export const PATCH = withSchoolAuth(
         body === null ||
         typeof body.announcements !== 'boolean' ||
         typeof body.fees !== 'boolean' ||
-        typeof body.attendance !== 'boolean'
+        typeof body.attendance !== 'boolean' ||
+        typeof body.chat !== 'boolean'
       ) {
         return apiFailure(
           'invalid_body',
@@ -78,6 +80,7 @@ export const PATCH = withSchoolAuth(
         announcements: body.announcements,
         fees: body.fees,
         attendance: body.attendance,
+        chat: body.chat,
       };
 
       await saveNotificationSettings(auth.locationId, me.id, settings);
