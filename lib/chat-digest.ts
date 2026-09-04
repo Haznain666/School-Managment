@@ -13,6 +13,7 @@ import { inQuietHours } from './chat-permissions';
 import { describeError } from './describe-error';
 import { db } from './drizzle';
 import { enqueueEmail } from './email-outbox';
+import { sweepPushNotifications } from './push';
 import { filterByEmailPreference } from './notification-preferences';
 
 /**
@@ -305,10 +306,22 @@ export function startChatDigest(): void {
     sweeping = true;
 
     void (async () => {
+      /*
+       * Push first, email second, and the order is the product decision.
+       *
+       * A push is immediate and an email is an hour's grace; somebody whose
+       * phone just buzzed does not also need an email about the same message
+       * ninety seconds later. Pushing first means the digest's own per-person
+       * claim is still unclaimed when it runs, so a person reachable by push
+       * still gets the email an hour later if they never opened it — which is
+       * the belt-and-braces the reach problem actually needs.
+       */
+      const pushed = await sweepPushNotifications();
       const mailed = await sweepChatDigests();
       const pruned = await pruneChatSignals();
       const expired = await expireChatGrants();
 
+      if (pushed > 0) console.info(`[chat] pushed to ${String(pushed)} browsers`);
       if (mailed > 0) console.info(`[chat] queued ${String(mailed)} digests`);
       if (pruned > 0) console.info(`[chat] pruned ${String(pruned)} signals`);
       if (expired > 0) console.info(`[chat] closed ${String(expired)} expired grants`);

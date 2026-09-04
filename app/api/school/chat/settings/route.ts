@@ -27,6 +27,7 @@ export const dynamic = 'force-dynamic';
 
 interface SettingsBody {
   studentsMayInitiate?: unknown;
+  soundEnabled?: unknown;
   quietHoursFrom?: unknown;
   quietHoursTo?: unknown;
 }
@@ -48,6 +49,7 @@ export const GET = withSchoolAuth(
       const rows = await db
         .select({
           studentsMayInitiate: chatSettings.studentsMayInitiate,
+          soundEnabled: chatSettings.soundEnabled,
           quietHoursFrom: chatSettings.quietHoursFrom,
           quietHoursTo: chatSettings.quietHoursTo,
         })
@@ -64,6 +66,9 @@ export const GET = withSchoolAuth(
       return apiSuccess({
         settings: rows[0] ?? {
           studentsMayInitiate: false,
+          // Default on, matching the column. A sound nobody discovers is a
+          // feature nobody has.
+          soundEnabled: true,
           quietHoursFrom: null,
           quietHoursTo: null,
         },
@@ -85,6 +90,11 @@ export const PATCH = withSchoolAuth(
       if (typeof studentsMayInitiate !== 'boolean') {
         return apiFailure('invalid_body', 'Say whether students may start a chat.', 400);
       }
+
+      // Absent means "leave it alone", so the chat screen's sound toggle can
+      // send just its own field without having to know or resend the rest.
+      const soundEnabled =
+        typeof body.soundEnabled === 'boolean' ? body.soundEnabled : undefined;
 
       const from = body.quietHoursFrom ?? null;
       const to = body.quietHoursTo ?? null;
@@ -109,6 +119,7 @@ export const PATCH = withSchoolAuth(
           locationId: auth.locationId,
           schoolUserId: me.id,
           studentsMayInitiate,
+          soundEnabled: soundEnabled ?? true,
           quietHoursFrom: from as number | null,
           quietHoursTo: to as number | null,
           updatedAt: now,
@@ -117,6 +128,7 @@ export const PATCH = withSchoolAuth(
           target: [chatSettings.locationId, chatSettings.schoolUserId],
           set: {
             studentsMayInitiate,
+            ...(soundEnabled === undefined ? {} : { soundEnabled }),
             quietHoursFrom: from as number | null,
             quietHoursTo: to as number | null,
             updatedAt: now,

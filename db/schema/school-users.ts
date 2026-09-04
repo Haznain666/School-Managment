@@ -64,6 +64,20 @@ export const schoolUsers = pgTable(
     }),
     avatarUrl: text('avatar_url'),
     isActive: boolean('is_active').notNull().default(true),
+    /**
+     * When and why portal access was switched off (Sprint 25).
+     *
+     * `is_active` already said *that* an account is off. These say *why*, and
+     * the reason it is worth two columns is the support call: "this parent
+     * cannot sign in" is answered by "their only child left on 4 September
+     * and the clerk chose to disable" or it is answered by guessing.
+     *
+     * Written by the student-removal path, which asks the clerk to choose.
+     * Null on an account deactivated by hand from the users screen, which has
+     * a person standing behind it already.
+     */
+    deactivatedAt: timestamp('deactivated_at', { withTimezone: true }),
+    deactivatedReason: text('deactivated_reason'),
     /** Auth user id of whoever sent the invitation. */
     invitedByUid: text('invited_by_uid'),
     invitedAt: timestamp('invited_at', { withTimezone: true }),

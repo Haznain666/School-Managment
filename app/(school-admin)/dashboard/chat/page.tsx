@@ -60,6 +60,7 @@ export default async function AdminChatPage() {
 
       <ChatWorkspace
         meId={me.id}
+        canAttach
         canInitiate
         auditNotice="Conversations involving a student are reviewable, and everyone in them is told so."
         emptyMessage="Nothing yet. Start a conversation with a parent, a colleague or a student."

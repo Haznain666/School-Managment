@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 
+import { BroadcastComposer } from '@/components/chat/BroadcastComposer';
 import { ChatWorkspace } from '@/components/chat/ChatWorkspace';
 import { ClassChatAccess } from '@/components/chat/ClassChatAccess';
 import { PageHeader } from '@/components/ui/PageHeader';
@@ -48,10 +49,18 @@ export default async function TeacherChatPage() {
         description="Parents, colleagues, and your own classes."
       />
 
+      <BroadcastComposer
+        sections={sections.map((section) => ({
+          sectionId: section.sectionId,
+          label: section.label,
+        }))}
+      />
+
       <ClassChatAccess sections={sections} />
 
       <ChatWorkspace
         meId={me.id}
+        canAttach
         canInitiate
         auditNotice="Conversations involving a student can be reviewed by school administrators."
         emptyMessage="Nothing yet. Start a conversation with a parent or a colleague."

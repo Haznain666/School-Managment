@@ -181,9 +181,20 @@ export * from './bank-accounts';
 // API carries the content.
 export * from './chat-school-settings';
 export * from './chat-settings';
+export * from './chat-broadcasts';
 export * from './chat-conversations';
 export * from './chat-participants';
 export * from './chat-messages';
+export * from './chat-attachments';
 export * from './chat-grants';
 export * from './chat-reports';
 export * from './chat-signals';
+
+// Sprint 25 — chat, part 2. `chat-broadcasts` is exported *before*
+// `chat-conversations` because a conversation now references it, and
+// `chat-attachments` after `chat-messages` for the same reason.
+//
+// `push-subscriptions` is not a chat table and is exported last on purpose: it
+// is a browser's registration with a push service, and the next feature that
+// wants to reach a phone should find it here rather than inventing a second one.
+export * from './push-subscriptions';

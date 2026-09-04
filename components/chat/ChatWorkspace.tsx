@@ -10,6 +10,8 @@ import { Textarea } from '@/components/ui/Textarea';
 import { schoolErrorMessage, schoolFetch } from '@/lib/school-client';
 import { cn } from '@/lib/utils';
 
+import { ChatNotificationControls } from './ChatNotificationControls';
+import { useChatSound } from './useChatSound';
 import { useChatStream } from './useChatStream';
 
 /**
@@ -68,9 +70,19 @@ export interface ReachableTarget {
   detail: string;
 }
 
+export interface ChatAttachmentRow {
+  id: string;
+  messageId: string;
+  fileName: string;
+  contentType: string;
+  sizeBytes: number;
+}
+
 export interface ChatWorkspaceProps {
   /** The caller's own `school_users.id`, to put their messages on the right. */
   meId: string;
+  /** Staff may attach a file; pupils and parents are text-only. */
+  canAttach?: boolean;
   /** Shown above a thread that involves a pupil. */
   auditNotice: string | null;
   /** Whether the composer offers to start a new conversation at all. */
@@ -86,6 +98,7 @@ interface InboxResponse {
 
 export function ChatWorkspace({
   meId,
+  canAttach = false,
   auditNotice,
   canInitiate,
   emptyMessage,
@@ -102,8 +115,18 @@ export function ChatWorkspace({
 
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [attachments, setAttachments] = useState<ChatAttachmentRow[]>([]);
+  const [file, setFile] = useState<File | null>(null);
+  const [soundEnabled, setSoundEnabled] = useState(false);
 
   const transcriptEnd = useRef<HTMLDivElement | null>(null);
+  const fileInput = useRef<HTMLInputElement | null>(null);
+
+  const { play, arm } = useChatSound(soundEnabled);
+
+  // The id of the newest message already on screen. A signal that brings
+  // something newer than this — and not written by us — is what makes a noise.
+  const newestSeen = useRef<string | null>(null);
 
   const loadInbox = useCallback(async (): Promise<ChatConversationRow[]> => {
     const result = await schoolFetch<InboxResponse>('/api/school/chat/conversations');
@@ -112,10 +135,13 @@ export function ChatWorkspace({
   }, []);
 
   const loadMessages = useCallback(async (conversationId: string): Promise<void> => {
-    const result = await schoolFetch<{ messages: ChatMessageRow[] }>(
-      `/api/school/chat/conversations/${conversationId}/messages`,
-    );
+    const result = await schoolFetch<{
+      messages: ChatMessageRow[];
+      attachments: ChatAttachmentRow[];
+    }>(`/api/school/chat/conversations/${conversationId}/messages`);
+
     setMessages(result.messages);
+    setAttachments(result.attachments ?? []);
 
     // Fire-and-forget, in the shape `components/comms/MarkNoticesRead.tsx` uses.
     void schoolFetch(`/api/school/chat/conversations/${conversationId}/read`, {
@@ -161,7 +187,28 @@ export function ChatWorkspace({
 
   useEffect(() => {
     transcriptEnd.current?.scrollIntoView({ block: 'end' });
-  }, [messages]);
+
+    /*
+     * The chime, and the three things it must not do: fire on first paint, fire
+     * for your own message, and fire twice for the same one.
+     *
+     * The newest message's id is remembered rather than a count, because a
+     * redaction changes the list without adding to it. On the very first load
+     * the id is simply recorded — a screen that chimes at you for messages you
+     * have already read is one people switch off within a day.
+     */
+    const newest = messages[messages.length - 1];
+    if (newest === undefined) return;
+
+    const first = newestSeen.current === null;
+    const changed = newestSeen.current !== newest.id;
+    newestSeen.current = newest.id;
+
+    if (first || !changed) return;
+    if (newest.senderSchoolUserId === meId) return;
+
+    play();
+  }, [messages, meId, play]);
 
   // A signal names the conversations that changed. The open one is refetched;
   // the rest are picked up by the inbox refresh, which also moves the unread
@@ -189,7 +236,7 @@ export function ChatWorkspace({
 
   async function send(): Promise<void> {
     const body = draft.trim();
-    if (body === '' || busy) return;
+    if ((body === '' && file === null) || busy) return;
 
     setBusy(true);
     setError(null);
@@ -225,11 +272,27 @@ export function ChatWorkspace({
 
       if (selectedId === null) return;
 
-      await schoolFetch(`/api/school/chat/conversations/${selectedId}/messages`, {
-        method: 'POST',
-        body: JSON.stringify({ body }),
-      });
+      if (file !== null) {
+        // `FormData` rather than JSON, and no `Content-Type` header — the
+        // browser has to set the multipart boundary itself, and `schoolFetch`
+        // already declines to add one for FormData.
+        const form = new FormData();
+        form.append('body', body);
+        form.append('attachment', file);
 
+        await schoolFetch(`/api/school/chat/conversations/${selectedId}/messages`, {
+          method: 'POST',
+          body: form,
+        });
+      } else {
+        await schoolFetch(`/api/school/chat/conversations/${selectedId}/messages`, {
+          method: 'POST',
+          body: JSON.stringify({ body }),
+        });
+      }
+
+      setFile(null);
+      if (fileInput.current !== null) fileInput.current.value = '';
       setDraft('');
       await loadMessages(selectedId);
       await loadInbox();
@@ -249,7 +312,20 @@ export function ChatWorkspace({
   const nothingAtAll = conversations.length === 0 && !composing;
 
   return (
-    <div className="grid gap-4 lg:grid-cols-[20rem_1fr]">
+    <div
+      className="grid gap-4 lg:grid-cols-[20rem_1fr]"
+      // Any click anywhere in the workspace is the user gesture a browser wants
+      // before it will let a page make a sound. Arming here rather than on a
+      // dedicated button means the first chime works for somebody who opened a
+      // conversation and did nothing else.
+      onPointerDown={arm}
+    >
+      <div className="lg:col-span-2">
+        <div className="rounded-card border border-line bg-surface-raised">
+          <ChatNotificationControls onSoundChange={setSoundEnabled} />
+        </div>
+      </div>
+
       <aside className="rounded-card border border-line bg-surface-raised">
         {canInitiate ? (
           <div className="border-b border-line p-3">
@@ -419,6 +495,20 @@ export function ChatWorkspace({
                           : ` — ${message.redactionReason}`}
                       </p>
                     )}
+
+                    {message.redactedAt === null
+                      ? attachments
+                          .filter((entry) => entry.messageId === message.id)
+                          .map((entry) => (
+                            <a
+                              key={entry.id}
+                              href={`/api/school/chat/attachments/${entry.id}`}
+                              className="mt-2 block truncate text-xs underline"
+                            >
+                              {entry.fileName} · {Math.max(1, Math.round(entry.sizeBytes / 1024))} KB
+                            </a>
+                          ))
+                      : null}
                   </div>
                 </div>
               );
@@ -449,8 +539,26 @@ export function ChatWorkspace({
               }}
             />
 
+            {canAttach ? (
+              <div className="mt-2 flex flex-wrap items-center gap-2">
+                <input
+                  ref={fileInput}
+                  type="file"
+                  accept="image/png,image/jpeg,application/pdf"
+                  className="text-xs text-ink-muted"
+                  onChange={(event) => {
+                    setFile(event.target.files?.[0] ?? null);
+                  }}
+                />
+                <span className="text-xs text-ink-muted">PNG, JPEG or PDF, up to 2 MB.</span>
+              </div>
+            ) : null}
+
             <div className="mt-2 flex justify-end">
-              <Button onClick={() => void send()} disabled={busy || draft.trim() === ''}>
+              <Button
+                onClick={() => void send()}
+                disabled={busy || (draft.trim() === '' && file === null)}
+              >
                 {busy ? 'Sending…' : 'Send'}
               </Button>
             </div>

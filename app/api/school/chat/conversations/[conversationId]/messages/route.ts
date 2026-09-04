@@ -1,3 +1,6 @@
+import { randomUUID } from 'node:crypto';
+
+import { chatAttachments } from '@/db/schema/chat-attachments';
 import { MESSAGE_BODY_MAX } from '@/db/schema/chat-messages';
 import { withSchoolAuth } from '@/lib/api-auth';
 import { apiFailure, apiSuccess, handleApiError, readJsonBody } from '@/lib/api-response';
@@ -14,7 +17,10 @@ import {
   safeguardingProblem,
   schoolName,
 } from '@/lib/chat-safeguarding';
+import { attachmentProblem, attachmentsForMessages, staffOnlyProblem } from '@/lib/chat-attachments';
+import { db } from '@/lib/drizzle';
 import { getSchoolUserByUid } from '@/lib/school-queries';
+import { buildStoragePath, uploadBuffer } from '@/lib/storage';
 import { USER_ROLES } from '@/types/school-auth';
 
 /**
@@ -62,7 +68,16 @@ export const GET = withSchoolAuth<RouteContext>(
       }
 
       const messages = await listMessages(auth.locationId, conversationId, since);
-      return apiSuccess({ messages });
+
+      // One extra read rather than a join: the transcript query is already four
+      // tables and most conversations have no attachments at all, so this
+      // returns nothing for nearly every call.
+      const attachments = await attachmentsForMessages(
+        auth.locationId,
+        messages.map((message) => message.id),
+      );
+
+      return apiSuccess({ messages, attachments });
     } catch (error) {
       return handleApiError(error);
     }
@@ -75,10 +90,35 @@ export const POST = withSchoolAuth<RouteContext>(
     try {
       const { conversationId } = await context.params;
 
-      const payload = await readJsonBody<PostBody>(request);
-      const body = typeof payload?.body === 'string' ? payload.body.trim() : '';
+      /*
+       * One send path, two content types. A message with a file arrives as
+       * `multipart/form-data` and one without as JSON, and both land here —
+       * deliberately, because every window, quota, turn-taking and safeguarding
+       * check below applies to both. A second upload route would be a second
+       * place for a pupil's reply window to be forgotten.
+       */
+      const contentType = request.headers.get('content-type') ?? '';
+      const isMultipart = contentType.includes('multipart/form-data');
 
-      if (body === '') return apiFailure('invalid_body', 'Write a message first.', 400);
+      let body = '';
+      let file: File | null = null;
+
+      if (isMultipart) {
+        const form = await request.formData();
+        const raw = form.get('body');
+        body = typeof raw === 'string' ? raw.trim() : '';
+
+        const candidate = form.get('attachment');
+        file = candidate instanceof File && candidate.size > 0 ? candidate : null;
+      } else {
+        const payload = await readJsonBody<PostBody>(request);
+        body = typeof payload?.body === 'string' ? payload.body.trim() : '';
+      }
+
+      // A file on its own is a message. A message with neither is not.
+      if (body === '' && file === null) {
+        return apiFailure('invalid_body', 'Write a message first.', 400);
+      }
       if (body.length > MESSAGE_BODY_MAX) {
         return apiFailure(
           'invalid_body',
@@ -95,7 +135,58 @@ export const POST = withSchoolAuth<RouteContext>(
       const problem = await sendProblem(auth.locationId, me.id, conversationId);
       if (problem !== null) return apiFailure('refused', problem, 403);
 
+      /*
+       * The file, validated before anything is written.
+       *
+       * `staffOnlyProblem` is the control this whole feature rests on: every
+       * uploader is a known adult accountable to the school, which is what
+       * removes the need for a content scanner. It is checked here rather than
+       * by hiding a button, because a hidden button is not a rule.
+       */
+      let upload: { storagePath: string; fileName: string; contentType: string; size: number } | null =
+        null;
+
+      if (file !== null) {
+        const staffProblem = staffOnlyProblem(auth.role);
+        if (staffProblem !== null) return apiFailure('refused', staffProblem, 403);
+
+        const bytes = new Uint8Array(await file.arrayBuffer());
+        const verdict = attachmentProblem(bytes, file.name);
+
+        if ('problem' in verdict) {
+          return apiFailure('invalid_body', verdict.problem, 400);
+        }
+
+        // A fresh name, never the sender's. `uploadBuffer` sets `x-upsert`, so
+        // two people sending `photo.jpg` would otherwise overwrite each other —
+        // the reason the feedback route does the same thing.
+        const storagePath = buildStoragePath({
+          locationId: auth.locationId,
+          branchId: auth.branchId,
+          type: 'chat',
+          filename: `${randomUUID()}.${verdict.contentType === 'application/pdf' ? 'pdf' : verdict.contentType === 'image/png' ? 'png' : 'jpg'}`,
+        });
+
+        await uploadBuffer({
+          storagePath,
+          buffer: Buffer.from(bytes),
+          contentType: verdict.contentType,
+        });
+
+        upload = {
+          storagePath,
+          fileName: file.name.slice(0, 200),
+          contentType: verdict.contentType,
+          size: bytes.byteLength,
+        };
+      }
+
       const flaggedReason = safeguardingProblem(body);
+
+      // `chat_messages.body` is `length BETWEEN 1 AND 2000`, so a file sent with
+      // no words still needs a sentence. Saying what happened beats an empty
+      // bubble somebody has to hover to understand.
+      const storedBody = body === '' ? 'Sent a file.' : body;
 
       const posted = await postMessage({
         locationId: auth.locationId,
@@ -103,9 +194,20 @@ export const POST = withSchoolAuth<RouteContext>(
         senderSchoolUserId: me.id,
         senderName: me.name,
         senderRole: auth.role,
-        body,
+        body: storedBody,
         flaggedReason,
       });
+
+      if (upload !== null) {
+        await db.insert(chatAttachments).values({
+          locationId: auth.locationId,
+          messageId: posted.id,
+          storagePath: upload.storagePath,
+          fileName: upload.fileName,
+          contentType: upload.contentType,
+          sizeBytes: upload.size,
+        });
+      }
 
       // The message is stored first and escalated second, and never the other
       // way round: a pupil's words must survive a failing mail queue. `escalate`

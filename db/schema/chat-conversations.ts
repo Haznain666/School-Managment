@@ -2,6 +2,7 @@ import { sql } from 'drizzle-orm';
 import { check, index, pgTable, text, timestamp, uuid } from 'drizzle-orm/pg-core';
 
 import { branches } from './branches';
+import { chatBroadcasts } from './chat-broadcasts';
 import { schoolUsers } from './school-users';
 import { schools } from './schools';
 import { studentProfiles } from './student-profiles';
@@ -140,6 +141,17 @@ export const chatConversations = pgTable(
     studentProfileId: uuid('student_profile_id').references(() => studentProfiles.id, {
       onDelete: 'set null',
     }),
+    /**
+     * The composition this thread came out of, when a broadcast fanned out
+     * into it. Null for an ordinary one-to-one conversation.
+     *
+     * `set null` rather than cascade: deleting the record of a send must not
+     * delete the thirty conversations it started, which are real
+     * correspondence with thirty people and outlive the act of sending.
+     */
+    broadcastId: uuid('broadcast_id').references(() => chatBroadcasts.id, {
+      onDelete: 'set null',
+    }),
     /** Which desk, when `kind = 'role_inbox'`. Null otherwise. */
     roleInbox: text('role_inbox'),
     /** Who picked the desk thread up. Null while unclaimed. */
@@ -168,6 +180,8 @@ export const chatConversations = pgTable(
     ),
     // "Which threads concern this pupil" — the safeguarding and freeze read.
     index('chat_conversations_student_profile_idx').on(table.studentProfileId),
+    // "Show me the thirty threads that one send created."
+    index('chat_conversations_broadcast_idx').on(table.broadcastId),
     // The unclaimed-desk queue.
     index('chat_conversations_role_inbox_idx').on(
       table.locationId,

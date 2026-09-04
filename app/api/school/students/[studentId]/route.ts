@@ -17,6 +17,7 @@ import {
 import { batch, db } from '@/lib/drizzle';
 import { countPaymentsForStudent } from '@/lib/fee-queries';
 import { isValidCnic } from '@/lib/national-id';
+import { applyDeparture } from '@/lib/student-departure';
 import {
   familyIdsBeforeDeparture,
   reconcileSiblingGrantsFor,
@@ -241,8 +242,12 @@ export const PATCH = withSchoolAuth<RouteContext>(
  * is**, and it keeps the history that a transfer certificate is written from.
  * The message says so rather than only saying no.
  */
+interface DeleteBody {
+  disablePortals?: unknown;
+}
+
 export const DELETE = withSchoolAuth<RouteContext>(
-  async (_request, auth, context) => {
+  async (request, auth, context) => {
     try {
       const { studentId } = await context.params;
       if (!isUuid(studentId)) return apiFailure('not_found', 'Student not found.', 404);
@@ -283,6 +288,39 @@ export const DELETE = withSchoolAuth<RouteContext>(
        */
       const family = await familyIdsBeforeDeparture(auth.locationId, studentId);
 
+      /*
+       * Sprint 25. The three-option dialog's answer, and it has to run **here**
+       * — before the delete — for two reasons that both bite.
+       *
+       * `student_guardians` cascades with the profile, so a moment from now
+       * there is nothing left to read the family from. And `chat_conversations`
+       * references the profile with `set null`, so the link that says which
+       * threads concern this child disappears at the same instant.
+       *
+       * `requireNoActiveEnrollment: false` because the pupil is still `active`
+       * right now: their enrollment rows have not been removed yet and cannot
+       * be, for exactly the reason above. A delete is an unambiguous departure.
+       *
+       * `studentSchoolUserId: null` because the pupil's own account is deleted
+       * outright two statements below. Deactivating a row that is about to be
+       * removed would report an act that leaves no trace.
+       *
+       * The default is **not** to disable. A clerk who never saw the dialog —
+       * a script, an older client — gets the conservative half, which loses
+       * nobody their login.
+       */
+      const body = await readJsonBody<DeleteBody>(request);
+      const disablePortals = body?.disablePortals === true;
+
+      const departure = await applyDeparture({
+        locationId: auth.locationId,
+        studentProfileId: studentId,
+        studentSchoolUserId: null,
+        disablePortals,
+        reason: `${existing.name} was removed from the school on ${new Date().toISOString().slice(0, 10)}.`,
+        requireNoActiveEnrollment: false,
+      });
+
       await batch(db, (tx) => [
         tx
           .delete(studentProfiles)
@@ -318,6 +356,9 @@ export const DELETE = withSchoolAuth<RouteContext>(
         deleted: true,
         studentId: existing.studentId,
         siblingDiscountsClosed: closed,
+        portalsDisabled: departure.deactivated,
+        keptWithOtherChildren: departure.keptWithOtherChildren,
+        conversationsFrozen: departure.conversationsFrozen,
       });
     } catch (error) {
       return handleApiError(error);

@@ -71,6 +71,46 @@ export const getNotificationSettings = cache(
  * indexed read returns the opt-outs; everyone not named in it is opted in,
  * which is what makes the absent-row rule cheap as well as correct.
  */
+/**
+ * Who wants a push notification, out of a set of people.
+ *
+ * Separate from `filterByEmailPreference` rather than a fifth
+ * `NotificationCategory`, and the reason is that `push_chat` is not a *category*
+ * of thing to be told about — it is a different **channel** for the category
+ * that already exists. Adding `push` to `NOTIFICATION_CATEGORIES` would put a
+ * fifth switch on the parent's settings screen labelled as though it were a
+ * fifth subject, and would make `PREFERENCE_COLUMNS` claim that a channel and a
+ * subject are the same kind of thing.
+ *
+ * Absent row means yes, exactly like every category above.
+ */
+export async function filterByPushPreference(
+  locationId: string,
+  schoolUserIds: readonly string[],
+): Promise<Set<string>> {
+  const wanted = new Set(schoolUserIds);
+  if (wanted.size === 0) return wanted;
+
+  const rows = await db
+    .select({
+      schoolUserId: notificationPreferences.schoolUserId,
+      wants: notificationPreferences.pushChat,
+    })
+    .from(notificationPreferences)
+    .where(
+      and(
+        eq(notificationPreferences.locationId, locationId),
+        inArray(notificationPreferences.schoolUserId, [...wanted]),
+      ),
+    );
+
+  for (const row of rows) {
+    if (!row.wants) wanted.delete(row.schoolUserId);
+  }
+
+  return wanted;
+}
+
 /** Which column answers for each category. Exhaustive, and checked by TypeScript. */
 const PREFERENCE_COLUMNS = {
   announcements: notificationPreferences.emailAnnouncements,

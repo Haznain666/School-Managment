@@ -45,6 +45,20 @@ export const chatSettings = pgTable(
       .references(() => schoolUsers.id, { onDelete: 'cascade' }),
     /** May a student open a thread with this person? Default off, always. */
     studentsMayInitiate: boolean('students_may_initiate').notNull().default(false),
+    /**
+     * Whether a chime plays when a message arrives while the portal is open.
+     *
+     * Default **on**: the sound is what makes a live message a notification
+     * rather than something you notice ten minutes later, and a feature
+     * nobody discovers is a feature nobody has. It is one tap to silence, on
+     * the chat screen of every portal.
+     *
+     * There is deliberately no choice of *which* sound. A sound picker is a
+     * settings screen, a set of audio files to ship and cache, and a decision
+     * nobody wants to make twice — so there is one, generated in the browser
+     * with WebAudio, and nothing is downloaded to play it.
+     */
+    soundEnabled: boolean('sound_enabled').notNull().default(true),
     /** Minutes from midnight. Null on either = no quiet hours. */
     quietHoursFrom: integer('quiet_hours_from'),
     quietHoursTo: integer('quiet_hours_to'),

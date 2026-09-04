@@ -90,6 +90,13 @@ export const notificationPreferences = pgTable(
      * whatever this says. Same posture as the notice board above it.
      */
     emailChat: boolean('email_chat').notNull().default(true),
+    /**
+     * Sprint 25. Web Push for chat, and **separate from `email_chat` on
+     * purpose**: a parent who wants their phone to buzz very often does not
+     * also want an email an hour about the same conversation, and reusing one
+     * flag for both would make that an impossible preference to express.
+     */
+    pushChat: boolean('push_chat').notNull().default(true),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
