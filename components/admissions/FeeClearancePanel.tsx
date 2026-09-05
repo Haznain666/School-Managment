@@ -37,6 +37,25 @@ import { schoolErrorMessage, schoolFetch } from '@/lib/school-client';
  * exactly two branches, `billed` and `settled`, and a reviewer can see that by
  * reading the four cases in order. A boolean prop could be got wrong by a
  * caller; a case that does not render a button cannot be.
+ *
+ * ── Sprint 28: raising the voucher and taking the money are two keys ─────
+ * The ordering rule above is unchanged — the confirmation still exists only in
+ * `billed` and `settled`. What changed is who may press what.
+ *
+ * Both controls used to be gated on `canClear`, which is `fees.write`. Three
+ * roles hold `admissions.write` and `students.create` and deliberately do *not*
+ * hold `fees.write` — Branch Administrator, Principal, Vice Principal — so the
+ * three roles that admit children were the three that could not bill one. In
+ * the `not_billed` case they were shown a card headed *Not yet billed* with no
+ * button and no sentence: nothing to press and nothing to read. The child stayed
+ * unbilled, the enrollment stayed `outstanding`, and the voucher register — a
+ * list of vouchers — could never show a child who had none.
+ *
+ * So raising is `canRaise` (`fees.admission`, which resolves one price for one
+ * child on the server) and confirming stays `canClear` (`fees.write`, because
+ * recording money taken at a desk is still a money action). And where `canRaise`
+ * is false the card now *says so*, with the name of the permission and who can
+ * grant it. A card that offers nothing and explains nothing is the defect.
  */
 
 export interface FeeClearancePanelProps {
@@ -44,8 +63,10 @@ export interface FeeClearancePanelProps {
   /** Resolved on the server by `resolveAdmissionFee`. */
   state: AdmissionFeeState;
   feeClearedAt: string | null;
-  /** `fees.write`. Without it this is read-only. */
+  /** `fees.write`. Without it the fee cannot be confirmed paid from here. */
   canClear: boolean;
+  /** `fees.admission`. Without it the voucher cannot be raised from here. */
+  canRaise: boolean;
   /** Whether any guardian has an address the welcome could go to. */
   hasContactableGuardian: boolean;
 }
@@ -55,6 +76,7 @@ export function FeeClearancePanel({
   state,
   feeClearedAt,
   canClear,
+  canRaise,
   hasContactableGuardian,
 }: FeeClearancePanelProps) {
   const router = useRouter();
@@ -352,7 +374,17 @@ export function FeeClearancePanel({
             </p>
           )}
 
-          {canClear ? (
+          {/*
+            `canRaise`, not `canClear`. Raising the voucher is the action this
+            case exists for, and gating it on the money key left a head who had
+            just enrolled the child looking at a card with nothing on it.
+
+            And when they cannot raise it, they are told — including which
+            permission it is and who can grant it. The alternative is what
+            shipped: *Not yet billed*, no control, no explanation, and a reader
+            with no next step but to assume the screen is broken.
+          */}
+          {canRaise ? (
             <Button
               className="mt-4"
               isLoading={busy === 'generate'}
@@ -363,7 +395,14 @@ export function FeeClearancePanel({
             >
               Generate the admission fee voucher
             </Button>
-          ) : null}
+          ) : (
+            <p className="mt-4 text-sm text-ink-muted">
+              No admission voucher has been raised for this student, and raising
+              one needs the <strong>Raise a student’s admission voucher</strong>{' '}
+              permission, which your role does not hold. A school administrator
+              can grant it on Roles &amp; Permissions.
+            </p>
+          )}
 
           {messages}
         </Card>

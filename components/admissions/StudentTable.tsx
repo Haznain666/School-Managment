@@ -1,6 +1,7 @@
 'use client';
 
 import Link from 'next/link';
+import { useSearchParams } from 'next/navigation';
 import { useCallback, useEffect, useState } from 'react';
 
 import { Badge } from '@/components/ui/Badge';
@@ -21,6 +22,7 @@ import { schoolErrorMessage, schoolFetch } from '@/lib/school-client';
 import {
   STUDENT_FEE_STATUSES,
   STUDENT_FEE_STATUS_LABELS,
+  isStudentFeeStatus,
   studentFeeStatusVariant,
   type StudentFeeStatus,
 } from '@/lib/student-fee-status';
@@ -107,13 +109,34 @@ export function StudentTable({
   const activeYearId =
     academicYears.find((year) => year.isActive)?.id ?? academicYears[0]?.id ?? '';
 
+  /*
+   * `?feeStatus=not_billed`, so the vouchers register can link here — Sprint 28.
+   *
+   * Read here rather than as the page's `searchParams`, which is CLAUDE.md's
+   * second rule: `searchParams` on a server component opts the whole route out
+   * of prerendering for a value the browser already has. The page above is
+   * `force-dynamic` for its own reads, so nothing is lost either way — but the
+   * habit is what matters, and this is the reading that stays right if that
+   * page ever stops fetching.
+   *
+   * Validated before it is used, and anything unrecognised is dropped rather
+   * than refused. That is the same answer `listStudents` gives a stale value on
+   * the server: a bookmark from before a state was renamed shows the whole
+   * directory, which is a harmless surprise, rather than an error page, which
+   * is not. Seeded once, as the initial state — from here on the dropdown owns
+   * it, so clearing the filter does not fight the URL that opened the screen.
+   */
+  const urlFeeStatus = useSearchParams().get('feeStatus');
+
   const [search, setSearch] = useState('');
   const [branchId, setBranchId] = useState(lockedBranchId ?? '');
   const [gradeId, setGradeId] = useState('');
   const [sectionId, setSectionId] = useState('');
   const [academicYearId, setAcademicYearId] = useState(activeYearId);
   const [status, setStatus] = useState('');
-  const [feeStatus, setFeeStatus] = useState('');
+  const [feeStatus, setFeeStatus] = useState(
+    isStudentFeeStatus(urlFeeStatus) ? urlFeeStatus : '',
+  );
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(DATA_TABLE_DEFAULT_PAGE_SIZE);
   const [sort, setSort] = useState<DataTableSort>({

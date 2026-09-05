@@ -354,6 +354,10 @@ export default async function StudentProfilePage({
           state={admissionFee}
           feeClearedAt={activeEnrolment.feeClearedAt?.toISOString() ?? null}
           canClear={permissions.includes('fees.write')}
+          // Sprint 28. Two keys, because raising the demand and taking the
+          // money are two decisions: a head who admits a child must be able to
+          // bill them, and still does not price the school or handle its cash.
+          canRaise={permissions.includes('fees.admission')}
           hasContactableGuardian={guardians.some(
             (guardian) => guardian.email !== null && guardian.email !== '',
           )}

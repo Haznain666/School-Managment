@@ -73,6 +73,20 @@ import { schoolFetch } from '@/lib/school-client';
  * the other direction: a card that has once been answered is never re-locked,
  * because taking fields away from somebody mid-sentence is not a safety feature.
  *
+ * ── Sprint 28: and there is now a way to take the school's word for it ───
+ * `lookUp` fills only *empty* fields, which is right and unchanged. But the
+ * sequence that goes wrong most often is the one where that helps least: a
+ * mistyped CNIC matches nobody, the clerk enters the whole guardian by hand,
+ * and then corrects the number. Every field is non-empty by then, so the
+ * successful match changes nothing on the card except the banner — leaving a
+ * hand-typed record sitting beside a school saying it already knows this
+ * person, with no way to reconcile the two.
+ *
+ * *Use the record we hold* is that way. It appears inside the sibling banner
+ * only when the two actually differ, it overwrites name, phone, email,
+ * occupation and relationship with the stored values, and it is never applied
+ * automatically. The clerk presses it, having read what it will change.
+ *
  * ── The three relationship rules, and where each is enforced ─────────────
  *   1. **The first guardian cannot be "Other".** A child's first recorded
  *      guardian is who the school holds responsible; "Other" is the absence of
@@ -118,6 +132,45 @@ export interface KnownChild {
   name: string;
   gradeName: string | null;
   sectionName: string | null;
+}
+
+/**
+ * The guardian record this school already holds, kept whole.
+ *
+ * The lookup used to be reduced to a name the moment it arrived, because a
+ * name was all the banner printed. That threw away the answer to the question
+ * the clerk is about to ask — *is what I typed the same as what you have?* —
+ * and it is kept now so *Use the record we hold* can answer it.
+ */
+interface MatchedGuardian {
+  name: string;
+  phone: string;
+  email: string | null;
+  occupation: string | null;
+  relationship: GuardianRelationship;
+}
+
+/**
+ * Whether the card and the stored record disagree about this person.
+ *
+ * The relationship is compared only when the dropdown would still offer it —
+ * the same rule `lookUp` applies. A stored *Father* against a student who
+ * already has one is not a disagreement the clerk can act on, and offering a
+ * button that would change nothing visible is worse than not offering it.
+ */
+function differsFromRecord(
+  record: MatchedGuardian,
+  guardian: GuardianDraft,
+  offered: readonly GuardianRelationship[],
+): boolean {
+  return (
+    record.name !== guardian.name ||
+    formatPhoneForDisplay(record.phone) !== guardian.phone ||
+    (record.email ?? '') !== guardian.email ||
+    (record.occupation ?? '') !== guardian.occupation ||
+    (offered.includes(record.relationship) &&
+      record.relationship !== guardian.relationship)
+  );
 }
 
 export function emptyGuardian(isPrimaryContact: boolean): GuardianDraft {
@@ -259,7 +312,14 @@ export function GuardianForm({
 }: GuardianFormProps) {
   /** Lookup results, keyed by card position. */
   const [known, setKnown] = useState<Record<number, KnownChild[]>>({});
-  const [matched, setMatched] = useState<Record<number, string | null>>({});
+  /**
+   * The matched guardian record, whole, or null for "nobody by that number".
+   *
+   * `undefined` — no key at all — is a third state and is not the same as
+   * either: it means this card has not been asked yet, which is what the mount
+   * effect tests with `index in matched`.
+   */
+  const [matched, setMatched] = useState<Record<number, MatchedGuardian | null>>({});
   const [looking, setLooking] = useState<number | null>(null);
 
   /**
@@ -305,21 +365,12 @@ export function GuardianForm({
 
     try {
       const result = await schoolFetch<{
-        guardian: {
-          name: string;
-          phone: string;
-          email: string | null;
-          occupation: string | null;
-          relationship: GuardianRelationship;
-        } | null;
+        guardian: MatchedGuardian | null;
         students: KnownChild[];
       }>(`/api/school/guardians/lookup?cnic=${encodeURIComponent(cnic)}`);
 
       setKnown((current) => ({ ...current, [index]: result.students }));
-      setMatched((current) => ({
-        ...current,
-        [index]: result.guardian?.name ?? null,
-      }));
+      setMatched((current) => ({ ...current, [index]: result.guardian }));
       // An answer either way. "Nobody by that number" is as much of an answer
       // as a match, and the card fills in by hand from here.
       setUnlocked((current) => ({ ...current, [index]: true }));
@@ -417,6 +468,49 @@ export function GuardianForm({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  /**
+   * Overwrite the card with the record the school already holds.
+   *
+   * ── Why this is a button and not part of the lookup ─────────────────────
+   * `lookUp` fills only *empty* fields, and that rule stands: the clerk is
+   * looking at the person, the database is looking at what was true the last
+   * time somebody looked at them, and where the two disagree the clerk wins.
+   *
+   * But the case this sprint came from is the one where that rule helps least.
+   * A wrong CNIC returns no match, the clerk types the whole guardian in by
+   * hand, and then corrects the number — and now every field is non-empty, so a
+   * successful match changes nothing on the card but the banner. The clerk is
+   * looking at a record they typed from memory beside a school that says it
+   * already knows this person, with no way to take the school's word for it.
+   *
+   * So it is offered, once, explicitly, and only when the two actually differ.
+   * Nothing is overwritten until it is pressed.
+   */
+  const adopt = (index: number): void => {
+    const record = matched[index] ?? null;
+    if (record === null) return;
+
+    const current = latest.current[index];
+    if (current === undefined) return;
+
+    // The same guard `lookUp` applies: never select a relationship the dropdown
+    // is not offering, or the card would hold a value its own `Select` cannot
+    // show — which is a second father by another route.
+    const offered = availableRelationships(latest.current, index);
+
+    update(index, {
+      name: record.name,
+      // Stored canonically as `+923211234567`; the field speaks
+      // `(0321) 123-4567`.
+      phone: formatPhoneForDisplay(record.phone),
+      email: record.email ?? '',
+      occupation: record.occupation ?? '',
+      relationship: offered.includes(record.relationship)
+        ? record.relationship
+        : current.relationship,
+    });
+  };
+
   const setPrimary = (index: number): void => {
     onChange(
       guardians.map((guardian, position) => ({
@@ -447,7 +541,15 @@ export function GuardianForm({
     <div className="space-y-4">
       {guardians.map((guardian, index) => {
         const children = known[index] ?? [];
-        const matchedName = matched[index] ?? null;
+        const record = matched[index] ?? null;
+        const matchedName = record?.name ?? null;
+
+        // Whether the school's record and this card disagree about the person.
+        // Only then is *Use the record we hold* worth offering — a button that
+        // would change nothing is a button that teaches people not to press it.
+        const recordDiffers =
+          record !== null &&
+          differsFromRecord(record, guardian, availableRelationships(guardians, index));
 
         // Item 2: nothing but the CNIC until the question has been answered.
         const answered = unlocked[index] === true;
@@ -569,6 +671,32 @@ export function GuardianForm({
                     sibling. Check the details below are still correct before
                     continuing.
                   </p>
+
+                  {/*
+                    Offered only when the card and the record disagree, and
+                    never applied on its own. The clerk presses it — see
+                    `adopt` for why the lookup itself still fills only empty
+                    fields.
+                  */}
+                  {recordDiffers ? (
+                    <div className="mt-2">
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        disabled={disabled}
+                        onClick={() => {
+                          adopt(index);
+                        }}
+                      >
+                        Use the record we hold
+                      </Button>
+                      <p className="mt-1 text-xs opacity-80">
+                        Replaces the name, phone, email, occupation and
+                        relationship on this card with what the school already
+                        has for this person.
+                      </p>
+                    </div>
+                  ) : null}
                 </div>
               ) : matchedName !== null ? (
                 <p className="rounded-lg bg-surface-sunken px-3 py-2 text-sm text-ink-muted sm:col-span-2">
