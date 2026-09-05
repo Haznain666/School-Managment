@@ -73,19 +73,27 @@ import { schoolFetch } from '@/lib/school-client';
  * the other direction: a card that has once been answered is never re-locked,
  * because taking fields away from somebody mid-sentence is not a safety feature.
  *
- * ── Sprint 28: and there is now a way to take the school's word for it ───
- * `lookUp` fills only *empty* fields, which is right and unchanged. But the
- * sequence that goes wrong most often is the one where that helps least: a
- * mistyped CNIC matches nobody, the clerk enters the whole guardian by hand,
- * and then corrects the number. Every field is non-empty by then, so the
- * successful match changes nothing on the card except the banner — leaving a
- * hand-typed record sitting beside a school saying it already knows this
- * person, with no way to reconcile the two.
+ * ── Sprint 28: what a match writes, and what it merely offers ────────────
+ * The sequence that goes wrong most often is a mistyped CNIC that matches
+ * nobody, the whole guardian typed in by hand, and then the number corrected.
+ * Every field is non-empty by then, so "fill only what is empty" leaves the
+ * successful match changing nothing but the banner. The card is split in two
+ * along the line of what the clerk can still edit:
  *
- * *Use the record we hold* is that way. It appears inside the sibling banner
- * only when the two actually differ, it overwrites name, phone, email,
- * occupation and relationship with the stored values, and it is never applied
- * automatically. The clerk presses it, having read what it will change.
+ *   * **Name, phone and email take the record, always.** A match *locks* them
+ *     and prints "Recorded against X's existing guardian record" underneath,
+ *     so leaving a hand-typed value in a disabled box was a field contradicting
+ *     its own caption — and, on submit, a second spelling of one person stored
+ *     against a CNIC that already names them. That is the family splitting in
+ *     two through the name instead of through the number.
+ *   * **Occupation and relationship stay the clerk's**, filled only when blank.
+ *     They remain editable, so the original rule holds: the clerk is looking at
+ *     the person, the database at what was true last time somebody was.
+ *
+ * *Use the record we hold* is how the second half is taken deliberately. It
+ * appears inside the sibling banner only when those two actually differ, and it
+ * is never applied automatically — the clerk presses it, having read what it
+ * will change.
  *
  * ── The three relationship rules, and where each is enforced ─────────────
  *   1. **The first guardian cannot be "Other".** A child's first recorded
@@ -151,7 +159,14 @@ interface MatchedGuardian {
 }
 
 /**
- * Whether the card and the stored record disagree about this person.
+ * Whether the card and the stored record disagree **about something the clerk
+ * can still change**.
+ *
+ * Name, phone and email are deliberately not compared. A match locks them and
+ * `lookUp` writes the record straight into them, so they cannot diverge — and
+ * a *Use the record we hold* offered on a difference that cannot exist is a
+ * button that never appears for a reason nobody can see. What is left is the
+ * editable half: the occupation and the relationship.
  *
  * The relationship is compared only when the dropdown would still offer it —
  * the same rule `lookUp` applies. A stored *Father* against a student who
@@ -164,9 +179,6 @@ function differsFromRecord(
   offered: readonly GuardianRelationship[],
 ): boolean {
   return (
-    record.name !== guardian.name ||
-    formatPhoneForDisplay(record.phone) !== guardian.phone ||
-    (record.email ?? '') !== guardian.email ||
     (record.occupation ?? '') !== guardian.occupation ||
     (offered.includes(record.relationship) &&
       record.relationship !== guardian.relationship)
@@ -401,16 +413,36 @@ export function GuardianForm({
         ? found.relationship
         : current.relationship;
 
+      /*
+       * The three **locked** fields take the record, whatever the card holds.
+       *
+       * "Only fill what is empty" is the right rule for a field the clerk can
+       * still edit, and the wrong one for a field they cannot. A match locks
+       * name, phone and email — `identityDisabled` below — and prints *"Recorded
+       * against X's existing guardian record"* under them. Filling them only
+       * when blank left a **hand-typed** name sitting in a disabled box beneath
+       * a sentence saying it was the school's, with no control anywhere to
+       * reconcile the two.
+       *
+       * That is not only a contradiction on screen. `parseGuardians` would then
+       * store the typed spelling against a CNIC that names somebody the school
+       * already holds — a second spelling of one person, which is the family
+       * splitting in two through the name rather than through the number. The
+       * CNIC rule in CLAUDE.md exists to stop exactly that arriving by the
+       * other route.
+       *
+       * So: locked means the record. Found by QA, Sprint 28.
+       */
       update(index, {
-        name: current.name.trim() === '' ? found.name : current.name,
+        name: found.name,
         // Stored canonically as `+923211234567`; the field speaks
         // `(0321) 123-4567`, and handing it the stored form is what made it
         // show an error on a number the server itself wrote.
-        phone:
-          current.phone.trim() === ''
-            ? formatPhoneForDisplay(found.phone)
-            : current.phone,
-        email: current.email.trim() === '' ? (found.email ?? '') : current.email,
+        phone: formatPhoneForDisplay(found.phone),
+        email: found.email ?? '',
+        // Still the clerk's — occupation stays editable, so the original rule
+        // holds and *Use the record we hold* is how the school's version is
+        // taken deliberately.
         occupation:
           current.occupation.trim() === ''
             ? (found.occupation ?? '')
@@ -472,19 +504,25 @@ export function GuardianForm({
    * Overwrite the card with the record the school already holds.
    *
    * ── Why this is a button and not part of the lookup ─────────────────────
-   * `lookUp` fills only *empty* fields, and that rule stands: the clerk is
+   * For the **editable** half of the card — occupation and relationship —
+   * `lookUp` fills only what is blank, and that rule stands: the clerk is
    * looking at the person, the database is looking at what was true the last
    * time somebody looked at them, and where the two disagree the clerk wins.
    *
    * But the case this sprint came from is the one where that rule helps least.
    * A wrong CNIC returns no match, the clerk types the whole guardian in by
-   * hand, and then corrects the number — and now every field is non-empty, so a
-   * successful match changes nothing on the card but the banner. The clerk is
-   * looking at a record they typed from memory beside a school that says it
-   * already knows this person, with no way to take the school's word for it.
+   * hand, and then corrects the number — and now nothing is blank, so a
+   * successful match changes nothing there but the banner. The clerk is looking
+   * at what they typed from memory beside a school that says it already knows
+   * this person, with no way to take the school's word for it.
    *
    * So it is offered, once, explicitly, and only when the two actually differ.
-   * Nothing is overwritten until it is pressed.
+   * Nothing editable is overwritten until it is pressed.
+   *
+   * It still writes name, phone and email as well, and that is deliberate
+   * belt-and-braces rather than dead code: `lookUp` has already put the record
+   * in them because a match locks them, so this is a no-op today — and it is
+   * the line that keeps the button honest if that locking rule is ever relaxed.
    */
   const adopt = (index: number): void => {
     const record = matched[index] ?? null;
@@ -691,9 +729,10 @@ export function GuardianForm({
                         Use the record we hold
                       </Button>
                       <p className="mt-1 text-xs opacity-80">
-                        Replaces the name, phone, email, occupation and
-                        relationship on this card with what the school already
-                        has for this person.
+                        Replaces the occupation and relationship on this card
+                        with what the school already has for this person. The
+                        name, phone and email above are already the record&rsquo;s
+                        and cannot be edited from here.
                       </p>
                     </div>
                   ) : null}

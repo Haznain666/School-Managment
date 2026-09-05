@@ -7,6 +7,17 @@ import { cn } from '@/lib/utils';
 export interface SelectOption {
   value: string;
   label: string;
+  /**
+   * One line saying what choosing this actually means, as the option's tooltip.
+   *
+   * For the case where the labels are a *vocabulary* rather than a list of
+   * things — five fee states ranked by specificity, say, where `Overdue` and
+   * `Admission unpaid` are both true of the same child and only one of them
+   * shows. A reader cannot deduce that ranking from four words, and the sprint
+   * that added the fifth state shipped its explanations as a constant nothing
+   * rendered. Absent on an option whose label is self-evident, which is most.
+   */
+  description?: string;
 }
 
 export interface SelectProps
@@ -65,7 +76,7 @@ export function Select({
         ) : null}
 
         {options.map((option) => (
-          <option key={option.value} value={option.value}>
+          <option key={option.value} value={option.value} title={option.description}>
             {option.label}
           </option>
         ))}

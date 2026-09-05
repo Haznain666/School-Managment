@@ -6,6 +6,12 @@ what is not there yet. They are not the engineering handover — that is
 
 | Sprint | Theme | Migration | Notes |
 | --- | --- | --- | --- |
+| **28** | The child nobody billed — a head who could admit and not bill, a green chip on a fee never charged, and the corrected CNIC that stopped looking for siblings | `0044` **APPLIED** | [read](RELEASE-NOTES-SPRINT-28.md) |
+| **27** | The pre-paid voucher, the school's own calendar, and the payroll a principal signs | `0043` **APPLIED** | [read](RELEASE-NOTES-SPRINT-27.md) |
+| **26** | The campus dropdown, chat for every role, the pupil's own sign-in, a phone-sized header | none — a **data step**, `scripts/apply-sprint26-data.mjs` (`0042` is its repair) | [read](RELEASE-NOTES-SPRINT-26.md) |
+| **25** | Chat part 2 — broadcast, real-time, web push, the chime, removal and attachments | `0041` **APPLIED** | [read](RELEASE-NOTES-SPRINT-25.md) |
+| **24** | Internal chat, part 1 | `0040` **APPLIED** | [read](RELEASE-NOTES-SPRINT-24.md) |
+| **23** | The principal's grades, the class teacher, and the discount that would not come off | `0039` **APPLIED** | [read](RELEASE-NOTES-SPRINT-23.md) |
 | **22** | One person, one record — a staff member's login and their employment record finally join up, in both directions, with the split ones findable | none — built on a column that already existed | [read](RELEASE-NOTES-SPRINT-22.md) |
 | **21** | One email address opens one account; the results page that never rendered | `0038` **APPLIED** | [read](RELEASE-NOTES-SPRINT-21.md) |
 | **20** | The fee voucher redrawn, bank accounts, discounts at the enrolment desk, the sibling discount that removes itself | `0037` **APPLIED** | [read](RELEASE-NOTES-SPRINT-20.md) |

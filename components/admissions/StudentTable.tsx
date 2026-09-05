@@ -21,6 +21,7 @@ import { formatPhoneForDisplay } from '@/lib/phone-formats';
 import { schoolErrorMessage, schoolFetch } from '@/lib/school-client';
 import {
   STUDENT_FEE_STATUSES,
+  STUDENT_FEE_STATUS_DESCRIPTIONS,
   STUDENT_FEE_STATUS_LABELS,
   isStudentFeeStatus,
   studentFeeStatusVariant,
@@ -408,9 +409,24 @@ export function StudentTable({
             id: 'feeStatus',
             label: 'Fees',
             allLabel: 'Any fee status',
+            /*
+              The descriptions are carried here, and that is not decoration.
+              `STUDENT_FEE_STATUS_DESCRIPTIONS` has said "for the filter's help
+              text" in its own docblock since Sprint 15 and **nothing rendered
+              it** — QA found it by opening the screen and reading the DOM, which
+              is the only way an unused constant is ever found. A green gate over
+              a promise no screen keeps is exactly the shape CLAUDE.md's
+              orphaned-route lesson takes in a component.
+
+              It earns its place here more than on most filters: the five states
+              are ranked by *specificity*, not severity, so an unpaid admission
+              voucher three weeks late is both `Admission unpaid` and `Overdue`
+              and only the first shows. Nobody deduces that from four words.
+            */
             options: STUDENT_FEE_STATUSES.map((value) => ({
               value,
               label: STUDENT_FEE_STATUS_LABELS[value],
+              description: STUDENT_FEE_STATUS_DESCRIPTIONS[value],
             })),
             value: feeStatus,
             onChange: (value) => {

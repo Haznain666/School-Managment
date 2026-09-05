@@ -122,6 +122,17 @@ export interface DataTableColumn<Row> {
 export interface DataTableFilterOption {
   value: string;
   label: string;
+  /**
+   * One line saying what this choice means. Rendered as the option's tooltip in
+   * a select filter, and as visible text under the label in a multi filter,
+   * which has the room for it.
+   *
+   * Worth setting where the options are a vocabulary the reader is expected to
+   * hold in their head — the student fee states, where more than one is true of
+   * the same child and the ranking decides which shows. Leave it out where the
+   * label says everything, which is most filters.
+   */
+  description?: string;
 }
 
 interface FilterBase<Row> {
@@ -958,7 +969,14 @@ function MultiFilter({
                   }}
                   className="h-4 w-4 rounded border-line text-brand-primary focus:ring-brand-primary/30"
                 />
-                <span className="truncate">{option.label}</span>
+                <span className="min-w-0">
+                  <span className="block truncate">{option.label}</span>
+                  {option.description === undefined ? null : (
+                    <span className="block text-xs text-ink-muted">
+                      {option.description}
+                    </span>
+                  )}
+                </span>
               </label>
             );
           })}

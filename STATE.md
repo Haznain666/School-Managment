@@ -4,13 +4,39 @@
 resume without re-deriving context. Updated at the end of every development
 step, before the session ends.
 
-**Last updated:** 2026-09-05 (**Sprint 27 — the pre-paid voucher, the school's
-own calendar, and the payroll a principal signs — §5bq.**
+**Last updated:** 2026-09-05 (**Sprint 28 — the child nobody billed, and the
+CNIC that stopped looking — §5br.**)
 
-✅ **Sprint 27 is shipped.** Migration `0043` is **applied** (bookkeeping
-43 → 44, proved by `scripts/verify-0043.mjs`, 71 assertions), merged as
-`c873935` (PR #65), live on build `c873935c0a2e`, CDN purged. `0044` is the next
-migration number.
+✅ **Sprint 28 is shipped, migrated, deployed and QA'd.** Migration `0044` is
+**applied** (bookkeeping 44 → 45, proved by `scripts/verify-0044.mjs`), merged as
+`51b3d52` (PR #67), live on build `51b3d520d8ef`, CDN purged. **`0045` is the
+next migration number.**
+
+Two defects the product owner reported against Askari in one sentence each, and
+a third found while proving the first. **The headline: a Principal, a Branch
+Administrator and a Vice Principal could each admit a child and none of them
+could bill one** — raising the admission voucher cost `fees.write`, which those
+three deliberately do not hold. New narrow key **`fees.admission`**. §5br.
+
+⚠ **The migration went in BEFORE the code, and that order is the rule now.**
+`role_permissions` stores only *departures* from the default, so a new key works
+immediately from `DEFAULT_ROLE_PERMISSIONS` with no row in the table — and the
+CHECK is only reached when a school **overrides** it, on a screen that saves
+every change in one transaction. Deploying code-first would have left one toggle
+capable of failing the whole permissions save with a `23514` no screen can
+translate. That is how `chat.oversight` shipped broken in Sprint 26.
+
+⚠ **QA found two things a green build cannot see, and both are the same shape as
+Sprint 27's orphaned route.** `STUDENT_FEE_STATUS_DESCRIPTIONS` had said *"for
+the filter's help text"* in its own docblock since Sprint 15 and **nothing
+rendered it**; and a CNIC match locked three fields under a caption saying they
+were the school's record while displaying what the clerk had typed. Both fixed
+in this sprint. **The gate is still the same one: open the screen and look.**
+
+Previously: **Sprint 27 — the pre-paid voucher, the school's own calendar, and
+the payroll a principal signs — §5bq.** Migration `0043` is **applied**
+(bookkeeping 43 → 44, proved by `scripts/verify-0043.mjs`, 71 assertions), merged
+as `c873935` (PR #65), live on build `c873935c0a2e`, CDN purged.
 
 `npm run check-sprint27` reads whether `0043` is applied out of the catalogue
 rather than being told, so one command works on both sides. It now reports
@@ -12469,3 +12495,191 @@ days, per person, with the date in hand.
    `lib/payroll-approval.ts` now has and the register does not call.
 5. **The bell's `href` is a fixed map of four routes.** A fifth portal would
    need a line in `noticeHrefFor`.
+
+---
+
+## 5br. Sprint 28 — the child nobody billed, and the CNIC that stopped looking — 2026-09-05
+
+**SHIPPED, MIGRATED, DEPLOYED AND QA'd. Merged as `51b3d52` (PR #67), live on
+build `51b3d520d8ef`, CDN purged. Migration `0044` is APPLIED — bookkeeping
+44 → 45.** `0045` is the next number.
+
+Not a planned sprint. Two defects reported by the product owner in one sentence
+each, against Askari School System, and a third found while proving the first.
+
+### The report, and what was actually wrong
+
+> *"I enrolled a new student 50 in askari school system. I did not pay his fee
+> yet his fee appears to be cleared, I didn't see any option to generate his fee
+> voucher like it used to be before. Neither do I see his voucher in the
+> vouchers section."*
+
+Three symptoms, three separate causes, and none of them was the one the wording
+suggests. **Nothing was broken about the voucher generator.** Student 50
+(`ASST-2026-0004`, Pre-Nursery B) was enrolled by auth uid
+`e15683bd-728f-4d53-af8a-48650577d9ee` = **ASS Principal 1**, and:
+
+| Symptom | Cause |
+| --- | --- |
+| "no option to generate his fee voucher" | `principal` holds `admissions.write` + `students.create` and **not `fees.write`**, and `FeeClearancePanel` gated *Generate* on `fees.write`. The card rendered *Not yet billed* with no button **and no sentence** |
+| "his fee appears to be cleared" | `studentFeeStatusFrom` reached `cleared` by falling off the end of the ranking — no *open* voucher means nothing outstanding, and a child nobody has billed has no open voucher either |
+| "I don't see his voucher in the vouchers section" | correct, and structural: the register is a list of vouchers and he had none. Nothing said so |
+
+The two screenshots were a **principal's scoped view** — 2 of 2 students, 1 of 1
+voucher — which is Sprint 23's grade narrowing working correctly and is why the
+other three vouchers were absent too. Worth recording because it looked like a
+fourth defect and was not.
+
+### `fees.admission`, and why it is not `fees.write`
+
+`fees.write` is *"set prices, raise vouchers and take payments"*. Giving it to
+three heads to fix this would have handed them the price list and the ability to
+record payments — the same control `accounting.settle` exists to draw, undone in
+a different module.
+
+So the key is the narrowest thing that repairs it: **one voucher, one child, at
+an amount `resolveAdmissionFee` computes on the server.** Default-granted to
+`branch_admin`, `principal`, `vice_principal` and `accountant`.
+`POST /api/school/students/[id]/admission-challan` is the only route that costs
+it. `accountant` holds it **explicitly** rather than by implication from
+`fees.write` — `hasPermission` is a set-membership test and resolves no key from
+another.
+
+*Confirm the fee was paid* stays on `fees.write`, and that separation is now
+visible on screen: a Principal sees Print and no Confirm; a School Admin sees
+both.
+
+### The fifth fee state, and the count the register cannot hold
+
+`not_billed`, ranked below `due` and above `cleared`, red. The directory's
+grouped subquery now counts **every non-cancelled voucher** (`live_voucher_count`)
+with the open/overdue/admission figures as `FILTER` aggregates over it — a paid
+voucher and no voucher are both zero *open* vouchers and only the wider count
+separates them.
+
+⚠ **The open-status test had to be repeated inside the `overdue` and `admission`
+filters.** Widening the subquery without it would have made a *paid* admission
+voucher read `Admission unpaid` for ever, at every school.
+
+**A hand-cleared enrollment still reads `cleared`.** `clearEnrolmentFee` is the
+cash-across-a-desk path and leaves no voucher; counting vouchers alone would put
+a settled family on a chasing list. So `not_billed` needs **no live voucher *and*
+an enrollment still `outstanding`** — no voucher and nobody's word for it. QA
+found a real instance at LGS: a student whose only voucher is `cancelled` and
+whose enrollment is `cleared`, reading `Cleared`. That path had never been
+exercised anywhere before.
+
+`countUnbilledStudents` + a callout above the voucher register's tabs, narrowed
+by the reader's own campus and `PrincipalScope`, linking to the directory
+filtered to `not_billed`. It is **not** narrowed to the active academic year, and
+`StudentTable` reads `?feeStatus=` with `useSearchParams` rather than making the
+page read `searchParams`.
+
+### The CNIC that stopped looking
+
+`CnicField` fired the lookup on `isValidCnic(next) && !isValidCnic(value)` — the
+**invalid → valid edge**. The field is `maxLength={15}`, so the only three ways
+to change a *complete* number are deleting from it, typing over a selection, and
+pasting over one — **and the last two arrive as one change event whose previous
+value was also a valid CNIC.** The edge test read that as "nothing changed" and
+suppressed the lookup, while `GuardianForm.onChange` had already cleared
+`matched`/`known`. A clerk correcting a mistyped number was left with no sibling
+banner and no way to get one back short of reloading.
+
+A `lastCompleted` ref replaces it: the same number never fires twice, every new
+one does, and an incomplete number forgets it so retyping the same one asks
+again. **`GuardianPanel` shares the field and had the same defect.**
+
+### Decisions that should not be re-litigated
+
+**Locked means the record.** A CNIC match locks name, phone and email and prints
+*"Recorded against X's existing guardian record"* beneath them, so `lookUp` now
+writes the record into those three **unconditionally**. "Fill only what is empty"
+is right for a field the clerk can still edit and wrong for one they cannot: it
+left a hand-typed name in a disabled box under a caption calling it the school's,
+and `parseGuardians` would then have stored that spelling against a CNIC that
+already names the person — **the family splitting in two through the name instead
+of the number.** Occupation and relationship stay the clerk's, and *Use the
+record we hold* is how the school's version of those is taken deliberately.
+
+**`differsFromRecord` compares only the editable half.** Comparing name, phone or
+email would test a difference that can no longer exist, so the button would never
+appear and nobody could see why.
+
+**The unbilled count is not narrowed to the active year.** `status = 'active'` is
+already one row per student. Adding the year would *hide* a child enrolled into
+next year and never billed — the exact case the count exists to surface — and
+would report zero at a school with no year marked active. The directory it links
+to does default to the active year, so the figure and the list can differ by one
+dropdown. Stated here so nobody "fixes" it into a lie that reads downwards.
+
+### Evidence
+
+`npm run check-sprint28` executes every new and widened statement against the
+real schema — `listStudents` for all five filter values, with a guardian-phone
+search, with a scope on both axes and with an empty one; `countUnbilledStudents`
+four ways; `lookupGuardianByCnic`, `listSiblings`,
+`listStudentsForGuardianIdentity` — and reads whether `0044` is applied out of the
+catalogue. It flipped itself: **`0044 is APPLIED`, 48 ok, 0 failed or not
+exercised.**
+
+`scripts/verify-0044.mjs` proves the CHECK **by attempt**: `fees.admission`
+accepted after and refused with `23514` before, `fees.invent` refused either way,
+and **all 45 keys tried one at a time** — a re-add that quietly lost one stays
+invisible until a school overrides that single permission months later. Every
+attempt inside a rolled-back transaction, `role_permissions` counted a third time
+afterwards.
+
+⚠ **A no-row tenant proves the SQL plans and proves nothing about what a chip
+says.** So the ranking was driven against Askari's real rows before the push:
+Student 50 `not_billed`, Students 1–3 still `cleared`, the filter returning
+exactly Student 50, the count 1 for Principal 1's grades and 0 for Principal 2's.
+
+QA: **61 passed, 0 failed, 1 not exercised** —
+`test-cases/TEST-CASES-SPRINT-28.md`. Driven through emergency-login links at two
+schools, including the flagship CNIC case re-run against the **live** artifact.
+Both permission-override directions were written and removed, which is the only
+case in the suite that reaches `0044`'s CHECK at all.
+
+### The two QA findings, and why both are the same shape as Sprint 27's
+
+Neither is a Sprint 28 regression and both were fixed in it. Both were found by
+**opening the screen**, which is the only way either could have been.
+
+🔴 **`STUDENT_FEE_STATUS_DESCRIPTIONS` had no caller anywhere in the product.**
+Its docblock has said *"For the filter's help text"* since Sprint 15; every
+`<option>` carried an empty `title` and the strings appeared nowhere in the DOM.
+`check-sprint28` referenced it — asserting the constant *exists*, which is not
+the same as somebody seeing it. That is Sprint 27's orphaned route in the shape
+of a constant: **a green gate over a promise no screen keeps.** `SelectOption`
+and `DataTableFilterOption` now carry an optional `description`.
+
+🔴 **The guardian card displayed a name it said it was not using** — the locked
+fields, above. Worth restating because it is the more serious of the two: it
+would have *stored* a divergent spelling, not merely shown one.
+
+### What is still open
+
+1. **Admission vouchers cannot be raised in bulk.** The generator bills a
+   *period* for a *grade*; an admission fee is one charge for one child, raised
+   from that child's profile. A school importing four hundred pupils has four
+   hundred profiles to open. The `Not billed` filter makes the list visible;
+   billing them in one run is not built.
+2. **Case 62 was not exercised** — the unbilled callout at 375×812. Raising
+   Student 50's voucher consumed the only `not_billed` state on the estate, and
+   no other school has an unbilled child. **Anyone re-running the suite must take
+   case 62 before case 4.**
+3. **A teacher granted `fees.admission` has nowhere to press it.** The teacher
+   shell redirects every `/dashboard/...` route, so the key is reachable only by
+   hand. Pre-existing shell behaviour for every admin route, not a regression —
+   but "grantable to anybody" is true of the API and not of the screens.
+4. **There is still no receipt** for a paid admission. Named in Sprint 20 and
+   still true: the only document to hand a parent is the voucher, which is a
+   demand for money already taken.
+5. **`STUDENT_FEE_STATUS_DESCRIPTIONS` reaches the reader as a `title`
+   attribute** on a select option, which is weak on touch devices. The multi
+   filter renders it visibly; the select filter does not have the room.
+6. **Askari's Student 50 now holds `ASST-2026-09-0004`, unpaid, PKR 35,000.**
+   Raised by QA as case 4 and deliberately kept — it is the child the sprint
+   exists to bill. Any future test that needs a `not_billed` student must enroll
+   one.
