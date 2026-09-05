@@ -27,9 +27,18 @@ export const runtime = 'nodejs';
 export default async function CalendarPage() {
   const { claims, locationId } = await requireSchoolRole(ADMIN_PORTAL_ROLES);
 
-  const [me, canManage] = await Promise.all([
+  /*
+   * `comms.send` is read separately from `calendar.manage` because telling four
+   * hundred parents is a different act from moving a date, and the route
+   * enforces exactly that split. HR and a Branch Administrator hold it by their
+   * existing defaults, which is who the requirement names. Reading it here is
+   * what makes the button *absent* for somebody who may edit the calendar but
+   * not announce from it, rather than present and refused after the click.
+   */
+  const [me, canManage, canSend] = await Promise.all([
     getSchoolUserByUid(locationId, claims.uid),
     callerHasPermission('calendar.manage'),
+    callerHasPermission('comms.send'),
   ]);
 
   // The reader's own Saturday duty, so the grid marks the ones they come in
@@ -53,6 +62,7 @@ export default async function CalendarPage() {
 
       <CalendarManager
         canManage={canManage}
+        canSend={canSend}
         initialMonth={initialMonth}
         saturdayOrdinals={saturdayOrdinals}
       />

@@ -14,6 +14,7 @@ import { Select } from '@/components/ui/Select';
 import { HOLIDAY_TYPES, HOLIDAY_TYPE_LABELS } from '@/db/schema/holidays';
 import { formatDateOnly } from '@/lib/dates';
 import { schoolErrorMessage, schoolFetch } from '@/lib/school-client';
+import { ROLE_LABELS, type UserRole } from '@/types/school-auth';
 
 /**
  * The admin calendar: the grid, plus adding, moving and removing a holiday.
@@ -32,10 +33,38 @@ import { schoolErrorMessage, schoolFetch } from '@/lib/school-client';
 
 export interface CalendarManagerProps {
   canManage: boolean;
+  /**
+   * Whether this person may announce a holiday, which is `comms.send` and not
+   * `calendar.manage`. Moving a date and writing to every parent at the school
+   * are different acts, so they are different permissions and the button is
+   * absent rather than present-and-refused.
+   */
+  canSend: boolean;
   /** The month drawn first, as `YYYY-MM`, resolved on the server. */
   initialMonth: string;
   saturdayOrdinals: readonly number[];
 }
+
+/**
+ * Who a holiday notice is offered to, in the order a person thinks of them.
+ *
+ * Not `USER_ROLES` itself: that list is ordered by seniority for the
+ * permissions matrix, which puts Parent and Student — the two audiences a
+ * holiday notice is nearly always *for* — ninth and tenth, below Accountant.
+ */
+const NOTIFY_ROLES: readonly UserRole[] = [
+  'parent',
+  'student',
+  'teacher',
+  'coordinator',
+  'principal',
+  'vice_principal',
+  'branch_admin',
+  'school_admin',
+  'accountant',
+  'hr_manager',
+  'marketing',
+];
 
 interface SeedRow {
   name: string;
@@ -61,6 +90,7 @@ function windowFor(month: string): { from: string; to: string } {
 
 export function CalendarManager({
   canManage,
+  canSend,
   initialMonth,
   saturdayOrdinals,
 }: CalendarManagerProps) {
@@ -90,6 +120,15 @@ export function CalendarManager({
 
   /* ------------------------------------------------------------ add / edit */
   const [editing, setEditing] = useState<CalendarHoliday | null>(null);
+
+  /* The holiday whose notice is being addressed, and who it goes to. */
+  const [notifying, setNotifying] = useState<CalendarHoliday | null>(null);
+  const [notifyRoles, setNotifyRoles] = useState<readonly UserRole[]>([
+    'parent',
+    'student',
+    'teacher',
+  ]);
+  const [notifyEmail, setNotifyEmail] = useState(false);
   const [adding, setAdding] = useState(false);
   const [name, setName] = useState('');
   const [startsOn, setStartsOn] = useState('');
@@ -150,6 +189,40 @@ export function CalendarManager({
       await load();
     } catch (caught) {
       setError(schoolErrorMessage(caught, 'Could not save that holiday.'));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  /**
+   * Announce one holiday to the roles chosen, now.
+   *
+   * The day-before notice is automatic and merges consecutive closures. This is
+   * the other half of the requirement — telling a chosen set of people at a
+   * moment somebody picks, which is what a school does when Eid moves or when
+   * the parents need a fortnight's warning rather than a night's.
+   *
+   * No refetch afterwards: nothing about the holiday row changed. The bell and
+   * the notice board are what moved, and both are read on their own screens.
+   */
+  const sendNotice = async (): Promise<void> => {
+    if (notifying === null || notifyRoles.length === 0) return;
+
+    setBusy(true);
+    setError(null);
+
+    try {
+      await schoolFetch(`/api/school/holidays/${notifying.id}/notify`, {
+        method: 'POST',
+        body: JSON.stringify({ roles: notifyRoles, sendEmail: notifyEmail }),
+      });
+      setNotice(
+        `${notifying.name} announced to ${String(notifyRoles.length)} ` +
+          `${notifyRoles.length === 1 ? 'role' : 'roles'}.`,
+      );
+      setNotifying(null);
+    } catch (caught) {
+      setError(schoolErrorMessage(caught, 'Could not send that notice.'));
     } finally {
       setBusy(false);
     }
@@ -294,6 +367,20 @@ export function CalendarManager({
                   </div>
 
                   <div className="flex gap-2">
+                    {canSend ? (
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        disabled={busy}
+                        onClick={() => {
+                          setNotifyRoles(['parent', 'student', 'teacher']);
+                          setNotifyEmail(false);
+                          setNotifying(holiday);
+                        }}
+                      >
+                        Tell people
+                      </Button>
+                    ) : null}
                     <Button
                       size="sm"
                       variant="secondary"
@@ -446,6 +533,98 @@ export function CalendarManager({
               }}
             >
               Add them
+            </Button>
+          </div>
+        </div>
+      </Modal>
+
+      <Modal
+        open={notifying !== null}
+        title={notifying === null ? 'Tell people' : `Announce ${notifying.name}`}
+        description="Goes to the notice board and the bell straight away. The night-before notice is automatic and separate from this."
+        onClose={() => {
+          setNotifying(null);
+        }}
+      >
+        <div className="space-y-4">
+          <p className="text-sm text-ink-muted">
+            {notifying === null
+              ? ''
+              : notifying.startsOn === notifying.endsOn
+                ? formatDateOnly(notifying.startsOn)
+                : `${formatDateOnly(notifying.startsOn)} – ${formatDateOnly(notifying.endsOn)}`}
+          </p>
+
+          <fieldset className="space-y-2">
+            <legend className="text-sm font-medium text-ink">Who to tell</legend>
+            <div className="grid grid-cols-2 gap-2">
+              {NOTIFY_ROLES.map((role) => {
+                const checked = notifyRoles.includes(role);
+                return (
+                  <label
+                    key={role}
+                    className="flex items-center gap-2 rounded-lg border border-line px-3 py-2 text-sm text-ink"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={checked}
+                      disabled={busy}
+                      onChange={() => {
+                        setNotifyRoles((current) =>
+                          current.includes(role)
+                            ? current.filter((one) => one !== role)
+                            : [...current, role],
+                        );
+                      }}
+                    />
+                    {ROLE_LABELS[role]}
+                  </label>
+                );
+              })}
+            </div>
+          </fieldset>
+
+          <label className="flex items-center gap-2 text-sm text-ink">
+            <input
+              type="checkbox"
+              checked={notifyEmail}
+              disabled={busy}
+              onChange={(event) => {
+                setNotifyEmail(event.target.checked);
+              }}
+            />
+            Email it as well
+          </label>
+          {/*
+            Off by default, and deliberately. The bell and the board can be read
+            and ignored; an email to every parent at the school cannot be
+            recalled, so sending one is a second decision rather than a default.
+          */}
+
+          {notifyRoles.length === 0 ? (
+            <p className="text-sm text-status-warning-onSubtle">
+              Choose at least one role.
+            </p>
+          ) : null}
+
+          <div className="flex justify-end gap-2">
+            <Button
+              variant="secondary"
+              disabled={busy}
+              onClick={() => {
+                setNotifying(null);
+              }}
+            >
+              Cancel
+            </Button>
+            <Button
+              isLoading={busy}
+              disabled={notifyRoles.length === 0}
+              onClick={() => {
+                void sendNotice();
+              }}
+            >
+              Send now
             </Button>
           </div>
         </div>
