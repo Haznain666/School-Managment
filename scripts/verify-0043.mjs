@@ -211,15 +211,30 @@ if (origin !== undefined) {
   );
 }
 
+/*
+ * ⚠ `family_challans` is empty on this database, so there is no row to mutate.
+ * Skipping would report the CHECK as unexercised, which is honest but useless —
+ * this is the constraint that decides whether cancelling a voucher releases its
+ * members or cancels them, and it has to be *proved*. So the row is built here,
+ * inside the transaction that is about to be rolled back, out of real foreign
+ * keys. If those do not exist either, that is reported as not-exercised rather
+ * than passed.
+ */
 await mustRefuse("family_challans_origin_check refuses 'invented'", '23514', async (tx) => {
-  const [row] = await tx`select id, location_id, guardian_id, academic_year_id from family_challans limit 1`;
-  if (row === undefined) {
-    // No family voucher exists to mutate. Say so rather than passing vacuously.
-    throw Object.assign(new Error('no family_challans row to test against'), {
+  const [ref] = await tx`
+    select g.location_id, g.id as guardian_id,
+           (select id from academic_years y where y.location_id = g.location_id limit 1) as year_id
+      from student_guardians g limit 1`;
+  if (ref?.year_id == null) {
+    throw Object.assign(new Error('no guardian/academic year to build a row from'), {
       code: '__skipped__',
     });
   }
-  await tx`update family_challans set origin = 'invented' where id = ${row.id}`;
+  await tx`
+    insert into family_challans
+      (location_id, guardian_id, academic_year_id, challan_number, due_date, total_amount, origin)
+    values (${ref.location_id}, ${ref.guardian_id}, ${ref.year_id},
+            'PROBE-0043', '2026-10-10', 0, 'invented')`;
 });
 
 // ── A5. The four auto-generation columns, one by one ─────────────────────
@@ -360,12 +375,27 @@ check(
   String(runStatus?.def ?? '').slice(0, 120),
 );
 
+/*
+ * Same reasoning as `family_challans` above, and the widened CHECK is the one
+ * statement in Part C that a row count cannot see at all. Built rather than
+ * skipped: `payroll_runs` needs only a school and a month.
+ *
+ * Both directions are proved — `pending_approval` must be *accepted*, or the
+ * whole approval flow is a 23514 the first time a run is submitted, and
+ * anything outside the five must still be refused.
+ */
+await mustAccept('payroll_runs accepts the new pending_approval status', async (tx) => {
+  const [school] = await tx`select location_id from schools limit 1`;
+  await tx`
+    insert into payroll_runs (location_id, payroll_month, payroll_year, status)
+    values (${school.location_id}, 10, 2026, 'pending_approval')`;
+});
+
 await mustRefuse('payroll_runs_status_check refuses a status outside the five', '23514', async (tx) => {
-  const [row] = await tx`select id from payroll_runs limit 1`;
-  if (row === undefined) {
-    throw Object.assign(new Error('no payroll_runs row'), { code: '__skipped__' });
-  }
-  await tx`update payroll_runs set status = 'half_approved' where id = ${row.id}`;
+  const [school] = await tx`select location_id from schools limit 1`;
+  await tx`
+    insert into payroll_runs (location_id, payroll_month, payroll_year, status)
+    values (${school.location_id}, 10, 2026, 'half_approved')`;
 });
 
 // ── The permission catalogue, proved by attempt ──────────────────────────
