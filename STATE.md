@@ -7,19 +7,24 @@ step, before the session ends.
 **Last updated:** 2026-09-05 (**Sprint 27 — the pre-paid voucher, the school's
 own calendar, and the payroll a principal signs — §5bq.**
 
-🔴 **Migration `0043` is WRITTEN AND NOT APPLIED.** It is the largest since
-`0040`: two partial unique indexes replacing one plain one, three new tables,
-eleven new columns, `payroll_runs.status` widened, and
-`role_permissions_permission_check` rewritten with two new keys. Applying it is
-`sprint-devops`. **Until it runs, six screens are a 500** — the four calendars,
-the Saturday roster and the payroll approvals — `pending_approval` is refused
-with `23514`, and `calendar.manage` / `payroll.approve` work by default and
-cannot be *overridden* on the permissions screen.
+✅ **Sprint 27 is shipped.** Migration `0043` is **applied** (bookkeeping
+43 → 44, proved by `scripts/verify-0043.mjs`, 71 assertions), merged as
+`c873935` (PR #65), live on build `c873935c0a2e`, CDN purged. `0044` is the next
+migration number.
 
 `npm run check-sprint27` reads whether `0043` is applied out of the catalogue
-rather than being told, so it is green on both sides: **66 ok, 0 failed** today,
-with every migration-dependent statement required to fail with exactly `42P01`
-or `42703` and doing so. Re-run it after applying and every one must execute.
+rather than being told, so one command works on both sides. It now reports
+**`0043 is APPLIED`, 66 ok, 0 failed or not exercised** — every statement that
+was required to fail with `42P01`/`42703` before the migration now executes
+against the real schema.
+
+⚠ **QA found one thing a green build cannot see: a complete API route that
+nothing called.** `POST /api/school/holidays/[holidayId]/notify` typechecked,
+passed every check script, and was reachable from no screen — so the half of the
+requirement naming *HR and Branch Admin send a holiday notice to chosen roles*
+did not exist in the product. Fixed in this sprint. **The lesson is a gate:
+after building a route, open the screen and look for the button.** Nothing in
+the repository greps for an orphaned endpoint.
 
 ⚠ **Three live defects were found while reading for this sprint and all three
 are fixed in it** — a family payment that had never reached the ledger, a
@@ -12243,10 +12248,77 @@ alone.
 
 ## 5bq. Sprint 27 — the pre-paid voucher, the school's own calendar, and the payroll a principal signs — 2026-09-05
 
-**Branch `feature/sprint-27-vouchers-holidays`. Three commits. Migration `0043`
-is WRITTEN AND NOT APPLIED — that is `sprint-devops`, and until it runs, five
-screens are a 500 and the two new permission keys are inert.** `0042` was the
-last applied.
+**SHIPPED. Merged as `c873935` (PR #65), live on build `c873935c0a2e`, CDN
+purged. Migration `0043` is APPLIED — bookkeeping 43 → 44.** `0044` is the next
+number.
+
+> The three lines that used to stand here said `0043` was written and not
+> applied and that five screens were a 500 until it ran. Both were true when
+> they were written and neither is true now. They are replaced rather than
+> annotated, because a handover file that accumulates corrections is one nobody
+> can read the current state out of — §5bp's own stale lines are why `0042`
+> existed at all.
+
+### How `0043` was applied, and what was proved
+
+`scripts/verify-0043.mjs --apply`, on the **session pooler (5432)** — `drizzle-kit
+migrate` still hangs on the unescaped `@` (§5bg). 71 assertions, every write
+attempt inside a transaction that is always rolled back, every affected table's
+row count read a third time afterwards.
+
+Three of `0043`'s statements fail *silently* rather than loudly, and each is
+proved directly rather than by existence:
+
+| Statement | What existence would not have caught |
+| --- | --- |
+| `fee_challans_student_month_year_idx` re-created **partial** | a re-creation that lost its `WHERE` is still a unique index, still passes every row count, and still refuses to re-bill a cancelled month — the whole of Part A. `pg_index.indpred` is read, and required to name `cancelled` |
+| `late_fee_rules.auto_generate_vouchers` | a `true` default starts billing every parent at every school with nothing on any screen saying so. Both the default **and** every stored row are read; 0 schools have it on |
+| `role_permissions_permission_check` | dropped-and-not-re-added leaves every count identical and the table unguarded. Proved by attempt: 44 keys, `calendar.manage` and `payroll.approve` accepted, `fees.invent` refused with 23514 |
+
+⚠ **The first run reported 2 failures and both were the script's, not the
+migration's.** `family_challans` and `payroll_runs` are empty, so
+`family_challans_origin_check` and `payroll_runs_status_check` had no row to
+mutate and went **unexercised**. Reporting that as a pass is what CLAUDE.md
+forbids; reporting it as a skip is barely better. The rows are now *built*
+inside the rolled-back transaction out of real foreign keys. If your sprint adds
+a CHECK to a table that is empty on this database, do the same — an empty table
+is not a reason to leave a constraint unproved.
+
+`npm run check-sprint27` flips on its own: it reads whether `0043` is applied out
+of the catalogue rather than being told. Before, 66 ok with every
+migration-dependent statement required to fail with exactly `42P01`/`42703`;
+after, **`0043 is APPLIED`, 66 ok, 0 failed or not exercised**.
+
+### The QA round, and the defect it found
+
+Driven in Playwright against the standalone build, signed in through *Login as
+Admin* on a minted local-only credential (§5bc).
+
+- The seed writes Pakistan's 2026 holidays — 10 rows, Islamic dates flagged
+  tentative, Eid as one multi-day row. **Pressed twice it still writes 10**,
+  which is `holidays_school_wide_idx` doing exactly what it was added for.
+- Fee settings carries the day-of-month control, and states the model in the
+  screen's own words: *"A voucher raised on 25th September is for October and
+  falls due on 10th October."*
+- Saturday duty is per role **and** per person, 1st–5th.
+- Every admin route 200. The three portal calendars redirect, correctly, for a
+  school-admin session.
+
+🔴 **`POST /api/school/holidays/[holidayId]/notify` was complete, correct, and
+reachable from nothing.** No component in the repository called it, so the half
+of B8 the requirement names in as many words — *HR and Branch Admin select
+specific portal user roles and send them a holiday notification explicitly* —
+did not exist in the product. A green build cannot see this: the route
+typechecks, the check scripts scan for banned patterns rather than for orphans,
+and the automatic day-before notice works, which makes the feature *look*
+delivered from the database side.
+
+**The gate is opening the screen and looking for the button.** Fixed here:
+`CalendarManager` gains a *Tell people* action per holiday, gated on `comms.send`
+read separately from `calendar.manage` — moving a date and writing to four
+hundred parents are different acts, and the route already enforced that split.
+*Email it as well* is off by default: the bell and the board can be ignored, an
+email cannot be recalled.
 
 Three parts, shipped together because two of them meet in the payroll run: a
 holiday is what stops a teacher being docked, and the payroll approval is who

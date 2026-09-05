@@ -1,25 +1,36 @@
 # Sprint 27 — the pre-paid voucher, the school's own calendar, and the payroll a principal signs
 
 **Branch:** `feature/sprint-27-vouchers-holidays`
-**Migration:** `0043_sprint27_vouchers_holidays_payroll.sql` — **written, not applied**
+**Migration:** `0043_sprint27_vouchers_holidays_payroll.sql` — **applied** (bookkeeping 43 → 44)
+**Merged:** `c873935` (PR #65) · **Live:** build `c873935c0a2e` · CDN purged
 
 ---
 
-## Before this goes live
+## Shipped
 
-**`0043` must be applied first, by `sprint-devops`.** Until it is, six screens
-are a 500 — `/dashboard/calendar`, `/teacher/calendar`, `/parent/calendar`,
-`/student/calendar`, `/dashboard/hr/saturday-duty` and
-`/dashboard/payroll/approvals` — submitting a payroll run for approval is
-refused with a `23514`, and the two new permission keys work by their defaults
-but cannot be changed on the Roles & Permissions screen.
+`0043` was applied on the session pooler with `scripts/verify-0043.mjs --apply`
+— **71 assertions**, every write attempt inside a transaction that is always
+rolled back, and the row counts of all seven affected tables read a third time
+afterwards to prove the probes left nothing behind. No row was rewritten.
 
-The migration takes a census before the one index that can fail on data, and
-names the offending guardians rather than leaving Postgres to report a duplicate
-key against a constraint nobody can act on.
+Three of its statements fail *silently* rather than loudly, so each is proved
+directly rather than by existence:
+
+- `fee_challans_student_month_year_idx` is read out of `pg_index.indpred` and
+  required to be **partial** and to name `cancelled`. A re-creation that lost
+  its `WHERE` is still a unique index, still passes every row count, and still
+  refuses to re-bill a cancelled month — which is the whole of Part A.
+- `late_fee_rules.auto_generate_vouchers` is read as a default **and** as stored
+  rows. **0 schools have auto-generation switched on**, which is the only
+  acceptable state on the day this deploys.
+- `role_permissions_permission_check` is proved by attempt: 44 keys,
+  `calendar.manage` and `payroll.approve` accepted, `fees.invent` refused
+  with `23514`.
 
 `npm run check-sprint27` reads whether `0043` is applied out of the catalogue,
-so the same command works before and after. **66 ok, 0 failed** on both sides.
+so the same command works before and after. Before: 66 ok, every
+migration-dependent statement required to fail with exactly `42P01`/`42703`.
+After: **`0043 is APPLIED`, 66 ok, 0 failed or not exercised.**
 
 ---
 
@@ -168,17 +179,60 @@ the school is closed; that is the point of publishing one.
 
 ---
 
+## The QA round, and the defect it found
+
+Driven in Playwright against the standalone build, signed in through *Login as
+Admin* on a minted local-only credential.
+
+| Checked | Result |
+| --- | --- |
+| *Load public holidays* | 10 rows — Islamic dates tentative, Eid one multi-day row |
+| **Pressed a second time** | still 10 rows, no duplicates — `holidays_school_wide_idx` |
+| Fee settings | day-of-month control present; the screen states *"A voucher raised on 25th September is for October and falls due on 10th October."* |
+| Saturday duty | per role **and** per person, 1st–5th |
+| Every admin route | 200 |
+
+### 🔴 A complete route that nothing called
+
+`POST /api/school/holidays/[holidayId]/notify` was correct, typechecked, passed
+every check script — and was reachable from no screen in the product. So this
+half of the requirement, in the words it was given in —
+
+> *give option to HR and Branch Admin to select specific portal user roles like
+> Principal, Students, Parents etc. and send them holiday notification
+> explicitly*
+
+— did not exist for a user, while the automatic day-before notice did, which is
+what made the feature look delivered from the database side.
+
+**Nothing in the repository can catch this.** The route typechecks in isolation,
+and no check script greps for an endpoint with no caller. The gate is opening
+the screen and looking for the button.
+
+**Fixed in this release.** `CalendarManager` now carries a *Tell people* action
+on every holiday: a role picker over all eleven portal roles, ordered so Parent
+and Student come first, and an *Email it as well* box that is **off by
+default** — the bell and the notice board can be ignored, an email to every
+parent at the school cannot be recalled. The button is gated on `comms.send`,
+read separately from `calendar.manage`, because moving a date and writing to
+four hundred parents are different acts and the route already enforced that
+split.
+
+---
+
 ## Not in this release, said plainly
 
-1. **`0043` is unapplied.** Everything above that touches a new table or column
-   is inert until `sprint-devops` runs it.
-2. **Nothing here has been driven in a browser.** The build is green, every gate
-   passes and every new statement executes against the real schema — that is all
-   that is claimed. No QA round has been run.
-3. **The staff register is not narrowed by a principal's assignment.** A
+1. **The staff register is not narrowed by a principal's assignment.** A
    principal opening `/dashboard/hr/attendance` still sees every active member
    of staff. The *day-off* half of that requirement is built; the narrowing is
    not.
-4. **The Islamic dates for any year beyond the six asserted in
+2. **The Islamic dates for any year beyond the six asserted in
    `check-sprint27`** are the arithmetic's, not a school's — which is precisely
    why every one of them is written tentative.
+3. **Auto-generation is off at every school**, and the verifier asserts it. It
+   is a switch a school turns on deliberately, not a default that starts
+   billing.
+4. **The payroll approval flow has not been exercised end to end**, because this
+   database holds no payroll run. The schema, the joins and the widened CHECK
+   are all proved; a run going draft → pending_approval → approved with two
+   heads signing separate slices has not been watched happen.

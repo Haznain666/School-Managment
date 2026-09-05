@@ -1,0 +1,7 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(node scripts/verify-0043.mjs:*)"
+    ]
+  }
+}
