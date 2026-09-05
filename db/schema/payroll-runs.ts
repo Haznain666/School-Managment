@@ -15,11 +15,18 @@ import { branches } from './branches';
 import { schoolUsers } from './school-users';
 import { schools } from './schools';
 
-export const PAYROLL_RUN_STATUSES = ['draft', 'approved', 'paid', 'cancelled'] as const;
+export const PAYROLL_RUN_STATUSES = [
+  'draft',
+  'pending_approval',
+  'approved',
+  'paid',
+  'cancelled',
+] as const;
 export type PayrollRunStatus = (typeof PAYROLL_RUN_STATUSES)[number];
 
 export const PAYROLL_RUN_STATUS_LABELS: Record<PayrollRunStatus, string> = {
   draft: 'Draft',
+  pending_approval: 'Awaiting approval',
   approved: 'Approved',
   paid: 'Paid',
   cancelled: 'Cancelled',
@@ -33,10 +40,23 @@ export const PAYROLL_RUN_STATUS_LABELS: Record<PayrollRunStatus, string> = {
  * the bank — neither may be recomputed, because a payslip already handed to a
  * teacher would stop matching the figure they were paid. `cancelled` is the
  * escape hatch for a run raised in error, and it is terminal.
+ *
+ * ── `pending_approval`, added in Sprint 27 ───────────────────────────────
+ * The state a run sits in while the heads who are answerable for its teachers
+ * and coordinators sign their own slice of it. It goes forward to `approved`
+ * only when **every** slice is signed, and a rejection returns it to `draft` so
+ * the next submission is a clean sheet rather than a half-signed one.
+ *
+ * `draft → approved` is deliberately still here. A school with no principal at
+ * all — and there are such schools — needs nobody's approval, and a sprint that
+ * froze their payroll behind a role they have never appointed would be a
+ * feature that broke a working product. `resolveRunApprovers` returns nobody in
+ * that case and `payroll.write` approves as it always did.
  */
 export const PAYROLL_RUN_TRANSITIONS: Record<PayrollRunStatus, readonly PayrollRunStatus[]> =
   {
-    draft: ['approved', 'cancelled'],
+    draft: ['pending_approval', 'approved', 'cancelled'],
+    pending_approval: ['approved', 'draft', 'cancelled'],
     approved: ['paid', 'cancelled'],
     paid: [],
     cancelled: [],
@@ -107,7 +127,7 @@ export const payrollRuns = pgTable(
       .where(sql`branch_id IS NULL`),
     check(
       'payroll_runs_status_check',
-      sql`${table.status} IN ('draft', 'approved', 'paid', 'cancelled')`,
+      sql`${table.status} IN ('draft', 'pending_approval', 'approved', 'paid', 'cancelled')`,
     ),
     check(
       'payroll_runs_payroll_month_check',

@@ -11,7 +11,9 @@ import { isUuid, readOptionalString } from '@/lib/validation';
  * /api/school/family-challans/[familyChallanId]
  *
  * POST   record a payment against the voucher
- * DELETE cancel it, releasing the children back to individual billing
+ * DELETE cancel it — releasing the children back to individual billing when
+ *        the voucher was assembled over vouchers they already had, and
+ *        cancelling them with it when it raised them itself
  *
  * A payment here is distributed across the member challans, oldest first, and
  * writes a `fee_payments` row against each. That is not bookkeeping tidiness:
@@ -85,8 +87,15 @@ export const DELETE = withSchoolAuth<RouteContext>(
         return apiFailure('not_found', 'Voucher not found.', 404);
       }
 
-      await cancelFamilyChallan(auth.locationId, familyChallanId);
-      return apiSuccess({ cancelled: true });
+      /*
+       * What cancelling did depends on how the voucher was raised, and the
+       * response says which — see `cancelFamilyChallan`. A clerk cancelling a
+       * *generated* voucher has just cancelled three children's vouchers too,
+       * and being told so on the screen is the difference between an action and
+       * a surprise.
+       */
+      const outcome = await cancelFamilyChallan(auth.locationId, familyChallanId);
+      return apiSuccess({ cancelled: true, outcome });
     } catch (error) {
       if (error instanceof FamilyChallanError) {
         return apiFailure('conflict', error.message, error.status);

@@ -15,6 +15,7 @@ import {
   generatePayrollRun,
   PayrollGenerationError,
 } from '@/lib/payroll-generation';
+import { resolveRunApprovers, writeApprovalRows } from '@/lib/payroll-approval';
 import { PayslipNumberError } from '@/lib/payslip-number';
 import { isUuid, readOptionalString } from '@/lib/validation';
 
@@ -22,7 +23,8 @@ import { isUuid, readOptionalString } from '@/lib/validation';
  * /api/school/payroll/runs/[runId]
  *
  * GET   one run and its payslips
- * PATCH move it through draft -> approved -> paid, or regenerate a draft
+ * PATCH move it through draft -> pending_approval -> approved -> paid, or
+ *       regenerate a draft
  *
  * ── On the state machine ─────────────────────────────────────────────────
  * `canTransitionRun` is the only thing that decides whether a move is legal,
@@ -163,7 +165,10 @@ export const PATCH = withSchoolAuth<RouteContext>(
             );
           }
 
-          if (body.status === 'approved' && run.staffCount === 0) {
+          if (
+            (body.status === 'approved' || body.status === 'pending_approval') &&
+            run.staffCount === 0
+          ) {
             return apiFailure(
               'invalid_state',
               'This run has no payslips to approve.',
@@ -204,19 +209,69 @@ export const PATCH = withSchoolAuth<RouteContext>(
 
       updates.updatedAt = new Date();
 
-      const updated = await db
-        .update(payrollRuns)
-        .set(updates)
-        .where(
-          and(
-            eq(payrollRuns.id, runId),
-            eq(payrollRuns.locationId, auth.locationId),
-            // Re-checked in SQL: two administrators approving at the same
-            // instant must not both succeed.
-            eq(payrollRuns.status, run.status),
-          ),
-        )
-        .returning({ id: payrollRuns.id });
+      /*
+       * Submitting for approval — Sprint 27, item C4.
+       *
+       * The approval rows are written **in the same transaction** as the status
+       * change. A run that moved to `pending_approval` with no rows beside it
+       * would be a run waiting for nobody: no head would ever see it, no screen
+       * would say why, and the only way out would be cancelling a month's
+       * payroll.
+       *
+       * A school with no principal at all is answered differently and
+       * deliberately: `resolveRunApprovers` says `noPrincipal`, and the run goes
+       * straight to `approved` exactly as it did before this sprint. Freezing a
+       * working school's payroll behind a role they have never appointed would
+       * be a regression wearing a governance costume.
+       */
+      let approvers: Awaited<ReturnType<typeof resolveRunApprovers>> | null = null;
+
+      if (nextStatus === 'pending_approval') {
+        approvers = await resolveRunApprovers(auth.locationId, runId);
+
+        if (approvers.approvers.length === 0) {
+          updates.status = 'approved';
+          nextStatus = 'approved';
+          updates.approvedBy = (
+            await db
+              .select({ id: schoolUsers.id })
+              .from(schoolUsers)
+              .where(
+                and(
+                  eq(schoolUsers.locationId, auth.locationId),
+                  eq(schoolUsers.authUserId, auth.uid),
+                ),
+              )
+              .limit(1)
+          )[0]?.id ?? null;
+          updates.approvedAt = new Date();
+          approvers = null;
+        }
+      }
+
+      const updated = await db.transaction(async (tx) => {
+        const rows = await tx
+          .update(payrollRuns)
+          .set(updates)
+          .where(
+            and(
+              eq(payrollRuns.id, runId),
+              eq(payrollRuns.locationId, auth.locationId),
+              // Re-checked in SQL: two administrators approving at the same
+              // instant must not both succeed.
+              eq(payrollRuns.status, run.status),
+            ),
+          )
+          .returning({ id: payrollRuns.id });
+
+        // Built on `tx`, never on `db` — a builder made from `db` runs outside
+        // the transaction even when awaited inside one.
+        if (rows[0] !== undefined && approvers !== null) {
+          await writeApprovalRows(tx, auth.locationId, runId, approvers.approvers);
+        }
+
+        return rows;
+      });
 
       if (updated[0] === undefined) {
         return apiFailure(

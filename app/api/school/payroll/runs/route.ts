@@ -4,8 +4,8 @@ import { isPayrollRunStatus, payrollRuns, schoolUsers } from '@/db/schema';
 import { withSchoolAuth } from '@/lib/api-auth';
 import { apiFailure, apiSuccess, handleApiError, readJsonBody } from '@/lib/api-response';
 import { db } from '@/lib/drizzle';
+import { calendarWorkingDays } from '@/lib/holiday-queries';
 import { listPayrollRuns } from '@/lib/hr-queries';
-import { defaultWorkingDays } from '@/lib/payroll-calculator';
 import {
   generatePayrollRun,
   PayrollGenerationError,
@@ -91,10 +91,33 @@ export const POST = withSchoolAuth(
         );
       }
 
+      /*
+       * The denominator, from the school's own calendar — Sprint 27, item B7.
+       *
+       * It used to be `defaultWorkingDays`, which counts every day that is not
+       * a Sunday. That is a calendar the school does not keep: it counts Eid,
+       * Independence Day and every Saturday nobody is rostered on, so a month
+       * with a three-day Eid in it had a denominator three days too large and
+       * every loss-of-pay figure in the run was quietly wrong.
+       *
+       * `calendarWorkingDays` reads the holidays and the Saturday roster. The
+       * school may still override the number — it is theirs — but it arrives
+       * correct rather than arriving as an assumption.
+       *
+       * The old function is kept as the fallback for a school with no calendar
+       * at all, which is every school on the day this ships: with no holidays
+       * and no roster, `calendarWorkingDays` counts exactly the non-Sundays
+       * `defaultWorkingDays` did, so nothing changes for them.
+       */
       const workingDaysRaw = body.workingDays;
       const workingDays =
         workingDaysRaw === undefined || workingDaysRaw === null
-          ? defaultWorkingDays(payrollMonth, payrollYear)
+          ? await calendarWorkingDays(
+              auth.locationId,
+              payrollMonth,
+              payrollYear,
+              readOptionalString(body.branchId),
+            )
           : Number(workingDaysRaw);
 
       if (!Number.isInteger(workingDays) || workingDays < 1 || workingDays > 31) {

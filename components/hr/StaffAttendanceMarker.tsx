@@ -10,6 +10,7 @@ import {
   STAFF_ATTENDANCE_STATUSES,
   type StaffAttendanceStatus,
 } from '@/db/schema/staff-attendance';
+import { formatDateOnly } from '@/lib/dates';
 import { cn } from '@/lib/utils';
 import { schoolErrorMessage, schoolFetch } from '@/lib/school-client';
 
@@ -39,6 +40,16 @@ interface MarkRow {
   status: StaffAttendanceStatus;
 }
 
+/** Whether the chosen date was a day off, and whom it was a day off for. */
+interface DayOff {
+  holidayNames: string[];
+  /** 1–5 when the date is a Saturday, 0 when it is not. */
+  saturdayOrdinal: number;
+  staffIds: string[];
+}
+
+const ORDINAL_WORDS = ['', 'first', 'second', 'third', 'fourth', 'fifth'];
+
 export interface StaffAttendanceMarkerProps {
   canEdit: boolean;
 }
@@ -59,6 +70,7 @@ function todayIso(): string {
 export function StaffAttendanceMarker({ canEdit }: StaffAttendanceMarkerProps) {
   const [date, setDate] = useState(todayIso);
   const [roster, setRoster] = useState<StaffRow[] | null>(null);
+  const [dayOff, setDayOff] = useState<DayOff | null>(null);
   const [marks, setMarks] = useState<Record<string, StaffAttendanceStatus>>({});
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -71,13 +83,32 @@ export function StaffAttendanceMarker({ canEdit }: StaffAttendanceMarkerProps) {
       const payload = await schoolFetch<{
         staff: StaffRow[];
         attendance: MarkRow[];
+        dayOff: DayOff;
       }>(`/api/school/hr/attendance?date=${encodeURIComponent(date)}`);
 
       setRoster(payload.staff);
+      setDayOff(payload.dayOff);
 
-      // Default everyone to present, then overlay whatever was already marked.
+      /*
+       * The default is `present` on a working day and `holiday` on a day off —
+       * Sprint 27, item B6.
+       *
+       * Marking a register is an exercise in noting the exceptions, and on Eid
+       * the exception is whoever *came in*. Defaulting forty rows to `present`
+       * on a day the school was shut asks an administrator to tap "holiday"
+       * forty times, which is how registers stop being taken.
+       *
+       * Per person, not per date: the day off is a Saturday half the staff are
+       * rostered on, and the other half are not.
+       */
+      const off = new Set(payload.dayOff.staffIds);
+
       const next: Record<string, StaffAttendanceStatus> = {};
-      for (const row of payload.staff) next[row.id] = 'present';
+      for (const row of payload.staff) {
+        next[row.id] = off.has(row.id) ? 'holiday' : 'present';
+      }
+      // Overlaid last, so a day already marked reads back as it was marked
+      // rather than being reset to the default a moment before it is saved.
       for (const row of payload.attendance) next[row.staffId] = row.status;
 
       setMarks(next);
@@ -147,6 +178,27 @@ export function StaffAttendanceMarker({ canEdit }: StaffAttendanceMarkerProps) {
             }}
           />
         </div>
+
+        {/*
+          What kind of day this is, said out loud — Sprint 27, item B6.
+
+          Without it a person marking a past Eid sees forty rows defaulted to
+          "holiday" and no reason why, which reads as a bug. The sentence names
+          the holiday, or names the Saturday, and says the register is for
+          whoever actually came in.
+        */}
+        {dayOff !== null && dayOff.staffIds.length > 0 ? (
+          <p
+            role="status"
+            className="mt-4 rounded-lg bg-status-warning-subtle px-3 py-2 text-sm text-status-warning-onSubtle"
+          >
+            {dayOff.holidayNames.length > 0
+              ? `${formatDateOnly(date)} — ${dayOff.holidayNames.join(' and ')}.`
+              : `${formatDateOnly(date)} — the ${ORDINAL_WORDS[dayOff.saturdayOrdinal] ?? ''} Saturday of the month, a day off for ${dayOff.staffIds.length} of these staff.`}{' '}
+            Everyone off is marked <strong>Holiday</strong>. Mark whoever came in
+            as <strong>Present</strong>.
+          </p>
+        ) : null}
       </Card>
 
       {roster === null ? (
@@ -164,7 +216,7 @@ export function StaffAttendanceMarker({ canEdit }: StaffAttendanceMarkerProps) {
           header={
             <CardTitle
               title="Staff register"
-              description="Everyone starts present — change only the exceptions."
+              description="Change only the exceptions — on a day the school was shut, that is whoever came in."
               action={
                 canEdit ? (
                   <Button

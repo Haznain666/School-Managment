@@ -4,6 +4,7 @@ import {
   check,
   date,
   index,
+  integer,
   pgTable,
   text,
   timestamp,
@@ -133,6 +134,27 @@ export const staff = pgTable(
     bankAccountNumber: text('bank_account_number'),
     bankName: text('bank_name'),
 
+    /**
+     * Which Saturdays this person is called in on, overriding their role's
+     * policy (Sprint 27).
+     *
+     * ⚠ **Null and `{}` are one character apart and opposite.**
+     *
+     *   · `null` — no override. Use `saturday_duty_policies` for their role,
+     *     which is what almost every member of staff carries.
+     *   · `{}`   — an override that says **no Saturdays**, for the person whose
+     *     role is called in every week and who is not.
+     *
+     * Collapsing the two would make it impossible to excuse one teacher from a
+     * Saturday rota without excusing every teacher, and impossible to say so on
+     * a screen. Every reader goes through `effectiveSaturdayOrdinals` in
+     * `lib/holiday-calendar.ts`, which is where the `??` lives — not `||`,
+     * which would treat the empty array as absent and hand the person their
+     * role's Saturdays back.
+     *
+     * Values are 1–5: which Saturday of its own month.
+     */
+    saturdayOrdinals: integer('saturday_ordinals').array(),
     /** Set when the person leaves. Payroll skips them from this date. */
     resignedOn: date('resigned_on'),
     createdAt: timestamp('created_at', { withTimezone: true })

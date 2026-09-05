@@ -8,6 +8,7 @@ import {
   pgTable,
   text,
   timestamp,
+  uniqueIndex,
   uuid,
 } from 'drizzle-orm/pg-core';
 
@@ -29,6 +30,18 @@ export const FAMILY_CHALLAN_STATUS_LABELS: Record<FamilyChallanStatus, string> =
   paid: 'Paid',
   cancelled: 'Cancelled',
 };
+
+/**
+ * How a family voucher came to exist (Sprint 27).
+ *
+ * `combined` — assembled over child vouchers the school had already raised.
+ * `generated` — raised the child vouchers itself, in one transaction.
+ *
+ * The distinction is not bookkeeping: it decides what cancelling does. See
+ * `origin` on the table below.
+ */
+export const FAMILY_CHALLAN_ORIGINS = ['combined', 'generated'] as const;
+export type FamilyChallanOrigin = (typeof FAMILY_CHALLAN_ORIGINS)[number];
 
 /**
  * family_challans — one voucher covering the siblings of one guardian.
@@ -98,6 +111,21 @@ export const familyChallans = pgTable(
       .notNull()
       .default('0'),
     status: text('status').notNull().default('unpaid').$type<FamilyChallanStatus>(),
+    /**
+     * Whether this voucher was assembled over existing child vouchers or
+     * raised them itself (Sprint 27).
+     *
+     * ── Why the database has to remember it ──────────────────────────────
+     * Cancelling a `combined` voucher releases its members back to individual
+     * billing, which is right: they existed before the wrapper did and the
+     * school still intends to collect them. Doing the same to a `generated`
+     * voucher leaves behind three vouchers nobody raised and nobody expects —
+     * they exist only because the wrapper does, so they go with it.
+     *
+     * There is no way to infer this after the fact. Both kinds look identical
+     * once written, which is exactly why it is stored rather than derived.
+     */
+    origin: text('origin').notNull().default('combined').$type<FamilyChallanOrigin>(),
     notes: text('notes'),
     /** Supabase auth id of whoever generated it. */
     generatedByUid: text('generated_by_uid'),
@@ -113,9 +141,25 @@ export const familyChallans = pgTable(
     index('family_challans_guardian_id_idx').on(table.guardianId),
     index('family_challans_location_status_idx').on(table.locationId, table.status),
     index('family_challans_location_due_date_idx').on(table.locationId, table.dueDate),
+    /*
+     * One **live** family voucher per guardian per month (Sprint 27).
+     *
+     * The mirror of `fee_challans_student_month_year_idx`, and it closes the
+     * same door on the wrapper that that one closes on the members: a family
+     * cannot hold two live vouchers for October however many times the
+     * generator is pressed. Partial on `status <> 'cancelled'` for the same
+     * reason — a cancellation has to make room for the corrected voucher.
+     */
+    uniqueIndex('family_challans_guardian_month_idx')
+      .on(table.guardianId, table.billingMonth, table.billingYear, table.academicYearId)
+      .where(sql`${table.status} <> 'cancelled'`),
     check(
       'family_challans_status_check',
       sql`${table.status} IN ('unpaid', 'partial', 'paid', 'cancelled')`,
+    ),
+    check(
+      'family_challans_origin_check',
+      sql`${table.origin} IN ('combined', 'generated')`,
     ),
   ],
 );

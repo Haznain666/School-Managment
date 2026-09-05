@@ -198,3 +198,20 @@ export * from './chat-signals';
 // is a browser's registration with a push service, and the next feature that
 // wants to reach a phone should find it here rather than inventing a second one.
 export * from './push-subscriptions';
+
+// Sprint 27 — the school's own calendar, the Saturday duty roster, and the
+// payroll a principal signs.
+//
+// Dependency order, and the reason for it: `holidays` references `branches`
+// and `school_users`; `saturday_duty_policies` references nothing but
+// `schools`; `holiday_notifications` references `announcements`, so it comes
+// after them; and `payroll_run_approvals` references `payroll_runs`, which is
+// exported far above.
+//
+// Weekends are deliberately **not** in `holidays`. Sunday is always off and
+// Saturday is decided by the duty roster — 104 rows a year per school saying
+// the same thing is a table that will eventually disagree with itself.
+export * from './holidays';
+export * from './saturday-duty-policies';
+export * from './holiday-notifications';
+export * from './payroll-run-approvals';

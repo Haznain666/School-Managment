@@ -50,6 +50,7 @@ export const PERMISSIONS = [
   'hr.write',
   'payroll.read',
   'payroll.write',
+  'payroll.approve',
   'comms.read',
   'comms.write',
   'comms.send',
@@ -63,6 +64,7 @@ export const PERMISSIONS = [
   'branches.manage',
   'principals.manage',
   'permissions.manage',
+  'calendar.manage',
   'accounting.read',
   'accounting.write',
   'accounting.settle',
@@ -143,7 +145,11 @@ export const PERMISSION_GROUPS: readonly PermissionGroup[] = [
     label: 'Accounting',
     permissions: ['accounting.read', 'accounting.write', 'accounting.settle'],
   },
-  { key: 'payroll', label: 'Payroll', permissions: ['payroll.read', 'payroll.write'] },
+  {
+    key: 'payroll',
+    label: 'Payroll',
+    permissions: ['payroll.read', 'payroll.write', 'payroll.approve'],
+  },
   {
     key: 'school',
     label: 'School',
@@ -153,6 +159,7 @@ export const PERMISSION_GROUPS: readonly PermissionGroup[] = [
       'branches.manage',
       'principals.manage',
       'permissions.manage',
+      'calendar.manage',
     ],
   },
 ];
@@ -192,11 +199,15 @@ export const PERMISSION_LABELS: Record<Permission, string> = {
   'hr.write': 'Add staff, set salaries and decide leave',
   'payroll.read': 'See payroll runs and payslips',
   'payroll.write': 'Run, approve and pay payroll',
+  'payroll.approve':
+    'Approve a payroll run for the staff you are responsible for, and override a deduction',
   'settings.read': 'See the school profile and branding',
   'settings.write': 'Edit the school profile, logo and colours',
   'branches.manage': 'Add, edit and delete a campus',
   'principals.manage': 'Decide which principal runs which campus or division',
   'permissions.manage': 'Change what every role may do',
+  'calendar.manage':
+    'Add a holiday, move one, and load the year’s public holidays',
   'accounting.read': 'See the ledger, expenses and the financial statements',
   'accounting.write': 'Record expenses, post journal entries and edit the chart of accounts',
   'accounting.settle': 'Take a fee counter’s cash in and settle their account',
@@ -207,6 +218,16 @@ export const PERMISSION_DESCRIPTIONS: Partial<Record<Permission, string>> = {
     'Includes marking a voucher paid. Grant it only to people who handle money.',
   'payroll.write':
     'Includes approving a run, which is irreversible. Separate from payroll.read on purpose.',
+  'payroll.approve':
+    'A head signs off the teachers and coordinators they are answerable for, ' +
+    'and nobody else’s. Deliberately not HR’s: the person who computes the ' +
+    'payroll is not the person who signs it off, which is the same control ' +
+    'accounting.settle exists to draw.',
+  'calendar.manage':
+    'The school’s own calendar — a closure, a founder’s day, and the year’s ' +
+    'public holidays loaded in one click. Every Islamic date is written as ' +
+    'tentative because it is decided by moon sighting, and whoever holds this ' +
+    'is who confirms it. Reading the calendar needs no permission at all.',
   'permissions.manage':
     'Whoever holds this can grant themselves anything else. School Administrator always keeps it.',
   'attendance.mark': 'A teacher needs this for their own classes.',
@@ -389,6 +410,12 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<UserRole, readonly Permission[]> =
     'comms.write',
     'comms.send',
     'hr.read',
+    // Sprint 27. A campus closes for a road blocked by a rally, and the person
+    // who knows that is at the campus. This is deliberately *not* the same
+    // decision as `branches.manage` two lines of reasoning below: editing the
+    // campus record is editing the boundary a branch admin is confined by,
+    // while adding a day the campus is shut is running it.
+    'calendar.manage',
     'chat.read',
     'chat.send',
     'chat.grant',
@@ -425,6 +452,15 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<UserRole, readonly Permission[]> =
     'comms.send',
     'hr.read',
     'payroll.read',
+    // Sprint 27. `payroll.read` is seeing the salary bill; this is signing off
+    // the slice of it a head is answerable for — their own campuses' teachers
+    // and coordinators, or the ones in their own grades. It is deliberately
+    // **not** `payroll.write`, which is still HR's: a head who could raise,
+    // recompute and approve a run in one seat is a control with nobody in it.
+    'payroll.approve',
+    // A head owns the school's year. Confirming a tentative Eid date is
+    // exactly the judgement this key exists for.
+    'calendar.manage',
     // The same reasoning as `payroll.read` directly above: seeing what the
     // school earns and spends is a head's job, running the books is not.
     // `accounting.write` and `accounting.settle` are deliberately absent.
@@ -548,6 +584,15 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<UserRole, readonly Permission[]> =
     'hr.write',
     'payroll.read',
     'payroll.write',
+    // `payroll.approve` is deliberately absent, and this is the second place
+    // in this file where an omission is the decision. HR computes the payroll;
+    // the head signs it. A person who does both is the control
+    // `accounting.settle` exists to draw, in a different module.
+    //
+    // `calendar.manage` **is** here: the school's year — the closures, the
+    // public holidays, the Saturday rota — is HR's to keep, and it is what
+    // stops a teacher being docked for a day the school was shut.
+    'calendar.manage',
     'chat.read',
     'chat.send',
     'settings.read',

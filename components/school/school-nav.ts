@@ -129,6 +129,20 @@ export function schoolNav({ role, permissions, moduleFlags }: SchoolNavProps): {
     items.push({ label: 'Reports', href: '/dashboard/reports', icon: 'reports' });
   }
 
+  /*
+   * Sprint 27. The school's calendar, and deliberately **not** module-gated.
+   *
+   * Every school has holidays. There is no `school_modules` flag that means
+   * "does not close", and gating this behind one would hide the calendar from
+   * the schools that had not switched something on — which is every school on
+   * the day this ships.
+   *
+   * Ungated on permission too, for the same reason the read route is: everybody
+   * on this portal sees when the school is shut, and `calendar.manage` decides
+   * only who may change it.
+   */
+  items.push({ label: 'Calendar', href: '/dashboard/calendar', icon: 'calendar' });
+
   items.push({ label: 'Settings', href: '/dashboard/settings', icon: 'settings' });
 
   // Modules with real screens of their own get a section rather than a single
@@ -252,6 +266,11 @@ export function schoolNav({ role, permissions, moduleFlags }: SchoolNavProps): {
         { label: 'Salary Components', href: '/dashboard/hr/salary-components', icon: 'salaryComponents' },
         { label: 'Leave', href: '/dashboard/hr/leave', icon: 'leave' },
         { label: 'Staff Register', href: '/dashboard/hr/attendance', icon: 'staffRegister' },
+        // Sprint 27. Which Saturdays each role — and each person — is called in
+        // on. It sits under HR rather than beside the Calendar because it is a
+        // rota over people, not a list of days the school is shut, and the two
+        // are gated on different keys for exactly that reason.
+        { label: 'Saturday Duty', href: '/dashboard/hr/saturday-duty', icon: 'calendar' },
       ],
     });
   }
@@ -260,7 +279,15 @@ export function schoolNav({ role, permissions, moduleFlags }: SchoolNavProps): {
     sections.push({
       label: 'Payroll',
       icon: 'payroll',
-      items: [{ label: 'Payroll Runs', href: '/dashboard/payroll', icon: 'payroll' }],
+      items: [
+        { label: 'Payroll Runs', href: '/dashboard/payroll', icon: 'payroll' },
+        // Sprint 27. Where a head signs the teachers and coordinators they are
+        // answerable for. Shown to anybody with `payroll.read` rather than
+        // gated on `payroll.approve`: HR opening it sees who has signed and who
+        // has not, which is the question they are asked all week, and the
+        // buttons are what `payroll.approve` decides.
+        { label: 'Approvals', href: '/dashboard/payroll/approvals', icon: 'payroll' },
+      ],
     });
   }
 

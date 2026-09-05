@@ -53,6 +53,15 @@ interface PayslipRow {
   status: PayslipStatus;
 }
 
+/** One head's signature over their slice of the run. */
+interface ApprovalRow {
+  id: string;
+  principalName: string;
+  status: string;
+  staffCount: number;
+  note: string | null;
+}
+
 export interface PayrollRunDetailProps {
   runId: string;
   canEdit: boolean;
@@ -60,6 +69,9 @@ export interface PayrollRunDetailProps {
 
 const RUN_VARIANT: Record<PayrollRunStatus, 'success' | 'warning' | 'danger' | 'neutral'> = {
   draft: 'warning',
+  // Awaiting a head's signature reads as the same kind of "not finished yet"
+  // as a draft does, because to whoever is looking at the list it is.
+  pending_approval: 'warning',
   approved: 'neutral',
   paid: 'success',
   cancelled: 'danger',
@@ -77,6 +89,8 @@ export function PayrollRunDetail({ runId, canEdit }: PayrollRunDetailProps) {
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
+  const [approvals, setApprovals] = useState<ApprovalRow[]>([]);
+  const [uncovered, setUncovered] = useState<Array<{ staffName: string }>>([]);
 
   const load = useCallback(async () => {
     try {
@@ -86,6 +100,29 @@ export function PayrollRunDetail({ runId, canEdit }: PayrollRunDetailProps) {
       setRun(payload.run);
       setPayslips(payload.payslips);
       setError(null);
+
+      /*
+       * The approvals, in a second request rather than folded into the first.
+       *
+       * `resolveRunApprovers` walks the timetable and every live principal
+       * assignment, and a draft run does not need any of that work — this
+       * screen is opened far more often to look at payslips than to look at
+       * signatures. Failing quietly is right for the same reason: a payroll run
+       * that would not render because its approvals could not be read would be
+       * a screen broken by a panel nobody asked for.
+       */
+      try {
+        const approvalPayload = await schoolFetch<{
+          approvals: ApprovalRow[];
+          uncovered: Array<{ staffName: string }>;
+        }>(`/api/school/payroll/runs/${runId}/approvals`);
+
+        setApprovals(approvalPayload.approvals);
+        setUncovered(approvalPayload.uncovered);
+      } catch {
+        setApprovals([]);
+        setUncovered([]);
+      }
     } catch (caught) {
       setError(schoolErrorMessage(caught, 'Could not load this payroll run.'));
     }
@@ -265,8 +302,32 @@ export function PayrollRunDetail({ runId, canEdit }: PayrollRunDetailProps) {
                 </Button>
               ) : null}
 
+              {/*
+                Sprint 27, item C5. Submitting is the ordinary path now: the
+                heads answerable for the run's teachers and coordinators sign
+                their own slice, and the run advances when every one is signed.
+
+                A school with no principal at all is answered by the route, not
+                here — `resolveRunApprovers` finds nobody, and the run goes
+                straight to `approved` exactly as it did before this sprint.
+                That is why the direct Approve below is still offered: it is the
+                path for a school that has never appointed a head, and refusing
+                it would freeze a working school's payroll.
+              */}
+              {canTransitionRun(run.status, 'pending_approval') ? (
+                <Button
+                  isLoading={busy === 'pending_approval'}
+                  onClick={() => {
+                    void move('pending_approval');
+                  }}
+                >
+                  Submit for approval
+                </Button>
+              ) : null}
+
               {canTransitionRun(run.status, 'approved') ? (
                 <Button
+                  variant={run.status === 'draft' ? 'secondary' : 'primary'}
                   isLoading={busy === 'approved'}
                   onClick={() => {
                     void move('approved');
@@ -337,6 +398,74 @@ export function PayrollRunDetail({ runId, canEdit }: PayrollRunDetailProps) {
           </p>
         ) : null}
       </Card>
+
+      {/*
+        Who has signed, and who has not — Sprint 27, item C5.
+
+        Shown from the moment the run is submitted and kept afterwards: "the
+        Senior School head signed on the 3rd" is the question an approved run is
+        asked about, not only a pending one. Hidden on a draft, where there is
+        nothing to say yet.
+      */}
+      {run.status === 'draft' || approvals.length === 0 ? null : (
+        <Card
+          header={
+            <CardTitle
+              title="Approvals"
+              description="Each head signs the teachers and coordinators they are responsible for. The run advances when every one is signed."
+            />
+          }
+        >
+          <ul className="divide-y divide-line">
+            {approvals.map((row) => (
+              <li
+                key={row.id}
+                className="flex flex-wrap items-center justify-between gap-2 py-3"
+              >
+                <div className="min-w-0">
+                  <p className="text-sm font-medium text-ink">{row.principalName}</p>
+                  <p className="text-xs text-ink-muted">
+                    {row.staffCount} staff
+                    {row.note === null ? '' : ` · ${row.note}`}
+                  </p>
+                </div>
+
+                <Badge
+                  variant={
+                    row.status === 'approved'
+                      ? 'success'
+                      : row.status === 'rejected'
+                        ? 'danger'
+                        : 'warning'
+                  }
+                >
+                  {row.status === 'approved'
+                    ? 'Approved'
+                    : row.status === 'rejected'
+                      ? 'Sent back'
+                      : 'Awaiting'}
+                </Badge>
+              </li>
+            ))}
+          </ul>
+
+          {/*
+            Somebody nobody covers is named rather than hidden. Silently
+            blocking a run because a principal assignment is missing is a
+            payroll nobody can run and no screen explaining why — and the person
+            reading this holds `payroll.write`, so they can sign that slice
+            themselves once they know it exists.
+          */}
+          {uncovered.length === 0 ? null : (
+            <p className="mt-4 rounded-lg bg-status-warning-subtle px-3 py-2 text-sm text-status-warning-onSubtle">
+              No principal assignment reaches{' '}
+              {uncovered.map((row) => row.staffName).join(', ')}. Their payslips
+              are in the run and nobody is being asked to sign for them — add a
+              campus or a grade to an assignment, or approve the run yourself.
+            </p>
+          )}
+        </Card>
+      )}
 
       <Card
         header={<CardTitle title="Payslips" description={`${payslips.length} slips.`} />}

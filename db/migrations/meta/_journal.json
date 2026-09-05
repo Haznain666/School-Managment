@@ -302,6 +302,13 @@
       "when": 1789214400000,
       "tag": "0042_sprint26_chat_oversight",
       "breakpoints": true
+    },
+    {
+      "idx": 43,
+      "version": "7",
+      "when": 1789300800000,
+      "tag": "0043_sprint27_vouchers_holidays_payroll",
+      "breakpoints": true
     }
   ]
 }

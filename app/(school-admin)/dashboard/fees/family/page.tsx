@@ -2,7 +2,9 @@ import type { Metadata } from 'next';
 
 import { FamilyVouchers } from '@/components/fees/FamilyVouchers';
 import { PageHeader } from '@/components/ui/PageHeader';
+import { getActiveAcademicYear } from '@/lib/admissions-queries';
 import { requireSchoolPermission } from '@/lib/school-guard';
+import { targetPeriod } from '@/lib/voucher-auto-generate';
 
 export const metadata: Metadata = {
   title: 'Family vouchers',
@@ -19,9 +21,21 @@ export const runtime = 'nodejs';
  * defaulter list and a student's own ledger read.
  */
 export default async function FamilyVouchersPage() {
-  const { permissions } = await requireSchoolPermission('fees.read');
+  const { permissions, locationId } = await requireSchoolPermission('fees.read');
 
   const now = new Date();
+
+  /*
+   * Two different months on one screen, and that is not a mistake.
+   *
+   * The *clubbing* list is about vouchers that already exist, which is this
+   * month's billing. The *generator* raises next month's, because fees here
+   * are pre-paid — October is billed during September. `targetPeriod` is the
+   * same function the automatic run uses, so the screen and the sweeper cannot
+   * drift on which month "next" is, including across December.
+   */
+  const nextPeriod = targetPeriod(now);
+  const activeYear = await getActiveAcademicYear(locationId);
 
   return (
     <div className="max-w-5xl space-y-6">
@@ -34,6 +48,9 @@ export default async function FamilyVouchersPage() {
         canWrite={permissions.includes('fees.write')}
         defaultMonth={now.getMonth() + 1}
         defaultYear={now.getFullYear()}
+        activeAcademicYearId={activeYear?.id ?? null}
+        nextBillingMonth={nextPeriod.billingMonth}
+        nextBillingYear={nextPeriod.billingYear}
       />
     </div>
   );

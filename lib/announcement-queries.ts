@@ -7,6 +7,7 @@ import {
   announcementRecipients,
   announcements,
   branches,
+  notifications,
   schoolUsers,
   type AnnouncementAudience,
   type AnnouncementStatus,
@@ -391,6 +392,25 @@ export async function sendAnnouncement(
   }
 }
 
+/**
+ * Where a bell notification about an announcement takes each role.
+ *
+ * Four portals, four notice boards. A teacher sent to `/parent/announcements`
+ * is bounced by the guard to their own home route, which reads as a link that
+ * does nothing — the failure is silent and the fix is this map.
+ *
+ * `role` arrives as a plain string from `school_users.role`, deliberately not
+ * narrowed — `AudienceMember` says why — so an unknown value falls through to
+ * the admin board rather than producing an empty `href`, which the column
+ * refuses.
+ */
+function noticeHrefFor(role: string): string {
+  if (role === 'teacher') return '/teacher/announcements';
+  if (role === 'parent') return '/parent/announcements';
+  if (role === 'student') return '/student/announcements';
+  return '/dashboard/communications';
+}
+
 /** The work of a send, once this process has established that it owns it. */
 async function deliverAnnouncement(
   locationId: string,
@@ -423,6 +443,51 @@ async function deliverAnnouncement(
       // A re-send after a partial failure must correct the same rows rather
       // than claim the same delivery twice.
       .onConflictDoNothing();
+  }
+
+  /*
+   * The bell — Sprint 27, item B8.
+   *
+   * ── What was broken, and for how long ──────────────────────────────────
+   * Everything above this line writes `announcement_recipients` and the notice
+   * board. Nothing has ever written `notifications`, so the bell in every
+   * portal header — which `NotificationBell` renders and polls, and which every
+   * portal layout already passes an unread count to — has not moved for an
+   * announcement since Sprint 11. It was correct and empty, which is the worst
+   * combination: nothing to find, nothing to fix, and a notice board nobody
+   * knew had anything new on it.
+   *
+   * One bulk insert, not `notify()` per member. `notify` also sends an email,
+   * and the email run below is what sends this announcement's — calling it here
+   * would double every message a school sends.
+   *
+   * Never fails the send. An announcement whose notice rows are written and
+   * whose bell rows are not is a degraded outcome; one that throws here after
+   * claiming the row is an announcement the school believes went out. The
+   * failure is logged and the send stands.
+   */
+  if (members.length > 0) {
+    await db
+      .insert(notifications)
+      .values(
+        members.map((member) => ({
+          audience: 'school_user' as const,
+          locationId,
+          schoolUserId: member.schoolUserId,
+          kind: 'announcement',
+          title: announcement.title,
+          // The first line of the notice, not the whole of it. The bell is a
+          // list of one-liners; the notice board is where it is read.
+          body: announcement.body.slice(0, 200),
+          href: noticeHrefFor(member.role),
+        })),
+      )
+      .catch((error: unknown) => {
+        console.error(
+          `[announcements] bell rows not written for ${announcementId}:`,
+          error,
+        );
+      });
   }
 
   if (announcement.sendEmail) {

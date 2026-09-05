@@ -19,6 +19,7 @@ import {
   TableRow,
 } from '@/components/ui/Table';
 import { MONTH_NAMES } from '@/db/schema/academic-years';
+import { formatDateOnly } from '@/lib/dates';
 import { formatAmount, formatPkr } from '@/lib/money';
 import { schoolErrorMessage, schoolFetch } from '@/lib/school-client';
 import { cn } from '@/lib/utils';
@@ -70,6 +71,25 @@ interface BulkCandidate {
   studentId: string;
   sectionName: string;
   existingChallanNumber: string | null;
+  /** The family voucher that challan sits on, when it sits on one. */
+  existingFamilyChallanNumber: string | null;
+}
+
+/**
+ * The month a voucher raised today is *for*.
+ *
+ * ── Why this is next month and not this one ──────────────────────────────
+ * Fees here are **pre-paid**: October's fee is billed during September and
+ * falls due on the 10th of October. The default was this month, which meant
+ * every clerk raising the month's billing on the 25th had to change the month
+ * first — and the ones who did not billed a month the school had already
+ * billed, discovered it at the duplicate refusal, and did it again.
+ */
+function nextBillingPeriod(now: Date): { month: string; year: string } {
+  const month = now.getMonth() + 1;
+  return month === 12
+    ? { month: '1', year: String(now.getFullYear() + 1) }
+    : { month: String(month + 1), year: String(now.getFullYear()) };
 }
 
 const MONTH_OPTIONS = MONTH_NAMES.map((name, index) => ({
@@ -91,15 +111,16 @@ export function ChallanGenerator({
   defaultDueDay,
 }: ChallanGeneratorProps) {
   const now = new Date();
+  const nextPeriod = nextBillingPeriod(now);
 
   const [tab, setTab] = useState<Tab>('single');
   const [academicYearId, setAcademicYearId] = useState(
     academicYears.find((year) => year.isActive)?.id ?? academicYears[0]?.id ?? '',
   );
-  const [billingMonth, setBillingMonth] = useState(String(now.getMonth() + 1));
-  const [billingYear, setBillingYear] = useState(String(now.getFullYear()));
+  const [billingMonth, setBillingMonth] = useState(nextPeriod.month);
+  const [billingYear, setBillingYear] = useState(nextPeriod.year);
   const [dueDate, setDueDate] = useState(
-    dueDateFor(String(now.getMonth() + 1), String(now.getFullYear()), defaultDueDay),
+    dueDateFor(nextPeriod.month, nextPeriod.year, defaultDueDay),
   );
 
   // Keeps the due date in step with the billing period until the user edits it
@@ -153,6 +174,12 @@ export function ChallanGenerator({
             label="Billing month"
             options={MONTH_OPTIONS}
             value={billingMonth}
+            /*
+              The one line that makes pre-paid billing legible, under the field
+              it applies to. Without it a clerk reads a default of October on
+              the 25th of September as a mistake and changes it back.
+            */
+            hint={`Due ${formatDateOnly(dueDate)} — fees are billed a month ahead.`}
             onChange={(event) => {
               setBillingMonth(event.target.value);
             }}
@@ -567,9 +594,25 @@ function BulkPanel({
         candidate.existingChallanNumber === null ? (
           <span className="text-xs text-ink-muted">Will be billed</span>
         ) : (
-          <span className="font-mono text-xs text-status-warning-ink">
-            {candidate.existingChallanNumber}
-          </span>
+          <>
+            <span className="font-mono text-xs text-status-warning-ink">
+              {candidate.existingChallanNumber}
+            </span>
+            {/*
+              Where the voucher is, not only that there is one. A clerk reading
+              "already billed" with a number they cannot find in the register
+              has to open the family screen to discover why — one click the row
+              already had the answer to.
+            */}
+            {candidate.existingFamilyChallanNumber === null ? null : (
+              <span className="block text-xs text-ink-muted">
+                on family voucher{' '}
+                <span className="font-mono">
+                  {candidate.existingFamilyChallanNumber}
+                </span>
+              </span>
+            )}
+          </>
         ),
     },
   ];
