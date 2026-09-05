@@ -149,6 +149,12 @@ release-note claims:
 
 | Release | Cases | File |
 | --- | --- | --- |
+| Sprint 28 — The child nobody billed & the CNIC that stopped looking | 61 passed, 1 not exercised, 2 findings — both fixed | [read](TEST-CASES-SPRINT-28.md) |
+| Sprint 24–25 — Internal chat, broadcast, real-time & push | driven end to end | [read](TEST-CASES-SPRINT-24-25.md) |
+| Sprint 23 — The principal's grades, the class teacher & the discount | driven 2026-09-03 | [read](TEST-CASES-SPRINT-23.md) |
+| Sprint 22 — One person, one record | — | [read](TEST-CASES-SPRINT-22.md) |
+| Sprint 21 — One email, one account; the results page | — | [read](TEST-CASES-SPRINT-21.md) |
+| Sprint 20 — The voucher, the discount & the bank | — | [read](TEST-CASES-SPRINT-20.md) |
 | Sprint 19b — Campus calendars, documents, history & Enroll | 6 items, 0 defects | [read](TEST-CASES-SPRINT-19B.md) |
 | Sprint 19a — The branch boundary & the owner's dashboard | 13 items, 4 defects | [read](TEST-CASES-SPRINT-19A.md) |
 | Sprint 18 — Vouchers, concessions & student CRUD | 63 passed, 6 defects | [read](TEST-CASES-SPRINT-18.md) |
