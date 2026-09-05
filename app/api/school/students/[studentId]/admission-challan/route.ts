@@ -28,7 +28,20 @@ import { isUuid } from '@/lib/validation';
  * Branch-scoped like every other route on a student — a branch admin may raise
  * a voucher only inside their own campus.
  *
- * Costs `fees.write`. Raising a demand for money is a money action.
+ * ── Costs `fees.admission`, and that is Sprint 28's whole point ─────────
+ * It cost `fees.write` until then, which is "set prices, raise vouchers and
+ * take payments" — a key `branch_admin`, `principal` and `vice_principal`
+ * deliberately do not hold, for the same reason `accounting.settle` is kept
+ * away from the person who takes the cash. So the three roles that admit
+ * children were the three that could not bill one: the panel offered them no
+ * button, the enrollment stayed `outstanding`, and a voucher register cannot
+ * list a child who has no voucher. Askari's Student 50 was admitted by a
+ * Principal into a grade priced at PKR 35,000 and was never billed a rupee.
+ *
+ * `fees.admission` is the narrowest key that repairs that. Everything it
+ * raises is resolved here — one child, one head, one amount out of the fee
+ * structure — so holding it grants nothing over the price list and nothing
+ * over taking money, which is exactly why it is not `fees.write`.
  */
 
 export const runtime = 'nodejs';
@@ -68,5 +81,5 @@ export const POST = withSchoolAuth<RouteContext>(
       return handleApiError(error);
     }
   },
-  { permission: 'fees.write' },
+  { permission: 'fees.admission' },
 );

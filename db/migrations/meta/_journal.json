@@ -309,6 +309,13 @@
       "when": 1789300800000,
       "tag": "0043_sprint27_vouchers_holidays_payroll",
       "breakpoints": true
+    },
+    {
+      "idx": 44,
+      "version": "7",
+      "when": 1789387200000,
+      "tag": "0044_admission_voucher_permission",
+      "breakpoints": true
     }
   ]
 }

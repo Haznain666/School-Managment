@@ -1,5 +1,7 @@
 'use client';
 
+import { useRef } from 'react';
+
 import { SecretInput } from '@/components/ui/SecretInput';
 import { cnicProblem, formatCnic, isValidCnic } from '@/lib/national-id';
 
@@ -43,12 +45,34 @@ export interface CnicFieldProps {
   /** Replaces the default hint while there is no error. */
   hint?: string;
   /**
-   * Called once, on each transition into a complete and well-formed number.
+   * Called once per complete, well-formed number — every *different* one.
    *
    * This is what the enrollment form hangs its family lookup on. It fires on
    * completion rather than on blur because the clerk's next action after the
    * thirteenth digit is to type the guardian's name — which is precisely the
    * field the lookup is about to fill in for them.
+   *
+   * ── What it used to be, and the correction it swallowed ─────────────────
+   * The guard was `isValidCnic(next) && !isValidCnic(value)` — the *invalid to
+   * valid* edge. The field is `maxLength={15}`, so the only three ways to
+   * change a number that is already complete are deleting from it, typing over
+   * a selection, and pasting over one; and the last two arrive as a single
+   * change event whose previous value was **also** a valid CNIC. The edge test
+   * read that as "nothing has changed" and suppressed the lookup.
+   *
+   * `GuardianForm`'s own `onChange` had meanwhile already cleared `matched` and
+   * `known` — correctly, because the number no longer names the person the card
+   * was filled from. So a clerk who selected a wrong digit and typed the right
+   * one over it was left with no sibling banner, no prefill, and no way to get
+   * either back short of reloading the page. The screen looked like a family
+   * that is not a family, which is the failure CLAUDE.md's CNIC rule exists to
+   * prevent, arriving from the opposite direction.
+   *
+   * The ref keeps the original intent — a keystroke that changes nothing does
+   * not re-fire — and expresses it as what it always meant: the last number we
+   * asked about. Every genuinely new number fires; the same one never fires
+   * twice; and clearing the field forgets it, so retyping the same number after
+   * a correction asks again.
    */
   onComplete?: (cnic: string) => void;
 }
@@ -63,6 +87,14 @@ export function CnicField({
   hint,
   onComplete,
 }: CnicFieldProps) {
+  /**
+   * The last complete number this field asked about, or null.
+   *
+   * A ref rather than state: nothing renders from it, and re-rendering on it
+   * would put the lookup one paint behind the typing.
+   */
+  const lastCompleted = useRef<string | null>(null);
+
   return (
     <SecretInput
       label={required ? `${label} *` : label}
@@ -79,12 +111,22 @@ export function CnicField({
         const next = formatCnic(event.target.value);
         onChange(next);
 
-        // Only on the transition, so holding the caret at the end of a finished
-        // number does not re-fire the lookup on every keystroke that changes
-        // nothing.
-        if (onComplete !== undefined && isValidCnic(next) && !isValidCnic(value)) {
-          onComplete(next);
+        if (onComplete === undefined) return;
+
+        // An incomplete number is not a question, and it forgets the last one:
+        // deleting a digit and retyping it is a clerk correcting themselves,
+        // and they should get an answer for it.
+        if (!isValidCnic(next)) {
+          lastCompleted.current = null;
+          return;
         }
+
+        // The same number, asked again — a caret move, a re-paste of what is
+        // already there. This is the case the old edge test was written for.
+        if (lastCompleted.current === next) return;
+
+        lastCompleted.current = next;
+        onComplete(next);
       }}
     />
   );

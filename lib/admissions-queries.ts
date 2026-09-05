@@ -10,7 +10,9 @@ import {
   gte,
   ilike,
   inArray,
+  isNotNull,
   isNull,
+  ne,
   notExists,
   or,
   sql,
@@ -875,38 +877,76 @@ export async function listStudents(
   const guardianPhoneColumn = sql<string>`"primary_guardian"."guardian_phone"`;
 
   /*
-   * Every open voucher this school holds, counted once per student.
+   * Every voucher this school holds that is not cancelled, counted once per
+   * student — and the open ones counted again inside it.
    *
-   * `current_date` rather than a JavaScript `Date`: the comparison happens in
-   * the database, so nothing has to cross the driver, and "past its due date"
-   * is decided in one clock rather than in the reader's browser and the
-   * server's process at once.
+   * ── Why it is no longer restricted to open vouchers ─────────────────────
+   * It was, until Sprint 28, and that is what made `Cleared` a lie. A student
+   * with a paid voucher and a student who has **never been billed** both have
+   * no open voucher, so both had no row here at all, and both wore a green
+   * chip. `live_voucher_count` is the number that tells them apart, and it can
+   * only exist if the subquery sees the paid, waived and settled rows too.
    *
-   * A student who owes nothing has no row here at all, which is what the
-   * `Cleared` filter matches on.
+   * Cancelled is excluded rather than counted, because a cancelled voucher is
+   * the school saying the demand should never have been made. Counting it would
+   * report a child as billed on the strength of a bill that was withdrawn —
+   * the same reading the partial billing indexes take.
+   *
+   * ── The three narrower figures are FILTER aggregates ────────────────────
+   * Each one is exactly the count it was when the subquery itself was narrow,
+   * so every chip above `not_billed` reads today what it read yesterday. The
+   * open-status test is repeated inside `overdue` and `admission` deliberately:
+   * a paid admission voucher must not make a child `admission_unpaid`, and a
+   * settled voucher past its date is not overdue.
+   *
+   * The predicates are composed from Drizzle operators *inside* the template —
+   * `inArray` binds the statuses as parameters through the column's
+   * `mapToDriverValue`. CLAUDE.md's rule is that no JavaScript value reaches
+   * the driver through a raw template, and `count(*) filter (…)` is the only
+   * reason there is a template here at all. `current_date` and `= 'admission'`
+   * are SQL text, exactly as they were.
+   *
+   * ── Every alias is a name no joined relation carries ────────────────────
+   * Drizzle emits a raw-`sql` subquery column by its alias **unqualified** in
+   * the outer statement, and this one joins `student_enrollments`,
+   * `student_profiles`, `school_users`, `sections`, `grades`,
+   * `academic_years`, `branches`, `primary_guardian` and this subquery. `open_count`
+   * was safe by luck; `live_voucher_count`, `open_voucher_count`,
+   * `overdue_voucher_count` and `admission_voucher_count` are safe by choice.
+   * That is the 42702 that took the all-students screen down at every school
+   * once already.
    */
-  const openVouchers = db
+  // Built once and embedded three times. Drizzle re-renders it per use with its
+  // own placeholders, so the three FILTER clauses bind their own parameters —
+  // read the emitted SQL if that ever looks doubtful; it is `in ($2, $3)`,
+  // `in ($4, $5)`, `in ($6, $7)`.
+  const openStatuses = inArray(feeChallans.status, [...OPEN_CHALLAN_STATUSES]);
+
+  const voucherCounts = db
     .select({
       studentProfileId: feeChallans.studentProfileId,
-      openCount: count().as('open_count'),
+      liveCount: count().as('live_voucher_count'),
+      openCount: sql<number>`count(*) filter (where ${openStatuses})`
+        .mapWith(Number)
+        .as('open_voucher_count'),
       overdueCount:
-        sql<number>`count(*) filter (where ${feeChallans.dueDate} < current_date)`
+        sql<number>`count(*) filter (where ${openStatuses} and ${feeChallans.dueDate} < current_date)`
           .mapWith(Number)
-          .as('overdue_count'),
+          .as('overdue_voucher_count'),
       admissionCount:
-        sql<number>`count(*) filter (where ${feeChallans.challanKind} = 'admission')`
+        sql<number>`count(*) filter (where ${openStatuses} and ${feeChallans.challanKind} = 'admission')`
           .mapWith(Number)
-          .as('admission_count'),
+          .as('admission_voucher_count'),
     })
     .from(feeChallans)
     .where(
       and(
         eq(feeChallans.locationId, locationId),
-        inArray(feeChallans.status, [...OPEN_CHALLAN_STATUSES]),
+        ne(feeChallans.status, 'cancelled'),
       ),
     )
     .groupBy(feeChallans.studentProfileId)
-    .as('open_vouchers');
+    .as('voucher_counts');
 
   const conditions: SQL[] = [eq(studentEnrollments.locationId, locationId)];
 
@@ -943,26 +983,59 @@ export async function listStudents(
    * `Overdue` excludes the ones whose chip says `Admission unpaid`, because a
    * filter that returned rows the reader can see contradict it is worse than
    * no filter. `lib/student-fee-status.ts` holds the ranking; this is the SQL
-   * of it, and the two are meant to be read side by side.
+   * of it, and the two are meant to be read side by side. There are five of
+   * them now, and that is still true of all five.
+   *
+   * ── The left join makes every count NULL-able, and that is load-bearing ─
+   * A student with no live voucher has no row in `voucher_counts`, so every
+   * figure comes back NULL rather than 0. For the top three branches that is
+   * exactly right and needs no code: `NULL >= 1` is UNKNOWN, which excludes the
+   * row, which is the correct answer for a student who has never been billed.
+   * The bottom two are the ones that have to say so out loud, because both of
+   * them are *about* the absence.
    */
   if (isStudentFeeStatus(filters.feeStatus)) {
     switch (filters.feeStatus) {
       case 'admission_unpaid':
-        conditions.push(gte(openVouchers.admissionCount, 1));
+        conditions.push(gte(voucherCounts.admissionCount, 1));
         break;
       case 'overdue':
-        conditions.push(gte(openVouchers.overdueCount, 1));
-        conditions.push(eq(openVouchers.admissionCount, 0));
+        conditions.push(gte(voucherCounts.overdueCount, 1));
+        conditions.push(eq(voucherCounts.admissionCount, 0));
         break;
       case 'due':
-        conditions.push(gte(openVouchers.openCount, 1));
-        conditions.push(eq(openVouchers.overdueCount, 0));
-        conditions.push(eq(openVouchers.admissionCount, 0));
+        conditions.push(gte(voucherCounts.openCount, 1));
+        conditions.push(eq(voucherCounts.overdueCount, 0));
+        conditions.push(eq(voucherCounts.admissionCount, 0));
         break;
-      case 'cleared':
-        // No grouped row at all: nothing of this student's is open.
-        conditions.push(isNull(openVouchers.studentProfileId));
+      case 'not_billed': {
+        // No grouped row at all *and* nobody has said the fee was paid. The
+        // second half is `clearEnrolmentFee`'s cash-across-a-desk path, which
+        // settles an admission without ever raising a voucher — a family who
+        // has paid must not appear on a list headed "nobody has billed these".
+        const unbilled = and(
+          isNull(voucherCounts.studentProfileId),
+          eq(studentEnrollments.feeStatus, 'outstanding'),
+        );
+        if (unbilled !== undefined) conditions.push(unbilled);
         break;
+      }
+      case 'cleared': {
+        // Billed-and-settled, or settled by hand — and nothing open either way.
+        // Both halves are OR-ed with a NULL test because the subquery column is
+        // NULL, not 0, for a student with no live voucher at all: without the
+        // `isNull` the never-billed student would be excluded from `Cleared`
+        // correctly but the paid-by-hand one would be excluded too.
+        const settled = and(
+          or(
+            isNotNull(voucherCounts.studentProfileId),
+            eq(studentEnrollments.feeStatus, 'cleared'),
+          ),
+          or(isNull(voucherCounts.openCount), eq(voucherCounts.openCount, 0)),
+        );
+        if (settled !== undefined) conditions.push(settled);
+        break;
+      }
     }
   }
 
@@ -1013,9 +1086,14 @@ export async function listStudents(
       enrollmentDate: studentEnrollments.enrollmentDate,
       status: studentEnrollments.status,
       rollNumber: studentEnrollments.rollNumber,
-      openVoucherCount: openVouchers.openCount,
-      overdueVoucherCount: openVouchers.overdueCount,
-      admissionVoucherCount: openVouchers.admissionCount,
+      // The enrollment's own clearance flag, which is the only record of a fee
+      // taken across a desk with no voucher behind it. Without it every such
+      // child would read `Not billed` on the directory.
+      enrolmentFeeStatus: studentEnrollments.feeStatus,
+      liveVoucherCount: voucherCounts.liveCount,
+      openVoucherCount: voucherCounts.openCount,
+      overdueVoucherCount: voucherCounts.overdueCount,
+      admissionVoucherCount: voucherCounts.admissionCount,
     })
     .from(studentEnrollments)
     .innerJoin(
@@ -1028,7 +1106,7 @@ export async function listStudents(
     .innerJoin(academicYears, eq(academicYears.id, studentEnrollments.academicYearId))
     .leftJoin(branches, eq(branches.id, grades.branchId))
     .leftJoin(primaryGuardian, eq(primaryGuardian.studentProfileId, studentProfiles.id))
-    .leftJoin(openVouchers, eq(openVouchers.studentProfileId, studentProfiles.id));
+    .leftJoin(voucherCounts, eq(voucherCounts.studentProfileId, studentProfiles.id));
 
   const order = filters.direction === 'desc' ? desc : asc;
   const sortColumn =
@@ -1072,7 +1150,7 @@ export async function listStudents(
         primaryGuardian,
         eq(primaryGuardian.studentProfileId, studentProfiles.id),
       )
-      .leftJoin(openVouchers, eq(openVouchers.studentProfileId, studentProfiles.id))
+      .leftJoin(voucherCounts, eq(voucherCounts.studentProfileId, studentProfiles.id))
       .where(where),
   ]);
 
@@ -1094,10 +1172,113 @@ export async function listStudents(
       open: row.openVoucherCount ?? 0,
       overdue: row.overdueVoucherCount ?? 0,
       admission: row.admissionVoucherCount ?? 0,
+      // Null when the student has no row in `voucher_counts` — which is the
+      // whole of "nobody has ever billed this child", so it coalesces to 0
+      // rather than being treated as unknown.
+      live: row.liveVoucherCount ?? 0,
+      enrolmentCleared: row.enrolmentFeeStatus === 'cleared',
     }),
   }));
 
   return { students, total: totals[0]?.value ?? 0, page, limit };
+}
+
+/** The narrowing `countUnbilledStudents` shares with the directory. */
+export interface UnbilledStudentFilters {
+  branchId?: string | undefined;
+  /** BR4, read exactly as `listStudents` reads it — `[]` matches no row. */
+  scope?: { branchIds: string[] | null; gradeIds: string[] | null } | undefined;
+}
+
+/**
+ * How many enrolled students have no voucher at all — Sprint 28.
+ *
+ * ── Why the voucher register cannot answer this ──────────────────────────
+ * The register is a list of vouchers, so a child who has never been billed can
+ * never be a row in it. The product owner's third complaint — *"neither do I
+ * see his voucher in the vouchers section"* — is a question about an absence,
+ * and an absence is only visible from the other side: count the enrollments,
+ * not the vouchers. This is the sentence the register prints above its tabs,
+ * with a link into the directory filtered to `not_billed`.
+ *
+ * ── The two halves of "unbilled", and why both are needed ────────────────
+ * No live voucher — cancelled excluded, because a withdrawn demand is not a
+ * demand — **and** an enrollment still `outstanding`. The second half is
+ * `clearEnrolmentFee`'s cash-across-a-desk path: a fee taken in cash and
+ * confirmed by hand leaves no voucher behind, and putting that family on a
+ * chasing list is exactly the wrong reading of the same absence.
+ *
+ * ── It carries the caller's own narrowing, or it names strangers ─────────
+ * The same `branchId` and `PrincipalScope` that narrow `listStudents`, applied
+ * through the same `sections → grades` hop. A campus administrator told that
+ * eleven children are unbilled, who then follows the link and is shown three,
+ * has been handed a number about a school they cannot see — and no explanation
+ * anywhere for the difference.
+ *
+ * ── Not narrowed to the active year, deliberately ────────────────────────
+ * `status = 'active'` is already one row per student — promotion closes the
+ * previous year's row as `transferred` or `graduated` — so there is nothing to
+ * double-count. Adding the active year on top would *hide* a child enrolled
+ * into next year and never billed, which is the exact failure this count
+ * exists to surface, and it would report zero for a school that has not marked
+ * any year active. The directory the link opens defaults to the active year, so
+ * a figure and a list can differ by a student enrolled outside it; the reader
+ * changes one dropdown, and the alternative is a number that lies downwards.
+ */
+export async function countUnbilledStudents(
+  locationId: string,
+  filters: UnbilledStudentFilters = {},
+): Promise<number> {
+  const conditions: SQL[] = [
+    eq(studentEnrollments.locationId, locationId),
+    // The current placement only. A withdrawn or graduated enrollment is not a
+    // child the school is failing to bill.
+    eq(studentEnrollments.status, 'active'),
+    eq(studentEnrollments.feeStatus, 'outstanding'),
+    /*
+     * `notExists` rather than a left join against the counting subquery.
+     *
+     * The question is "is there one?", not "how many?", so the correlated form
+     * lets Postgres stop at the first row — and it keeps this statement free of
+     * the derived-column aliases whose unqualified rendering is what CLAUDE.md's
+     * ambiguity rule is about. Tenancy is repeated inside it deliberately: a
+     * correlated subquery that only matched on `student_profile_id` would read
+     * across schools.
+     */
+    notExists(
+      db
+        .select({ one: sql`1` })
+        .from(feeChallans)
+        .where(
+          and(
+            eq(feeChallans.locationId, locationId),
+            eq(feeChallans.studentProfileId, studentEnrollments.studentProfileId),
+            ne(feeChallans.status, 'cancelled'),
+          ),
+        ),
+    ),
+  ];
+
+  if (filters.branchId !== undefined && filters.branchId !== '') {
+    conditions.push(eq(grades.branchId, filters.branchId));
+  }
+  // BR4. `inArray` with an empty list is `false` in Drizzle, which is the
+  // reading wanted: an unassigned head is told about nobody.
+  if (filters.scope?.branchIds != null) {
+    conditions.push(inArray(grades.branchId, filters.scope.branchIds));
+  }
+  if (filters.scope?.gradeIds != null) {
+    conditions.push(inArray(sections.gradeId, filters.scope.gradeIds));
+  }
+
+  const rows = await db
+    .select({ value: count() })
+    .from(studentEnrollments)
+    .innerJoin(sections, eq(sections.id, studentEnrollments.sectionId))
+    .innerJoin(grades, eq(grades.id, sections.gradeId))
+    .where(and(...conditions));
+
+  return rows[0]?.value ?? 0;
 }
 
 export interface GuardianRow {

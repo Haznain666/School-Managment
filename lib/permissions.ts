@@ -37,6 +37,7 @@ export const PERMISSIONS = [
   'students.transfer',
   'fees.read',
   'fees.write',
+  'fees.admission',
   'academics.read',
   'academics.write',
   'attendance.mark',
@@ -105,7 +106,11 @@ export const PERMISSION_GROUPS: readonly PermissionGroup[] = [
     label: 'Roll management',
     permissions: ['students.import', 'students.promote', 'students.transfer'],
   },
-  { key: 'fees', label: 'Fees', permissions: ['fees.read', 'fees.write'] },
+  {
+    key: 'fees',
+    label: 'Fees',
+    permissions: ['fees.read', 'fees.write', 'fees.admission'],
+  },
   {
     key: 'academics',
     label: 'Academics',
@@ -178,6 +183,7 @@ export const PERMISSION_LABELS: Record<Permission, string> = {
   'students.transfer': 'Move a student to another branch',
   'fees.read': 'See vouchers, the price list and fee reports',
   'fees.write': 'Set prices, raise vouchers and take payments',
+  'fees.admission': 'Raise a student’s admission voucher',
   'academics.read': 'See subjects, the timetable and the register',
   'academics.write': 'Set subjects and build the timetable',
   'attendance.mark': 'Take the student register',
@@ -216,6 +222,13 @@ export const PERMISSION_LABELS: Record<Permission, string> = {
 export const PERMISSION_DESCRIPTIONS: Partial<Record<Permission, string>> = {
   'fees.write':
     'Includes marking a voucher paid. Grant it only to people who handle money.',
+  'fees.admission':
+    'The person who admits a child is the person who must bill them. A head ' +
+    'who can enroll a student and cannot raise their admission voucher ' +
+    'leaves the child unbilled, and no screen anywhere says so. ' +
+    'Deliberately narrower than fees.write: it raises one voucher, for one ' +
+    'child, at a price the server resolves from the fee structure, and it ' +
+    'grants nothing over the price list and nothing over taking money.',
   'payroll.write':
     'Includes approving a run, which is irreversible. Separate from payroll.read on purpose.',
   'payroll.approve':
@@ -393,6 +406,10 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<UserRole, readonly Permission[]> =
     'students.create',
     'students.update',
     'fees.read',
+    // Sprint 28. The same reasoning as the `principal` entry below, and the
+    // same trap: a campus office enrolls children all day and could not raise
+    // a single admission voucher.
+    'fees.admission',
     'academics.read',
     'attendance.mark',
     // Scheduling the campus's exams is the job; signing off its marks is not.
@@ -439,6 +456,17 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<UserRole, readonly Permission[]> =
     'students.import',
     'students.promote',
     'fees.read',
+    // Sprint 28, and the reason this sprint exists. A head holds
+    // `admissions.write` and `students.create` — they enroll children — and
+    // held no key that could bill one. So the panel on the child's profile
+    // showed *Not yet billed* with no button under it, the enrollment sat at
+    // `outstanding`, no voucher existed, and the voucher register cannot list
+    // a child who has none. Askari's Student 50 was admitted by a Principal
+    // and went unbilled for exactly that reason.
+    //
+    // Not `fees.write`, which also sets prices and takes payments. This key
+    // raises one voucher for one child at an amount the server resolves.
+    'fees.admission',
     'academics.read',
     'academics.write',
     'attendance.mark',
@@ -486,6 +514,9 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<UserRole, readonly Permission[]> =
     'students.create',
     'students.update',
     'fees.read',
+    // Sprint 28. A deputy admits children when the head is away, so a deputy
+    // has to be able to bill them.
+    'fees.admission',
     'academics.read',
     'academics.write',
     'attendance.mark',
@@ -565,6 +596,11 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<UserRole, readonly Permission[]> =
     'students.read',
     'fees.read',
     'fees.write',
+    // Held explicitly rather than implied by `fees.write`. Nothing resolves
+    // one key from another — `hasPermission` is a set membership test — so an
+    // accountant without this line would be the one role in the school that
+    // could take the money and not raise the demand.
+    'fees.admission',
     'payroll.read',
     'accounting.read',
     'accounting.write',
