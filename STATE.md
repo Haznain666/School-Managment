@@ -8,7 +8,8 @@ step, before the session ends.
 never able to show — §5bu.**)
 
 ✅ **Sprint 31 is shipped, merged, deployed and QA'd.** **No migration** —
-**`0045` is still the next free migration number.**
+**`0045` is still the next free migration number.** Merged as `e3473f7`
+(PR #73), live on build `e3473f74a290`, CDN purged.
 
 One requirement: a downloadable sample sheet under *Import Students*. The
 importer had always explained its fields well — on the **mapping screen**,
@@ -12593,9 +12594,10 @@ days, per person, with the date in hand.
 
 ## 5bu. Sprint 31 — the sample sheet the importer was never able to show — 2026-09-06
 
-**No migration. `0045` is still the next free number.** Merged from PR #73. Full
-write-up in `release-notes/RELEASE-NOTES-SPRINT-31.md`; what follows is what a
-later session needs and could not re-derive.
+**No migration. `0045` is still the next free number.** Merged as `e3473f7`
+(PR #73), live on build `e3473f74a290`, CDN purged. Full write-up in
+`release-notes/RELEASE-NOTES-SPRINT-31.md`; what follows is what a later session
+needs and could not re-derive.
 
 ### The defect, stated once
 
