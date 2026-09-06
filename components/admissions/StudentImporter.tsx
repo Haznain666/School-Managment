@@ -2,9 +2,12 @@
 
 import { useCallback, useMemo, useState } from 'react';
 
+import { Download } from 'lucide-react';
+
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { Card, CardTitle } from '@/components/ui/Card';
+import { Icon } from '@/components/ui/Icon';
 import { Select } from '@/components/ui/Select';
 import {
   Table,
@@ -16,6 +19,11 @@ import {
 } from '@/components/ui/Table';
 import { CsvError, MAX_CSV_ROWS, parseCsv } from '@/lib/csv';
 import { IMPORT_FIELDS, suggestColumnMap, validateRow } from '@/lib/student-import';
+import {
+  SAMPLE_ROW_COUNT,
+  SAMPLE_SHEET_FILENAME,
+  sampleSheetColumns,
+} from '@/lib/student-import-sample';
 
 export interface SectionOption {
   id: string;
@@ -43,6 +51,20 @@ interface Counts {
   skipped: number;
   failed: number;
 }
+
+/**
+ * The sample sheet's columns, paired with the field each one feeds.
+ *
+ * Module-level and derived from `sampleSheetColumns()`, so the headings this
+ * screen prints are the headings the downloaded file actually carries — the
+ * one thing a table describing a file must not get wrong. `IMPORT_FIELDS`
+ * supplies the rest, so the required marks and the descriptions are the same
+ * text the mapping screen shows for the same field.
+ */
+const SAMPLE_SHEET_COLUMNS = sampleSheetColumns().map((column) => ({
+  header: column.label,
+  field: IMPORT_FIELDS.find((field) => field.key === column.key)!,
+}));
 
 const OUTCOME_LABELS: Record<string, string> = {
   pending: 'Will be imported',
@@ -276,6 +298,71 @@ export function StudentImporter({ sections }: StudentImporterProps) {
           <p className="mt-2 text-sm text-ink-muted">
             You will map your columns and see exactly what will happen before
             anything is saved.
+          </p>
+        </Card>
+
+        <Card
+          header={
+            <CardTitle
+              title="Not sure what the file should look like?"
+              description={`Download the sample sheet, replace its ${String(SAMPLE_ROW_COUNT)} example rows with your own students, and upload it above.`}
+            />
+          }
+        >
+          {/*
+            A plain anchor, not `Link`: this is an attachment, so there is no
+            client-side navigation to make and nothing worth prefetching. The
+            `download` attribute names the file rather than leaving the browser
+            to derive one from the URL, which would save it as `sample`.
+          */}
+          <a
+            href="/api/school/student-imports/sample"
+            download={SAMPLE_SHEET_FILENAME}
+            className="inline-flex h-10 items-center gap-2 rounded-lg border border-line-strong bg-surface-raised px-4 text-sm font-medium text-ink transition hover:bg-surface-hover focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-line-strong"
+          >
+            <Icon as={Download} size="sm" />
+            Download the sample sheet
+          </a>
+
+          <p className="mt-4 text-sm text-ink-muted">
+            Its headings are the ones we recognise, so a file built on it comes
+            back with every column already matched. Your own headings work just
+            as well — you match them by hand on the next screen.
+          </p>
+
+          <div className="mt-4 overflow-x-auto">
+            <Table caption="The columns the sample sheet carries">
+              <TableHead>
+                <TableRow>
+                  <TableHeaderCell>Column</TableHeaderCell>
+                  <TableHeaderCell>Needed?</TableHeaderCell>
+                  <TableHeaderCell>What goes in it</TableHeaderCell>
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {SAMPLE_SHEET_COLUMNS.map((column) => (
+                  <TableRow key={column.field.key}>
+                    <TableCell className="font-medium">{column.header}</TableCell>
+                    <TableCell>
+                      {column.field.required ? (
+                        <Badge variant="warning">Required</Badge>
+                      ) : (
+                        <Badge variant="neutral">Optional</Badge>
+                      )}
+                    </TableCell>
+                    <TableCell muted>
+                      {column.field.hint ?? column.field.label}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+
+          <p className="mt-4 text-sm text-ink-muted">
+            Leave an optional column blank, or delete it altogether. Every
+            student in one file joins one class, which you choose on the next
+            screen — so the class is not a column.
           </p>
         </Card>
       </div>

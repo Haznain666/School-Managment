@@ -384,14 +384,49 @@ are always rolled back, with the row count read back afterwards.
 
 ---
 
+## RULE: the import sample sheet is generated, never typed
+
+**If you add, rename or remove a field in `IMPORT_FIELDS`, the sample sheet
+changes with it — and `npm run check-import-sample` is what makes that true.**
+
+`GET /api/school/student-imports/sample` builds the file from
+`lib/student-import-sample.ts`, which is driven off `IMPORT_FIELDS` and throws
+at module load if a field has no column. There is deliberately no static file
+in `public/`: a second copy of the column list, outside the type-checker and
+outside every check, is the copy that goes stale.
+
+| You are | Also do |
+| --- | --- |
+| adding a field to `IMPORT_FIELDS` | add its column to `SAMPLE_COLUMNS`, headed with one of that field's own aliases |
+| renaming an alias | run the check — the sample's headings are aliases, and a rename can un-match one |
+| tightening `validateRow` | run the check — all three example rows must still import |
+
+### Why the failure is invisible without it
+
+Every way this can rot is silent. A heading that no longer matches an alias
+does not throw: the file still downloads, still uploads, and the mapping screen
+still opens — the columns simply arrive unmatched, which reads as poor guessing
+rather than as a stale sample. A row the validator would now reject reads as
+"this school's data is dirty". The person who finds either one has already
+built four hundred rows against the sample.
+
+So the check reads the sample's own bytes back through `parseCsv`,
+`suggestColumnMap` and `validateRow` — the three functions a real upload goes
+through — and requires a **bijection**: every field matched to its own column,
+every example row valid. It also asserts the screen links to the route, because
+a generated file nothing offers is Sprint 27's orphaned endpoint again.
+
+---
+
 ## Green build
 
-All twelve must pass before anything is merged:
+All thirteen must pass before anything is merged:
 
 ```
 npm run typecheck
 npm run lint
 npm run check-loaders
+npm run check-import-sample
 npm run check-forms
 npm run check-address-phone
 npm run check-cnic
@@ -445,10 +480,10 @@ hides behind an early return.
 
 Copy the script, rename it, and point it at your sprint's statements.
 
-`.github/workflows/ci.yml` runs the nine that need no database —
-`check-loaders`, `check-forms`, `check-address-phone`, `check-cnic`,
-`check-currency`, `check-theme`, `check-sprint-periods`, `check-accounting` and
-`check-branch-scope` —
+`.github/workflows/ci.yml` runs the ten that need no database —
+`check-loaders`, `check-import-sample`, `check-forms`, `check-address-phone`,
+`check-cnic`, `check-currency`, `check-theme`, `check-sprint-periods`,
+`check-accounting` and `check-branch-scope` —
 on every push and pull request, so the loader, CNIC, currency and double-entry
 rules are enforced by the repository and not only by whoever remembers them. The rest execute against the real schema and stay on a
 machine that holds the credentials.

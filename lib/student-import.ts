@@ -66,6 +66,7 @@ export const IMPORT_FIELDS: readonly ImportField[] = [
     key: 'gender',
     label: 'Gender',
     required: false,
+    hint: 'Male or female. A column of M and F is read too.',
     aliases: ['gender', 'sex'],
   },
   {
@@ -79,7 +80,12 @@ export const IMPORT_FIELDS: readonly ImportField[] = [
     key: 'bFormCnic',
     label: 'B-Form / CNIC',
     required: false,
-    aliases: ['b-form', 'bform', 'b form', 'cnic', 'nic'],
+    hint: 'The child’s own document — a B-Form, or a CNIC once they hold one.',
+    // `b-form / cnic` is the label itself, and the heading the sample sheet
+    // carries. A school that fills the sample in and keeps its headings gets an
+    // exact match rather than falling through to the substring pass, where two
+    // fields can compete for one heading. See `lib/student-import-sample.ts`.
+    aliases: ['b-form / cnic', 'b-form', 'bform', 'b form', 'cnic', 'nic'],
   },
   {
     key: 'guardianName',
