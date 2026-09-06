@@ -412,7 +412,10 @@ one, add it to the other.
 Plus whichever of the other `check-*` scripts covers the area you touched —
 `check-reports`, `check-dashboard`, `check-portals`, `check-provisioning`,
 `check-smtp`, and the per-sprint executors `check-sprint20` through
-`check-sprint28`. **If you touch `listStudents`, run `check-sprint28`**: it is the
+`check-sprint30`. **If you touch `listInbox` or the desks, run
+`check-sprint30`**: that statement now joins `school_users` twice and aggregates
+its `name`, so it is one alias away from the 42702 below. **If you touch
+`listStudents`, run `check-sprint28`**: it is the
 query that has been taken down twice by an ambiguous column reference and it now
 carries four derived aggregates whose aliases are the only thing standing between
 the all-students screen and a 500 at every school.

@@ -4,8 +4,42 @@
 resume without re-deriving context. Updated at the end of every development
 step, before the session ends.
 
-**Last updated:** 2026-09-06 (**Sprint 29 — the bell that had never rung for a
-message — §5bs.**)
+**Last updated:** 2026-09-06 (**Sprint 30 — the desk that reached nobody, and
+the campus the header never named — §5bt.**)
+
+✅ **Sprint 30 is shipped, merged, deployed, data-stepped and QA'd.** **No
+migration** — **`0045` is still the next free migration number.** Merged as
+`dc588cd` (PR #71), live on build `dc588cda9380`, CDN purged. The data step
+`scripts/apply-sprint30-data.mjs` **has been applied** — 9 sections at Askari, 4
+staff seats on 3 desk threads at Lahore Grammar.
+
+Eight requirements from the product owner. Two of them were the same defect from
+opposite ends, and one query settled it exactly as Sprint 29's did: **at Lahore
+Grammar the only person in any of Father 1's children's timetables was the
+school administrator.** That is why she appeared in the parent's dropdown as
+*"Teaches Pre-Nursery A"*, and why three of the four office desks routed to her
+as well. §5bt.
+
+🔴 **A desk thread used to have exactly one participant — the parent who wrote
+it.** `listInbox` reads through participant rows, so an enquiry to the Accounts
+Office reached **no** inbox, moved no badge and rang no bell; the only route to
+one was `POST …/claim` with an id nothing displayed. The answering staff are now
+seated when the thread opens, and every mechanism that already worked for a
+direct thread works for a desk. **If you add a new kind of conversation, seat
+somebody in it or it reaches nobody, silently.**
+
+⚠ **`school_admin` is a desk *fallback*, not an answerer.** `ROLE_INBOXES.answeredBy`
+holds the roles that own each desk; `DESK_FALLBACK_ROLE` is seated only when a
+school has appointed none of them. Adding `school_admin` back to any
+`answeredBy` re-creates the reported defect at every school on the platform.
+
+⚠ **`timetable_entries.teacher_id` is any `school_users` row, not a teacher.**
+Both halves of `teachersOfChildren` now require `role = 'teacher'`. Consequence
+worth knowing: LGS's Father 1 currently reaches **no** teacher, because none is
+timetabled against his children's sections. That is the rule working, and the
+fix is at the school's end.
+
+Previously: **Sprint 29 — the bell that had never rung for a message — §5bs.**
 
 ✅ **Sprint 29 is shipped, merged, deployed and QA'd.** **No migration** — it
 needed none, and **`0045` is still the next free migration number.** Merged as
@@ -12524,6 +12558,117 @@ days, per person, with the date in hand.
    `lib/payroll-approval.ts` now has and the register does not call.
 5. **The bell's `href` is a fixed map of four routes.** A fifth portal would
    need a line in `noticeHrefFor`.
+
+---
+
+## 5bt. Sprint 30 — the desk that reached nobody, and the campus the header never named — 2026-09-06
+
+**No migration. `0045` is still the next free number.** Merged as `dc588cd`
+(PR #71), live on build `dc588cda9380`, CDN purged. **Data step applied:**
+`scripts/apply-sprint30-data.mjs --apply`.
+
+Eight requirements, all against Lahore Grammar. Full write-up in
+`release-notes/RELEASE-NOTES-SPRINT-30.md`; what follows is what a later session
+needs and could not re-derive.
+
+### The two that were one defect
+
+A parent could write to four office desks that **reached nobody**, and could
+write **by name** to the one person those desks exist so that nobody has to
+write to by name.
+
+* Every desk listed `school_admin` first, so at a school with no accountant, no
+  coordinator and no head of admissions — every school on the platform — all
+  four landed on one person.
+* A desk thread was created with **one participant**, the parent. `listInbox`
+  reads through participant rows and nothing else listed an unclaimed thread, so
+  it appeared in no inbox, moved no badge, rang no bell, and could only be
+  reached by `POST …/claim` with an id no screen displayed.
+
+**`lib/chat-desks.ts` is the fix and carries the reasoning.** `answeredBy` per
+desk; `DESK_FALLBACK_ROLE` (`school_admin`) seated only when the school has
+appointed nobody; branch-scoped, with null on either side meaning "all", the
+convention `school_users.branch_id` has carried since Sprint 19a. The answerers
+are seated when the thread opens, so the inbox, unread dot, sidebar badge, bell
+entry, chime and hourly digest all work on a desk with no new plumbing.
+
+`claimableInboxes(role)` still returns all four for a school admin: being copied
+on every enquiry by default was the defect, being able to pick one up was not.
+
+**A desk with nobody on it is not offered to a parent at all** —
+`desksWithAnswerers`, called from `resolveReachable`.
+
+### `listInbox` now carries three `name` columns
+
+The counterparty aggregate over `school_users.name`, and a **second
+`school_users`** — the claimant — joined through `alias()`. That is the
+distinction `CLAUDE.md` draws: an aliased *table* is qualified by Drizzle on
+every reference, a `sql` alias is emitted bare. `check-sprint30` runs it, because
+only Postgres resolves a name.
+
+A desk thread's inbox title is the **desk**, on both sides. "The school" was the
+fallback for a thread with nobody else in it; seating the answerers would have
+replaced it with a clerk's personal name, which is worse.
+
+### The campus in the header
+
+`lib/branch-header.ts`, one rule for all four portals. Nothing at a
+single-campus school; nothing for an account whose `branch_id` is null — which
+is what "except School Admin" is, and it falls out of the data rather than being
+a special case. **A pupil and a parent have no `branch_id`** (nothing on the
+enrolment path writes one), so theirs is derived section → grade → branch, and a
+parent with children at two campuses gets no label.
+
+### The module gate
+
+`withSchoolAuth` takes `module: 'chat'`; twenty chat routes carry it. `signals`,
+`realtime-config` and `push-subscription` deliberately do not — they carry no
+content, and Sprint 29's note explains why gating the transport would mean the
+flag being switched **on** did not take effect until every open tab reloaded.
+
+Proved by switching Askari's row off (403 on three endpoints), and on (200).
+
+### The section default
+
+`lib/default-sections.ts`. Section A, capacity 35, created on a seeded ladder and
+on the year an academic-year **run makes active** — sections are per year, so a
+school rolling into the next session met the same dead end annually. A grade
+that already has *any* section is left alone.
+
+Section chips on the grades screen are now buttons opening a dialog for the name
+and capacity: before this the only edits to an existing class were its class
+teacher and deleting it, and deletion is refused once a child is enrolled —
+which is exactly when a school notices the capacity is wrong.
+
+### Announcements dated now
+
+A `scheduledAt` at or before now is sent inside the `POST`, and the composer
+reports what it reached. **Not "anything dated today"**: the sweeper reads *due
+at or before now*, so a six o'clock notice is still the sweeper's, and sending it
+at nine in the morning would be a different instruction from the one given.
+
+### QA, and what was seen rather than asserted
+
+`scripts/qa-emergency-link.mjs` for every seat — parent, principal, school
+admin, teacher and pupil at LGS, parent and school admin at Askari.
+
+The strongest single piece of evidence was not planned: **the Karachi Branch
+administrator claimed and answered an office enquiry during QA, unprompted**,
+minutes after the data step seated them. It wrote a `chat_message` bell entry to
+`/dashboard/chat` for the other seated administrator and one to `/parent/chat`
+for the parent. That is the first time in the product's life a desk thread has
+reached a member of staff.
+
+**Not opened: the Super Admin module screen**, which needs the platform
+operator's own password. The toggle grid is generated from `PLATFORM_MODULES`;
+what this sprint adds is the route honouring the flag, and that was proved by
+flipping it.
+
+⚠ **The Browser pane's `get_page_text` can return the pre-fetch paint.** Twice
+this session a screen was read as *"Loading your conversations…"* and
+*"No sections yet"* while the network tab showed the fetch had returned 200 and
+a screenshot showed the rendered list. Read the network response or take a
+screenshot before concluding a screen is stuck.
 
 ---
 
