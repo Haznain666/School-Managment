@@ -45,6 +45,14 @@ export interface SchoolNavbarProps {
   searchResultsHref?: string;
   /** Unread notifications, read once in the layout. */
   unreadNotifications?: number;
+  /**
+   * The reader's campus, at a school that has more than one.
+   *
+   * Null at a single-campus school and for anybody whose scope is the whole
+   * school — see `lib/branch-header.ts`, which is the only thing that decides
+   * this. The header never derives it, so one rule answers every portal.
+   */
+  branchName?: string | null;
 }
 
 /**
@@ -67,6 +75,7 @@ export function SchoolNavbar({
   contextSlot,
   searchResultsHref,
   unreadNotifications,
+  branchName = null,
 }: SchoolNavbarProps) {
   const isPlatformSession = platformAdminEmail !== null && platformAdminEmail !== '';
 
@@ -129,10 +138,30 @@ export function SchoolNavbar({
         */}
         <div className={contextSlot === undefined ? 'min-w-0' : 'hidden min-w-0 sm:block'}>
           <p className="truncate text-sm font-semibold">{schoolName}</p>
-          {portalLabel !== undefined ? (
-            <p className="truncate text-xs opacity-75">{portalLabel}</p>
+          {/*
+            The campus, on the same line as the portal label rather than a line
+            of its own: the header is already 64px carrying nine things at
+            375px (see the note above), and a third line would push the school
+            name off it. A middot separates them where both exist.
+          */}
+          {portalLabel !== undefined || branchName !== null ? (
+            <p className="truncate text-xs opacity-75">
+              {[branchName, portalLabel].filter((part) => part !== null && part !== undefined).join(' · ')}
+            </p>
           ) : null}
         </div>
+
+        {/*
+          The campus again, and only where the first copy is hidden: a portal
+          that put a child switcher in the slot loses the whole school-name
+          block below `sm`, and which campus a parent is reading is exactly the
+          kind of state Sprint 26 decided must survive a phone.
+        */}
+        {branchName !== null && contextSlot !== undefined ? (
+          <span className="shrink-0 rounded-full bg-brand-onPrimary/15 px-2 py-0.5 text-xs font-medium sm:hidden">
+            {branchName}
+          </span>
+        ) : null}
 
         {contextSlot}
       </div>

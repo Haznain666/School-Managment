@@ -79,5 +79,5 @@ export const GET = withSchoolAuth(
       return handleApiError(error);
     }
   },
-  { permission: 'chat.send' },
+  { permission: 'chat.send', module: 'chat' },
 );

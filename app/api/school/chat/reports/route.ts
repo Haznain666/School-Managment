@@ -83,7 +83,7 @@ export const GET = withSchoolAuth(
       return handleApiError(error);
     }
   },
-  { permission: 'chat.moderate' },
+  { permission: 'chat.moderate', module: 'chat' },
 );
 
 export const POST = withSchoolAuth(
@@ -148,7 +148,7 @@ export const POST = withSchoolAuth(
       return handleApiError(error);
     }
   },
-  { allowedRoles: USER_ROLES },
+  { allowedRoles: USER_ROLES, module: 'chat' },
 );
 
 export const PATCH = withSchoolAuth(
@@ -206,5 +206,5 @@ export const PATCH = withSchoolAuth(
       return handleApiError(error);
     }
   },
-  { permission: 'chat.moderate' },
+  { permission: 'chat.moderate', module: 'chat' },
 );

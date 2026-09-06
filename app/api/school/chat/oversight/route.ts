@@ -44,5 +44,5 @@ export const GET = withSchoolAuth(
       return handleApiError(error);
     }
   },
-  { permission: 'chat.oversight' },
+  { permission: 'chat.oversight', module: 'chat' },
 );

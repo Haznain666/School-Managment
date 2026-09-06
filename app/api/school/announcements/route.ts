@@ -4,6 +4,7 @@ import {
   createAnnouncement,
   listAnnouncements,
   parseAnnouncementInput,
+  sendAnnouncement,
 } from '@/lib/announcement-queries';
 import { withSchoolAuth } from '@/lib/api-auth';
 import { apiFailure, apiSuccess, handleApiError, readJsonBody } from '@/lib/api-response';
@@ -68,7 +69,36 @@ export const POST = withSchoolAuth(
       // school's announcement point at another school's campus.
       const members = await resolveAudience(auth.locationId, input.audience, input.branchId);
 
-      return apiSuccess({ announcementId: id, reaches: members.length }, 201);
+      /*
+       * Sprint 30. A notice dated now goes out now.
+       *
+       * The clerk who sets "send at" to this morning has said when they want it
+       * to go, and the product then showed them a **Send now** button and
+       * waited to be told a second time. `listDueAnnouncements` reads *due at
+       * or before now*, so the sweeper released it within sixty seconds
+       * anyway — which is the point: the button was not a second authorisation,
+       * it was a minute of doubt about whether anything had happened.
+       *
+       * Only a time that has already passed. A notice scheduled for six this
+       * evening is still scheduled, and the sweeper still owns it; treating
+       * "today" as "now" would send the six o'clock notice at nine in the
+       * morning, which is a different instruction from the one given.
+       *
+       * The outcome is returned so the composer can say what it reached,
+       * exactly as the manual send does.
+       */
+      const sendNow = input.scheduledAt !== null && input.scheduledAt.getTime() <= Date.now();
+      const outcome = sendNow ? await sendAnnouncement(auth.locationId, id) : null;
+
+      return apiSuccess(
+        {
+          announcementId: id,
+          reaches: members.length,
+          sent: outcome !== null,
+          delivery: outcome,
+        },
+        201,
+      );
     } catch (error) {
       return handleApiError(error);
     }

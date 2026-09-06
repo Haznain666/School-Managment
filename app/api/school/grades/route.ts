@@ -3,7 +3,8 @@ import { and, eq } from 'drizzle-orm';
 import { branches, grades } from '@/db/schema';
 import { withSchoolAuth } from '@/lib/api-auth';
 import { apiFailure, apiSuccess, handleApiError, readJsonBody } from '@/lib/api-response';
-import { listGrades } from '@/lib/admissions-queries';
+import { getActiveAcademicYear, listGrades } from '@/lib/admissions-queries';
+import { ensureDefaultSections } from '@/lib/default-sections';
 import { db } from '@/lib/drizzle';
 import { getGradesForCurriculum } from '@/lib/predefined-grades';
 import { visibleScopeFor } from '@/lib/principal-visibility';
@@ -118,7 +119,34 @@ export const POST = withSchoolAuth(
         .onConflictDoNothing({ target: [grades.branchId, grades.sortOrder] })
         .returning({ id: grades.id });
 
-      return apiSuccess({ seeded: inserted.length, total: ladder.length }, 201);
+      /*
+       * Sprint 30. A seeded ladder comes with a class in every grade.
+       *
+       * Sixteen grades and no sections is a school that cannot enrol anybody:
+       * a child is placed in a *section*, the timetable is built per section,
+       * and the class teacher hangs off one. The second step was undocumented
+       * and had to be repeated per grade, so schools skipped it and then found
+       * the enrolment wizard's section dropdown empty.
+       *
+       * Idempotent, and silent when there is no active year to hang them on —
+       * a school that seeds grades before creating its session gets its
+       * sections from the backfill or from the next seed, and never an error
+       * on the step that did succeed.
+       */
+      const year = await getActiveAcademicYear(auth.locationId);
+      const sectionsCreated =
+        year === null
+          ? 0
+          : await ensureDefaultSections({
+              locationId: auth.locationId,
+              academicYearId: year.id,
+              branchId,
+            });
+
+      return apiSuccess(
+        { seeded: inserted.length, total: ladder.length, sectionsCreated },
+        201,
+      );
     } catch (error) {
       return handleApiError(error);
     }

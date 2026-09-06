@@ -14,6 +14,8 @@ export interface ParentNavbarProps {
   students: readonly { studentProfileId: string; studentId: string; name: string }[];
   searchResultsHref?: string;
   unreadNotifications?: number;
+  /** The reader's campus, at a school with more than one. See `lib/branch-header.ts`. */
+  branchName?: string | null;
 }
 
 /**

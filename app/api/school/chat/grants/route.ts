@@ -91,7 +91,7 @@ export const GET = withSchoolAuth(
       return handleApiError(error);
     }
   },
-  { permission: 'chat.grant' },
+  { permission: 'chat.grant', module: 'chat' },
 );
 
 export const POST = withSchoolAuth(
@@ -184,7 +184,7 @@ export const POST = withSchoolAuth(
       return handleApiError(error);
     }
   },
-  { permission: 'chat.grant' },
+  { permission: 'chat.grant', module: 'chat' },
 );
 
 export const DELETE = withSchoolAuth(
@@ -244,5 +244,5 @@ export const DELETE = withSchoolAuth(
       return handleApiError(error);
     }
   },
-  { permission: 'chat.grant' },
+  { permission: 'chat.grant', module: 'chat' },
 );

@@ -136,7 +136,16 @@ export function AnnouncementManager({
     setError(null);
 
     try {
-      await schoolFetch('/api/school/announcements', {
+      /*
+       * Sprint 30. A "send at" that has already passed is sent by the route,
+       * inside this request, and the response says what it reached — so the
+       * clerk is told it went out instead of being shown a **Send now** button
+       * beside a notice they had already dated.
+       */
+      const created = await schoolFetch<{
+        sent: boolean;
+        delivery: { recipients: number; queued: number } | null;
+      }>('/api/school/announcements', {
         method: 'POST',
         body: JSON.stringify({
           title,
@@ -147,6 +156,20 @@ export function AnnouncementManager({
           scheduledAt: scheduledAt === '' ? null : new Date(scheduledAt).toISOString(),
         }),
       });
+
+      setSendNotice(
+        created.sent && created.delivery !== null
+          ? `Sent — on the notice board for ${created.delivery.recipients} ${
+              created.delivery.recipients === 1 ? 'person' : 'people'
+            }${
+              sendEmail
+                ? `, ${created.delivery.queued} email${
+                    created.delivery.queued === 1 ? '' : 's'
+                  } queued`
+                : ''
+            }.`
+          : null,
+      );
 
       setIsOpen(false);
       reset();
@@ -344,7 +367,7 @@ export function AnnouncementManager({
               type="datetime-local"
               value={scheduledAt}
               onChange={(event) => setScheduledAt(event.target.value)}
-              hint="Leave empty to keep it as a draft you send by hand."
+              hint="Leave empty to keep it as a draft you send by hand. A time that has already passed goes out the moment you save."
             />
 
             <Toggle

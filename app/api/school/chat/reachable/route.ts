@@ -42,5 +42,5 @@ export const GET = withSchoolAuth(
       return handleApiError(error);
     }
   },
-  { allowedRoles: USER_ROLES },
+  { allowedRoles: USER_ROLES, module: 'chat' },
 );

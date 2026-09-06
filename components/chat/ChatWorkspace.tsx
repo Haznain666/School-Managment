@@ -58,6 +58,8 @@ export interface ChatConversationRow {
   unread: boolean;
   canPost: boolean;
   counterparty: string;
+  claimedByName: string | null;
+  claimable: boolean;
 }
 
 export interface ChatMessageRow {
@@ -96,6 +98,21 @@ export interface ChatWorkspaceProps {
   auditNotice: string | null;
   /** Whether the composer offers to start a new conversation at all. */
   canInitiate: boolean;
+  /**
+   * The desks this reader may take an enquiry from — `claimableInboxes(role)`,
+   * resolved on the server.
+   *
+   * A list rather than a boolean because the answer is per desk: a teacher
+   * holds none of them, an accountant holds Accounts, a head holds their own
+   * office. A button offered to somebody the route will refuse is worse than no
+   * button.
+   *
+   * `POST …/claim` has existed since Sprint 24 and **had no caller anywhere in
+   * the product** — the same shape as Sprint 27's orphaned holiday notice, and
+   * the reason the rule in `STATE.md` is *open the screen and look for the
+   * button*. This prop is that button.
+   */
+  claimableDesks?: readonly string[];
   /** What to say when there is nothing and nothing can be started. */
   emptyMessage: string;
 }
@@ -110,6 +127,7 @@ export function ChatWorkspace({
   canAttach = false,
   auditNotice,
   canInitiate,
+  claimableDesks = [],
   emptyMessage,
 }: ChatWorkspaceProps) {
   const [conversations, setConversations] = useState<ChatConversationRow[] | null>(null);
@@ -312,6 +330,33 @@ export function ChatWorkspace({
     () => conversations?.find((row) => row.conversationId === selectedId) ?? null,
     [conversations, selectedId],
   );
+
+  /**
+   * Take a desk enquiry.
+   *
+   * The route decides it with a conditional `UPDATE … RETURNING` and refuses
+   * the second caller — three clerks with the same inbox open is the race
+   * `CLAUDE.md` describes, and the loser is told who got there first by the
+   * refresh rather than by a guess made here.
+   */
+  async function claim(conversationId: string): Promise<void> {
+    if (busy) return;
+
+    setBusy(true);
+    setError(null);
+
+    try {
+      await schoolFetch(`/api/school/chat/conversations/${conversationId}/claim`, {
+        method: 'POST',
+      });
+      await loadInbox();
+    } catch (caught) {
+      setError(schoolErrorMessage(caught, 'The enquiry could not be claimed.'));
+      await loadInbox();
+    } finally {
+      setBusy(false);
+    }
+  }
 
   async function send(): Promise<void> {
     const body = draft.trim();
@@ -543,6 +588,35 @@ export function ChatWorkspace({
             <h2 className="text-sm font-semibold text-ink">{selected.counterparty}</h2>
             {selected.subject !== null ? (
               <p className="text-xs text-ink-muted">{selected.subject}</p>
+            ) : null}
+            {/*
+              Sprint 30. Who is dealing with this desk enquiry.
+
+              Shown to everybody seated, parent included: "Claimed by the
+              Defence Branch administrator" is the answer to *has anyone picked
+              this up*, which is the question a parent writing to an office
+              actually has. The button beside it is staff-only.
+            */}
+            {selected.roleInbox !== null && selected.claimedByName !== null ? (
+              <p className="mt-1 text-xs text-ink-muted">
+                Claimed by {selected.claimedByName}
+              </p>
+            ) : null}
+            {selected.claimable &&
+            selected.roleInbox !== null &&
+            claimableDesks.includes(selected.roleInbox) ? (
+              <div className="mt-2">
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  isLoading={busy}
+                  onClick={() => {
+                    void claim(selected.conversationId);
+                  }}
+                >
+                  Claim this enquiry
+                </Button>
+              </div>
             ) : null}
             {auditNotice !== null ? (
               <p className="mt-2 rounded-card bg-surface px-3 py-2 text-xs text-ink-muted">

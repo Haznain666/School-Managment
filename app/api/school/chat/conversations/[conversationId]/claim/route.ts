@@ -89,5 +89,5 @@ export const POST = withSchoolAuth<RouteContext>(
       return handleApiError(error);
     }
   },
-  { permission: 'chat.read' },
+  { permission: 'chat.read', module: 'chat' },
 );

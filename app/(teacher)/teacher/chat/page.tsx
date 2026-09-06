@@ -4,6 +4,7 @@ import { BroadcastComposer } from '@/components/chat/BroadcastComposer';
 import { ChatDisabledNotice } from '@/components/chat/ChatDisabledNotice';
 import { ChatWorkspace } from '@/components/chat/ChatWorkspace';
 import { ClassChatAccess } from '@/components/chat/ClassChatAccess';
+import { claimableInboxes } from '@/lib/chat-queries';
 import { OVERSIGHT_NOTICE } from '@/lib/chat-oversight';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { getActiveAcademicYear } from '@/lib/admissions-queries';
@@ -68,6 +69,7 @@ export default async function TeacherChatPage() {
         canAttach
         canInitiate
         auditNotice={OVERSIGHT_NOTICE}
+        claimableDesks={claimableInboxes(claims.role)}
         emptyMessage="Nothing yet. Start a conversation with a parent or a colleague."
       />
     </div>
