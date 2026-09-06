@@ -47,6 +47,7 @@ import {
   type ScopeKey,
   turnTakingProblem,
 } from './chat-permissions';
+import { markChatNotificationsRead, notifyChatRecipients } from './chat-notifications';
 import { batch, db } from './drizzle';
 
 /**
@@ -679,11 +680,28 @@ export async function postMessage(input: {
   const settings = await getChatSchoolSettings(input.locationId);
   const senderIsStaff = input.senderSchoolUserId !== null && isStaffRole(input.senderRole as UserRole);
 
-  // The recipients of the signal: every other seated participant who has a
-  // sign-in account. Read before the transaction because it is a plain read and
-  // holding a transaction open across it buys nothing.
+  /*
+   * The recipients of the signal: every other seated participant. Read before
+   * the transaction because it is a plain read and holding a transaction open
+   * across it buys nothing.
+   *
+   * Sprint 29 widened this from `auth_user_id` alone. The socket needs the auth
+   * id and nothing else; the **bell** needs the `school_users` id it is
+   * addressed to and the role that decides which portal the entry links into —
+   * see `lib/chat-notifications.ts`. Both come out of the same join, so this is
+   * two more columns rather than a second read.
+   *
+   * `authUserId` stays nullable and the two consumers diverge on it: a person
+   * with no sign-in account gets no signal (there is no socket to send it down)
+   * but still gets the bell entry, because they will have one the moment
+   * somebody issues them a login and the entry will be waiting.
+   */
   const recipients = await db
-    .select({ authUserId: schoolUsers.authUserId })
+    .select({
+      authUserId: schoolUsers.authUserId,
+      schoolUserId: schoolUsers.id,
+      role: schoolUsers.role,
+    })
     .from(chatParticipants)
     .innerJoin(schoolUsers, eq(schoolUsers.id, chatParticipants.schoolUserId))
     .where(
@@ -696,6 +714,24 @@ export async function postMessage(input: {
           : ne(chatParticipants.schoolUserId, input.senderSchoolUserId),
       ),
     );
+
+  /*
+   * The thread's subject, for the bell entry's body. One indexed read of a row
+   * this function is about to update anyway; it is read here rather than taken
+   * from the `UPDATE` because that update sets `last_message_at` and returns
+   * nothing, and widening it to return a column would put a read inside the
+   * batch for no gain.
+   */
+  const [conversation] = await db
+    .select({ subject: chatConversations.subject })
+    .from(chatConversations)
+    .where(
+      and(
+        eq(chatConversations.locationId, input.locationId),
+        eq(chatConversations.id, input.conversationId),
+      ),
+    )
+    .limit(1);
 
   const [inserted] = await batch(db, (tx) => [
     tx
@@ -748,19 +784,49 @@ export async function postMessage(input: {
       );
   }
 
-  const signals = recipients
-    .filter((row): row is { authUserId: string } => row.authUserId !== null)
-    .map((row) => ({
-      locationId: input.locationId,
-      recipientAuthUserId: row.authUserId,
-      conversationId: input.conversationId,
-      messageId,
-      createdAt: now,
-    }));
+  const signals = recipients.flatMap((row) =>
+    row.authUserId === null
+      ? []
+      : [
+          {
+            locationId: input.locationId,
+            recipientAuthUserId: row.authUserId,
+            conversationId: input.conversationId,
+            messageId,
+            createdAt: now,
+          },
+        ],
+  );
 
   if (signals.length > 0) {
     await db.insert(chatSignals).values(signals);
   }
+
+  /*
+   * Sprint 29. The bell, which is the half of this that reaches somebody who is
+   * *not* on the chat screen.
+   *
+   * A signal is delivered over a socket that only the chat screen listens on,
+   * so before this every other page of every portal was deaf: a parent on their
+   * dashboard when a teacher wrote to them learned about it from the hourly
+   * digest email and from nothing else. `lib/chat-notifications.ts` writes one
+   * bell entry per conversation per recipient, carries no message text, and
+   * sends no mail — chat already owns its own, and the reasoning is there.
+   *
+   * Awaited rather than fired and forgotten, so a message and its bell entry
+   * land together; it swallows its own failures, so this cannot turn a
+   * delivered message into a failed send.
+   */
+  await notifyChatRecipients({
+    locationId: input.locationId,
+    conversationId: input.conversationId,
+    senderName: input.senderName,
+    subject: conversation?.subject ?? null,
+    recipients: recipients.map((row) => ({
+      schoolUserId: row.schoolUserId,
+      role: row.role as UserRole,
+    })),
+  });
 
   return { id: messageId, conversationId: input.conversationId, createdAt: now };
 }
@@ -977,11 +1043,24 @@ export async function listMessages(
   }));
 }
 
-/** Marks everything in a conversation read, for one participant. */
+/**
+ * Marks everything in a conversation read, for one participant.
+ *
+ * Two markers move, and Sprint 29 added the second. `chat_participants.
+ * last_read_at` is what the inbox dot and the sidebar badge are computed from;
+ * the bell keeps its own row per thread, and leaving that behind would make the
+ * bell a number that only ever grows — which is precisely how a badge stops
+ * being read. A person who has the thread open has seen it, on both surfaces.
+ *
+ * The bell half is best-effort: this is called fire-and-forget from the client
+ * and the marker that matters is the first one, so a failed bell clear must not
+ * lose the read.
+ */
 export async function markConversationRead(
   locationId: string,
   conversationId: string,
   schoolUserId: string,
+  role: UserRole,
 ): Promise<void> {
   await db
     .update(chatParticipants)
@@ -993,6 +1072,12 @@ export async function markConversationRead(
         eq(chatParticipants.schoolUserId, schoolUserId),
       ),
     );
+
+  try {
+    await markChatNotificationsRead(schoolUserId, role, conversationId);
+  } catch (error) {
+    console.error(`[chat] could not clear the bell for ${conversationId}:`, error);
+  }
 }
 
 /**

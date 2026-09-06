@@ -11,8 +11,7 @@ import { schoolErrorMessage, schoolFetch } from '@/lib/school-client';
 import { cn } from '@/lib/utils';
 
 import { ChatNotificationControls } from './ChatNotificationControls';
-import { useChatSound } from './useChatSound';
-import { useChatStream } from './useChatStream';
+import { useChatSignals } from './ChatStreamProvider';
 
 /**
  * The chat screen, shared by all four portals.
@@ -127,16 +126,33 @@ export function ChatWorkspace({
   const [busy, setBusy] = useState(false);
   const [attachments, setAttachments] = useState<ChatAttachmentRow[]>([]);
   const [file, setFile] = useState<File | null>(null);
-  const [soundEnabled, setSoundEnabled] = useState(false);
 
   const transcriptEnd = useRef<HTMLDivElement | null>(null);
   const fileInput = useRef<HTMLInputElement | null>(null);
 
-  const { play, arm } = useChatSound(soundEnabled);
-
-  // The id of the newest message already on screen. A signal that brings
-  // something newer than this — and not written by us — is what makes a noise.
-  const newestSeen = useRef<string | null>(null);
+  /*
+   * The portal's chat stream, subscribed to here rather than opened here.
+   * Sprint 29 moved the socket up into the layout so every page hears a message
+   * arrive; this screen is now one of its listeners.
+   *
+   * It is subscribed *before* `loadInbox` and `loadMessages` are defined
+   * because `refreshCounts` is one of their dependencies, and a `useCallback`
+   * dependency array naming a `const` declared further down is a temporal-dead-
+   * zone throw on first render rather than a lint complaint. The real handler
+   * is therefore reached through a ref, which is the same indirection
+   * `useChatStream` uses on its own callback and for the same reason.
+   *
+   * `true` claims the fast poll: this is the one screen where the delay is the
+   * product, and the layout's provider otherwise runs at a much slower interval
+   * because it runs everywhere.
+   */
+  const signalHandler = useRef<(conversationIds: string[]) => void>(() => undefined);
+  const { setSoundEnabled, refreshCounts } = useChatSignals(
+    useCallback((conversationIds: string[]) => {
+      signalHandler.current(conversationIds);
+    }, []),
+    true,
+  );
 
   const loadInbox = useCallback(async (): Promise<ChatConversationRow[]> => {
     const result = await schoolFetch<InboxResponse>('/api/school/chat/conversations');
@@ -153,13 +169,23 @@ export function ChatWorkspace({
     setMessages(result.messages);
     setAttachments(result.attachments ?? []);
 
-    // Fire-and-forget, in the shape `components/comms/MarkNoticesRead.tsx` uses.
+    /*
+     * Fire-and-forget, in the shape `components/comms/MarkNoticesRead.tsx`
+     * uses. Since Sprint 29 this also clears the bell entries for the thread
+     * server-side, so the refresh that follows is what takes the number off
+     * the bell and the sidebar in the same beat — without it the badge would
+     * sit there until the next navigation and read as broken.
+     */
     void schoolFetch(`/api/school/chat/conversations/${conversationId}/read`, {
       method: 'POST',
-    }).catch(() => {
-      /* A read marker that did not save is not worth telling anybody about. */
-    });
-  }, []);
+    })
+      .then(() => {
+        refreshCounts();
+      })
+      .catch(() => {
+        /* A read marker that did not save is not worth telling anybody about. */
+      });
+  }, [refreshCounts]);
 
   useEffect(() => {
     void (async () => {
@@ -183,6 +209,39 @@ export function ChatWorkspace({
         const roomForBoth =
           typeof window !== 'undefined' &&
           window.matchMedia('(min-width: 1024px)').matches;
+
+        /*
+         * Sprint 29. A bell entry links to `?conversation=<id>`, so arriving
+         * from one opens that thread — on a phone as well, where the rule above
+         * otherwise deliberately leaves you in the list. The difference is that
+         * this time the person asked for a particular conversation by clicking
+         * a notification about it, and dropping them in the inbox instead is
+         * the notification not having worked.
+         *
+         * Read from `window.location` in this effect rather than through
+         * `useSearchParams`, which would put a client-side bailout boundary
+         * around a component four pages render. It is a one-shot read of the
+         * URL that brought us here; nothing re-reads it.
+         *
+         * Checked against the inbox before it is trusted: an id in a query
+         * string is untrusted, and selecting one this person is not seated in
+         * would fetch a 404 and show them an error for a thread that may not
+         * even exist.
+         */
+        const requested =
+          typeof window === 'undefined'
+            ? null
+            : new URLSearchParams(window.location.search).get('conversation');
+
+        const wanted =
+          requested === null
+            ? undefined
+            : rows.find((row) => row.conversationId === requested);
+
+        if (wanted !== undefined) {
+          setSelectedId(wanted.conversationId);
+          return;
+        }
 
         if (first !== undefined && roomForBoth) setSelectedId(first.conversationId);
       } catch (caught) {
@@ -215,28 +274,20 @@ export function ChatWorkspace({
 
   useEffect(() => {
     transcriptEnd.current?.scrollIntoView({ block: 'end' });
+  }, [messages]);
 
-    /*
-     * The chime, and the three things it must not do: fire on first paint, fire
-     * for your own message, and fire twice for the same one.
-     *
-     * The newest message's id is remembered rather than a count, because a
-     * redaction changes the list without adding to it. On the very first load
-     * the id is simply recorded — a screen that chimes at you for messages you
-     * have already read is one people switch off within a day.
-     */
-    const newest = messages[messages.length - 1];
-    if (newest === undefined) return;
-
-    const first = newestSeen.current === null;
-    const changed = newestSeen.current !== newest.id;
-    newestSeen.current = newest.id;
-
-    if (first || !changed) return;
-    if (newest.senderSchoolUserId === meId) return;
-
-    play();
-  }, [messages, meId, play]);
+  /*
+   * The chime moved out of this component in Sprint 29 and into
+   * `ChatStreamProvider`, which is mounted in the layout and therefore hears a
+   * message arriving on every page rather than only on this one. That was the
+   * defect: a parent looking at their fees learned nothing.
+   *
+   * The three rules it had to keep are kept by the *table* rather than by the
+   * comparison that used to live here. `postMessage` writes a signal for every
+   * seated participant **except the sender**, and one signal per message — so
+   * "never on first paint", "never for your own message" and "never twice" are
+   * properties of what arrives, not of what this screen remembers about it.
+   */
 
   // A signal names the conversations that changed. The open one is refetched;
   // the rest are picked up by the inbox refresh, which also moves the unread
@@ -255,7 +306,7 @@ export function ChatWorkspace({
     [loadInbox, loadMessages, selectedId],
   );
 
-  useChatStream(onSignal);
+  signalHandler.current = onSignal;
 
   const selected = useMemo(
     () => conversations?.find((row) => row.conversationId === selectedId) ?? null,
@@ -349,14 +400,10 @@ export function ChatWorkspace({
   const paneOpen = composing || selectedId !== null;
 
   return (
-    <div
-      className="grid gap-4 lg:grid-cols-[20rem_1fr]"
-      // Any click anywhere in the workspace is the user gesture a browser wants
-      // before it will let a page make a sound. Arming here rather than on a
-      // dedicated button means the first chime works for somebody who opened a
-      // conversation and did nothing else.
-      onPointerDown={arm}
-    >
+    // The gesture that lets a browser make a sound is now listened for at the
+    // document by `ChatStreamProvider`, because since Sprint 29 the chime has
+    // to work on every page and not only on this one.
+    <div className="grid gap-4 lg:grid-cols-[20rem_1fr]">
       <div className="lg:col-span-2">
         <div className="rounded-card border border-line bg-surface-raised">
           <ChatNotificationControls onSoundChange={setSoundEnabled} />

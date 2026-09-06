@@ -59,6 +59,18 @@ export const NOTIFICATION_KINDS = [
    * and for choosing an icon, and keeping it here is how a reader sees the set.
    */
   'announcement',
+  /*
+   * Sprint 29. Chat had a transport of its own since Sprint 24 —
+   * `chat_signals` and the socket over it — and it reached exactly one screen.
+   * A parent anywhere else in the portal when a message arrived saw nothing:
+   * no bell entry, no badge, no chime, and an email an hour later.
+   *
+   * No migration for this line either, for the reason two comments up: `kind`
+   * is free-form and carries no CHECK. `lib/chat-notifications.ts` is the only
+   * writer, and it says at length why it writes here directly instead of
+   * through `notify()` — chat already owns its own email.
+   */
+  'chat_message',
 ] as const;
 export type NotificationKind = (typeof NOTIFICATION_KINDS)[number];
 

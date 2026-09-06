@@ -1,5 +1,10 @@
+import { and, eq } from 'drizzle-orm';
+
+import { chatSettings } from '@/db/schema/chat-settings';
 import { withSchoolAuth } from '@/lib/api-auth';
 import { apiSuccess, handleApiError } from '@/lib/api-response';
+import { db } from '@/lib/drizzle';
+import { getSchoolUserByUid } from '@/lib/school-queries';
 import { getSessionClient } from '@/lib/supabase-auth';
 import { USER_ROLES } from '@/types/school-auth';
 
@@ -42,6 +47,15 @@ import { USER_ROLES } from '@/types/school-auth';
  * a cookie or the DOM, never logged, and re-fetched from here on reconnect
  * rather than cached against expiry.
  *
+ * ── `sound_enabled` rides along, and that is a deliberate saving ─────────
+ * Sprint 29 mounts `ChatStreamProvider` in every portal layout, so this route
+ * is now fetched once per page load rather than once per visit to the chat
+ * screen — and the chime it arms needs one boolean out of `chat_settings`. A
+ * second round trip for one column, on every page of every portal, to decide
+ * whether a sound plays, is a cost with nothing behind it. It is here because
+ * this route is already "everything the browser needs to react to a message",
+ * which is what the name says and what it now contains.
+ *
  * ── `getSession`, not `getUser`, and only here ───────────────────────────
  * `lib/supabase-auth.ts` is emphatic that every authorization decision starts
  * from `getUser()`, because `getSession()` returns whatever the cookie claims
@@ -56,10 +70,20 @@ export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 export const GET = withSchoolAuth(
-  async () => {
+  async (_request, auth) => {
     try {
       const url = process.env.SUPABASE_URL?.trim().replace(/\/+$/, '') ?? '';
       const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY?.trim() ?? '';
+
+      /*
+       * The chime's preference. Read before the early return below, because a
+       * deployment with no Supabase credentials still polls, still receives
+       * signals, and should still make a noise about them.
+       *
+       * An absent row is the defaults, exactly as `/chat/settings` treats it —
+       * provisioning seeds nothing and the column's own default is on.
+       */
+      const soundEnabled = await readSoundPreference(auth.locationId, auth.uid);
 
       if (url === '' || anonKey === '') {
         // Not a 500. Real-time is an enhancement over a working poll, and a
@@ -70,6 +94,7 @@ export const GET = withSchoolAuth(
           anonKey: null,
           accessToken: null,
           vapidPublicKey: null,
+          soundEnabled,
         });
       }
 
@@ -87,6 +112,7 @@ export const GET = withSchoolAuth(
          * server and is not read here.
          */
         vapidPublicKey: process.env.VAPID_PUBLIC_KEY?.trim() ?? null,
+        soundEnabled,
       });
     } catch (error) {
       return handleApiError(error);
@@ -94,3 +120,31 @@ export const GET = withSchoolAuth(
   },
   { allowedRoles: USER_ROLES },
 );
+
+/**
+ * This caller's chime preference, or the default when anything is in the way.
+ *
+ * Never throws. A preference that cannot be read is a sound that plays — which
+ * is the column's default and the safe direction: the failure mode of guessing
+ * "on" is one unexpected chime, and of guessing "off" is a notification nobody
+ * receives, which is the defect this whole sprint exists to fix.
+ */
+async function readSoundPreference(locationId: string, uid: string): Promise<boolean> {
+  try {
+    const me = await getSchoolUserByUid(locationId, uid);
+    if (me === null) return true;
+
+    const rows = await db
+      .select({ soundEnabled: chatSettings.soundEnabled })
+      .from(chatSettings)
+      .where(
+        and(eq(chatSettings.locationId, locationId), eq(chatSettings.schoolUserId, me.id)),
+      )
+      .limit(1);
+
+    return rows[0]?.soundEnabled ?? true;
+  } catch (error) {
+    console.error('[chat] sound preference could not be read:', error);
+    return true;
+  }
+}

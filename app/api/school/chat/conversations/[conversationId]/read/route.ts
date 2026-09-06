@@ -34,7 +34,9 @@ export const POST = withSchoolAuth<RouteContext>(
         return apiFailure('not_found', 'No such conversation.', 404);
       }
 
-      await markConversationRead(auth.locationId, conversationId, me.id);
+      // The role decides which portal's chat href the bell entry carries, and
+      // therefore which entry this clears — see `lib/chat-notifications.ts`.
+      await markConversationRead(auth.locationId, conversationId, me.id, auth.role);
       return apiSuccess({ read: true });
     } catch (error) {
       return handleApiError(error);
