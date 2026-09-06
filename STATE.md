@@ -4,8 +4,37 @@
 resume without re-deriving context. Updated at the end of every development
 step, before the session ends.
 
-**Last updated:** 2026-09-05 (**Sprint 28 — the child nobody billed, and the
-CNIC that stopped looking — §5br.**)
+**Last updated:** 2026-09-06 (**Sprint 29 — the bell that had never rung for a
+message — §5bs.**)
+
+✅ **Sprint 29 is shipped, merged, deployed and QA'd.** **No migration** — it
+needed none, and **`0045` is still the next free migration number.** Merged as
+`e528e5d` (PR #69).
+
+Chat had worked since Sprint 24 and there was no way to find out a message had
+arrived without opening the chat screen and looking. One query settled the shape
+of it: **`notifications` held zero `chat_message` rows across the whole estate.**
+Three faults, one per surface — chat never wrote to the bell, the administrative
+sidebar had no Messages badge, and the socket was mounted on the chat screen
+instead of in the layout. §5bs.
+
+🔴 **`router.refresh()` does not update the DOM on a page the browser
+hard-loaded.** It fires the request; it works after a client-side navigation;
+it does nothing on the page you landed on. Measured four times either way on
+Next 15.5.4 against a standalone build. That is the wrong way round for every
+parent — they type the address and sit still — so portal chrome is now fed by
+`/api/school/unread-counts`, which calls the same functions the layouts call.
+**Do not reach for `router.refresh()` to update chrome again without testing it
+on a hard-loaded page.**
+
+⚠ **`scripts/qa-emergency-link.mjs` is the way into a QA session, not *Login as
+Admin*.** The platform operator has **no `school_users` row**, so chat refuses
+them outright and every unread count is structurally 0 — half this sprint cannot
+be exercised from that seat. This session lost time discovering that after
+minting a credential the old way.
+
+Previously: **Sprint 28 — the child nobody billed, and the CNIC that stopped
+looking — §5br.**
 
 ✅ **Sprint 28 is shipped, migrated, deployed and QA'd.** Migration `0044` is
 **applied** (bookkeeping 44 → 45, proved by `scripts/verify-0044.mjs`), merged as
@@ -12495,6 +12524,129 @@ days, per person, with the date in hand.
    `lib/payroll-approval.ts` now has and the register does not call.
 5. **The bell's `href` is a fixed map of four routes.** A fifth portal would
    need a line in `noticeHrefFor`.
+
+---
+
+## 5bs. Sprint 29 — the bell that had never rung for a message — 2026-09-06
+
+**No migration. `0045` is still the next free migration number.** Merged as
+`e528e5d` (PR #69).
+
+One defect, reported against Lahore Grammar with a screenshot of both sides of
+it: *"LGS Defence Principal has messaged Father 1 but Father 1 has no
+notification in the bell icon, no counter on Messages … except email
+notification, Father 1 has no way of knowing that a message has arrived, even
+though he is on the portal."*
+
+The single most useful piece of evidence took one query and settled the shape of
+the whole sprint: **`notifications` held zero `chat_message` rows across the
+entire estate.** Not few. None, ever. The bell was correct and the table was
+empty.
+
+### Three faults, one per surface
+
+1. **Chat never wrote to `notifications`.** Every other feature does; chat had
+   its own transport from Sprint 24 and used that instead, and that transport
+   reaches exactly one screen. `lib/chat-notifications.ts` writes one entry per
+   conversation per recipient — conditional `UPDATE … RETURNING` to claim the
+   existing unread entry, `INSERT` only when it claims nothing. No message text
+   (the digest's own wording is the precedent) and no email (chat owns its own,
+   and `notify()` would have mailed per message *and* in the digest).
+
+2. **The administrative sidebar had no Messages badge.** Three portals had one
+   since Sprint 24; the one where the principal and every clerk work did not.
+
+3. **The stream lived on the chat screen.** `ChatStreamProvider` moves it into
+   the four portal layouts. `ChatWorkspace` subscribes rather than opening a
+   second socket.
+
+### 🔴 `router.refresh()` does nothing on a page the browser hard-loaded
+
+**This is the finding worth carrying forward, and it cost the sprint a
+redesign.**
+
+The first implementation moved both badges with `router.refresh()`, on a good
+argument: the layout already recomputes every count on each render, so a refresh
+updates all of them from what was already the single source of truth, with no
+new endpoint to disagree with it.
+
+It fires the request every time. **It updates the DOM only on a page reached by
+client-side navigation.** On the page the browser hard-loaded it does not —
+measured four times either way against a standalone production build, Next
+15.5.4, same URL, same message, the only variable being how the page was
+reached. A soft navigation to the *same* URL then showed the correct counts
+immediately, which is what pins the cause on the refresh rather than on the
+server render.
+
+That is exactly the wrong way round for the person this sprint is for. **A
+parent types the address or follows a link from an email and then sits still, so
+their page is always the hard-loaded one** — the sprint would have shipped
+working everywhere except the one place the bug was reported, and every
+navigation-based test would have passed.
+
+`/api/school/unread-counts` is the answer: it calls the same two functions the
+five layouts call and adds no arithmetic, so there are two callers and one
+implementation. Not polled — the provider asks when a signal arrives.
+`router.refresh()` is kept, demoted to refreshing page *content* for somebody
+who navigated here, and nothing depends on it.
+
+**Do not reach for `router.refresh()` to update portal chrome again without
+testing it on a hard-loaded page first.**
+
+### The poll interval, and why it is two numbers
+
+`useChatStream`'s poll **never stops until a real signal has arrived over the
+wire** — by design, since `SUBSCRIBED` is what a channel on an unpublished table
+reports too. Mounted on one screen that is free. Mounted in a layout it means
+somebody who never receives a message polls for ever, on every page. So the
+layout runs at `IDLE_POLL_SECONDS` (45) and the chat screen claims
+`EAGER_POLL_SECONDS` (8) while mounted, read from a ref so the socket is not
+torn down when it changes.
+
+### QA, and the seat problem worth knowing about
+
+**`scripts/qa-emergency-link.mjs` is the way in, and it should have been the
+first thing reached for.** This session started by minting a local-only
+`SUPER_ADMIN_PASSWORD_HASH_B64` and using *Login as Admin* — which works, and
+then dead-ends: **the platform operator has no `school_users` row**, so the chat
+screen refuses with *"No account at this school"*, both counts are structurally
+0, and nothing about this sprint can be exercised from that seat. The emergency
+link signs QA in as a real member with no password handled anywhere, and it is
+what proved the fix.
+
+Driven as Father 1 at LGS on the standalone production build: hard-loaded
+`/parent`, the principal wrote through the real `postMessage`, and the chime
+played, the bell went to *1 unread* and the Messages badge to *1* — no reload,
+no navigation. The bell entry deep-linked to the right thread and opening it
+cleared both. Every row written was deleted and both markers on conversation
+`ed14e7f0` restored to the timestamps the pre-QA snapshot recorded.
+
+⚠ **Running the standalone server locally starts `instrumentation.ts`, so every
+tenant's sweeps run against the live database from your machine.** Three real
+chat-digest emails went to Askari's addresses during this run — nothing to do
+with the change, and an unscoped `email_outbox` count reported them as the
+sprint's doing until it was scoped to the school under test. Stop the server
+when QA is finished.
+
+⚠ **Reading `auth.users` is blocked by the tool classifier.** Finding a session's
+`auth.uid` that way is a dead end; the emergency link makes it unnecessary.
+
+### What was asserted rather than seen
+
+The **administrative** sidebar's Messages badge, for the seat reason above.
+`check-sprint29` asserts `schoolNav` emits it at 3 and omits it at 0;
+`PortalSidebar` renders `item.badge` with markup three sidebars have used since
+Sprint 24. It is the one thing in this sprint nobody has looked at.
+
+### `npm run check-sprint29` — 26 ok, 0 failed
+
+No migration means **no predicted `42P01`/`42703` to hide behind**: every
+statement must execute, and a failure is a real defect. The dedupe is proved by
+writing two notifications inside a transaction that is always rolled back,
+requiring the second to claim the first, with the row count read back
+afterwards — because a conditional `UPDATE … RETURNING` against a tenant
+matching no row is a read that returns nothing, and calling that a pass is the
+trap `CLAUDE.md` names.
 
 ---
 
