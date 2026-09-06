@@ -70,6 +70,13 @@ import {
 
 type Subscriber = (conversationIds: string[]) => void;
 
+export interface UnreadCounts {
+  /** Unread rows in `notifications` — the bell. */
+  notifications: number;
+  /** Conversations with something unread in them — the Messages badge. */
+  chats: number;
+}
+
 interface ChatStreamValue {
   /** Registers a listener. Returns its own unsubscribe. */
   subscribe: (fn: Subscriber) => () => void;
@@ -78,8 +85,16 @@ interface ChatStreamValue {
    * while it is mounted. Returns the release.
    */
   claimEager: () => () => void;
-  /** Recomputes the layout's counts now. For "I have just read this thread". */
+  /** Re-reads the counts now. For "I have just read this thread". */
   refreshCounts: () => void;
+  /**
+   * The bell and Messages counts, or null until the first read has answered.
+   *
+   * Null means "the server render is still the best answer", which is what
+   * keeps the badge correct in the first painted frame instead of blinking to
+   * zero and back while this loads.
+   */
+  counts: UnreadCounts | null;
   /** Which transport is live, for the indicator the chat screen already shows. */
   transport: ChatTransport;
   /** Whether a chime plays. Owned here so one preference drives every screen. */
@@ -98,6 +113,20 @@ interface RealtimeConfig {
   soundEnabled?: boolean;
 }
 
+/**
+ * Reads the live counts, without subscribing to anything.
+ *
+ * For the two pieces of portal chrome that show a number — `NotificationBell`
+ * and the Messages entry in `PortalSidebar`. Both are rendered from server data
+ * first and corrected here, so `null` means "keep what the server said".
+ *
+ * Returns null outside a provider, which is the right answer on the platform
+ * portal: it has a bell and no chat.
+ */
+export function useUnreadCounts(): UnreadCounts | null {
+  return useContext(ChatStreamContext)?.counts ?? null;
+}
+
 export function ChatStreamProvider({ children }: { children: ReactNode }) {
   const router = useRouter();
 
@@ -114,6 +143,7 @@ export function ChatStreamProvider({ children }: { children: ReactNode }) {
    * they left open.
    */
   const [soundEnabled, setSoundEnabled] = useState(true);
+  const [counts, setCounts] = useState<UnreadCounts | null>(null);
   const { play, arm } = useChatSound(soundEnabled);
 
   useEffect(() => {
@@ -161,8 +191,31 @@ export function ChatStreamProvider({ children }: { children: ReactNode }) {
 
   const refreshCounts = useCallback(() => {
     if (refreshTimer.current !== null) clearTimeout(refreshTimer.current);
+
     refreshTimer.current = setTimeout(() => {
       refreshTimer.current = null;
+
+      /*
+       * The authoritative half. `/unread-counts` calls the same two functions
+       * the layout calls, so there is one implementation and two callers — and
+       * unlike the refresh below it works on the page the browser hard-loaded,
+       * which is the page a parent is actually sitting on. That route's
+       * docblock has the measurement.
+       */
+      void schoolFetch<UnreadCounts>('/api/school/unread-counts')
+        .then((next) => {
+          setCounts(next);
+        })
+        .catch(() => {
+          // The server render's numbers stand, and the next signal tries again.
+        });
+
+      /*
+       * And the best-effort half, kept deliberately. This is what re-renders
+       * the *page* — an announcements list, a fee table — for somebody who
+       * navigated here rather than landing here. It is one request and it is
+       * allowed to do nothing; nothing this sprint promises depends on it.
+       */
       router.refresh();
     }, REFRESH_DEBOUNCE_MS);
   }, [router]);
@@ -231,8 +284,9 @@ export function ChatStreamProvider({ children }: { children: ReactNode }) {
       soundEnabled,
       setSoundEnabled,
       armSound: arm,
+      counts,
     }),
-    [subscribe, claimEager, refreshCounts, transport, soundEnabled, arm],
+    [subscribe, claimEager, refreshCounts, transport, soundEnabled, arm, counts],
   );
 
   return <ChatStreamContext.Provider value={value}>{children}</ChatStreamContext.Provider>;
@@ -251,6 +305,7 @@ export function useChatSignals(onSignal: Subscriber, eagerly = false): {
   setSoundEnabled: (enabled: boolean) => void;
   armSound: () => void;
   refreshCounts: () => void;
+  counts: UnreadCounts | null;
 } {
   const context = useContext(ChatStreamContext);
 
@@ -282,5 +337,6 @@ export function useChatSignals(onSignal: Subscriber, eagerly = false): {
     setSoundEnabled: context?.setSoundEnabled ?? noop,
     armSound: context?.armSound ?? noop,
     refreshCounts: context?.refreshCounts ?? noop,
+    counts: context?.counts ?? null,
   };
 }

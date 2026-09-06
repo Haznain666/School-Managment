@@ -201,6 +201,46 @@ async function main(): Promise<void> {
     chatPortalHref('parent', 'a b&c'),
   );
 
+  /*
+   * The administrative sidebar's Messages badge.
+   *
+   * Asserted here rather than observed on screen, and the reason is recorded
+   * because it is a gap: the platform operator's "Login as Admin" seat has **no
+   * `school_users` row** — the chat screen tells you so in as many words — so
+   * `unreadChats` is structurally 0 for the only administrative session QA can
+   * open without a member of staff's own password.
+   *
+   * What is new here is the number being passed; `PortalSidebar` renders
+   * `item.badge` with markup the parent, teacher and pupil sidebars have used
+   * since Sprint 24. So this covers the half that is actually new.
+   */
+  console.log('\nThe administrative sidebar badge:');
+
+  const { schoolNav } = await import('../components/school/school-nav');
+  const { PERMISSIONS } = await import('../lib/permissions');
+  const { emptyModuleFlags } = await import('../lib/platform-modules');
+
+  const flags = { ...emptyModuleFlags(), chat: true };
+  const navWith = (unreadChats: number) =>
+    schoolNav({
+      role: 'school_admin',
+      permissions: [...PERMISSIONS],
+      moduleFlags: flags,
+      unreadChats,
+    }).items.find((item) => item.href === '/dashboard/chat');
+
+  assert('Messages is in the administrative sidebar at all', navWith(0) !== undefined, 'absent');
+  assert(
+    'with nothing unread it carries no badge, rather than a badge reading 0',
+    navWith(0)?.badge === undefined,
+    String(navWith(0)?.badge),
+  );
+  assert(
+    'with three unread it carries the count',
+    navWith(3)?.badge === 3,
+    String(navWith(3)?.badge),
+  );
+
   /* ═════════════════════════════════ the statements, against the real schema */
 
   console.log('\nThe widened recipient read in postMessage:');

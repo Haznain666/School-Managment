@@ -134,6 +134,7 @@ export function schoolNav({
       label: 'Messages',
       href: '/dashboard/chat',
       icon: 'chat',
+      liveBadge: 'chat',
       // Omitted rather than passed as 0, exactly as Announcements does below
       // and as `PortalNavItem` requires: a badge reading "0" is a notification
       // that there is nothing to notify about.
