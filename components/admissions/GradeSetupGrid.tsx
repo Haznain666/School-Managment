@@ -5,6 +5,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { Button } from '@/components/ui/Button';
 import { Card, CardTitle } from '@/components/ui/Card';
 import { Input } from '@/components/ui/Input';
+import { Modal } from '@/components/ui/Modal';
 import { CURRICULUM_LEVEL_LABELS, type CurriculumLevel } from '@/db/schema/branches';
 import { getGradesForCurriculum } from '@/lib/predefined-grades';
 import { schoolErrorMessage, schoolFetch } from '@/lib/school-client';
@@ -166,6 +167,41 @@ export function GradeSetupGrid({
     }
   };
 
+  /**
+   * Rename a section, or change how many it holds.
+   *
+   * Sprint 30. The chips were text: a school that opened with the default
+   * Section A and calls its classes Blue and Green had to delete A and add
+   * Blue — which the product refuses once a single child is enrolled, because
+   * deleting a section with pupils in it is not something a capacity edit
+   * should be a route to. Clicking the chip edits the row that is already
+   * there, through the `PATCH` that has accepted both fields since Sprint 4.
+   */
+  const editSection = async (
+    sectionId: string,
+    name: string,
+    capacity: string,
+  ): Promise<void> => {
+    setBusy(sectionId);
+    setError(null);
+
+    try {
+      await schoolFetch(`/api/school/sections/${sectionId}`, {
+        method: 'PATCH',
+        body: JSON.stringify({
+          name,
+          capacity: capacity.trim() === '' ? null : Number(capacity),
+        }),
+      });
+      await loadSections();
+    } catch (caught) {
+      setError(schoolErrorMessage(caught, 'Could not update the section.'));
+      throw caught;
+    } finally {
+      setBusy(null);
+    }
+  };
+
   const removeSection = async (sectionId: string): Promise<void> => {
     setBusy(sectionId);
     setError(null);
@@ -259,6 +295,7 @@ export function GradeSetupGrid({
                 busy={busy === grade.id}
                 onRename={renameGrade}
                 onAddSection={addSection}
+                onEditSection={editSection}
                 onRemoveSection={removeSection}
                 onSetClassTeacher={setClassTeacher}
               />
@@ -278,6 +315,7 @@ interface GradeRowItemProps {
   busy: boolean;
   onRename: (gradeId: string, displayName: string) => Promise<void>;
   onAddSection: (gradeId: string, name: string, capacity: string) => Promise<void>;
+  onEditSection: (sectionId: string, name: string, capacity: string) => Promise<void>;
   onRemoveSection: (sectionId: string) => Promise<void>;
   onSetClassTeacher: (sectionId: string, staffId: string) => Promise<void>;
 }
@@ -290,6 +328,7 @@ function GradeRowItem({
   busy,
   onRename,
   onAddSection,
+  onEditSection,
   onRemoveSection,
   onSetClassTeacher,
 }: GradeRowItemProps) {
@@ -297,6 +336,10 @@ function GradeRowItem({
   const [isAdding, setIsAdding] = useState(false);
   const [sectionName, setSectionName] = useState('');
   const [capacity, setCapacity] = useState('');
+  /** The section whose chip was clicked, and the draft being edited in it. */
+  const [editing, setEditing] = useState<SectionRow | null>(null);
+  const [editName, setEditName] = useState('');
+  const [editCapacity, setEditCapacity] = useState('');
 
   return (
     <li className="py-4">
@@ -345,8 +388,35 @@ function GradeRowItem({
                   key={section.id}
                   className="inline-flex items-center gap-2 rounded-full bg-surface-sunken px-3 py-1 text-xs font-medium text-ink"
                 >
-                  {section.name} · {section.studentCount}
-                  {section.capacity === null ? '' : `/${section.capacity}`}
+                  {/*
+                    The chip is the way in to the section. It was a label, so
+                    the only edits a school could make to a class it had
+                    already created were the class teacher and deleting it —
+                    and deleting is refused once a child is enrolled, which is
+                    exactly when a school discovers the capacity is wrong.
+                  */}
+                  {canEdit ? (
+                    <button
+                      type="button"
+                      className="hover:underline"
+                      aria-label={`Edit section ${section.name}`}
+                      onClick={() => {
+                        setEditing(section);
+                        setEditName(section.name);
+                        setEditCapacity(
+                          section.capacity === null ? '' : String(section.capacity),
+                        );
+                      }}
+                    >
+                      {section.name} · {section.studentCount}
+                      {section.capacity === null ? '' : `/${section.capacity}`}
+                    </button>
+                  ) : (
+                    <>
+                      {section.name} · {section.studentCount}
+                      {section.capacity === null ? '' : `/${section.capacity}`}
+                    </>
+                  )}
                   {canEdit && section.studentCount === 0 ? (
                     <button
                       type="button"
@@ -495,6 +565,75 @@ function GradeRowItem({
           </Button>
         ) : null}
       </div>
+
+      {/*
+        One dialog per grade row rather than one per chip: it is rendered only
+        while a chip is open, and `<dialog>` is in the browser's top layer, so
+        nothing on this page can clip it — see `components/ui/Modal.tsx`.
+      */}
+      <Modal
+        open={editing !== null}
+        onClose={() => {
+          setEditing(null);
+        }}
+        title={`Section ${editing?.name ?? ''}`}
+        description={`${grade.label} · ${String(editing?.studentCount ?? 0)} enrolled`}
+        size="sm"
+        footer={
+          <>
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => {
+                setEditing(null);
+              }}
+            >
+              Cancel
+            </Button>
+            <Button
+              size="sm"
+              isLoading={busy}
+              disabled={editName.trim() === ''}
+              onClick={() => {
+                const target = editing;
+                if (target === null) return;
+                void onEditSection(target.id, editName.trim(), editCapacity)
+                  .then(() => {
+                    setEditing(null);
+                  })
+                  .catch(() => {
+                    /* The grid shows the refusal; the dialog stays open on it. */
+                  });
+              }}
+            >
+              Save
+            </Button>
+          </>
+        }
+      >
+        <div className="space-y-4">
+          <Input
+            label="Section name"
+            value={editName}
+            maxLength={40}
+            onChange={(event) => {
+              setEditName(event.target.value);
+            }}
+            hint="What this class is called — A, Blue, Rose."
+          />
+          <Input
+            label="Capacity"
+            type="number"
+            min={1}
+            max={500}
+            value={editCapacity}
+            onChange={(event) => {
+              setEditCapacity(event.target.value);
+            }}
+            hint="Leave empty for no limit. It cannot be set below the number already enrolled."
+          />
+        </div>
+      </Modal>
     </li>
   );
 }

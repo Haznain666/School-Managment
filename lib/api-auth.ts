@@ -6,6 +6,8 @@ import type { SchoolSessionClaims, UserRole } from '@/types/school-auth';
 
 import { hasPermission } from './permission-queries';
 import type { Permission } from './permissions';
+import type { PlatformModuleKey } from './platform-modules';
+import { getModuleFlags } from './school-queries';
 import { readSchoolSession } from './school-auth';
 
 /**
@@ -48,8 +50,28 @@ export type SchoolRouteHandler<TContext> = (
  * administrator has a reason to touch.
  */
 export type WithSchoolAuthOptions =
-  | { permission: Permission; allowedRoles?: never }
-  | { allowedRoles: readonly UserRole[]; permission?: never };
+  | ({ permission: Permission; allowedRoles?: never } & ModuleGate)
+  | ({ allowedRoles: readonly UserRole[]; permission?: never } & ModuleGate);
+
+/**
+ * The module this route belongs to, when it belongs to one.
+ *
+ * ── Why a route and not only a screen ────────────────────────────────────
+ * A module the platform operator has not sold a school is gated on that
+ * school's navigation and on the page — `getModuleFlags(...).chat` has fenced
+ * four chat screens since Sprint 26 — and that is the whole of it. The routes
+ * behind those screens answered anybody signed in, so the flag hid the door
+ * and left the corridor open: a tab left over from before the module was
+ * switched off keeps working, and so does anything typed into the address bar.
+ *
+ * A module is a commercial boundary as well as a navigational one, which is
+ * why the check now sits where the work happens. One indexed read of
+ * `school_modules` per gated request, on routes that already do several.
+ */
+interface ModuleGate {
+  /** Refuse unless the caller's school has this module switched on. */
+  module?: PlatformModuleKey;
+}
 
 function unauthorized(message: string): NextResponse {
   return NextResponse.json(
@@ -121,6 +143,18 @@ export function withSchoolAuth<TContext = unknown>(
       }
     } else if (!options.allowedRoles.includes(claims.role)) {
       return forbidden('Your role does not permit this action.');
+    }
+
+    /*
+     * The module gate, after the role gate: a caller who may not do this at all
+     * is told that, rather than being told which product their school has not
+     * bought. Read after the cheap checks for the same reason.
+     */
+    if (options.module !== undefined) {
+      const flags = await getModuleFlags(claims.locationId);
+      if (!flags[options.module]) {
+        return forbidden('This module is not switched on for your school.');
+      }
     }
 
     return handler(request, toContext(claims), context);

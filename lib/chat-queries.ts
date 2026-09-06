@@ -16,9 +16,18 @@ import {
   or,
   sql,
 } from 'drizzle-orm';
+import { alias } from 'drizzle-orm/pg-core';
 import { cache } from 'react';
 
-import { chatConversations, type RoleInboxKey, ROLE_INBOXES } from '@/db/schema/chat-conversations';
+import {
+  chatConversations,
+  DESK_FALLBACK_ROLE,
+  isRoleInboxKey,
+  type RoleInboxKey,
+  ROLE_INBOX_KEYS,
+  ROLE_INBOXES,
+  roleInboxLabel,
+} from '@/db/schema/chat-conversations';
 import { chatGrants, grantRankFor } from '@/db/schema/chat-grants';
 import { chatMessages } from '@/db/schema/chat-messages';
 import { chatParticipants } from '@/db/schema/chat-participants';
@@ -47,6 +56,7 @@ import {
   type ScopeKey,
   turnTakingProblem,
 } from './chat-permissions';
+import { desksWithAnswerers } from './chat-desks';
 import { markChatNotificationsRead, notifyChatRecipients } from './chat-notifications';
 import { batch, db } from './drizzle';
 
@@ -257,6 +267,42 @@ function isStaffRole(role: UserRole): boolean {
 }
 
 /**
+ * The one campus a parent's children sit at, or null.
+ *
+ * Null means "every campus", and it is returned for both of the cases that
+ * deserve it: a parent with no enrolled child yet, and a parent whose children
+ * are at two campuses. Neither can be answered by one branch's office, so
+ * neither is scoped to one — `servesBranch` in `lib/chat-desks.ts` reads null
+ * on either side as "all", which is the same convention `branch_id` has carried
+ * on `school_users` since Sprint 19a.
+ */
+export async function branchOfParent(
+  locationId: string,
+  parentSchoolUserId: string,
+): Promise<string | null> {
+  const rows = await db
+    .selectDistinct({ branchId: grades.branchId })
+    .from(studentGuardians)
+    .innerJoin(studentProfiles, eq(studentProfiles.id, studentGuardians.studentProfileId))
+    .innerJoin(
+      studentEnrollments,
+      eq(studentEnrollments.studentProfileId, studentProfiles.id),
+    )
+    .innerJoin(sections, eq(sections.id, studentEnrollments.sectionId))
+    .innerJoin(grades, eq(grades.id, sections.gradeId))
+    .where(
+      and(
+        eq(studentGuardians.locationId, locationId),
+        eq(studentGuardians.schoolUserId, parentSchoolUserId),
+        eq(studentEnrollments.locationId, locationId),
+        eq(studentEnrollments.status, 'active'),
+      ),
+    );
+
+  return rows.length === 1 ? (rows[0]?.branchId ?? null) : null;
+}
+
+/**
  * The teachers of one parent's children, plus their class teachers.
  *
  * Two id spaces meet here and conflating them is the defect
@@ -265,6 +311,23 @@ function isStaffRole(role: UserRole): boolean {
  * `sections.class_teacher_id` is a **`staff.id`**. The second is bridged back
  * through `staff.school_user_id`, because a chat participant is always a
  * `school_users` row.
+ *
+ * ── Sprint 30: the role is part of the test, not only the timetable ───────
+ * Both halves now require `school_users.role = 'teacher'`.
+ *
+ * The timetable was already the gate — a teacher who stops teaching a section
+ * stops being reachable by that section's parents the moment the grid says so
+ * — but it gates on *who is in the grid*, and `timetable_entries.teacher_id`
+ * is any `school_users` row. At Lahore Grammar the school administrator was
+ * against a period of Pre-Nursery A, so a parent's dropdown offered
+ * `Sumera Hasnain — Teaches Pre-Nursery A`: the administrator's personal
+ * inbox, presented as the child's teacher, beside four desks that exist so
+ * that administrative questions do not go to a person by name.
+ *
+ * The class-teacher half carries the same filter, for the same reason and one
+ * more: a section whose class teacher is an administrator is a real
+ * arrangement at a small school, and the parent's route to them is still the
+ * office desk.
  */
 async function teachersOfChildren(
   locationId: string,
@@ -303,6 +366,7 @@ async function teachersOfChildren(
         eq(studentEnrollments.status, 'active'),
         eq(studentEnrollments.academicYearId, academicYearId),
         eq(schoolUsers.isActive, true),
+        eq(schoolUsers.role, 'teacher'),
       ),
     );
 
@@ -331,6 +395,7 @@ async function teachersOfChildren(
         eq(studentEnrollments.status, 'active'),
         eq(studentEnrollments.academicYearId, academicYearId),
         eq(schoolUsers.isActive, true),
+        eq(schoolUsers.role, 'teacher'),
       ),
     );
 
@@ -440,7 +505,22 @@ export async function resolveReachable(
     const teachers =
       year === null ? [] : await teachersOfChildren(locationId, actor.schoolUserId, year.id);
 
-    const inboxes: ReachableTarget[] = ROLE_INBOXES.map((inbox) => ({
+    /*
+     * Sprint 30. Only the desks somebody can actually answer.
+     *
+     * All four used to be offered unconditionally, and three of them reached
+     * nobody but the school admin at every school on the platform — see
+     * `lib/chat-desks.ts`. A desk with no holder is now left off the list
+     * rather than accepting an enquiry into an empty room, and the campus is
+     * the parent's children's, so a Karachi parent's office enquiry is offered
+     * only when Karachi has an office to answer it.
+     */
+    const branchId = await branchOfParent(locationId, actor.schoolUserId);
+    const open = new Set(await desksWithAnswerers(locationId, branchId));
+
+    const inboxes: ReachableTarget[] = ROLE_INBOXES.filter((inbox) =>
+      open.has(inbox.key),
+    ).map((inbox) => ({
       kind: 'inbox' as const,
       id: inbox.key,
       name: inbox.label,
@@ -860,10 +940,19 @@ export async function claimRoleInbox(
   return claimed.length > 0;
 }
 
-/** Which desks this member of staff may pick up. */
+/**
+ * Which desks this member of staff may pick up.
+ *
+ * The desk's own roles, plus the school admin — who may claim anything at any
+ * time, whether or not they were seated. Sprint 30 took `school_admin` off
+ * `answeredBy` because being *copied on every enquiry by default* was the
+ * defect; being able to pick one up never was. See `db/schema/chat-conversations.ts`.
+ */
 export function claimableInboxes(role: UserRole): RoleInboxKey[] {
+  if (role === DESK_FALLBACK_ROLE) return [...ROLE_INBOX_KEYS];
+
   return ROLE_INBOXES.filter((inbox) =>
-    (inbox.claimableBy as readonly string[]).includes(role),
+    (inbox.answeredBy as readonly string[]).includes(role),
   ).map((inbox) => inbox.key);
 }
 
@@ -882,6 +971,13 @@ export interface InboxRow {
   unread: boolean;
   canPost: boolean;
   counterparty: string;
+  /**
+   * Who picked this desk enquiry up, if anybody. Null on every direct thread —
+   * `claimed_by` is meaningless there — and null on a desk nobody has taken.
+   */
+  claimedByName: string | null;
+  /** True when this is an unclaimed desk thread the reader could take. */
+  claimable: boolean;
 }
 
 /**
@@ -899,6 +995,9 @@ export interface InboxRow {
  * Read the generated SQL before changing this. It joins four tables and
  * `console.log(query.toSQL())` is the only evidence that exists.
  */
+/** `school_users` under a second name, for the person holding a desk thread. */
+const claimant = alias(schoolUsers, 'claimant');
+
 export async function listInbox(
   locationId: string,
   schoolUserId: string,
@@ -933,10 +1032,21 @@ export async function listInbox(
       lastReadAt: chatParticipants.lastReadAt,
       canPost: chatParticipants.canPost,
       counterparty: counterparty.chatCounterpartyName,
+      claimedBy: chatConversations.claimedBy,
+      claimedByName: claimant.name,
     })
     .from(chatParticipants)
     .innerJoin(chatConversations, eq(chatConversations.id, chatParticipants.conversationId))
     .leftJoin(counterparty, eq(counterparty.conversationId, chatConversations.id))
+    /*
+     * Who holds the desk. A table alias rather than a `sql` template, which is
+     * the distinction `CLAUDE.md` draws at length: `alias()` renames the table
+     * and Drizzle then qualifies every reference to it, so `claimant.name`
+     * cannot collide with the `school_users.name` the counterparty subquery
+     * aggregates. A `sql` alias would have been emitted unqualified and this
+     * statement would have joined its third `name`.
+     */
+    .leftJoin(claimant, eq(claimant.id, chatConversations.claimedBy))
     .where(
       and(
         eq(chatParticipants.locationId, locationId),
@@ -959,8 +1069,41 @@ export async function listInbox(
       row.lastMessageAt !== null &&
       (row.lastReadAt === null || row.lastReadAt.getTime() < row.lastMessageAt.getTime()),
     canPost: row.canPost,
-    counterparty: row.counterparty ?? 'The school',
+    counterparty: counterpartyLabel(row),
+    claimedByName: row.claimedByName,
+    claimable:
+      row.kind === 'role_inbox' && row.claimedBy === null && row.status === 'open',
   }));
+}
+
+/**
+ * What one row in the inbox is called.
+ *
+ * ── Why a desk is not a person ───────────────────────────────────────────
+ * `counterparty` is an aggregate of the *other* seated people, which is the
+ * right answer for a direct thread and the wrong one for a desk. A parent who
+ * wrote to the Principal Office saw **"The school"** — the fallback for a
+ * thread with nobody else in it — and once Sprint 30 seats the answerers they
+ * would instead see the clerks' personal names, which is worse: the whole
+ * point of writing to a desk is that you are not writing to a named person,
+ * and the name that answers today is not the one that answers in March.
+ *
+ * So a desk thread is titled by the desk, on both sides. A parent sees
+ * "Principal Office" in the list they chose it from; the staff on that desk
+ * see which desk the enquiry came in on, which is the thing that tells them
+ * whether it is theirs. Who actually wrote each message is in the transcript,
+ * where it belongs, and never inferred from a list heading.
+ */
+function counterpartyLabel(row: {
+  kind: string;
+  roleInbox: string | null;
+  counterparty: string | null;
+}): string {
+  if (row.kind === 'role_inbox' && isRoleInboxKey(row.roleInbox)) {
+    return roleInboxLabel(row.roleInbox);
+  }
+
+  return row.counterparty ?? 'The school';
 }
 
 /** How many of this person's conversations have something unread in them. */

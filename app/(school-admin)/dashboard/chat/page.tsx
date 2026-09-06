@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 
 import { ChatWorkspace } from '@/components/chat/ChatWorkspace';
+import { claimableInboxes } from '@/lib/chat-queries';
 import { OVERSIGHT_NOTICE } from '@/lib/chat-oversight';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { callerHasPermission, requireSchoolPermission } from '@/lib/school-guard';
@@ -81,6 +82,7 @@ export default async function AdminChatPage() {
         canAttach
         canInitiate
         auditNotice={OVERSIGHT_NOTICE}
+        claimableDesks={claimableInboxes(claims.role)}
         emptyMessage="Nothing yet. Start a conversation with a parent, a colleague or a student."
       />
     </div>

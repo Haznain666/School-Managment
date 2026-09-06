@@ -9,6 +9,8 @@ export interface StudentNavbarProps {
   schoolSlug: string | null;
   searchResultsHref?: string;
   unreadNotifications?: number;
+  /** The reader's campus, at a school with more than one. See `lib/branch-header.ts`. */
+  branchName?: string | null;
 }
 
 /** Student portal top bar — the shared navbar with a fixed portal label. */

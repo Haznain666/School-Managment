@@ -155,7 +155,7 @@ export const GET = withSchoolAuth<RouteContext>(
       return handleApiError(error);
     }
   },
-  { allowedRoles: USER_ROLES },
+  { allowedRoles: USER_ROLES, module: 'chat' },
 );
 
 export const POST = withSchoolAuth<RouteContext>(
@@ -323,5 +323,5 @@ export const POST = withSchoolAuth<RouteContext>(
       return handleApiError(error);
     }
   },
-  { allowedRoles: USER_ROLES },
+  { allowedRoles: USER_ROLES, module: 'chat' },
 );

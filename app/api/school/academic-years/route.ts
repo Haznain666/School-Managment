@@ -20,6 +20,7 @@ import {
   scopeAdmitsWrite,
   type BranchScope,
 } from '@/lib/branch-scope';
+import { ensureDefaultSections } from '@/lib/default-sections';
 import { db } from '@/lib/drizzle';
 import { isUuid, readBoolean } from '@/lib/validation';
 
@@ -266,6 +267,29 @@ export const POST = withSchoolAuth(
             );
         }
       });
+
+      /*
+       * Sprint 30. The new session's classes.
+       *
+       * Sections are per year, so a school that rolls into 2027-28 starts with
+       * grades that have no class in them — the same dead end a freshly seeded
+       * ladder had, arriving annually instead of once. Only the year this run
+       * made active gets them: a run that creates five future sessions must not
+       * write five sections per grade for years nobody has reached.
+       *
+       * Outside the transaction and best-effort: the sessions are the thing
+       * that was asked for, and a failure here must not undo them.
+       */
+      if (activeId !== null) {
+        try {
+          await ensureDefaultSections({
+            locationId: auth.locationId,
+            academicYearId: activeId,
+          });
+        } catch (error) {
+          console.error('[academic-years] default sections were not created:', error);
+        }
+      }
 
       return apiSuccess(
         {

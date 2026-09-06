@@ -62,5 +62,5 @@ export const GET = withSchoolAuth<RouteContext>(
       return handleApiError(error);
     }
   },
-  { allowedRoles: USER_ROLES },
+  { allowedRoles: USER_ROLES, module: 'chat' },
 );

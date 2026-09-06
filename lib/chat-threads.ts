@@ -14,7 +14,13 @@ import { studentGuardians } from '@/db/schema/student-guardians';
 import { studentProfiles } from '@/db/schema/student-profiles';
 import type { UserRole } from '@/types/school-auth';
 
-import { getChatSchoolSettings, initiateProblem, postMessage } from './chat-queries';
+import { deskAnswerers } from './chat-desks';
+import {
+  branchOfParent,
+  getChatSchoolSettings,
+  initiateProblem,
+  postMessage,
+} from './chat-queries';
 import { batch, db } from './drizzle';
 
 /**
@@ -270,10 +276,62 @@ export async function openThread(input: OpenThreadInput): Promise<OpenThreadResu
   const now = new Date();
   const replyWindow = new Date(now.getTime() + settings.replyWindowMinutes * 60_000);
 
+  /*
+   * Which campus the thread belongs to.
+   *
+   * Sprint 30 added the middle case. A parent's `school_users.branch_id` is
+   * routinely null — nothing on the enrolment path sets it — so a desk thread
+   * took the campus of nobody and was answered school-wide. The campus that
+   * matters is the one their children sit at, and `branchOfParent` returns null
+   * for a parent whose children are at two of them, which is the honest answer
+   * rather than picking one.
+   */
   const branchId =
-    studentProfileId === null
-      ? input.actor.branchId
-      : await branchOfStudent(input.locationId, studentProfileId);
+    studentProfileId !== null
+      ? await branchOfStudent(input.locationId, studentProfileId)
+      : actorIsParent && input.actor.branchId === null
+        ? await branchOfParent(input.locationId, input.actor.schoolUserId)
+        : input.actor.branchId;
+
+  /*
+   * Sprint 30. The staff who answer the desk are seated when the thread opens.
+   *
+   * Before this a desk thread had exactly one participant — the parent who
+   * wrote it — and `listInbox` reads through participant rows, so the enquiry
+   * appeared in **no** member of staff's inbox, moved no badge and rang no
+   * bell. The only way to it was `POST …/claim` with an id nothing displayed.
+   * `lib/chat-desks.ts` says who they are and why the school admin is now a
+   * fallback rather than a default seat on all four desks.
+   *
+   * Seated as members rather than observers: an office thread exists to be
+   * replied to, and an observer cannot post.
+   */
+  if (input.target.kind === 'inbox' && isRoleInboxKey(input.target.id)) {
+    const already = new Set(seats.map((seat) => seat.schoolUserId));
+
+    for (const answerer of await deskAnswerers(
+      input.locationId,
+      input.target.id,
+      branchId,
+    )) {
+      if (already.has(answerer.schoolUserId)) continue;
+      already.add(answerer.schoolUserId);
+      seats.push({
+        schoolUserId: answerer.schoolUserId,
+        participantRole: 'member',
+        canPost: true,
+        isStudent: false,
+        isParent: false,
+      });
+    }
+
+    if (seats.length === 1) {
+      return {
+        ok: false,
+        problem: 'Nobody is on that desk at the moment. Try another one.',
+      };
+    }
+  }
 
   try {
     const [created] = await batch(db, (tx) => [

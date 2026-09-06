@@ -13,6 +13,7 @@ import { countUnreadNotifications } from '@/lib/notifications';
 import { listClassTeacherSections } from '@/lib/exam-queries';
 import { getModuleFlags, getSchoolUserByUid } from '@/lib/school-queries';
 import { staffIdForSchoolUser } from '@/lib/staff-self-queries';
+import { headerBranchName } from '@/lib/branch-header';
 import { getSchoolBranding } from '@/lib/school-tenant';
 
 /**
@@ -59,6 +60,19 @@ export default async function TeacherLayout({ children }: { children: ReactNode 
   const unreadNotifications = await countUnread(profile?.id ?? null);
 
   const unreadChats = await countChats(locationId, profile?.id ?? null);
+
+  /*
+   * Sprint 30. Which campus this reader is on, at a school that has more than
+   * one. Null at a single-campus school and for an unscoped account — see
+   * `lib/branch-header.ts`, which is the only place that decides it. It never
+   * throws, for the same reason the counts above it do not.
+   */
+  const branchName = await headerBranchName({
+    locationId,
+    role: claims.role,
+    schoolUserId: profile?.id ?? null,
+    branchId: claims.branchId,
+  });
 
   const brandStyle = paletteToCSSVars(
     branding?.palette ?? null,
@@ -107,6 +121,7 @@ export default async function TeacherLayout({ children }: { children: ReactNode 
               role={claims.role}
               schoolSlug={claims.schoolSlug}
               searchResultsHref="/teacher/search"
+              branchName={branchName}
               unreadNotifications={unreadNotifications}
             />
           }

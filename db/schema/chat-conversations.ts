@@ -74,31 +74,61 @@ export type ConversationStatus = (typeof CONVERSATION_STATUSES)[number];
  *
  * Keyed by a slug rather than by role, because a desk is not a role: the office
  * is answered by whoever is on it, and at a small school that is the same person
- * who answers Accounts. `claimableBy` is who may *claim*, and `school_admin` may
- * claim any of them because at some schools they are all of them.
+ * who answers Accounts.
+ *
+ * ── Sprint 30: `answeredBy`, and why `school_admin` came off it ───────────
+ * Every desk used to list `school_admin` first, so at a school that has not
+ * appointed an accountant, a coordinator or a head of admissions — which is
+ * every school on the platform today — **all four desks landed on one person**,
+ * and the product owner reported it as exactly that: the school admin's address
+ * on every office thread.
+ *
+ * `answeredBy` is now the staff who own the desk. The school admin is a
+ * *fallback* (`DESK_FALLBACK_ROLE`) and is seated only when nobody in
+ * `answeredBy` exists at the branch, so a small school still has its enquiries
+ * answered and a staffed one stops copying its administrator on everything.
+ *
+ * `branch_admin` stays on the three office desks. A campus administrator is the
+ * office at a campus; the head's desk is not theirs, which is why `principal`
+ * lists only the two roles that hold it.
+ *
+ * A desk with nobody to answer it — no `answeredBy` holder *and* no active
+ * school admin — is not offered to a parent at all. See `lib/chat-desks.ts`;
+ * an enquiry nobody can read is worse than a desk that is not on the list.
  */
 export const ROLE_INBOXES = [
   {
     key: 'office',
     label: 'School Office',
-    claimableBy: ['school_admin', 'branch_admin', 'coordinator'],
+    answeredBy: ['branch_admin', 'coordinator'],
   },
   {
     key: 'accounts',
     label: 'Accounts Office',
-    claimableBy: ['school_admin', 'branch_admin', 'accountant'],
+    answeredBy: ['branch_admin', 'accountant'],
   },
   {
     key: 'admissions',
     label: 'Admissions',
-    claimableBy: ['school_admin', 'branch_admin', 'coordinator', 'marketing'],
+    answeredBy: ['branch_admin', 'coordinator', 'marketing'],
   },
   {
     key: 'principal',
     label: 'Principal Office',
-    claimableBy: ['school_admin', 'principal', 'vice_principal'],
+    answeredBy: ['principal', 'vice_principal'],
   },
 ] as const;
+
+/**
+ * Who answers a desk that has nobody else.
+ *
+ * One role, deliberately: a fallback that lists several roles is a second
+ * routing table, and the point of this one is that it is reached only when the
+ * first is empty. A school admin may also *claim* any desk at any time — being
+ * seated by default and being allowed to pick something up are different
+ * questions, and only the first was the defect.
+ */
+export const DESK_FALLBACK_ROLE = 'school_admin';
 
 export type RoleInbox = (typeof ROLE_INBOXES)[number];
 export type RoleInboxKey = RoleInbox['key'];

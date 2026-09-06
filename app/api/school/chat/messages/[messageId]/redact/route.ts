@@ -67,5 +67,5 @@ export const PATCH = withSchoolAuth<RouteContext>(
       return handleApiError(error);
     }
   },
-  { permission: 'chat.moderate' },
+  { permission: 'chat.moderate', module: 'chat' },
 );
