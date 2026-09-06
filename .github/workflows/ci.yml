@@ -66,6 +66,16 @@ jobs:
         if: '!cancelled()'
         run: npm run check-loaders
 
+      # The student-import sample sheet, checked the way the product checks a
+      # real upload: its own bytes read back through `parseCsv`, mapped with
+      # `suggestColumnMap`, validated with `validateRow`. A sample sheet is a
+      # promise about what the importer accepts, and every way it can go stale
+      # is silent — the file still downloads, still uploads, and the only
+      # symptom is columns that arrive unmatched.
+      - name: Import sample sheet — it still describes the importer
+        if: '!cancelled()'
+        run: npm run check-import-sample
+
       - name: Forms
         if: '!cancelled()'
         run: npm run check-forms
