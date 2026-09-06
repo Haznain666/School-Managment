@@ -344,8 +344,14 @@ export function StudentImporter({ sections }: StudentImporterProps) {
                   <TableRow key={column.field.key}>
                     <TableCell className="font-medium">{column.header}</TableCell>
                     <TableCell>
+                      {/*
+                        `brand`, not `warning`. Nothing here is wrong — this is
+                        a description of a blank file, and ten amber badges on
+                        a screen nobody has done anything on yet reads as ten
+                        problems.
+                      */}
                       {column.field.required ? (
-                        <Badge variant="warning">Required</Badge>
+                        <Badge variant="brand">Required</Badge>
                       ) : (
                         <Badge variant="neutral">Optional</Badge>
                       )}
