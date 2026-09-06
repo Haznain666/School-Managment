@@ -48,8 +48,28 @@ import { schoolFetch } from '@/lib/school-client';
  * than cached against its own expiry.
  */
 
-/** How often to ask, while polling and the tab is visible. */
-const POLL_SECONDS = 8;
+/**
+ * How often to ask, while polling and the tab is visible.
+ *
+ * ── Two intervals, and the second one is a load decision ─────────────────
+ * Sprint 29 mounted this hook in every portal *layout*, so it now runs on every
+ * page rather than on the chat screen alone. That matters because **the poll
+ * does not stop until a real signal has arrived over the socket** — see the
+ * docblock above — so a person who never receives a message polls forever.
+ *
+ * At 8 seconds on one screen that is nothing. At 8 seconds on every screen of
+ * every portal it is one request per user per 8 seconds against an origin
+ * measured at ~1s uncached (§5aq), for a table that is empty for most people
+ * most of the time. So the layout runs at `IDLE_POLL_SECONDS` and the chat
+ * screen asks for `EAGER_POLL_SECONDS` while it is mounted, where the latency
+ * is the product.
+ *
+ * The interval is read at *schedule* time out of a ref, so changing it does not
+ * restart the effect — a socket torn down and rebuilt on every navigation into
+ * and out of the chat screen would be a worse bargain than the poll it saves.
+ */
+export const EAGER_POLL_SECONDS = 8;
+export const IDLE_POLL_SECONDS = 45;
 
 /** How long to let the socket prove itself before the poll stops backing it. */
 const SOCKET_PROVE_MS = 20_000;
@@ -81,10 +101,18 @@ interface SignalRow {
   created_at?: unknown;
 }
 
-export function useChatStream(onSignal: (conversationIds: string[]) => void): {
+export function useChatStream(
+  onSignal: (conversationIds: string[]) => void,
+  pollSeconds: number = EAGER_POLL_SECONDS,
+): {
   transport: ChatTransport;
 } {
   const [transport, setTransport] = useState<ChatTransport>('connecting');
+
+  // Read at schedule time rather than captured by the effect, so a caller that
+  // changes it speeds the poll up without restarting the socket underneath it.
+  const pollSecondsRef = useRef(pollSeconds);
+  pollSecondsRef.current = pollSeconds;
 
   // Held in a ref so a caller passing an inline arrow does not restart the
   // whole transport on every render — the mistake that turns an 8-second
@@ -129,7 +157,7 @@ export function useChatStream(onSignal: (conversationIds: string[]) => void): {
 
     const schedulePoll = (): void => {
       if (cancelled || !polling) return;
-      pollTimer = setTimeout(() => void tick(), POLL_SECONDS * 1000);
+      pollTimer = setTimeout(() => void tick(), pollSecondsRef.current * 1000);
     };
 
     const tick = async (): Promise<void> => {

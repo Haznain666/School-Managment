@@ -50,6 +50,8 @@ export function studentNav(
             label: 'Messages',
             href: '/student/chat',
             icon: 'chat',
+            // Sprint 29: kept current by the chat stream, not only by a render.
+            liveBadge: 'chat',
             ...(unreadChats > 0 ? { badge: unreadChats } : {}),
           },
         ] satisfies PortalNavItem[])

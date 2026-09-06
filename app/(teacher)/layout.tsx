@@ -1,5 +1,6 @@
 import type { CSSProperties, ReactNode } from 'react';
 
+import { ChatStreamProvider } from '@/components/chat/ChatStreamProvider';
 import { PortalFrame } from '@/components/school/PortalFrame';
 import { ServiceWorkerRegistrar } from '@/components/pwa/ServiceWorkerRegistrar';
 import { TeacherNavbar } from '@/components/teacher/TeacherNavbar';
@@ -76,29 +77,43 @@ export default async function TeacherLayout({ children }: { children: ReactNode 
 
   return (
     <div style={brandStyle} className="bg-brand-background text-brand-text">
-      <PortalFrame
-        items={teacherNav(
-          unreadNotices,
-          classTeacherSections.length > 0,
-          unreadChats,
-          chatEnabled,
-        )}
-        ariaLabel="Teacher navigation"
-        drawerTitle={schoolName}
-        header={
-          <TeacherNavbar
-            schoolName={schoolName}
-            logoUrl={branding?.logoUrl ?? null}
-            userName={profile?.name ?? ''}
-            role={claims.role}
-            schoolSlug={claims.schoolSlug}
-            searchResultsHref="/teacher/search"
-            unreadNotifications={unreadNotifications}
-          />
-        }
-      >
-        {children}
-      </PortalFrame>
+      {/*
+        Sprint 29. One chat stream for the whole portal, mounted here rather
+        than on the chat screen, which is where it lived until now and why a
+        parent on any other page learned nothing when a message arrived. It
+        wraps the frame rather than sitting beside it because the bell and the
+        sidebar badge are inside — the refresh it fires is what moves them.
+
+        Rendered unconditionally, including when `chat` is off: the provider's
+        own fetch returns nothing useful at such a school, the poll finds an
+        empty table, and gating it here would mean the flag being switched on
+        did not take effect until every open tab was reloaded.
+      */}
+      <ChatStreamProvider>
+        <PortalFrame
+          items={teacherNav(
+            unreadNotices,
+            classTeacherSections.length > 0,
+            unreadChats,
+            chatEnabled,
+          )}
+          ariaLabel="Teacher navigation"
+          drawerTitle={schoolName}
+          header={
+            <TeacherNavbar
+              schoolName={schoolName}
+              logoUrl={branding?.logoUrl ?? null}
+              userName={profile?.name ?? ''}
+              role={claims.role}
+              schoolSlug={claims.schoolSlug}
+              searchResultsHref="/teacher/search"
+              unreadNotifications={unreadNotifications}
+            />
+          }
+        >
+          {children}
+        </PortalFrame>
+      </ChatStreamProvider>
 
       {/* Registers the app shell. Renders nothing and fails silently — see
           `components/pwa/ServiceWorkerRegistrar.tsx`. */}

@@ -4,6 +4,7 @@ import { Bell } from 'lucide-react';
 import Link from 'next/link';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
+import { useUnreadCounts } from '@/components/chat/ChatStreamProvider';
 import { Icon } from '@/components/ui/Icon';
 import { cn } from '@/lib/utils';
 
@@ -22,6 +23,19 @@ import { cn } from '@/lib/utils';
  * against an origin measured at ~1s per uncached hit (§5aq), for a number that
  * changes a handful of times a week. The email is what makes a notification
  * timely; the bell is what makes it findable.
+ *
+ * ── Sprint 29: and it now moves when a message arrives ───────────────────
+ * `useUnreadCounts` is the one exception to the paragraph above, and it is not
+ * a timer: `ChatStreamProvider` re-reads the counts when a **signal** arrives,
+ * so the bell moves on the event rather than on a clock. Null until that first
+ * read answers, and null forever on the platform portal, which has a bell and
+ * no chat — so the server's number is what shows until something says
+ * otherwise. That is what keeps the badge right in the first painted frame.
+ *
+ * The import is the one piece of coupling here: a `components/ui` component
+ * reaching into `components/chat`. The alternative was threading the number
+ * down from a client ancestor, and there is none — every navbar above this is
+ * a server component.
  *
  * ── Opening it marks everything read ─────────────────────────────────────
  * Not clicking an individual row. A bell is a glance, and a person who opens it
@@ -61,6 +75,7 @@ export function NotificationBell({
 }: NotificationBellProps) {
   const [open, setOpen] = useState(false);
   const [unread, setUnread] = useState(initialUnread);
+  const live = useUnreadCounts();
   const [items, setItems] = useState<NotificationItem[] | null>(null);
   const [failed, setFailed] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -73,6 +88,15 @@ export function NotificationBell({
   useEffect(() => {
     setUnread(initialUnread);
   }, [initialUnread]);
+
+  /*
+   * And the live count wins over both, whenever there is one. Opening the panel
+   * still sets this to 0 locally; the next signal is what puts a number back.
+   */
+  useEffect(() => {
+    if (live === null) return;
+    setUnread(live.notifications);
+  }, [live]);
 
   useEffect(() => {
     if (!open) return;

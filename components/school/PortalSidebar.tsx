@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useCallback, useEffect, useState } from 'react';
 
+import { useUnreadCounts } from '@/components/chat/ChatStreamProvider';
 import { NAV_ICONS, type NavIconName } from '@/components/school/nav-icons';
 import { Icon } from '@/components/ui/Icon';
 import { cn } from '@/lib/utils';
@@ -22,6 +23,16 @@ export interface PortalNavItem {
   placeholder?: boolean;
   /** A count, e.g. pending applications. Omit rather than passing 0. */
   badge?: number;
+  /**
+   * Marks this entry's badge as one the chat stream keeps current.
+   *
+   * Sprint 29. `badge` is read in the layout and is therefore as old as the
+   * last server render; an entry carrying this takes the live number instead
+   * as soon as `ChatStreamProvider` has one. Everything else — pending
+   * applications, unread notices — keeps the server's count, because nothing
+   * pushes those and a stale number is better than a request per page for one.
+   */
+  liveBadge?: 'chat';
 }
 
 /** A titled group of links, for a module with several screens of its own. */
@@ -87,6 +98,7 @@ export function PortalNavList({
   collapsed?: boolean;
 }) {
   const pathname = usePathname();
+  const liveCounts = useUnreadCounts();
 
   /**
    * Which disclosures the reader has opened, by section label.
@@ -154,6 +166,15 @@ export function PortalNavList({
   const renderItem = (item: PortalNavItem) => {
     const glyph = item.icon === undefined ? undefined : NAV_ICONS[item.icon];
 
+    /*
+     * Sprint 29. The live count wins for an entry that asked for one, and only
+     * once there is one — `liveCounts` is null until the chat stream has read
+     * them, and null forever on a portal without a provider, so until then the
+     * server's number stands and the badge is right in the first painted frame.
+     */
+    const badge =
+      item.liveBadge === 'chat' && liveCounts !== null ? liveCounts.chats : item.badge;
+
     if (item.placeholder === true) {
       return (
         <li key={item.href}>
@@ -220,9 +241,9 @@ export function PortalNavList({
             <span className="truncate">{item.label}</span>
           )}
 
-          {item.badge !== undefined && item.badge > 0 && !collapsed ? (
+          {badge !== undefined && badge > 0 && !collapsed ? (
             <span className="ml-auto rounded-pill bg-[rgb(var(--brand-on-secondary)/0.18)] px-1.5 py-0.5 font-mono text-2xs tabular-nums">
-              {item.badge > 99 ? '99+' : item.badge}
+              {badge > 99 ? '99+' : badge}
             </span>
           ) : null}
         </Link>

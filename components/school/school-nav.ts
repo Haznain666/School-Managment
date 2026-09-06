@@ -12,6 +12,18 @@ export interface SchoolNavProps {
   /** Resolved against this school's own matrix by the portal shell. */
   permissions: readonly Permission[];
   moduleFlags: SchoolModuleFlags;
+  /**
+   * Conversations with something unread in them, for the Messages badge.
+   *
+   * Sprint 29. The parent, teacher and pupil sidebars have carried this count
+   * since Sprint 24 and this one never did, so an administrator was the only
+   * member of a school whose sidebar could not tell them a message had
+   * arrived — on the portal where the principal, the head of campus and every
+   * clerk actually work. Defaulted rather than required so the two callers that
+   * do not have a `school_users` row to count against (there is one: the
+   * platform operator viewing a school) keep working unchanged.
+   */
+  unreadChats?: number;
 }
 
 /**
@@ -39,7 +51,12 @@ export interface SchoolNavProps {
  * a link in this sidebar never leads somewhere the guard will bounce. Write
  * permissions decide what appears on the page, not what appears here.
  */
-export function schoolNav({ role, permissions, moduleFlags }: SchoolNavProps): {
+export function schoolNav({
+  role,
+  permissions,
+  moduleFlags,
+  unreadChats = 0,
+}: SchoolNavProps): {
   items: PortalNavItem[];
   sections: PortalNavSection[];
 } {
@@ -113,7 +130,16 @@ export function schoolNav({ role, permissions, moduleFlags }: SchoolNavProps): {
   // pupil sidebars, so an administrator told by a teacher to "check your
   // messages" was looking for a word that was not on their screen. One name.
   if (moduleFlags.chat && can('chat.read')) {
-    items.push({ label: 'Messages', href: '/dashboard/chat', icon: 'chat' });
+    items.push({
+      label: 'Messages',
+      href: '/dashboard/chat',
+      icon: 'chat',
+      liveBadge: 'chat',
+      // Omitted rather than passed as 0, exactly as Announcements does below
+      // and as `PortalNavItem` requires: a badge reading "0" is a notification
+      // that there is nothing to notify about.
+      ...(unreadChats > 0 ? { badge: unreadChats } : {}),
+    });
   }
 
   // Reports is a single destination for the same reason Communications is: one
