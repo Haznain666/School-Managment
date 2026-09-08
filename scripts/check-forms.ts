@@ -28,12 +28,14 @@ import { renderToStaticMarkup } from 'react-dom/server';
 
 import { BarChart } from '../components/charts/BarChart';
 import {
+  classLabel,
   classOptionsFor,
   classRangeLabel,
   sanitiseClassLevels,
 } from '../lib/branch-classes';
 import { cityCode, PAKISTANI_CITIES, proposedBranchCode } from '../lib/cities';
 import { emailRejectionReason, isValidEmail } from '../lib/email-validation';
+import { getGradesForCurriculum } from '../lib/predefined-grades';
 import {
   formatLandline,
   formatMobile,
@@ -188,6 +190,76 @@ ok(oLevels.slice(-3).join(',') === 'O1,O2,O3', 'O Levels ends O1/O2/O3');
 ok(aLevels.slice(-5).join(',') === 'O1,O2,O3,AS,A2', 'A Levels ends O1/O2/O3/AS/A2');
 ok(!matric.includes('O1'), 'a Matric campus is never offered O1');
 ok(!oLevels.includes('GRADE_9'), 'an O Levels campus is never offered Grade 9');
+
+/* -----------------------------------------------------------------------------
+ * The ladder and the branch form describe the same curriculum.
+ *
+ * These are two modules answering two different questions — `branch-classes`
+ * asks a campus which classes it runs, `predefined-grades` seeds the rungs a
+ * child can be enrolled into — and for as long as nothing asserted it, they
+ * were free to disagree. They did. The branch form offered `O1, O2, O3` after
+ * Grade 8 and the ladder seeded `Year 9, O Level 1, O Level 2`, which is the
+ * Matric shape wearing Cambridge names: it invented a year no Cambridge school
+ * teaches, and ran the O-Level course for two years instead of three.
+ *
+ * What that costs is not cosmetic. An operator declares a campus running
+ * `O1-O3` on the branch form, and the grade ladder then hands that campus a
+ * `Year 9` nobody asked for and no `O3` to put the leaving year into. The
+ * declaration and the enrolment target are the same fact told twice, so the
+ * assertion is that the tails match, name for name.
+ * -------------------------------------------------------------------------- */
+
+const oLadder = getGradesForCurriculum('O_LEVELS').map((grade) => grade.name);
+const aLadder = getGradesForCurriculum('A_LEVELS').map((grade) => grade.name);
+const matricLadder = getGradesForCurriculum('MATRIC').map((grade) => grade.name);
+
+ok(
+  oLadder.slice(-3).join(',') === 'O1,O2,O3',
+  'the O Levels ladder ends O1/O2/O3, the same three the branch form offers',
+);
+ok(
+  !oLadder.includes('Year 9'),
+  'there is no Year 9 on the O Levels ladder — Year 8 is followed by O1',
+);
+ok(
+  aLadder.slice(-5).join(',') === 'O1,O2,O3,AS Level,A2 Level',
+  'the A Levels ladder continues the O Levels one through sixth form',
+);
+ok(
+  matricLadder.slice(-2).join(',') === 'Class 9,Class 10',
+  'the Matric ladder still ends at Class 9 and Class 10',
+);
+
+// Tail for tail, the two modules name the same rungs. `classLabel` is what an
+// operator reads on the branch form; the ladder name is what the grade is
+// called on every screen after it.
+ok(
+  oLevels.slice(-3).map(classLabel).join(',') === oLadder.slice(-3).join(','),
+  'branch form and grade ladder name the O Levels senior years identically',
+);
+ok(
+  aLevels.slice(-5).map(classLabel).join(',') ===
+    aLadder.slice(-5).map((name) => name.replace(' Level', '')).join(','),
+  'branch form and grade ladder name the A Levels senior years identically',
+);
+
+// Every ladder is contiguous from 1 and has no repeated rung, which is what
+// makes `(branch_id, sort_order)` a stable key and promotion a walk of one.
+for (const [curriculum, ladder] of [
+  ['MATRIC', getGradesForCurriculum('MATRIC')],
+  ['O_LEVELS', getGradesForCurriculum('O_LEVELS')],
+  ['A_LEVELS', getGradesForCurriculum('A_LEVELS')],
+  ['MIXED', getGradesForCurriculum('MIXED')],
+] as const) {
+  ok(
+    ladder.every((grade, index) => grade.sortOrder === index + 1),
+    `${curriculum}: sort orders are 1-based and contiguous`,
+  );
+  ok(
+    new Set(ladder.map((grade) => grade.name)).size === ladder.length,
+    `${curriculum}: no rung name appears twice`,
+  );
+}
 
 // The correction case: an operator ticks O-Level years, then changes the
 // curriculum. The rungs that no longer exist must go, and the rest must stay.

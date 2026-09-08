@@ -37,7 +37,7 @@ export const grades = pgTable(
     branchId: uuid('branch_id')
       .notNull()
       .references(() => branches.id, { onDelete: 'cascade' }),
-    /** Canonical name from the predefined list, e.g. `Class 5`, `O Level 1`. */
+    /** Canonical name from the predefined list, e.g. `Class 5`, `O2`. */
     name: text('name').notNull(),
     /** School-chosen label shown instead of `name`. Null = use `name`. */
     displayName: text('display_name'),

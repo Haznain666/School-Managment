@@ -50,7 +50,28 @@ const MATRIC_GRADES: readonly string[] = [
   'Class 10',
 ];
 
-/** Cambridge lower school: Year 1 to Year 9, then the two O-Level years. */
+/**
+ * Cambridge lower school: Year 1 to Year 8, then the three O-Level years.
+ *
+ * ── There is no Year 9 on this ladder ────────────────────────────────────
+ * A Cambridge school runs Year 8 and then O1, O2, O3. This list used to read
+ * `… Year 8, Year 9, O Level 1, O Level 2`, which is the *Matric* shape with
+ * Cambridge names pasted over the last two rungs: it invented a year no such
+ * school teaches and left the O-Level course one year short of the three it
+ * takes.
+ *
+ * `lib/branch-classes.ts` — the branch form, which asks a campus which classes
+ * it runs — has said `O1, O2, O3` after Grade 8 since it was written, and
+ * `scripts/check-forms.ts` asserts it. So the two halves of the product
+ * disagreed about the same curriculum: an operator declared a campus running
+ * `O1–O3` and the grade ladder then seeded it `Year 9, O Level 1, O Level 2`.
+ * The names here are now the branch form's names, which is the only reading
+ * under which a class the school declared is a class it can enrol into.
+ *
+ * The ladder is still fourteen rungs, so this is a rename at positions 12–14
+ * and not a reordering — `grades` is keyed `(branch_id, sort_order)` and every
+ * existing row keeps its position, its sections and its enrolments.
+ */
 const O_LEVEL_GRADES: readonly string[] = [
   ...EARLY_YEARS,
   'Year 1',
@@ -61,12 +82,12 @@ const O_LEVEL_GRADES: readonly string[] = [
   'Year 6',
   'Year 7',
   'Year 8',
-  'Year 9',
-  'O Level 1',
-  'O Level 2',
+  'O1',
+  'O2',
+  'O3',
 ];
 
-/** The O-Levels ladder continued through sixth form. */
+/** The O-Levels ladder continued through sixth form: O1-O3, then AS and A2. */
 const A_LEVEL_GRADES: readonly string[] = [
   ...O_LEVEL_GRADES,
   'AS Level',
