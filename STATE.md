@@ -4,8 +4,30 @@
 resume without re-deriving context. Updated at the end of every development
 step, before the session ends.
 
-**Last updated:** 2026-09-06 (**Sprint 31 — the sample sheet the importer was
-never able to show — §5bu.**)
+**Last updated:** 2026-09-08 (**The O-Levels ladder had a Year 9 in it, and the
+Askari demo estate was rebuilt on the corrected one — §5bv.**)
+
+🔴 **There is no Year 9 on the O-Levels ladder.** `lib/predefined-grades.ts`
+ended its Cambridge ladder `… Year 8, Year 9, O Level 1, O Level 2` — the Matric
+shape with Cambridge names pasted over the last two rungs. It invented a year no
+Cambridge school teaches and ran the O-Level course for two years instead of
+three. It now ends **`Year 8, O1, O2, O3`**, which is what `lib/branch-classes.ts`
+has offered on the branch form since it was written. §5bv.
+
+⚠ **The two modules had disagreed since Sprint 4 and nothing asserted otherwise.**
+`check-forms` now has twelve assertions that the ladder and the branch form name
+the senior years identically — **74 assertions, in CI**. The evidence it had
+already been noticed: LGS's Defence Branch carried `display_name` overrides
+reading O1/O2/O3 typed over those rungs **by hand**.
+
+⚠ **Askari School System's tenant data was deleted and rebuilt** for a
+promotional video. 1,556 rows and 10 Supabase accounts removed; two campuses,
+19 grades, 29 sections, **587 accounts** and a session's worth of fees,
+timetables, attendance and results written in their place. LGS and Beacon House
+were untouched. §5bv.
+
+Previously: **Sprint 31 — the sample sheet the importer was never able to show —
+§5bu.**
 
 ✅ **Sprint 31 is shipped, merged, deployed and QA'd.** **No migration** —
 **`0045` is still the next free migration number.** Merged as `e3473f7`
@@ -12591,6 +12613,115 @@ days, per person, with the date in hand.
    need a line in `noticeHrefFor`.
 
 ---
+
+## 5bv. The O-Levels ladder, and the Askari demo estate — 2026-09-08
+
+Not a sprint. A request to rebuild Askari School System's data for a
+promotional video, which turned up a product defect on the way in.
+
+### The defect: a Cambridge ladder with a Year 9 in it
+
+`lib/predefined-grades.ts` ended `O_LEVEL_GRADES` like this:
+
+    … Year 7, Year 8, Year 9, O Level 1, O Level 2
+
+That is the **Matric** shape with Cambridge names pasted over the last two
+rungs. A Cambridge school runs Year 8 and then **O1, O2, O3**: there is no
+Year 9, and the O-Level course is three years, not two.
+
+**The branch form had disagreed with it the whole time.** `lib/branch-classes.ts`
+— which asks a campus which classes it runs — has offered `O1, O2, O3` after
+Grade 8 since it was written, and `scripts/check-forms.ts` asserted that. So the
+two halves of the product described the same curriculum differently: an operator
+declared a campus running `O1–O3`, and the grade ladder then seeded that campus
+a `Year 9` nobody asked for and no `O3` to put the leaving year into.
+
+🔴 **It had already been noticed in the field, and worked around by hand.**
+Lahore Grammar's Defence Branch carried `grades.display_name` overrides reading
+`O1`, `O2`, `O3` typed over exactly those three rungs. A head of school was
+correcting the product one grade at a time. That is the strongest evidence a
+defect report can have, and it sat in the database unread.
+
+### The fix, and why it is a rename and not a reordering
+
+The ladder is **fourteen rungs before and after**. Only the names at positions
+12, 13 and 14 change. `grades` is keyed `(branch_id, sort_order)`, so every
+existing row keeps its id, its sections, its enrolments, its timetable and its
+results; nothing is inserted and nothing is deleted.
+
+`scripts/apply-olevel-ladder-rename.mjs` is the estate that already existed.
+Matched **by sort order, on O_LEVELS/A_LEVELS branches only** — never by name,
+so a Matric `Class 9` sitting at position 12 is untouched — and it clears a
+display-name override that has become identical to the canonical name.
+Idempotent; prints the reverse statement for every row it writes.
+
+**Applied: six grade rows at Lahore Grammar**, both campuses. Second run reports
+nothing to do. **No migration — `0045` is still the next free number.**
+
+⚠ **`check-forms` now asserts the two modules agree** — tail for tail, no Year 9
+on any Cambridge ladder, and every ladder contiguous from 1 with no repeated
+rung. **74 assertions.** Nothing asserted the agreement before, which is exactly
+why they were free to drift for twenty-seven sprints.
+
+### The Askari rebuild
+
+Everything belonging to `acb6f6dc-5d3f-41bf-87aa-a27285e4eccd` was deleted —
+**1,556 rows across 53 tables**, plus the **10 Supabase auth accounts** that
+existed only for this school. Kept: the `schools` row (slug, code `ASST`,
+subdomain), `school_branding`, `school_modules`, `academic_years` and the
+Pakistani `holidays` calendar. **LGS and Beacon House were not touched.**
+
+⚠ **The delete order is computed, not declared.** The first attempt retried on
+`23503` inside the transaction, which cannot work: Postgres aborts the whole
+transaction on the first violation, so the catch swallowed an error the
+connection had already acted on. Depth-first over the foreign-key graph,
+dependents first, means no delete in the transaction ever fails. Worth
+remembering the next time a tenant has to be emptied.
+
+What replaced it, all on the corrected O-Levels ladder:
+
+| | |
+| --- | --- |
+| Campuses | **Askari Junior Campus** (Pre-Nursery–Year 2, one principal over the whole campus) and **Askari Main Campus** (the full 14-rung ladder, four principals by division) |
+| Grades / sections | 19 grades, 29 sections — some rungs one section, some two |
+| Children | **473**, 20–30 per rung, with father and mother guardian rows carrying canonical CNICs |
+| Families | 65 have more than one child enrolled, so the sibling card and family voucher have something to show |
+| Accounts | **587** — 59 staff, 55 parents, 473 pupils, every one a real Supabase account |
+| Money | 946 vouchers over two months, 744 payments, 15 approved expenses, ledger **balanced to the paisa** (10,725,629.00 either side) |
+| Academics | 2 bell schedules, 1,025 timetable entries, 14 subjects, a Cambridge grading scheme, 3 terms, 116 papers, 1,892 marks |
+| Registers | 7,568 student and 944 staff attendance records over 16 school days |
+
+⚠ **Nothing stops a teacher being timetabled into two rooms at once.** The unique
+index on `timetable_entries` is `(location_id, section_id, slot_id, day_of_week)`
+— there is **no** constraint on `(teacher, slot, day)`. The seed avoids the clash
+itself by holding taken pairs in a set. If a future feature builds timetables, it
+has to do the same or the grid will show one teacher in two places.
+
+⚠ **Two data-quality faults the generator produced that a viewer would notice.**
+Four families ended up with two children sharing a first name, because the name
+pool was drawn per child rather than per family; and the first repair cycled one
+name list for both sexes, turning a girl called Bisma into an Ibrahim. Both
+fixed. **The rule: a demo generator's output is read by a human on camera, so
+sibling names must be unique within a family, and a name must agree with the
+gender on the record.**
+
+### Credentials
+
+Every account uses `H@znain786(*)`. Staff and parents are
+`dispatchglobally1+[role][campus][n]@gmail.com`; pupils sign in on a minted
+`asst-2026-NNNN@students.askari-school-system.invalid`, which cannot receive
+mail. **No email was sent** — passwords were set directly through the Supabase
+admin API with `email_confirm`.
+
+Proved by a real password grant against GoTrue plus the `school_users` lookup
+`schoolSessionFor` performs, for one account of each of eight roles.
+
+⚠ **The Drive MCP's `create_file` takes inline content only**, so a 92 KB
+credentials CSV cannot be uploaded in one call — it exceeds a single response's
+output budget. The list was split on natural boundaries into four sheets in one
+shared folder. Driving a browser upload instead does not work either: Drive's
+picker is a native OS dialog, and the Sheets import dialog's file input sits in a
+cross-origin iframe that `find` / `read_page` cannot reach.
 
 ## 5bu. Sprint 31 — the sample sheet the importer was never able to show — 2026-09-06
 
