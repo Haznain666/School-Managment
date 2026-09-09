@@ -12723,6 +12723,39 @@ shared folder. Driving a browser upload instead does not work either: Drive's
 picker is a native OS dialog, and the Sheets import dialog's file input sits in a
 cross-origin iframe that `find` / `read_page` cannot reach.
 
+### The demo film — 2026-09-09
+
+The reason the estate was rebuilt. `brag-output/` (gitignored) holds a
+**2:06 product film** plus a 26-second teaser, built with `/brag` + HyperFrames,
+1920x1080 at 30fps, music but no narration.
+
+Structure: one school morning seen from four sides — a hook of five questions,
+the dashboard, the estate, the roll, the register and timetable, the parent on a
+phone, the money and a balanced ledger, results, an "also included" montage, and
+a mosaic close.
+
+⚠ **Every screen in it is a real screenshot of the live tenant**, captured with
+Playwright signed in as each role. Nothing is a mockup and no figure is invented;
+all nine on-screen numbers were re-queried against the database after the render.
+
+🔴 **Capture at 1440x900, not 2560x1440.** The first pass shot at 2560 and was
+unreadable once scaled into a 1080p frame — the app's 14px body text lands at
+about 10px. Re-shot at 1440 and shown at ~125%, the same text lands near 17px.
+
+⚠ **`fullPage` does not work on this app.** The portal is a fixed-height shell
+with an inner scrolling main region, so `fullPage` returns the fold again — every
+screen reports 900px. To reach the timetable grid or the report card's subject
+table, scroll the largest scrollable element and shoot the viewport.
+
+⚠ **The `/brag` skill is hard-coded to 15-25 seconds** and its planning gate
+rejects anything longer. The 2-minute length was the product owner's explicit
+instruction; the departure is recorded at the top of `brag-output/brag-plan.md`
+rather than left as a silent divergence.
+
+Deliverables: `brag.mp4` (78MB master), `brag-web.mp4` (15MB, CRF 24, visually
+identical), `brag-teaser.mp4` (26s), `brag.jpg` (poster, embedded as cover art in
+all three), `share-copy.txt`.
+
 ## 5bu. Sprint 31 — the sample sheet the importer was never able to show — 2026-09-06
 
 **No migration. `0045` is still the next free number.** Merged as `e3473f7`
