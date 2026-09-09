@@ -47,3 +47,6 @@ Thumbs.db
 .claude/worktrees/
 .claude/settings.local.json
 .playwright-mcp/
+
+# /brag video output — large binaries, not source
+brag-output/
