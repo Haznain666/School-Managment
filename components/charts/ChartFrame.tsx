@@ -47,6 +47,13 @@ export interface ChartFrameProps {
    * letterbox. Defaults to the viewBox's own aspect ratio.
    */
   className?: string;
+  /**
+   * A floor under the drawing's width, as Tailwind classes. When set, the SVG
+   * never scales below it and scrolls sideways inside its own box instead —
+   * the page body never scrolls. For a chart whose labels shrink with the
+   * viewBox until they cannot be read; see `BarChart`'s horizontal branch.
+   */
+  minWidthClass?: string;
   children: ReactNode;
 }
 
@@ -57,23 +64,28 @@ export function ChartFrame({
   dataTable,
   legend,
   className,
+  minWidthClass,
   children,
 }: ChartFrameProps) {
+  const svg = (
+    <svg
+      viewBox={viewBox}
+      role="img"
+      aria-label={`${title}. ${summary}`}
+      // `h-auto` with `w-full`: the viewBox governs the aspect ratio, so the
+      // chart scales with its container rather than needing a measured width.
+      // This is what lets it render identically on the server and on paper.
+      className={cn('block h-auto w-full overflow-visible', minWidthClass)}
+    >
+      <title>{title}</title>
+      <desc>{summary}</desc>
+      {children}
+    </svg>
+  );
+
   return (
     <figure className={cn('w-full', className)}>
-      <svg
-        viewBox={viewBox}
-        role="img"
-        aria-label={`${title}. ${summary}`}
-        // `h-auto` with `w-full`: the viewBox governs the aspect ratio, so the
-        // chart scales with its container rather than needing a measured width.
-        // This is what lets it render identically on the server and on paper.
-        className="block h-auto w-full overflow-visible"
-      >
-        <title>{title}</title>
-        <desc>{summary}</desc>
-        {children}
-      </svg>
+      {minWidthClass === undefined ? svg : <div className="overflow-x-auto">{svg}</div>}
 
       {legend !== undefined ? <div className="mt-3">{legend}</div> : null}
 

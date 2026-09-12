@@ -290,6 +290,12 @@ export function BarChart({
         className={className}
         legend={legend}
         dataTable={dataTable}
+        // A row per category is a tall list of words. On a phone the 640-unit
+        // viewBox squeezed into ~300px sets an 11-unit label at ~5px, which is
+        // no label at all, so below `sm` the drawing keeps a readable width and
+        // scrolls inside its card. From `sm` up it fits and nothing changes —
+        // including the dashboard's half-width cards, which are ~480px wide.
+        minWidthClass="min-w-[36rem] sm:min-w-0"
       >
         <g aria-hidden="true">
           {scale.ticks.map((tick) => {
