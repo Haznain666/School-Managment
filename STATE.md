@@ -4,8 +4,28 @@
 resume without re-deriving context. Updated at the end of every development
 step, before the session ends.
 
-**Last updated:** 2026-09-08 (**The O-Levels ladder had a Year 9 in it, and the
-Askari demo estate was rebuilt on the corrected one — §5bv.**)
+**Last updated:** 2026-09-13 (**Attendance by class drew 29 overlapping labels,
+and `BarChart` now refuses to — §5bw.**)
+
+🔴 **A vertical `BarChart` whose labels cannot fit is now drawn horizontally.**
+The rule this file recorded after the module-adoption chart ("past a dozen
+categories, go horizontal") was enforced by nobody, and *Attendance by class* on
+the attendance reports screen shipped 29 section names into ~20 units each at
+Askari. `BarChart` measures the widest label against its bar and flips; a chart
+that fits today is untouched. §5bw.
+
+⚠ **Horizontal charts scroll inside their card below `sm`.** `ChartFrame` gained
+`minWidthClass`. Without it a 640-unit viewBox on a phone draws 11-unit labels at
+~5px — no overlap, still unreadable. §5bw.
+
+⚠ **The main checkout's `node_modules` was missing `web-push`** although
+`package.json` and the lockfile declare it, so `typecheck` and `build` failed in
+every worktree on `lib/push.ts`. `npm install` in `D:\School-Management-System`
+fixed it without touching either file. If a worktree fails on a module the
+lockfile names, install before debugging.
+
+Previously: **The O-Levels ladder had a Year 9 in it, and the Askari demo estate
+was rebuilt on the corrected one — §5bv.**
 
 🔴 **There is no Year 9 on the O-Levels ladder.** `lib/predefined-grades.ts`
 ended its Cambridge ladder `… Year 8, Year 9, O Level 1, O Level 2` — the Matric
@@ -12613,6 +12633,87 @@ days, per person, with the date in hand.
    need a line in `noticeHrefFor`.
 
 ---
+
+## 5bw. Attendance by class, and the vertical chart that could not fit — 2026-09-13
+
+Not a sprint. Found while capturing screens for the SchoolHub demo film:
+`/dashboard/academics/attendance/reports` at Askari drew one vertical bar per
+section, 29 of them, and the x axis read "Pre-NurseryNurseryBNurseryPrep A…" at
+1440px. `release-notes/RELEASE-NOTES-ATTENDANCE-BY-CLASS-CHART.md` is the
+school-facing account.
+
+### Why it shipped when the rule was already written down
+
+§5 (the module-adoption chart) recorded the rule — a vertical label's budget is
+`plotWidth / categories.length`, so past about a dozen categories go horizontal.
+The reports page was written without reading it, and nothing in the repository
+could notice: the SVG type-checks, builds and renders valid markup. **So the rule
+moved into the component.** `BarChart` measures the widest category label
+(`VERTICAL_GLYPH_WIDTH` 5.6 units per 11px glyph, `axisGutter`'s figure, plus a
+4-unit `LABEL_GAP`) against the vertical budget and draws the horizontal branch
+when it would overlap. Twelve months, five ageing buckets and a paper's grade
+bands all still fit and still draw vertical.
+
+### What changed
+
+| File | Change |
+| --- | --- |
+| `components/charts/BarChart.tsx` | vertical → horizontal fallback; horizontal passes `minWidthClass="min-w-[36rem] sm:min-w-0"` |
+| `components/charts/ChartFrame.tsx` | `minWidthClass`: floor on the SVG, wrapped in its own `overflow-x-auto` |
+| `…/attendance/reports/page.tsx` | explicit `orientation="horizontal"`, `max-w-3xl`, below-75% bars in `fill-status-warning` |
+| `app/(school-admin)/dashboard/page.tsx` | Class strength explicit `orientation="horizontal"` |
+| `components/ui/Skeleton.tsx` | `SkeletonChart orientation="horizontal"` |
+| `…/attendance/reports/loading.tsx` | header + horizontal chart + table; it had promised stat tiles and two charts |
+
+⚠ **`max-w-3xl` on the reports chart is load-bearing.** The viewBox scales to its
+width, so a 29-row chart in the full ~1,100px card drew ~1,300px tall with 19px
+labels. Capped: 768px wide, ~880px tall, rows the height of a table row.
+
+⚠ **The reports page's threshold is 75, the dashboard's is 85.** Both are called
+`ATTENDANCE_CONCERN` and both are file-local. The reports page's comment had
+claimed a danger-coloured mark below 75% that the code never drew; it now draws
+one, and the summary reads the same constant.
+
+⚠ **`min-w-[36rem] sm:min-w-0`, not a bare `min-w`.** The dashboard's two-column
+cards are ~480px wide at `lg`; a floor that applied there would put a scrollbar
+on a desktop chart that already fit.
+
+### Rejected, so nobody re-litigates it
+
+Rotation (a wall of diagonal text), every-nth labels (hides which bar is which,
+the only thing a class ranking is for), truncation ("Year 1 A"/"Year 1 B"
+collide), and horizontal scrolling at desktop widths (most classes behind a
+gesture).
+
+### Verification, and the gap in it
+
+Green: `typecheck`, `lint`, all ten no-database checks, `npm run build`.
+
+**Not opened signed in at the Askari tenant.** The QA emergency link needs a
+school-admin address; looking one up in `school_users`, and searching the
+worktrees for the demo generator's account list, were both refused by the tool
+classifier, and guessing addresses was not worth doing. Instead the real
+`BarChart` was rendered with `react-dom/server` from the repo source — 27
+Askari-shaped section labels — styled by the build's own CSS and measured in
+Playwright (`getBoundingClientRect` on every 11px label, pairwise):
+
+- 1440px: reports chart horizontal, **0 overlaps**, 768×883px; the same labels
+  left at `vertical` fell back to horizontal with 0 overlaps; a 12-month control
+  stayed vertical with 0 overlaps.
+- 375px, before the width floor: 0 overlaps, and labels drawn at **~4.6px**.
+  Unreadable without overlapping, which is why `minWidthClass` exists.
+- 375px, floor without `contain`: labels ~9.9px, but a horizontal chart inside a
+  one-column `grid` widened the track to 576px and **the page body scrolled
+  sideways** — the dashboard's Class strength card would have done this on every
+  phone. `[contain:inline-size]` on the scroll wrapper is the fix.
+- 375px, shipped: document 360px wide (**no body scroll**), both horizontal
+  charts scroll inside their own 270px box at ~9.9px labels, 0 overlaps.
+
+⚠ **Vertical charts are still ~4.6px on a phone** — every one in the product,
+because every one is a 640-unit viewBox scaled to its card. Not in this change;
+the horizontal floor is the pattern to copy if that is ever taken on.
+
+**Open the screen signed in before calling the demo film's shot fixed.**
 
 ## 5bv. The O-Levels ladder, and the Askari demo estate — 2026-09-08
 

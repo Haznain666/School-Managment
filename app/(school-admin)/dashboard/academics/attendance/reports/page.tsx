@@ -18,6 +18,12 @@ export const metadata: Metadata = {
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 
+/**
+ * Where this screen marks a class. 75, as the page header says — not the
+ * dashboard's 85, which is an earlier warning for a panel of the worst ten.
+ */
+const ATTENDANCE_CONCERN = 75;
+
 export default async function AttendanceReportsPage() {
   const { claims, locationId } = await requireSchoolPermission('academics.read');
 
@@ -65,6 +71,16 @@ export default async function AttendanceReportsPage() {
             />
           }
         >
+          {/*
+            Horizontal, one row per section. It was vertical, and twenty-nine
+            section names under twenty-nine bars at Askari overlapped into one
+            unreadable line of text. A row per class gives every name its own
+            line, in school order, which is how a head reads down the register.
+
+            `max-w-3xl` because the chart scales its viewBox to its width: at
+            the card's full ~1,100px a 29-row chart drew ~1,300px tall with
+            19px labels. Capped, the rows are the height of a table row.
+          */}
           <BarChart
             title="Attendance rate by class, last 30 days"
             summary={attendanceSummary(byClass)}
@@ -73,14 +89,20 @@ export default async function AttendanceReportsPage() {
               {
                 label: 'Attendance',
                 values: byClass.map((row) => row.value),
-                // Below 75% is where most schools intervene, which is what the
-                // page header already says. The bars use the danger colour at
-                // that point so the classes needing attention are the ones the
-                // eye lands on.
                 fillClass: 'fill-chart-1',
+                // Below 75% is where most schools intervene, which is what the
+                // page header already says, so those bars take the warning
+                // colour — the same mark the dashboard's worst-classes chart
+                // uses. `attendanceSummary` names how many are below it, so the
+                // colour is never the only carrier.
+                fillClasses: byClass.map((row) =>
+                  row.value < ATTENDANCE_CONCERN ? 'fill-status-warning' : undefined,
+                ),
               },
             ]}
             format={(value) => `${Math.round(value)}%`}
+            orientation="horizontal"
+            className="max-w-3xl"
           />
         </Card>
       )}
@@ -108,11 +130,11 @@ export default async function AttendanceReportsPage() {
  */
 function attendanceSummary(rows: ReadonlyArray<{ label: string; value: number }>): string {
   const worst = rows.reduce((low, row) => (row.value < low.value ? row : low), rows[0]!);
-  const below = rows.filter((row) => row.value < 75);
+  const below = rows.filter((row) => row.value < ATTENDANCE_CONCERN);
 
   const average = Math.round(rows.reduce((sum, row) => sum + row.value, 0) / rows.length);
 
   return below.length === 0
-    ? `Averaging ${average}% across ${rows.length} classes, lowest ${worst.label} at ${worst.value}%. None below 75%.`
-    : `Averaging ${average}% across ${rows.length} classes. ${below.length} below 75%, lowest ${worst.label} at ${worst.value}%.`;
+    ? `Averaging ${average}% across ${rows.length} classes, lowest ${worst.label} at ${worst.value}%. None below ${ATTENDANCE_CONCERN}%.`
+    : `Averaging ${average}% across ${rows.length} classes. ${below.length} below ${ATTENDANCE_CONCERN}%, lowest ${worst.label} at ${worst.value}%.`;
 }

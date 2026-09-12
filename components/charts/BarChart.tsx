@@ -69,6 +69,9 @@ export interface BarChartProps {
    * Which way the bars run. `horizontal` puts the categories down the left
    * edge, and is the right choice whenever category names are words rather
    * than codes — see the docblock.
+   *
+   * `vertical` is a preference, not a promise: when the labels cannot fit
+   * their bars without overlapping, the chart is drawn horizontally anyway.
    */
   orientation?: 'vertical' | 'horizontal';
   className?: string;
@@ -124,6 +127,11 @@ const H_PADDING = { top: 8, right: 40, bottom: 26, left: 172 };
 const ZERO_LABEL = '—';
 /** One category's vertical budget, whatever the series count. */
 const ROW_HEIGHT = 26;
+
+/** Units per glyph of the 11px category label — `axisGutter`'s figure. */
+const VERTICAL_GLYPH_WIDTH = 5.6;
+/** Space kept between two neighbouring vertical labels. */
+const LABEL_GAP = 4;
 
 /**
  * How many characters of a category name fit in the label column.
@@ -182,6 +190,31 @@ export function BarChart({
   const scale = linearScale(series.flatMap((entry) => [...entry.values]));
   const legendVisible = showLegend ?? series.length > 1;
 
+  // The y-axis gutter is measured from the widest formatted tick rather
+  // than assumed — see `axisGutter`. A money formatter needs more room
+  // than `compactNumber`, and assuming otherwise drew outside the viewBox.
+  const padLeft = axisGutter(scale.ticks, format);
+
+  /*
+   * ── A vertical chart whose labels cannot fit is drawn horizontally ─────
+   * The docblock's rule, enforced here instead of remembered at each call site.
+   * *Attendance by class* on the attendance reports screen drew twenty-nine
+   * section names into ~20 units each at Askari, and the axis read
+   * "Pre-NurseryNurseryBNurseryPrep A…" — the module-adoption smear again, on a
+   * caller that had never been told about it. *Class strength* on the dashboard
+   * was the same chart in a narrower card.
+   *
+   * Measured with `axisGutter`'s 5.6 units per 11px glyph, plus a few units so
+   * two labels that exactly meet still read as two words. Every chart that fits
+   * today — twelve months, five ageing buckets, a paper's grade bands — is
+   * untouched; only a chart that would have overlapped changes, and there is no
+   * reading of an overlapping axis that is better than a horizontal one.
+   */
+  const verticalBudget = (WIDTH - padLeft - PADDING.right) / categories.length;
+  const widestLabel = categories.reduce((max, category) => Math.max(max, category.length), 0);
+  const labelsOverlap = widestLabel * VERTICAL_GLYPH_WIDTH + LABEL_GAP > verticalBudget;
+  const horizontal = orientation === 'horizontal' || labelsOverlap;
+
   // Built once and handed to whichever branch renders: the accessible table and
   // the legend say the same thing in both orientations, and a second copy of
   // either is a second place for them to drift.
@@ -222,7 +255,7 @@ export function BarChart({
     </table>
   );
 
-  if (orientation === 'horizontal') {
+  if (horizontal) {
     /*
      * The right gutter, measured against the **widest value that will actually
      * be drawn** — not against the ticks, which are a rounded scale and are
@@ -257,6 +290,12 @@ export function BarChart({
         className={className}
         legend={legend}
         dataTable={dataTable}
+        // A row per category is a tall list of words. On a phone the 640-unit
+        // viewBox squeezed into ~300px sets an 11-unit label at ~5px, which is
+        // no label at all, so below `sm` the drawing keeps a readable width and
+        // scrolls inside its card. From `sm` up it fits and nothing changes —
+        // including the dashboard's half-width cards, which are ~480px wide.
+        minWidthClass="min-w-[36rem] sm:min-w-0"
       >
         <g aria-hidden="true">
           {scale.ticks.map((tick) => {
@@ -392,11 +431,6 @@ export function BarChart({
       </ChartFrame>
     );
   }
-
-  // The y-axis gutter is measured from the widest formatted tick rather
-  // than assumed — see `axisGutter`. A money formatter needs more room
-  // than `compactNumber`, and assuming otherwise drew outside the viewBox.
-  const padLeft = axisGutter(scale.ticks, format);
 
   const plotWidth = WIDTH - padLeft - PADDING.right;
   const plotHeight = HEIGHT - PADDING.top - PADDING.bottom;

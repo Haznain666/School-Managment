@@ -1236,6 +1236,9 @@ export default async function SchoolDashboardPage({
             categories={classStrength.map((row) => row.label)}
             series={[{ label: 'Students', values: classStrength.map((row) => row.value) }]}
             format={(value) => String(Math.round(value))}
+            // One bar per section. Askari has twenty-nine, and section names
+            // are words — vertical labels overlapped into one smear.
+            orientation="horizontal"
           />
         </Card>
         ) : null}

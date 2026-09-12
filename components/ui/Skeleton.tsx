@@ -256,16 +256,30 @@ export interface SkeletonChartProps {
   className?: string;
   /** Draw a legend row under the plot. */
   legend?: boolean;
+  /**
+   * Which way the arriving chart's bars run. `horizontal` draws a label column
+   * and bars growing rightwards, for a `BarChart` with `orientation="horizontal"`
+   * — a ranking of classes is a tall list, not a short row of columns.
+   */
+  orientation?: 'vertical' | 'horizontal';
 }
 
 /**
  * A chart placeholder: bars of varying height rather than one grey rectangle,
  * so the space reads as a chart arriving instead of an image failing to load.
  */
-export function SkeletonChart({ className, legend = true }: SkeletonChartProps) {
+export function SkeletonChart({
+  className,
+  legend = true,
+  orientation = 'vertical',
+}: SkeletonChartProps) {
   const heights = [
     'h-1/3', 'h-2/3', 'h-1/2', 'h-5/6', 'h-2/5', 'h-3/4', 'h-1/2', 'h-full',
     'h-3/5', 'h-1/4', 'h-4/5', 'h-1/2',
+  ];
+  const widths = [
+    'w-5/6', 'w-2/3', 'w-3/4', 'w-1/2', 'w-4/5', 'w-3/5', 'w-full', 'w-2/3',
+    'w-3/4', 'w-2/5',
   ];
 
   return (
@@ -276,11 +290,24 @@ export function SkeletonChart({ className, legend = true }: SkeletonChartProps) 
     >
       <Skeleton className="h-3 w-32" />
 
-      <div className="mt-5 flex h-40 items-end gap-2" aria-hidden="true">
-        {heights.map((height, index) => (
-          <Skeleton key={index} className={cn('flex-1 rounded-t-control', height)} />
-        ))}
-      </div>
+      {orientation === 'horizontal' ? (
+        <div className="mt-5 max-w-2xl space-y-2.5" aria-hidden="true">
+          {widths.map((width, index) => (
+            <div key={index} className="flex items-center gap-3">
+              <Skeleton className="h-3 w-24 shrink-0" />
+              <div className="flex-1">
+                <Skeleton className={cn('h-4 rounded-r-control', width)} />
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div className="mt-5 flex h-40 items-end gap-2" aria-hidden="true">
+          {heights.map((height, index) => (
+            <Skeleton key={index} className={cn('flex-1 rounded-t-control', height)} />
+          ))}
+        </div>
+      )}
 
       {legend ? (
         <div className="mt-4 flex gap-4" aria-hidden="true">
