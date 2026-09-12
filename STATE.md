@@ -12707,6 +12707,20 @@ segments (was 4), no dashboard skeleton, `#child-switcher` in the shell.
 loads (results with and without the query, dashboard): zero console errors,
 report card painted.
 
+**Live, 2026-09-13:** PR #80 merged as `63acbb2`; Hostinger deploy completed
+22:26 UTC (~3 min); "Verify the live deployment" green (purge, live commit
+`63acbb2e8835`, smoke). Raw live HTML of the results hard load: 1 boundary, 2
+segments, no dashboard skeleton, switcher in the shell. Four marked live hard
+loads (results ×3, dashboard): zero console errors.
+
+⚠ **Do not trust an iframe `document.write` replay of the page as a
+reproduction.** One was tried here (fetch the HTML, write it into a same-origin
+iframe in timed chunks). It logs #418 and the `$RS` null — but every #418 is
+preceded by `Cannot enqueue a chunk into a readable stream that is closed`:
+Next's flight stream closes before the rest of `__next_f` is written, so the
+client builds from a truncated payload. It fails identically before and after
+this change and proves nothing either way.
+
 ⚠ **Not claimed: that #418 cannot recur.** The change removes two of three
 streamed boundaries — the only part of the failure this code controls. If it
 comes back, the next move is Next 16 (React 19.3 canary), not more digging in
