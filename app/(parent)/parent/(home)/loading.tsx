@@ -16,6 +16,15 @@ import {
  *
  * The shape mirrors the page it stands in for. A skeleton that is the wrong
  * shape is worse than none: it promises a layout that then jumps.
+ *
+ * ── Why it lives in the `(home)` route group ─────────────────────────────
+ * A `loading.tsx` is a Suspense boundary for its segment *and every segment
+ * below it*. Beside `app/(parent)/parent/page.tsx` it wrapped all of
+ * `/parent/*`, so a hard load of `/parent/results` streamed this dashboard
+ * skeleton first — stat tiles and two charts — then the results page's own
+ * table skeleton inside it, then the report card: the wrong shape, and two
+ * nested streamed boundaries where one was needed. The group changes no URL;
+ * it only stops this boundary reaching the dashboard's siblings. STATE.md §5by.
  */
 export default function Loading() {
   return (
