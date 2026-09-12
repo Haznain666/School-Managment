@@ -12653,6 +12653,76 @@ days, per person, with the date in hand.
 
 ---
 
+## 5by. Parent portal: #418 on `/parent/results`, and two streamed boundaries too many — 2026-09-13
+
+Not a sprint. Found while capturing screens for the SchoolHub demo film:
+`/parent/results?child=…&term=…` (Askari, parent) logged `Minified React error
+#418` (`HTML`) then `TypeError … reading 'parentNode' at $RS`.
+`release-notes/RELEASE-NOTES-PARENT-PORTAL-LOADING.md` is the school-facing
+account.
+
+### What the investigation established — read before re-opening it
+
+- **Not deterministic, and not the query string.** One failure in ~40 live hard
+  loads (the first `?child=&term=` load after sign-in); none in ~35 local
+  `npm run start` loads, including cold caches, service-worker-controlled
+  loads, starved/delayed `requestAnimationFrame`, buffered HTML and delayed JS.
+  The server HTML for the bare and the query URL is byte-identical apart from
+  the URL and RSC row numbering (both `private, no-store`, CDN `DYNAMIC`).
+- **None of the usual suspects exist on the route.** Every component the page
+  renders is a server component; no `toLocaleString`/`Intl`/`Date.now`/`window`
+  in render; the layout's client components read `localStorage` in effects.
+  The service worker (`app/sw.js/route.ts`) is network-only for navigations.
+- **The failing call is `$RS("S:3","P:3")`** — line 2, column 100003 of the
+  live document — the page segment arriving to find its placeholder gone.
+  `P:3` lives in a body-level `<div hidden id="S:2">`; only React's root-level
+  hydration fallback removes that. So #418 is first and `$RS` is its knock-on.
+- **Next 15.5.x vendors React `19.2.0-canary-0bdb9206-20250818`** (same in
+  `15.5.25`; only Next 16 moves), whose Fizz runtime batches reveals: `$RC`
+  marks the boundary `$~` and waits on `requestAnimationFrame`/`setTimeout`.
+  In a hidden tab boundaries sit at `$~` with their `S:` divs in the body —
+  §`browser-pane-hidden` memory's "stuck on the skeleton" is this.
+- **A hard load of any `/parent/*` route streamed three boundaries:** `B:0` the
+  header's `ChildSwitcher` `Suspense` (its docblock said "never actually hit in
+  production"; it was hit on every load), `B:1` the *dashboard's*
+  `loading.tsx` wrapping every sibling route, and `B:2` the page's own loader
+  nested inside `B:1`. The dashboard skeleton flashing before the results
+  skeleton is the wrong-shape flash CLAUDE.md forbids.
+
+### What changed
+
+| File | Change |
+| --- | --- |
+| `components/parent/ParentNavbar.tsx` | `ChildSwitcher` rendered directly, no `Suspense` (layout is `force-dynamic`, so no bailout to catch) |
+| `app/(parent)/parent/(home)/page.tsx` | moved from `app/(parent)/parent/page.tsx`; URL still `/parent` |
+| `app/(parent)/parent/(home)/loading.tsx` | moved with it; no longer a boundary for `/parent/*` |
+
+### Verified
+
+Green set: typecheck, lint, the ten CI checks, `check-dashboard`,
+`check-portals`, `build`. Local `npm run start`, raw HTML of a hard load of
+`/parent/results?child=&term=`: **1** pending boundary (was 3), **2** `S:`
+segments (was 4), no dashboard skeleton, `#child-switcher` in the shell.
+`/parent` still streams its own dashboard skeleton. Four fresh-context hard
+loads (results with and without the query, dashboard): zero console errors,
+report card painted.
+
+⚠ **Not claimed: that #418 cannot recur.** The change removes two of three
+streamed boundaries — the only part of the failure this code controls. If it
+comes back, the next move is Next 16 (React 19.3 canary), not more digging in
+the results page.
+
+⚠ **After moving a `page.tsx`, `tsc` fails on `.next/types`** naming the old path
+until the next `next build` regenerates them. It is stale generated output,
+not the change.
+
+⚠ **Same shape, not changed:** `app/(school-admin)/dashboard/`,
+`app/(student)/student/`, `app/(teacher)/teacher/`,
+`app/(super-admin)/super-admin/` each have a root `loading.tsx` wrapping their
+sub-routes. Offered as a separate task.
+
+---
+
 ## 5bx. Every chart on a phone — 2026-09-13
 
 Not a sprint. Follow-up to §5bw, which recorded that **every vertical chart in
