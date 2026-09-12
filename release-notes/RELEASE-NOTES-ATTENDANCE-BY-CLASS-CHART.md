@@ -66,7 +66,9 @@ enforced by nobody, and the attendance reports page was written without it.
    (wraps the SVG in its own `overflow-x-auto`; the page body never scrolls),
    and every horizontal `BarChart` passes `min-w-[36rem] sm:min-w-0`. From
    `sm` up it is a no-op, so the dashboard's ~480px half-width cards do not
-   start scrolling on a desktop.
+   start scrolling on a desktop. The wrapper carries `contain: inline-size`:
+   without it, a chart inside a one-column grid widened the whole track and the
+   *page* scrolled sideways on a phone.
 5. **The loader matches the page.** `SkeletonChart` gained
    `orientation="horizontal"` (a label column and bars growing rightwards), and
    the reports route's `loading.tsx` stopped promising stat tiles and two

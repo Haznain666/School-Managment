@@ -12700,6 +12700,18 @@ Playwright (`getBoundingClientRect` on every 11px label, pairwise):
 - 1440px: reports chart horizontal, **0 overlaps**, 768×883px; the same labels
   left at `vertical` fell back to horizontal with 0 overlaps; a 12-month control
   stayed vertical with 0 overlaps.
+- 375px, before the width floor: 0 overlaps, and labels drawn at **~4.6px**.
+  Unreadable without overlapping, which is why `minWidthClass` exists.
+- 375px, floor without `contain`: labels ~9.9px, but a horizontal chart inside a
+  one-column `grid` widened the track to 576px and **the page body scrolled
+  sideways** — the dashboard's Class strength card would have done this on every
+  phone. `[contain:inline-size]` on the scroll wrapper is the fix.
+- 375px, shipped: document 360px wide (**no body scroll**), both horizontal
+  charts scroll inside their own 270px box at ~9.9px labels, 0 overlaps.
+
+⚠ **Vertical charts are still ~4.6px on a phone** — every one in the product,
+because every one is a 640-unit viewBox scaled to its card. Not in this change;
+the horizontal floor is the pattern to copy if that is ever taken on.
 
 **Open the screen signed in before calling the demo film's shot fixed.**
 

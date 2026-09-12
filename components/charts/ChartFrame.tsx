@@ -85,7 +85,18 @@ export function ChartFrame({
 
   return (
     <figure className={cn('w-full', className)}>
-      {minWidthClass === undefined ? svg : <div className="overflow-x-auto">{svg}</div>}
+      {/*
+        `contain: inline-size` is what keeps the scroll inside this box. Without
+        it the wrapper still reports the SVG's floor as its own minimum width,
+        and a grid item cannot shrink below that — so in the dashboard's
+        `grid lg:grid-cols-2` on a phone the whole track widened to 576px, the
+        chart beside it stretched with it, and the *page* scrolled sideways.
+      */}
+      {minWidthClass === undefined ? (
+        svg
+      ) : (
+        <div className="overflow-x-auto [contain:inline-size]">{svg}</div>
+      )}
 
       {legend !== undefined ? <div className="mt-3">{legend}</div> : null}
 
