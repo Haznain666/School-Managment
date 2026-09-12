@@ -4,8 +4,17 @@
 resume without re-deriving context. Updated at the end of every development
 step, before the session ends.
 
-**Last updated:** 2026-09-13 (**Every bar and line chart draws a second, phone-width
-drawing — §5bx.**)
+**Last updated:** 2026-09-13 (**Every portal's home loader lives in a `(home)`
+route group — §5bz.**)
+
+🔴 **A root `loading.tsx` beside a root `page.tsx` wraps every sibling route.**
+The admin, teacher, student and super-admin dashboards and `/apply` each did,
+so a hard load of any sub-route streamed the home skeleton first. All five now
+sit in `(home)` groups, as `/parent` has since §5by. URLs unchanged. For a new
+portal, do the same; `check-loaders` will not tell you. §5bz.
+
+Previously: **Every bar and line chart draws a second, phone-width drawing —
+§5bx.**
 
 🔴 **`BarChart` and `LineChart` draw twice: 640 units from `sm` up, 320 below.**
 A 640-unit viewBox in a ~300px phone card set every 11-unit label at ~5px on
@@ -12653,6 +12662,94 @@ days, per person, with the date in hand.
 
 ---
 
+## 5bz. Every portal's home loader moved into a `(home)` group — 2026-09-13
+
+Not a sprint. Follow-up to §5by, which fixed the parent portal and recorded the
+same shape in four more portals without changing them. Asked to fix them.
+`release-notes/RELEASE-NOTES-PORTAL-LOADING.md` is the school-facing account.
+
+### The defect, once more
+
+A `loading.tsx` is a Suspense boundary for its segment **and every segment
+below it**. Each portal kept its home loader beside its home `page.tsx` at the
+portal root, so a hard load of any sub-route streamed the home skeleton first,
+then the sub-route's own skeleton nested inside it: two boundaries, wrong shape
+first. Four of the five home loaders were the dashboard shape (page header, stat
+tiles, two charts, table); `/apply`'s is a page header and an eight-field form,
+and it wrapped `/apply/success` (a real, force-dynamic sub-route with its own
+table loader).
+
+### What changed
+
+| From | To (URL unchanged) |
+| --- | --- |
+| `app/(school-admin)/dashboard/{page,loading}.tsx` | `app/(school-admin)/dashboard/(home)/` |
+| `app/(teacher)/teacher/{page,loading}.tsx` | `app/(teacher)/teacher/(home)/` |
+| `app/(student)/student/{page,loading}.tsx` | `app/(student)/student/(home)/` |
+| `app/(super-admin)/super-admin/{page,loading}.tsx` | `app/(super-admin)/super-admin/(home)/` |
+| `app/(public)/apply/{page,loading}.tsx` | `app/(public)/apply/(home)/` |
+
+`git mv` only, plus one docblock paragraph in each moved loader saying why it
+lives in the group. Every child directory of all five already had its own
+`page.tsx` + `loading.tsx` (16 admin, 14 teacher, 8 student, 4 super-admin, 1
+apply), so no sub-route lost its loader. Nothing in `scripts/` or code imported
+the old paths; `SPRINT-15-DASHBOARDS.md` and `SPRINT-23-SPEC.md` name them as
+history and were left.
+
+**All six portals with a root page now use the pattern.** For a new portal: a
+root page with sibling routes goes in a `(home)` group together with its loader.
+`check-loaders` does not enforce it, because a root loader beside a root page is
+legal.
+
+### Verified
+
+Green set: typecheck, lint, the ten CI checks (`check-loaders`: 154 routes, 303
+assertions), `check-dashboard` (47 aggregates against the real schema),
+`check-portals` (18 of 22 reached), `build`. Unlike §5by, `tsc` did not trip on
+stale `.next/types`.
+
+**Compiled loader tree.** Each `.next/server/app/<route>/page.js` names every
+`loading.tsx` wrapping it. After the move, `/dashboard/fees`,
+`/teacher/attendance`, `/student/results`, `/super-admin/schools` and
+`/apply/success` each name exactly one (their own), and each `(home)` page
+names its own. This is the only evidence for `/super-admin/*`: middleware
+redirects it without a signed cookie, and a session there needs a password
+typed into the sign-in form.
+
+**Raw HTML of hard loads**, local `npm run start`. Signed in with
+`scripts/qa-emergency-link.mjs` as the Askari school admin, a teacher and
+student `asst-2026-0001`; `/apply` is public. Counted `<template id="B:n">`
+(pending boundaries), `<div hidden id="S:n">` (segments) and the Skeleton
+`aria-label`s (`Loading summary` = tiles, `Loading chart`, `Loading results` =
+table, `Loading form`):
+
+| Route | Boundaries | Skeleton labels in the HTML |
+| --- | --- | --- |
+| `/dashboard/users` | 1 | results only |
+| `/dashboard/calendar` | 1 | results only |
+| `/dashboard/fees` | 1 | summary, chart ×2, results: its own loader is that shape |
+| `/teacher/attendance`, `/teacher/timetable` | 1 | results only |
+| `/teacher` | 1 | summary, chart ×2, results: the home skeleton, still streamed on home |
+| `/student/results` | 1 | results only |
+| `/student/fees` | 1 | summary, chart ×2, results: its own loader is that shape |
+| `/student` | 1 | summary, chart ×2, results |
+| `/apply/success` | 1 | results only, **no form** |
+| `/apply` | 3 | form: its own loader plus the page's own in-page boundaries |
+
+⚠ **`aria-label="Loading summary"` does not identify the dashboard skeleton.**
+`/dashboard/fees` and `/student/fees` use the identical shape for their own
+loaders. Count boundaries first, then read labels on a route whose own loader is
+a different shape.
+
+⚠ **The standalone server cannot start from a worktree right after a build**:
+`Cannot find module './cpu-profile'`, because `server.js` resolves `next` from
+the partial `.claude/worktrees/node_modules` stub the build writes. `npm run
+start` (the `sms-platform-prod` launch entry) works once the stub is deleted,
+with its "does not work with output: standalone" warning. The worktree also has
+no `.env.local`; `cp` the main checkout's (gitignored) in, and delete it after.
+
+---
+
 ## 5by. Parent portal: #418 on `/parent/results`, and two streamed boundaries too many — 2026-09-13
 
 Not a sprint. Found while capturing screens for the SchoolHub demo film:
@@ -12730,10 +12827,10 @@ the results page.
 until the next `next build` regenerates them. It is stale generated output,
 not the change.
 
-⚠ **Same shape, not changed:** `app/(school-admin)/dashboard/`,
+⚠ **Same shape, not changed here:** `app/(school-admin)/dashboard/`,
 `app/(student)/student/`, `app/(teacher)/teacher/`,
-`app/(super-admin)/super-admin/` each have a root `loading.tsx` wrapping their
-sub-routes. Offered as a separate task.
+`app/(super-admin)/super-admin/` each had a root `loading.tsx` wrapping their
+sub-routes. **Fixed in §5bz**, together with `app/(public)/apply/`.
 
 ---
 
