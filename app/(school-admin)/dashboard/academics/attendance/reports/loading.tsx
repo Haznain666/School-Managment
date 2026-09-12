@@ -1,9 +1,4 @@
-import {
-  SkeletonChart,
-  SkeletonPageHeader,
-  SkeletonStatTiles,
-  SkeletonTable,
-} from '@/components/ui/Skeleton';
+import { SkeletonChart, SkeletonPageHeader, SkeletonTable } from '@/components/ui/Skeleton';
 
 /**
  * Loading state for `/dashboard/academics/attendance/reports`.
@@ -16,16 +11,16 @@ import {
  *
  * The shape mirrors the page it stands in for. A skeleton that is the wrong
  * shape is worse than none: it promises a layout that then jumps.
+ *
+ * The page is one full-width *Attendance by class* chart — horizontal, a row
+ * per class — then the class-and-month report under it. This used to promise
+ * stat tiles and two side-by-side charts, which the page has never had.
  */
 export default function Loading() {
   return (
     <div>
       <SkeletonPageHeader />
-      <SkeletonStatTiles />
-      <div className="mt-6 grid gap-4 lg:grid-cols-2">
-        <SkeletonChart />
-        <SkeletonChart />
-      </div>
+      <SkeletonChart className="mt-6" orientation="horizontal" legend={false} />
       <SkeletonTable className="mt-6" rows={6} columns={5} />
     </div>
   );
