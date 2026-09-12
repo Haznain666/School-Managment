@@ -48,12 +48,24 @@ export interface ChartFrameProps {
    */
   className?: string;
   /**
-   * A floor under the drawing's width, as Tailwind classes. When set, the SVG
-   * never scales below it and scrolls sideways inside its own box instead —
-   * the page body never scrolls. For a chart whose labels shrink with the
-   * viewBox until they cannot be read; see `BarChart`'s horizontal branch.
+   * A second drawing of the same chart for a phone, shown below `sm` in place
+   * of `children`.
+   *
+   * ── Why a chart draws twice ──────────────────────────────────────────
+   * The SVG scales its viewBox to its container, so a drawing made for a
+   * 640-unit desktop card and squeezed into a ~300px phone card sets every
+   * 11-unit label at ~5px. Scaling the text up would collide it; scrolling the
+   * drawing hides half of it. Drawing it again at phone width is the only
+   * version where every label is both readable and visible — and it stays
+   * static server-rendered SVG, which is the constraint this component exists
+   * for.
+   *
+   * The drawing not on screen is `display: none`, which also removes it from
+   * the accessibility tree, so a screen reader meets one chart, not two.
+   * Paper is wider than `sm`, so a printed report card gets the desktop
+   * drawing.
    */
-  minWidthClass?: string;
+  phone?: { viewBox: string; content: ReactNode };
   children: ReactNode;
 }
 
@@ -64,38 +76,39 @@ export function ChartFrame({
   dataTable,
   legend,
   className,
-  minWidthClass,
+  phone,
   children,
 }: ChartFrameProps) {
-  const svg = (
-    <svg
-      viewBox={viewBox}
-      role="img"
-      aria-label={`${title}. ${summary}`}
-      // `h-auto` with `w-full`: the viewBox governs the aspect ratio, so the
-      // chart scales with its container rather than needing a measured width.
-      // This is what lets it render identically on the server and on paper.
-      className={cn('block h-auto w-full overflow-visible', minWidthClass)}
-    >
-      <title>{title}</title>
-      <desc>{summary}</desc>
-      {children}
-    </svg>
-  );
-
   return (
     <figure className={cn('w-full', className)}>
-      {/*
-        `contain: inline-size` is what keeps the scroll inside this box. Without
-        it the wrapper still reports the SVG's floor as its own minimum width,
-        and a grid item cannot shrink below that — so in the dashboard's
-        `grid lg:grid-cols-2` on a phone the whole track widened to 576px, the
-        chart beside it stretched with it, and the *page* scrolled sideways.
-      */}
-      {minWidthClass === undefined ? (
-        svg
-      ) : (
-        <div className="overflow-x-auto [contain:inline-size]">{svg}</div>
+      <svg
+        viewBox={viewBox}
+        role="img"
+        aria-label={`${title}. ${summary}`}
+        // `h-auto` with `w-full`: the viewBox governs the aspect ratio, so the
+        // chart scales with its container rather than needing a measured width.
+        // This is what lets it render identically on the server and on paper.
+        className={cn(
+          'h-auto w-full overflow-visible',
+          phone === undefined ? 'block' : 'hidden sm:block',
+        )}
+      >
+        <title>{title}</title>
+        <desc>{summary}</desc>
+        {children}
+      </svg>
+
+      {phone === undefined ? null : (
+        <svg
+          viewBox={phone.viewBox}
+          role="img"
+          aria-label={`${title}. ${summary}`}
+          className="block h-auto w-full overflow-visible sm:hidden"
+        >
+          <title>{title}</title>
+          <desc>{summary}</desc>
+          {phone.content}
+        </svg>
       )}
 
       {legend !== undefined ? <div className="mt-3">{legend}</div> : null}

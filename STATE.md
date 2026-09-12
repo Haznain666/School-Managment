@@ -4,8 +4,27 @@
 resume without re-deriving context. Updated at the end of every development
 step, before the session ends.
 
-**Last updated:** 2026-09-13 (**Attendance by class drew 29 overlapping labels,
-and `BarChart` now refuses to — §5bw.**)
+**Last updated:** 2026-09-13 (**Every bar and line chart draws a second, phone-width
+drawing — §5bx.**)
+
+🔴 **`BarChart` and `LineChart` draw twice: 640 units from `sm` up, 320 below.**
+A 640-unit viewBox in a ~300px phone card set every 11-unit label at ~5px on
+every chart in the product. `ChartFrame` takes a `phone` drawing and shows one
+by breakpoint (`hidden sm:block` / `sm:hidden`). Orientation and label thinning
+are decided **per drawing** — the ageing chart stands up on a desktop and lies
+down on a phone. §5bx.
+
+⚠ **This replaces §5bw's in-card scroll.** `minWidthClass` and the
+`[contain:inline-size]` wrapper are gone; a horizontal chart on a phone is now
+drawn at phone width instead of scrolled, so the figures at the end of long bars
+are never behind a gesture. §5bw's text about them is history.
+
+⚠ **`check-forms` asserts each drawing separately.** Two `<svg>`s share row
+coordinates by design, so any new chart assertion that reads the whole markup
+will report collisions that are not there. Use its `drawings()` helper.
+
+Previously: **Attendance by class drew 29 overlapping labels, and `BarChart` now
+refuses to — §5bw.**
 
 🔴 **A vertical `BarChart` whose labels cannot fit is now drawn horizontally.**
 The rule this file recorded after the module-adoption chart ("past a dozen
@@ -12634,7 +12653,107 @@ days, per person, with the date in hand.
 
 ---
 
+## 5bx. Every chart on a phone — 2026-09-13
+
+Not a sprint. Follow-up to §5bw, which recorded that **every vertical chart in
+the product drew its labels at ~4.6px on a phone** and left it. Asked to fix it.
+`release-notes/RELEASE-NOTES-CHARTS-ON-PHONES.md` is the school-facing account.
+
+### The mechanism
+
+`BarChart` and `LineChart` draw into a fixed viewBox that scales to its card.
+640 units in a ~286px phone card is a 0.45 scale, so an 11-unit label is ~5px.
+Nothing overlaps; nothing can be read.
+
+**Each chart now draws twice** — `DESKTOP` (640) and `PHONE` (320 × 220) — and
+`ChartFrame` takes the second as `phone={{ viewBox, content }}`. The desktop SVG
+is `hidden sm:block`, the phone SVG `sm:hidden`. Still static server-rendered SVG,
+no JS, no measuring. The hidden one is `display: none`, so it is also out of the
+accessibility tree; the data table is emitted once. Paper is wider than `sm`, so
+print gets the desktop drawing.
+
+**Orientation and thinning are decided per drawing.** `BarChart` asks
+`labelsOverlap(geometry)` of each; a chart horizontal on the desktop is
+horizontal on a phone. `LineChart` thins x labels against the measured width
+at each drawing's spacing.
+
+⚠ **This replaces §5bw's in-card scroll.** `minWidthClass` and the
+`overflow-x-auto [contain:inline-size]` wrapper are deleted. A horizontal chart
+on a phone is drawn at 320 units with a 116-unit label column (16 characters —
+every Askari class name fits), so the value at the end of a bar is never behind
+a scroll.
+
+### Three defects the measurement found, each invisible to the estimate
+
+1. **5.6 units per glyph was wrong for category labels.** It is `axisGutter`'s
+   average over strings like `PKR 20,000`. Rendered in Chromium, "Jan … Dec" ran
+   **6.28** units a glyph and "A* … U" **7.19**. At 5.6, twelve months passed as
+   fitting 320 units and were drawn **1px apart** — touching on screen with every
+   assertion green. Now `VERTICAL_GLYPH_WIDTH = 6.4`, `LABEL_GAP = 6`, in both
+   charts. Consequence: **twelve months lie on their side on a phone.** They still
+   stand up on a desktop.
+2. **`LineChart`'s stride assumed two centred labels.** The first label is
+   start-anchored and reaches half a label further right, so on a phone
+   "Jan 2026" touched "Apr 2026". Labels are now kept only if a stride past *and*
+   clear of the previous kept one, and never if they touch the end-anchored last.
+   Desktop: Jan/Mar/May/Jul/Sep/Dec (Nov was already touching Dec and is gone).
+   Phone: Jan/May/Aug/Dec.
+3. **A horizontal row was 26 units whatever the series count.** Two series got
+   10.4 units each for a 12.8-unit value label, so the two figures on every row
+   overlapped by 2.4 units. **This was already live on the desktop dashboard's
+   *Recent exam outcomes*** (pass rate + average, horizontal). Rows are now
+   `max(26, ceil(series × 13 / 0.8))` — single-series charts are unchanged.
+
+### Checks
+
+`check-forms` gained a *Charts on a phone* section (74 → 98 assertions). It
+splits the markup with `drawings()` and asserts **per drawing** — the two SVGs
+share row coordinates by design, so anything reading the whole markup reports
+collisions that are not there.
+
+- phone drawing exists, is 320 × 220, breakpoint classes correct, one table;
+- twelve months: vertical on desktop, horizontal on a phone;
+- ageing buckets with `PKR` ticks: vertical on desktop, horizontal on a phone;
+- 27 Askari classes: horizontal in both, every name untruncated on a phone;
+- a line chart's final period is always labelled;
+- two series give each value label ≥ 13 units per row, in both drawings;
+- no two labels on one baseline collide, per drawing, for all of the above.
+
+⚠ **The collision check is circular in glyph width** — it uses the same 6.4 the
+charts do. It catches layout *logic* (stride, anchoring, wrong budget). It cannot
+catch the font disagreeing with 6.4, which is what defect 1 was; only a browser
+can. It was proved non-vacuous: it parses 16 labels per bar drawing, and reports
+26 of 26 collisions on the old 640-unit vertical Askari axis.
+
+### Verified in Chromium
+
+The real components rendered to static markup with this build's CSS, in cards
+matching the dashboard's (`p-4` shell, `p-5` card, `grid lg:grid-cols-2`), and
+measured with `getBBox` on every rendered `<text>` — real glyph boxes, not the
+estimate:
+
+| | 375px | 1440px |
+| --- | --- | --- |
+| drawing shown | phone, 1 of 2, all five charts | desktop, 1 of 2, all five |
+| overlapping text boxes | 0 | 0 |
+| smallest text | 8.9px (10-unit ticks), 9.8px labels | 10.9px |
+| tightest baseline gap | 9.3px | — |
+| text outside its SVG / page scrolls sideways | 0 / no | — / no |
+
+Charts: 12-month two-series bars, 12-month line, ageing (PKR), grade bands,
+27-class attendance. **Not opened signed in on a live tenant** — same gap as
+§5bw.
+
+⚠ **Not changed:** `DonutChart` (capped at 220px, already ~1:1 on a phone),
+`HeatmapGrid`, `Sparkline`. A 640-unit chart in the dashboard's ~480px
+half-width cards at `lg` is still ~8px — that is the desktop drawing and was
+never in scope.
+
 ## 5bw. Attendance by class, and the vertical chart that could not fit — 2026-09-13
+
+> **Superseded in part by §5bx:** the `minWidthClass` scroll floor and its
+> `contain: inline-size` wrapper described below were removed the same day. The
+> vertical → horizontal fallback and everything about the reports page stand.
 
 Not a sprint. Found while capturing screens for the SchoolHub demo film:
 `/dashboard/academics/attendance/reports` at Askari drew one vertical bar per
