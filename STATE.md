@@ -12736,6 +12736,20 @@ table, `Loading form`):
 | `/apply/success` | 1 | results only, **no form** |
 | `/apply` | 3 | form: its own loader plus the page's own in-page boundaries |
 
+A real hard load of `/student/results` in Playwright painted the report card
+with zero console errors.
+
+**Live, 2026-09-13:** PR #81 merged as `afdae37`; Hostinger build `01a0980c…`
+ran 23:55:20–23:58:10 UTC. The first "Verify the live deployment" run, started
+straight after the merge, failed on *Confirm which commit is live* (still
+`e32f5366b14c`), because the build had not finished. **Wait for the Hostinger
+build to read `completed` before dispatching it.** Rerun with
+`expected_sha=afdae37…` after the build: green (purge, commit, smoke).
+Raw live HTML was **not** re-read. The live host served Playwright the CDN's
+"Checking your browser" 403, and this session did not work around bot detection.
+The evidence for live is the confirmed commit plus the local raw-HTML table above
+from the same commit.
+
 ⚠ **`aria-label="Loading summary"` does not identify the dashboard skeleton.**
 `/dashboard/fees` and `/student/fees` use the identical shape for their own
 loaders. Count boundaries first, then read labels on a route whose own loader is
