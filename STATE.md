@@ -7,12 +7,15 @@ step, before the session ends.
 **Last updated:** 2026-09-15 (**Staff KPIs and performance — specified, not
 built. The next sprint — §5ca.**)
 
-📋 **The next sprint is the staff KPI calculator.** School Admin, Branch Admin and
-Principal define KPIs per role, monthly or annual; the four rating roles score
-monthly KPIs 1–10; the scores roll up to one performance figure per staff
-member. Nothing is built. The spec, the scoping rules and six open questions are
-in §5ca — **answer the questions before writing the migration.** The product
-film's script already presents it as shipped.
+📋 **The next sprint is the staff KPI calculator — a paid module.** School Admin
+defines KPIs for every role; Branch Admin and Principal for every role except
+each other and themselves. Ratings are 1–10, monthly or annual, with a comment;
+the senior rater's score counts; performance is a plain average. Coordinators
+supervise named teachers and rate them from their own portal. Viewing scores is
+its own permission — Finance sees the yearly overall and nothing else. Nothing is
+built. **The six open questions were answered on 2026-09-15**; two small
+confirmations remain at the end of §5ca. The product film's script already
+presents it as shipped.
 
 Previously: **Every portal's home loader lives in a `(home)` route group —
 §5bz.**
@@ -12692,47 +12695,124 @@ shipped — the film must not go out before the sprint does.
 
 ### The requirement, in the product owner's terms
 
-1. **A KPI** belongs to a **role** (not a person), has a name (e.g.
-   *Punctuality*), and a **period: monthly or annual**.
-2. **Who may define KPIs for whom:**
+Given 2026-09-15 in two passes; the second answered the six open questions the
+first left. Everything below is decided unless it is in *Still to confirm*.
 
-   | Creator | May define KPIs for |
-   | --- | --- |
-   | School Admin | Branch Admin, Principal |
-   | Branch Admin, Principal | every other staff role — vice principal, coordinator, teacher, HR manager, accountant, marketing |
+**1. It is a module, and a paid one.** Switched on or off per school when the
+school is created, like every entry in `PLATFORM_MODULES`
+(`lib/platform-modules.ts`). A school that pays for it has it; a school that does
+not sees no KPI navigation and gets refusals from every KPI route.
 
-3. **Who may rate**, for monthly KPIs: School Admin, Branch Admin, Principal and
-   Coordinator. A rating is an integer **1–10** against one KPI, one staff
-   member, one month.
-4. **A coordinator rates only teachers assigned to them, at their own branch.**
-5. **Performance** = the ratings rolled up per staff member. Worked example: a
-   principal defines *Punctuality* for Teacher; Teacher 1 is on time every day;
-   the coordinator rates September 10 → Punctuality **10/10 = 100%**.
-6. **All of it is governed through the existing Permissions matrix**, so a school
-   can move who creates and who rates.
+**2. A KPI** belongs to a **role** (not a person), has a name (e.g.
+*Punctuality*), and a **period: monthly or annual**. Both periods are rated on
+the **same 1–10 scale**: a monthly KPI once a month, an annual KPI once a year.
+KPIs are a full CRUD resource.
+
+**3. Who may define KPIs for whom:**
+
+| Creator | May define KPIs for |
+| --- | --- |
+| School Admin | **every role**, including Principal and Branch Admin |
+| Branch Admin, Principal | every other staff role — **not each other, and not themselves** |
+| Coordinator | nobody — no create, no delete |
+
+**4. Who rates.** School Admin, Branch Admin, Principal and Coordinator, each
+within their scope. A rating is an integer **1–10** plus a **comment**, against
+one KPI, one staff member, one period. Worked example: a principal defines
+*Punctuality* for Teacher; Teacher 1 is on time every day; their coordinator
+rates September 10 → Punctuality **10/10 = 100%**.
+
+**5. When two people rate the same thing, the senior rater's score counts.**
+Order: School Admin > Branch Admin > Principal > Coordinator. The junior rating
+is kept (it is still an audit record) but does not enter the score.
+
+**6. Performance is a plain average.** No weights. A KPI's score for a period is
+its rating out of 10; a staff member's overall is the plain average of their KPI
+scores — monthly overall over that month's KPIs, **yearly overall** over the
+academic year.
+
+**7. Rating principals is a School Admin setting.**
+
+> *Mark principals' progress?* **Yes / No**. If Yes, *who rates them* — select all
+> that apply: **School Admin** (default), **the Principal themselves**, **Branch
+> Admin**.
+
+With *No*, principals carry no KPIs to rate. With the Principal selected, a
+principal self-assesses; rule 5 still applies, so a School Admin's rating of the
+same KPI outranks the self-rating.
+
+**8. Coordinators.** A coordinator is often a teacher too: when one is set up
+they can be given subjects and made a class teacher like any teacher, **and**
+assigned the teachers they supervise. Which teachers is school policy — a Prep
+coordinator typically oversees the Pre-Nursery, Nursery and KG teachers — so the
+assignment is to **teachers**, at the coordinator's own branch only.
+
+- From **their own portal**, a coordinator sees **everything about their
+  supervised teachers except salary** — and grades each one there.
+- Coordinator KPI rights are **read and update only**: they read the KPIs and
+  enter or change ratings and comments. They cannot create or delete a KPI.
+
+**9. Viewing scores is a separate permission from rating them.** The worked
+example: Finance may be advised to raise a salary when someone's **yearly overall
+is above 80%**, so Finance sees **the yearly overall score only** — never an
+individual monthly KPI, never a comment, and never able to rate.
+
+**10. A staff member sees their own scores**, and **HR sees scores.**
+
+**11. All of it is governed through the existing Permissions matrix**, so a school
+can move who creates, who rates and who views.
 
 ### What that means in this codebase
 
-- **New permission keys need a migration.** Something like `kpis.manage`
-  (define) and `kpis.rate` (score). Per the CLAUDE.md rule, adding them to
-  `PERMISSIONS` without rewriting `role_permissions_permission_check` ships a
-  matrix that 23514s the first time a school saves an override. **`0045` is
-  still the next free migration number.**
+- **Two CHECK constraints, one migration.** A new module key (`staff_kpis`, in
+  `PLATFORM_MODULES`) needs the `school_modules` CHECK rewritten — the file's own
+  docblock names that trap — and new permission keys need
+  `role_permissions_permission_check` rewritten, per the CLAUDE.md rule. Either
+  one missing ships a toggle or a matrix that fails at first save with 23514.
+  **`0045` is still the next free migration number.**
+- **Proposed permission keys, mirroring CRUD plus the view-only score:**
+
+  | Key | Grants | Default holders |
+  | --- | --- | --- |
+  | `kpis.create` | define and edit a KPI | School Admin, Branch Admin, Principal |
+  | `kpis.delete` | delete a KPI | School Admin, Branch Admin, Principal |
+  | `kpis.read` | read KPIs, monthly ratings and comments, within scope | the above, Coordinator, HR manager |
+  | `kpis.update` | enter or change a rating and its comment, within scope | the above, Coordinator |
+  | `kpis.overall` | the yearly overall score **only** | Accountant (Finance), plus everyone holding `kpis.read` |
+
+  A staff member's **own** scores need no key, the way their own payslip needs
+  none. Editing a KPI's *definition* sits with `kpis.create`, not
+  `kpis.update`, so a coordinator's update right never reaches it.
 - **The permission key is not the whole rule.** The creator → target-role table
-  above and the coordinator's branch-and-assignment limit are *scoping* rules, in
-  the same way `payroll.approve` is a key plus "only the teachers and coordinators
-  under your own grades". Enforce them in one server-side resolver, like
+  above, "not each other and not themselves", the principal-rating setting, and
+  the coordinator's supervised-teachers limit are *scoping* rules, in the same
+  way `payroll.approve` is a key plus "only the teachers and coordinators under
+  your own grades". Enforce them in one server-side resolver, like
   `lib/payroll-approval.ts` and `lib/branch-scope.ts` — never only in the form.
+- **The senior-rater rule is a read, not a write.** Store every rating; resolve
+  which one counts when the score is computed. Overwriting a coordinator's rating
+  when a principal rates would destroy the record rule 5 says to keep.
+- **"Everything except salary" is an allow-list, not a filter.** The coordinator's
+  view of a supervised teacher should be built from what it may show (profile,
+  timetable, attendance, leave, lesson plans, results entered) rather than a
+  staff read with payroll columns removed — a later column on `staff` or a new
+  payroll table must not appear on a coordinator's screen by default.
+- **The principal-rating setting is school-level data**, read by the same resolver
+  that decides who may rate. With *No*, principal KPIs are hidden from rating
+  screens rather than deleted, so turning it back on loses nothing.
 - **Branch scope goes through `lib/branch-scope.ts`.** A Branch Admin's and a
   coordinator's reach is one campus.
 - **"Branch Admin" is not a value of `USER_ROLES`** (`db/schema/users.ts`); it is
   the branch-lead toggle from §5bh (`lib/branch-leads.ts`). The target-role list
   must decide how a KPI "for Branch Admin" finds its people.
-- **Coordinator → teacher assignment does not exist.** Nothing today records
-  which teachers a coordinator is responsible for. `principal_assignments` (grades
-  per principal, used by payroll approval) is the nearest pattern: a coordinator
-  covering grades, and a teacher falling under them through `timetable_entries`
-  in those grades. Decide before building (open question 4).
+- **Coordinator → teacher assignment does not exist yet, and is decided now:
+  teacher by teacher.** Nothing today records which teachers a coordinator
+  supervises. Store it as rows (coordinator, teacher, branch), both at the same
+  branch. The setup form may offer "all teachers of Pre-Nursery, Nursery and KG"
+  as a shortcut that fills the list, but what is stored is the teachers — school
+  policy, not the grade, decides. A coordinator's own subjects and class-teacher
+  role use the existing teacher paths unchanged. **Check which portal a
+  coordinator signs into** (`middleware.ts`) before placing the grading screen.
 - **"KPI" is already a word in this product** — the setup panel's per-fee-head
   KPIs (§5be) and the dashboard KPI tiles. Name the tables `staff_kpis`,
   `staff_kpi_ratings`, and the screen *Staff performance*, so a grep for KPI
@@ -12744,23 +12824,24 @@ shipped — the film must not go out before the sprint does.
   dashboard shape (`SkeletonStatTiles` + `SkeletonTable`), and the rating grid
   saves with a visible pending state.
 
-### Open questions — answer before the migration
+### The six questions, answered 2026-09-15
 
-1. **Annual KPIs: who rates them, when, and on what scale?** The requirement says
-   the four roles rate *monthly* KPIs 1–10 and says nothing about rating annual
-   ones.
-2. **Two raters, one month.** If the principal and the coordinator both rate
-   Teacher 1's September punctuality, is the score the mean, the latest, or the
-   more senior rater's?
-3. **The roll-up.** Is overall performance the plain mean of every KPI's
-   percentage, or can a KPI carry a weight? Over which window — this month, the
-   academic year to date?
-4. **Coordinator assignment.** By grade (like `principal_assignments`), by
-   section, or teacher by teacher?
-5. **Who sees a score.** Does a teacher see their own performance? Does HR?
-6. **Can a Branch Admin or Principal rate the other** (both hold rating rights
-   and create KPIs for "every other role"), and can a School Admin rate a
-   teacher directly?
+| # | Question | Answer |
+| --- | --- | --- |
+| 1 | Annual KPIs — scale? | Same 1–10 as monthly |
+| 2 | Two raters, one period? | The senior rater's score counts |
+| 3 | Roll-up? | Plain average, no weights |
+| 4 | Coordinator assignment? | Teacher by teacher, at their branch; coordinator sees all but salary and grades from their portal (rule 8) |
+| 5 | Own score, HR? | Yes and yes; Finance sees the yearly overall only (rules 9–10) |
+| 6 | Branch Admin ↔ Principal, School Admin → teacher? | School Admin creates for every role; BA and Principal not for each other or themselves; principals' raters are a School Admin setting (rules 3, 7) |
+
+### Still to confirm — small, but they change the resolver
+
+1. **Branch Admin vs Principal seniority.** Rule 5 as written ranks Branch Admin
+   above Principal, but rule 3 treats them as peers. If both rate the same
+   teacher's KPI, whose counts?
+2. **Who rates a Branch Admin?** The setting in rule 7 covers principals only.
+   The assumption is School Admin alone, with no self-assessment.
 
 ---
 
