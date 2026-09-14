@@ -4,8 +4,18 @@
 resume without re-deriving context. Updated at the end of every development
 step, before the session ends.
 
-**Last updated:** 2026-09-13 (**Every portal's home loader lives in a `(home)`
-route group — §5bz.**)
+**Last updated:** 2026-09-15 (**Staff KPIs and performance — specified, not
+built. The next sprint — §5ca.**)
+
+📋 **The next sprint is the staff KPI calculator.** School Admin, Branch Admin and
+Principal define KPIs per role, monthly or annual; the four rating roles score
+monthly KPIs 1–10; the scores roll up to one performance figure per staff
+member. Nothing is built. The spec, the scoping rules and six open questions are
+in §5ca — **answer the questions before writing the migration.** The product
+film's script already presents it as shipped.
+
+Previously: **Every portal's home loader lives in a `(home)` route group —
+§5bz.**
 
 🔴 **A root `loading.tsx` beside a root `page.tsx` wraps every sibling route.**
 The admin, teacher, student and super-admin dashboards and `/apply` each did,
@@ -12659,6 +12669,98 @@ days, per person, with the date in hand.
    `lib/payroll-approval.ts` now has and the register does not call.
 5. **The bell's `href` is a fixed map of four routes.** A fifth portal would
    need a line in `noticeHrefFor`.
+
+---
+
+## 5ca. Staff KPIs and performance — specified, not built — 2026-09-15
+
+**Not built. Scheduled by the product owner as the next sprint.** No code, no
+migration. This section is the requirement as given, so the sprint starts from
+it rather than from memory. Sprint number is assigned when it starts —
+`SPRINTS.md` numbering has drifted from the shipped sprints (its Sprint 31 is
+Events & calendar; the shipped Sprint 31 was the import sample sheet).
+
+### Why it exists
+
+The buyer is the school owner or principal, and the question they cannot answer
+today is *which of my staff are doing their job well*. The answer lives in
+feelings and WhatsApp groups. A KPI calculator turns it into an accountability
+matrix: every role has written expectations, every month somebody accountable
+scores them, and every staff member ends with one performance figure. It is the
+headline of the product film's revised script (2026-09-15), which presents it as
+shipped — the film must not go out before the sprint does.
+
+### The requirement, in the product owner's terms
+
+1. **A KPI** belongs to a **role** (not a person), has a name (e.g.
+   *Punctuality*), and a **period: monthly or annual**.
+2. **Who may define KPIs for whom:**
+
+   | Creator | May define KPIs for |
+   | --- | --- |
+   | School Admin | Branch Admin, Principal |
+   | Branch Admin, Principal | every other staff role — vice principal, coordinator, teacher, HR manager, accountant, marketing |
+
+3. **Who may rate**, for monthly KPIs: School Admin, Branch Admin, Principal and
+   Coordinator. A rating is an integer **1–10** against one KPI, one staff
+   member, one month.
+4. **A coordinator rates only teachers assigned to them, at their own branch.**
+5. **Performance** = the ratings rolled up per staff member. Worked example: a
+   principal defines *Punctuality* for Teacher; Teacher 1 is on time every day;
+   the coordinator rates September 10 → Punctuality **10/10 = 100%**.
+6. **All of it is governed through the existing Permissions matrix**, so a school
+   can move who creates and who rates.
+
+### What that means in this codebase
+
+- **New permission keys need a migration.** Something like `kpis.manage`
+  (define) and `kpis.rate` (score). Per the CLAUDE.md rule, adding them to
+  `PERMISSIONS` without rewriting `role_permissions_permission_check` ships a
+  matrix that 23514s the first time a school saves an override. **`0045` is
+  still the next free migration number.**
+- **The permission key is not the whole rule.** The creator → target-role table
+  above and the coordinator's branch-and-assignment limit are *scoping* rules, in
+  the same way `payroll.approve` is a key plus "only the teachers and coordinators
+  under your own grades". Enforce them in one server-side resolver, like
+  `lib/payroll-approval.ts` and `lib/branch-scope.ts` — never only in the form.
+- **Branch scope goes through `lib/branch-scope.ts`.** A Branch Admin's and a
+  coordinator's reach is one campus.
+- **"Branch Admin" is not a value of `USER_ROLES`** (`db/schema/users.ts`); it is
+  the branch-lead toggle from §5bh (`lib/branch-leads.ts`). The target-role list
+  must decide how a KPI "for Branch Admin" finds its people.
+- **Coordinator → teacher assignment does not exist.** Nothing today records
+  which teachers a coordinator is responsible for. `principal_assignments` (grades
+  per principal, used by payroll approval) is the nearest pattern: a coordinator
+  covering grades, and a teacher falling under them through `timetable_entries`
+  in those grades. Decide before building (open question 4).
+- **"KPI" is already a word in this product** — the setup panel's per-fee-head
+  KPIs (§5be) and the dashboard KPI tiles. Name the tables `staff_kpis`,
+  `staff_kpi_ratings`, and the screen *Staff performance*, so a grep for KPI
+  does not return three unrelated features.
+- **A rating is an audit record.** Who rated, when, and the value. A later change
+  should keep the earlier value (append or version), because a disputed appraisal
+  is asked about months later — the same argument the ledger rule makes.
+- **Loaders and pending states** per CLAUDE.md: the performance screen is a
+  dashboard shape (`SkeletonStatTiles` + `SkeletonTable`), and the rating grid
+  saves with a visible pending state.
+
+### Open questions — answer before the migration
+
+1. **Annual KPIs: who rates them, when, and on what scale?** The requirement says
+   the four roles rate *monthly* KPIs 1–10 and says nothing about rating annual
+   ones.
+2. **Two raters, one month.** If the principal and the coordinator both rate
+   Teacher 1's September punctuality, is the score the mean, the latest, or the
+   more senior rater's?
+3. **The roll-up.** Is overall performance the plain mean of every KPI's
+   percentage, or can a KPI carry a weight? Over which window — this month, the
+   academic year to date?
+4. **Coordinator assignment.** By grade (like `principal_assignments`), by
+   section, or teacher by teacher?
+5. **Who sees a score.** Does a teacher see their own performance? Does HR?
+6. **Can a Branch Admin or Principal rate the other** (both hold rating rights
+   and create KPIs for "every other role"), and can a School Admin rate a
+   teacher directly?
 
 ---
 
