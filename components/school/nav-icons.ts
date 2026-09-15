@@ -23,6 +23,7 @@ import {
   ScrollText,
   Settings,
   Sliders,
+  TrendingUp,
   UserPlus,
   Users,
   Wallet,
@@ -115,6 +116,9 @@ export const NAV_ICONS = {
   // *tells us* something here, where an announcement is the school telling
   // everybody. Two directions, two glyphs.
   feedback: MessageSquareText,
+
+  // Sprint 32. Staff KPIs and performance.
+  performance: TrendingUp,
 } as const satisfies Record<string, LucideIcon>;
 
 export type NavIconName = keyof typeof NAV_ICONS;

@@ -95,6 +95,34 @@ export function AnnouncementManager({
 }: AnnouncementManagerProps) {
   const router = useRouter();
 
+  /*
+   * Sprint 32 — the list the screen draws is local state, re-read after every
+   * save, send and discard.
+   *
+   * It used to be the `announcements` prop and nothing else, updated by
+   * `router.refresh()`. On a page reached by client-side navigation that works;
+   * on a page the browser **hard-loaded** — a bookmark, a typed URL, a reload,
+   * which is how every real user arrives — it does nothing at all, so a saved
+   * draft closed the form and left the old list on screen until a manual reload
+   * (STATE.md §5ca, defect 1). `GET /api/school/announcements` calls the same
+   * `listAnnouncements` the page renders with: one implementation, two callers.
+   */
+  const [rows, setRows] = useState<readonly AnnouncementRowView[]>(announcements);
+
+  const reloadList = async (): Promise<void> => {
+    try {
+      const payload = await schoolFetch<{ announcements: AnnouncementRowView[] }>(
+        '/api/school/announcements',
+      );
+      setRows(payload.announcements);
+    } catch {
+      setError('That was saved, but the list could not be re-read. Reload the page to see it.');
+    }
+    // Best-effort, for chrome fed by the server render (the notice bell). The
+    // list above no longer depends on it.
+    router.refresh(); // refresh: also-updated-locally
+  };
+
   const [isOpen, setIsOpen] = useState(false);
   const [title, setTitle] = useState('');
   const [body, setBody] = useState('');
@@ -173,7 +201,7 @@ export function AnnouncementManager({
 
       setIsOpen(false);
       reset();
-      router.refresh();
+      await reloadList();
     } catch (caught) {
       setError(schoolErrorMessage(caught, 'The announcement could not be saved.'));
     } finally {
@@ -223,7 +251,7 @@ export function AnnouncementManager({
       }
 
       setSendNotice(`${parts.join(' · ')}.`);
-      router.refresh();
+      await reloadList();
     } catch (caught) {
       setError(schoolErrorMessage(caught, 'It could not be sent.'));
     } finally {
@@ -239,7 +267,7 @@ export function AnnouncementManager({
 
     try {
       await schoolFetch(`/api/school/announcements/${row.id}`, { method: 'DELETE' });
-      router.refresh();
+      await reloadList();
     } catch (caught) {
       setError(schoolErrorMessage(caught, 'It could not be discarded.'));
     } finally {
@@ -387,14 +415,14 @@ export function AnnouncementManager({
         </div>
       ) : null}
 
-      {announcements.length === 0 ? (
+      {rows.length === 0 ? (
         <p className="text-sm text-ink-muted">
           Nothing written yet. An announcement reaches the notice board on every
           portal it is addressed to, and optionally people&rsquo;s email.
         </p>
       ) : (
         <ul className="space-y-3">
-          {announcements.map((row) => (
+          {rows.map((row) => (
             <li
               key={row.id}
               className="rounded-card border border-line bg-surface-raised p-4"

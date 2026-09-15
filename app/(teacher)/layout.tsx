@@ -87,7 +87,8 @@ export default async function TeacherLayout({ children }: { children: ReactNode 
    * portal of four, so a school with it unset showed teachers, parents and
    * pupils an inbox their own administrators could not see.
    */
-  const chatEnabled = (await getModuleFlags(locationId)).chat;
+  const moduleFlags = await getModuleFlags(locationId);
+  const chatEnabled = moduleFlags.chat;
 
   return (
     <div style={brandStyle} className="bg-brand-background text-brand-text">
@@ -110,6 +111,7 @@ export default async function TeacherLayout({ children }: { children: ReactNode 
             classTeacherSections.length > 0,
             unreadChats,
             chatEnabled,
+            moduleFlags.staff_kpis,
           )}
           ariaLabel="Teacher navigation"
           drawerTitle={schoolName}

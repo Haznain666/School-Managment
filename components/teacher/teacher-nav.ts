@@ -35,6 +35,8 @@ export function teacherNav(
   isClassTeacher = false,
   unreadChats = 0,
   chatEnabled = true,
+  /** Sprint 32: the `staff_kpis` module flag. Their own scores, when it is on. */
+  kpisEnabled = false,
 ): PortalNavItem[] {
   return [
     { label: 'My Dashboard', href: '/teacher', icon: 'dashboard' },
@@ -78,6 +80,11 @@ export function teacherNav(
     },
     // Their own record, at the bottom because it is not the job — it is the
     // two things a teacher previously had to walk to the office to ask for.
+    ...(kpisEnabled
+      ? ([
+          { label: 'My Performance', href: '/teacher/performance', icon: 'performance' },
+        ] satisfies PortalNavItem[])
+      : []),
     { label: 'My Payslips', href: '/teacher/payslips', icon: 'payroll' },
     { label: 'My Leave', href: '/teacher/leave', icon: 'leave' },
   ];

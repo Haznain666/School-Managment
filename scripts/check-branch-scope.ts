@@ -195,7 +195,10 @@ ok(
 
 if (checkClause !== null) {
   const inMigration = new Set(
-    [...checkClause[1]!.matchAll(/'([a-z.]+)'/g)].map((match) => match[1]!),
+    // `_` as well as `.`: Sprint 32's `kpis.rate.vice_principal` and
+    // `kpis.rate.hr_manager` were the first keys with one, and a pattern
+    // without it reported them missing from a CHECK that names them.
+    [...checkClause[1]!.matchAll(/'([a-z_.]+)'/g)].map((match) => match[1]!),
   );
 
   const missing = PERMISSIONS.filter((permission) => !inMigration.has(permission));
