@@ -2,7 +2,7 @@ import 'server-only';
 
 import { and, eq } from 'drizzle-orm';
 
-import { grantRankFor, type GrantScopeType } from '@/db/schema/chat-grants';
+import { GRANT_RANKS, grantRankFor, type GrantScopeType } from '@/db/schema/chat-grants';
 import { grades } from '@/db/schema/grades';
 import { sections } from '@/db/schema/sections';
 import { studentEnrollments } from '@/db/schema/student-enrollments';
@@ -28,15 +28,21 @@ import { db } from './drizzle';
  * however the screen obtained it.
  *
  * ── Banning a person is not a teacher's decision ─────────────────────────
- * A `deny` over a `school_user` — the shape a parent ban takes — needs rank 60,
- * which is a vice principal and up. A teacher in the middle of an argument with
- * a parent is the last person who should be able to end it unilaterally, and
- * making her escalate is the point rather than a limitation. She can still
- * close her own class opening, which is what she actually needs.
+ * A `deny` over a `school_user` — the shape a parent ban takes — needs the
+ * Branch Admin's rank or higher: every head, and nobody below. A teacher in the
+ * middle of an argument with a parent is the last person who should be able to
+ * end it unilaterally, and making her escalate is the point rather than a
+ * limitation. She can still close her own class opening, which is what she
+ * actually needs.
+ *
+ * The threshold is tied to `GRANT_RANKS.branch_admin` rather than written as a
+ * number. When the ranks were aligned to KPI seniority the Branch Admin moved
+ * below the Vice Principal; a literal 60 would have silently taken the power to
+ * ban away from every Branch Admin.
  */
 
-/** The rank required to ban a named person from chat. Vice principal and up. */
-const RANK_TO_BAN_A_PERSON = 60;
+/** The rank required to ban a named person from chat: a Branch Admin and up. */
+const RANK_TO_BAN_A_PERSON = GRANT_RANKS.branch_admin;
 
 /** Roles whose reach is the whole school rather than their own timetable. */
 const SCHOOL_WIDE_ROLES: readonly string[] = [
@@ -55,7 +61,7 @@ export async function grantScopeProblem(
   const rank = grantRankFor(auth.role);
 
   if (scopeType === 'school_user' && rank < RANK_TO_BAN_A_PERSON) {
-    return 'Only a vice principal or above can turn chat off for a named person. Ask a head to do it.';
+    return 'Only a branch admin, vice principal, principal or school admin can turn chat off for a named person. Ask a head to do it.';
   }
 
   if (SCHOOL_WIDE_ROLES.includes(auth.role)) {
