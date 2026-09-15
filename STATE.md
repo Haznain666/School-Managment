@@ -8,7 +8,15 @@ step, before the session ends.
 shipped: merged (PR #88, `e7692ab`), migration `0045` applied and proved, QA'd in
 a browser. §5cc.** Spec §5ca. Film screens and Askari demo data — §5cb. **KPI
 demo data and the film's KPI scene — §5cd.** **Next sprint: the stale-list fix.
-Payroll vs KPI principals is waiting on the product owner.**)
+Payroll vs KPI principals is waiting on the product owner.** 2026-09-16: **chat
+grant ranks aligned to KPI seniority — §5ce.**)
+
+✅ **One seniority order across the product (2026-09-16).** Chat grant ranks now
+follow KPI rating seniority: School Admin 100 > Principal 80 > Vice Principal
+60 > **Branch Admin 50** (was 80, equal to Principal) > Coordinator 40 >
+Teacher 20. A Branch Admin can still ban a named person — the threshold is now
+tied to their rank — but can no longer lift a Principal's or Vice Principal's
+ban. `check-branch-scope` fails if the two orders ever drift again. §5ce.
 
 ✅ **Sprint 32 is built, merged, migrated and browser-QA'd.** Staff KPIs are a
 paid module (`staff_kpis`). **`0046` is the next free migration number.** Every
@@ -12726,6 +12734,71 @@ days, per person, with the date in hand.
    need a line in `noticeHrefFor`.
 
 ---
+
+## 5ce. Chat grant ranks aligned to KPI seniority — 2026-09-16
+
+Not a sprint. Asked for by the product owner after noticing SchoolHub had two
+seniority orders that disagreed. **No migration.**
+
+### The disagreement
+
+| Role | KPI rating seniority (`RATER_SENIORITY`, Sprint 32) | Chat grant rank before (`GRANT_RANKS`, Sprint 24) | Chat grant rank now |
+| --- | --- | --- | --- |
+| School Admin | 5 | 100 | 100 |
+| Principal | 4 | 80 | 80 |
+| Vice Principal | 3 | 60 | 60 |
+| Branch Admin | 2 | **80** — equal to Principal, above Vice Principal | **50** |
+| Coordinator | 1 | 40 | 40 |
+| Teacher | — | 20 | 20 |
+
+Chat ranks decide *whose word overrides whose*: an allow cannot beat a deny set
+at a higher rank, and a ban cannot be revoked by a lower rank. Under the old
+ranks a Branch Admin could lift a Vice Principal's ban and tie with a Principal.
+
+### What changed
+
+- `db/schema/chat-grants.ts` — `branch_admin: 50`, plus a docblock naming
+  `RATER_SENIORITY` as the order this must follow.
+- `lib/chat-grant-scope.ts` — `RANK_TO_BAN_A_PERSON` is now
+  `GRANT_RANKS.branch_admin`, not the literal `60`. **A literal would have
+  silently taken the power to ban a named person away from every Branch Admin**,
+  since 50 < 60. The set of roles who can ban is unchanged: the four heads. The
+  refusal now names them: *"Only a branch admin, vice principal, principal or
+  school admin can turn chat off for a named person."*
+- `scripts/check-branch-scope.ts` (in CI) — new section: the heads' order in
+  `GRANT_RANKS` must equal `RATER_SENIORITY`'s, no two heads may share a chat
+  rank, a teacher ranks below a coordinator, the ban threshold is tied to the
+  Branch Admin's rank in source, and exactly the four heads can ban. **Proved by
+  breaking it:** setting `branch_admin` back to 80 failed three assertions;
+  restored, 1,673 pass.
+
+### No data to move
+
+`chat_grants.granted_by_rank` is snapshotted per row, so a rank change only
+affects grants written afterwards. There were **no** `chat_grants` rows at any
+school when this shipped, so nothing issued under the old ranks survives.
+
+### Evidence
+
+- typecheck, lint, all ten CI checks, `check-sprint24` (chat, executed against the
+  schema, 28 ok), `next build` — green.
+- **Local QA** (standalone build on `127.0.0.1:3000` against the live database,
+  Askari Main Campus, emergency links), all 10 steps passed:
+  - `yourRank`: Vice Principal Kamran Baig 60, Branch Admin Wajahat Ali 50,
+    Coordinator Bilal Hussain 40.
+  - Kamran bans parent Aftab Awan → 201.
+  - **Wajahat revokes Kamran's ban → 403** *"That ban was set by the vice
+    principal and only they can lift it."* (allowed before this change).
+  - Wajahat bans Aftab himself → 201 (Branch Admins can still ban).
+  - Bilal bans → 403 with the new wording; Bilal revokes Wajahat's ban → 403.
+  - Kamran revokes both bans → 200, 200.
+
+### Data written to Askari (real, and kept)
+
+Two `chat_grants` rows (`a7df3bc8-…` by the Vice Principal, `6d3ad59b-…` by the
+Branch Admin), **both revoked** — grants are revoked, never deleted, so they stay
+as history. No live ban on anyone. Three emergency tokens minted and consumed
+(Kamran Baig, Wajahat Ali, Bilal Hussain).
 
 ## 5cd. KPI demo data in Askari, and the film's KPI scene — 2026-09-15
 

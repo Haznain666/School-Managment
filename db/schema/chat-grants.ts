@@ -96,12 +96,20 @@ export type GrantEffect = (typeof GRANT_EFFECTS)[number];
  * principal below its own teachers is a school that has misconfigured the one
  * control that protects a parent from being silenced by the person they are
  * complaining about.
+ *
+ * ── One seniority order across the product ───────────────────────────────
+ * The heads follow the same order as KPI rating seniority (`RATER_SENIORITY`
+ * in `lib/kpis.ts`): School Admin > Principal > Vice Principal > Branch Admin >
+ * Coordinator. The product owner set that order for KPIs on 2026-09-15 and
+ * asked for chat to match it; until then a Branch Admin ranked *equal* to a
+ * Principal here and above a Vice Principal, so the two features disagreed
+ * about who outranks whom. `check-branch-scope` asserts the two orders agree.
  */
 export const GRANT_RANKS: Record<UserRole, number> = {
   school_admin: 100,
-  branch_admin: 80,
   principal: 80,
   vice_principal: 60,
+  branch_admin: 50,
   coordinator: 40,
   teacher: 20,
   accountant: 0,

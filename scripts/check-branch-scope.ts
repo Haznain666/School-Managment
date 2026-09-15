@@ -55,6 +55,8 @@ function readFileSync(path: string): string {
 }
 
 import { DEFAULT_ROLE_PERMISSIONS, PERMISSIONS, PERMISSION_GROUPS, PERMISSION_LABELS } from '../lib/permissions';
+import { GRANT_RANKS } from '../db/schema/chat-grants';
+import { RATER_SENIORITY } from '../lib/kpis';
 
 let failures = 0;
 let checks = 0;
@@ -512,9 +514,57 @@ ok(
 
 /* -------------------------------------------------------------------------- */
 
+section('One seniority order — chat grant ranks agree with KPI rating seniority');
+
+/*
+ * The product owner set the heads' order for KPIs on 2026-09-15 (School Admin >
+ * Principal > Vice Principal > Branch Admin > Coordinator) and asked for chat to
+ * match. Before that, chat ranked a Branch Admin equal to a Principal and above
+ * a Vice Principal, and nothing noticed the two features disagreed. These
+ * assertions are what notices next time.
+ */
+{
+  const heads = Object.keys(RATER_SENIORITY) as (keyof typeof GRANT_RANKS)[];
+  const byKpi = [...heads].sort((a, b) => (RATER_SENIORITY[b] ?? 0) - (RATER_SENIORITY[a] ?? 0));
+  const byChat = [...heads].sort((a, b) => GRANT_RANKS[b] - GRANT_RANKS[a]);
+
+  ok(
+    byKpi.join(' > ') === 'school_admin > principal > vice_principal > branch_admin > coordinator',
+    `KPI seniority is the agreed order (got ${byKpi.join(' > ')})`,
+  );
+  ok(
+    byChat.join(' > ') === byKpi.join(' > '),
+    `chat grant ranks order the heads exactly as KPI seniority does (chat: ${byChat.join(' > ')})`,
+  );
+  ok(
+    new Set(heads.map((role) => GRANT_RANKS[role])).size === heads.length,
+    'no two heads share a chat rank — a tie lets either lift the other’s ban',
+  );
+  ok(
+    GRANT_RANKS.teacher < GRANT_RANKS.coordinator,
+    'a teacher ranks below a coordinator in chat',
+  );
+
+  const SCOPE_SOURCE = readFileSync('lib/chat-grant-scope.ts');
+  ok(
+    /const RANK_TO_BAN_A_PERSON = GRANT_RANKS\.branch_admin;/.test(SCOPE_SOURCE),
+    'the rank needed to ban a named person is tied to the Branch Admin’s rank, not a literal',
+  );
+
+  const canBan = (Object.keys(GRANT_RANKS) as (keyof typeof GRANT_RANKS)[])
+    .filter((role) => GRANT_RANKS[role] >= GRANT_RANKS.branch_admin)
+    .sort();
+  ok(
+    canBan.join(',') === 'branch_admin,principal,school_admin,vice_principal',
+    `exactly the four heads may ban a named person from chat (got ${canBan.join(', ')})`,
+  );
+}
+
+/* -------------------------------------------------------------------------- */
+
 console.log(
   failures === 0
-    ? `\nPASS — ${String(checks)} assertions across the catalogue, the resolver, the listings, migration 0035 and ${PERMISSION_CHECK.path}.`
+    ? `\nPASS — ${String(checks)} assertions across the catalogue, the resolver, the listings, migration 0035, ${PERMISSION_CHECK.path} and the chat/KPI seniority order.`
     : `\nFAIL — ${String(failures)} of ${String(checks)} assertions failed.`,
 );
 
