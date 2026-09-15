@@ -7,7 +7,8 @@ step, before the session ends.
 **Last updated:** 2026-09-15 (**Sprint 32 — staff KPIs and performance —
 shipped: merged (PR #88, `e7692ab`), migration `0045` applied and proved, QA'd in
 a browser. §5cc.** Spec §5ca. Film screens and Askari demo data — §5cb. **KPI
-demo data and the film's KPI scene — §5cd.**)
+demo data and the film's KPI scene — §5cd.** **Next sprint: the stale-list fix.
+Payroll vs KPI principals is waiting on the product owner.**)
 
 ✅ **Sprint 32 is built, merged, migrated and browser-QA'd.** Staff KPIs are a
 paid module (`staff_kpis`). **`0046` is the next free migration number.** Every
@@ -29,38 +30,41 @@ the live site stayed on `2d656f2` the whole time, and the Hostinger API answered
 `hosting_listNodeJSBuildsV1` (username `u766134616`, domain
 `schoolhub.codexmill.com`) before assuming nothing ran.
 
-⚠ **Chat defect 2 is still not reproduced.** Playwright's connection closed twice,
-right after hard-loading `/teacher/chat` as a teacher with an empty inbox. No
-message was written either time. §5cc says what to try next.
+⏸ **Chat defect 2 is parked by the product owner (2026-09-15).** A new
+conversation not appearing in the list, on a hard-loaded `/teacher/chat`, was
+never reproduced (§5cc). **Do not work on it until the product owner asks.**
 
 ⚠ **Askari now has `staff_kpis` switched on** (approved by the product owner) and
 carries QA data: one KPI, two ratings and two coordinator links. §5cc.
 
-📋 **The next sprint is the staff KPI calculator — a paid module.** School Admin
-defines KPIs for every role; Branch Admin and Principal for every role except
-each other and themselves. Ratings are 1–10, monthly or annual, with a comment;
-the senior rater's score counts; performance is a plain average. Coordinators
-supervise named teachers and rate them from their own portal. Viewing scores is
-its own permission — Finance sees the yearly overall and nothing else. Nothing is
-built. **The six open questions were answered on 2026-09-15**, and a third pass
-the same day settled seniority (Principal above Branch Admin), who rates whom (a
-School Admin-managed grid), and the multi-principal rules. A fourth pass settled
-that **every teacher has exactly one principal**, derived from the grades they
-teach most, with a principal-requested transfer as the only override; that
-**Branch Admin rates non-teaching staff only**; and that coordinators are rated
-mostly by the Principal. **The spec is complete (2026-09-15):** all six proposed
-defaults were accepted, and a **Vice Principal holds the Principal's rights and
-permissions, except that the Principal rates the Vice Principal and never the
-reverse.** Nothing is left open; the sprint can start from §5ca. The product film's script already
-presents it as shipped.
+📋 **The next sprint is the stale-list fix** (product owner, 2026-09-15). The
+product owner needs it fixed then.
 
-🔴 **The KPI sprint also carries a bug fix: lists that stay stale after a save.**
-On a hard-loaded page, saving or sending an announcement leaves the list
-unchanged until a manual reload — `AnnouncementManager` updates itself with
-`router.refresh()`, which does nothing on a page the browser hard-loaded. That
-pattern has **64 call sites in 41 components**. A second stale list, in chat, has
-a *different and unexplained* cause. Scope and acceptance in §5ca; how both were
-found in §5cb.
+On a hard-loaded page — a bookmark, a typed URL, a reload, which is how every
+real user arrives — `router.refresh()` does nothing. About **35 screens** use it
+as the only way to show a change after a save, so their list stays out of date
+until a manual reload. §5cc item 3 names every one. Sprint 32 fixed
+`AnnouncementManager` alone.
+
+1. **Find the cause first.** Hard-load an affected screen, call
+   `router.refresh()` and read the RSC request and its response. Suspects: the
+   `?school=` rewrite in `middleware.ts`, the RSC request's headers, or caching.
+   One root cause would fix every screen at once.
+2. **If there is no single cause, fix screen by screen** with the pattern
+   `AnnouncementManager` uses: re-read an endpoint that calls the same query as
+   the page. Never `router.refresh()` alone.
+3. **Add a `check-refresh` guard** that fails on an unexplained
+   `router.refresh()`. Add it to CLAUDE.md's green-build list and to
+   `.github/workflows/ci.yml` together.
+4. **Acceptance:** every screen in §5cc item 3 checked on a **hard-loaded** page.
+   A test that clicks its way there passes the broken build.
+
+⏸ **Waiting on the product owner: payroll approval vs KPI principals.** Payroll
+approval covers a teacher by campus *or* grades, so one teacher can have two
+heads. The KPI rule gives each teacher exactly one (§5cc item 4). The product
+owner will brainstorm it, possibly with changes to how the school is
+structured, and decide **before the next sprint starts**. Until then, do not
+change `lib/payroll-approval.ts`, `teacher_principals` or the derivation.
 
 **Demo data written to Askari on 2026-09-15** — one sent announcement and one
 chat thread, both real. §5cb.
