@@ -12798,7 +12798,18 @@ school when this shipped, so nothing issued under the old ranks survives.
 Two `chat_grants` rows (`a7df3bc8-…` by the Vice Principal, `6d3ad59b-…` by the
 Branch Admin), **both revoked** — grants are revoked, never deleted, so they stay
 as history. No live ban on anyone. Three emergency tokens minted and consumed
-(Kamran Baig, Wajahat Ali, Bilal Hussain).
+(Kamran Baig, Wajahat Ali, Bilal Hussain), plus one for the live check below.
+
+### Shipped and verified live
+
+- Merged as `549c007` (PR #93) after CI passed on the PR (typecheck, lint and
+  build, twice).
+- Hostinger's auto-deploy started 19:05:24 UTC. The live origin reported
+  `549c007bd9fb` at 19:09:16, four minutes after the merge.
+- *Verify the live deployment* passed on it (run `35011935031`): cache purged,
+  commit confirmed, smoke test green.
+- **Signed in on the live origin as Branch Admin Wajahat Ali**,
+  `GET /api/school/chat/grants` answers `yourRank: 50` with no live grants.
 
 ## 5cd. KPI demo data in Askari, and the film's KPI scene — 2026-09-15
 
