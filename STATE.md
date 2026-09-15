@@ -14,13 +14,20 @@ paid module (`staff_kpis`). **`0046` is the next free migration number.** Every
 rule in §5ca is enforced server-side in `lib/kpi-access.ts`, and every
 refusal was checked by attempt against a real session. §5cc.
 
-🔴 **The deploy was not observed.** At 13:45 UTC the live origin still reported
-build `2d656f2` (the previous `main`), 45 minutes after the merge. The Hostinger
-API answered 500, 503 or a timeout on every call, and GitHub shows only a Vercel
-status. QA therefore ran on the merged code as a **local standalone build
-against the live database**. First thing next session: read
-`/api/internal/build` in a browser. If it is still `2d656f2`, redeploy from
-hPanel and then run *Verify the live deployment*.
+✅ **Sprint 32 is live, and the deploy was observed.** Live build `d5d7fc82f6a2`
+(the PR #90 merge, which contains Sprint 32), server started 15:22 UTC on
+2026-09-15. *Verify the live deployment* passed on it — cache purged, commit
+confirmed, smoke test green (run `34996126614`). Signed in on the live origin as
+Imran Qureshi, `/dashboard/performance` renders the board with Askari's KPI data
+(40 staff, 10 rated, 84%).
+
+⚠ **Why it looked stuck for three hours.** Hostinger's build for the Sprint 32
+push was created 12:22 UTC and sat until it was marked **failed** at 15:18 —
+the live site stayed on `2d656f2` the whole time, and the Hostinger API answered
+500/503 while it did. The next push (PR #90) started a fresh auto-deploy at
+15:04 that completed at 15:21. If a deploy seems missing, list the builds with
+`hosting_listNodeJSBuildsV1` (username `u766134616`, domain
+`schoolhub.codexmill.com`) before assuming nothing ran.
 
 ⚠ **Chat defect 2 is still not reproduced.** Playwright's connection closed twice,
 right after hard-loading `/teacher/chat` as a teacher with an empty inbox. No
@@ -12891,7 +12898,10 @@ Release notes: `release-notes/RELEASE-NOTES-SPRINT-32.md`. Test cases:
 
 ### Still open
 
-1. **Deploy not observed.** See the banner at the top of this file.
+1. ~~**Deploy not observed.**~~ **Observed and verified** — live on
+   `d5d7fc82f6a2` since 15:22 UTC; see the banner at the top of this file. One
+   more emergency token was minted and consumed for the live check (Imran
+   Qureshi).
 2. **Chat defect 2 is not reproduced.** The Playwright MCP connection closed twice,
    within seconds of hard-loading `/teacher/chat` as Amna Zaheer, before
    *New conversation* was pressed. Suspects, none tested: the push-permission
