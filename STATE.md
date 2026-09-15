@@ -6,7 +6,8 @@ step, before the session ends.
 
 **Last updated:** 2026-09-15 (**Sprint 32 — staff KPIs and performance —
 shipped: merged (PR #88, `e7692ab`), migration `0045` applied and proved, QA'd in
-a browser. §5cc.** Spec §5ca. Film screens and Askari demo data — §5cb.)
+a browser. §5cc.** Spec §5ca. Film screens and Askari demo data — §5cb. **KPI
+demo data and the film's KPI scene — §5cd.**)
 
 ✅ **Sprint 32 is built, merged, migrated and browser-QA'd.** Staff KPIs are a
 paid module (`staff_kpis`). **`0046` is the next free migration number.** Every
@@ -12715,6 +12716,61 @@ days, per person, with the date in hand.
 
 ---
 
+## 5cd. KPI demo data in Askari, and the film's KPI scene — 2026-09-15
+
+Not a sprint. **No code changed.** Follows §5cb and §5cc: the film's KPI scene
+had a stand-in (the staff list), and Sprint 32 made the real screen possible.
+
+### The film now has nine scenes
+
+The product owner restructured it in Synthesia. **The KPI scene is scene 7**
+(*"And for the first time, good work gets NOTICED … Your best people get
+recognised. The ones who are struggling get help early."*). The parents line
+moved to its own scene. Scene numbers in §5cb predate this and no longer match.
+
+### The screens came from a local build, because the live site is still behind
+
+At 14:05 UTC the live origin still reported build `2d656f2`, the last `main`
+before Sprint 32 (read `/api/internal/build` in Playwright). The Hostinger API
+answered 500 or 503 to every call. §5cc's deploy banner still stands. The KPI
+screens were captured the way §5cc's QA was: **a standalone build of `eaf54e8` on
+`127.0.0.1:3000` against the live database**, signed in with emergency links.
+Real screens, real data, not the live origin.
+
+⚠ **The worktree `node_modules` stub also breaks the standalone *server*, not
+only the second build.** `server.js` resolved `next` from
+`.claude/worktrees/node_modules`, the partial copy `next build` writes, and died
+with `Cannot find module './cpu-profile'`. Delete the stub **after** building as
+well as before; the server then resolves the real install at the repository
+root. Also, `cp -r public` fails: this repository has no `public` directory.
+
+### Demo data written to Askari — real, and ratings are append-only
+
+Approved by the product owner on 2026-09-15 for the film. Entered through the
+app's own API as **Imran Qureshi** (Principal, Main Campus, Primary):
+
+| What | Detail |
+| --- | --- |
+| `staff_kpis` +3 | *Lesson plans on time*, *Class results*, *Parent communication* — Teacher, monthly, shared. With §5cc's *Punctuality* that makes four |
+| `staff_kpi_ratings` +39 | Sep 2026, all by Imran, scores 5–10, most with a one-line comment. Ten of his teachers: Adnan Sheikh (his existing Punctuality 10 kept), Amna Zaheer, Bushra Latif, Erum Shahid, Fahad Nawaz, Hira Sultan, Junaid Alam (the struggling one, 5–6), Komal Riaz, Omar Farooq, Rida Naveed |
+| Board as Imran | 40 staff in view, 10 rated for Sep 2026, average monthly and yearly overall **84%**; Adnan 90%, Bushra 95%, Erum 75%, Fahad 70% |
+| Emergency tokens | 2 minted and consumed (Imran, Adnan), via `QA_BASE_URL=http://127.0.0.1:3000` |
+
+Ratings cannot be updated or deleted (§5cc's trigger). A rebuild of the Askari
+estate (§5bv) is the only thing that removes them.
+
+### The scene 7 screen
+
+`scene7-kpi-performance.png` (1920×1080, `composite.py`): Imran's **Staff
+performance** board on desktop, with Adnan Sheikh's **My Performance** on a
+phone (90%, each KPI with the principal's comment). The single screenshots sit
+beside it in `Desktop\SchoolHub video screens\`, plus the rating sheet for
+Adnan as an alternative shot.
+
+**Not yet placed in Synthesia.** Synthesia ignores programmatic uploads (§5cb),
+so the product owner uploads the file; placing it is then a *Replace image* on
+scene 7's image layer. The video has not been regenerated.
+
 ## 5cc. Sprint 32 — staff KPIs and performance — 2026-09-15
 
 Built from §5ca. Merged as `e7692ab` (PR #88). Migration `0045` applied.
@@ -12869,7 +12925,10 @@ Release notes: `release-notes/RELEASE-NOTES-SPRINT-32.md`. Test cases:
 4. **Payroll approval and KPIs disagree** about a teacher timetabled across two
    divisions, as §5ca predicted. Payroll still unions campus and grades. No
    decision has been made.
-5. **Film scene 6** can now show the real Staff performance screen on Askari.
+5. ~~**Film scene 6** can now show the real Staff performance screen on Askari.~~
+   **Done — it is scene 7 now** (the film has nine scenes). The screen is built
+   and Askari has KPI demo data to show; placing it in Synthesia waits on the
+   product owner's upload. §5cd.
 
 ---
 
