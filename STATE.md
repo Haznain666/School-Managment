@@ -15,9 +15,12 @@ supervise named teachers and rate them from their own portal. Viewing scores is
 its own permission — Finance sees the yearly overall and nothing else. Nothing is
 built. **The six open questions were answered on 2026-09-15**, and a third pass
 the same day settled seniority (Principal above Branch Admin), who rates whom (a
-School Admin-managed grid; Branch Admin does not rate teachers by default), and
-the multi-principal limit (a principal rates only teachers of their own grades).
-Three small confirmations remain at the end of §5ca. The product film's script already
+School Admin-managed grid), and the multi-principal rules. A fourth pass settled
+that **every teacher has exactly one principal**, derived from the grades they
+teach most, with a principal-requested transfer as the only override; that
+**Branch Admin rates non-teaching staff only**; and that coordinators are rated
+mostly by the Principal. Six confirmations, each with a proposed default, remain
+at the end of §5ca. The product film's script already
 presents it as shipped.
 
 Previously: **Every portal's home loader lives in a `(home)` route group —
@@ -12751,17 +12754,32 @@ it.
 
 **7a. Who rates whom is a grid in the Permissions section, managed by the School
 Admin.** Every other pairing — which rater role may rate which target role — is
-set there, not hard-coded. **By default a Branch Admin cannot rate teachers**;
-the School Admin can grant it.
+set there, not hard-coded. Defaults:
 
-**7b. At a school with more than one principal, a principal rates only the
-teachers who teach the grades under that principal.** Not the campus — the
-grades. How a teacher reaches a principal today is described under *What that
-means in this codebase*.
+- **Branch Admin rates non-teaching staff only** — never teachers.
+- **Coordinators** count as admin (non-teaching) staff, so a Branch Admin may
+  rate them, but because the work is teaching they are **mostly rated by the
+  Principal** — who is senior, so where both rate, the Principal's score counts.
+- Accountants, HR and marketing are non-teaching: Branch Admin rates them.
+- **No Branch Admin and several principals → nobody below School Admin rates
+  non-teaching staff.** Principals do not pick them up.
+
+**7b. Every teacher has exactly one principal.** At a school with more than one
+principal, the system decides which by **the grades the teacher teaches most**,
+and a principal rates only the teachers who fall under them.
+
+- A principal may **request a transfer** of a teacher to or from another
+  principal. That is the only way to override the derived answer.
+- However it is reached, the answer is always one principal — never two, never
+  shared.
+- How a teacher reaches a principal today, and what has to change, is under
+  *What that means in this codebase*.
 
 **8. Coordinators.** A coordinator is often a teacher too: when one is set up
 they can be given subjects and made a class teacher like any teacher, **and**
-assigned the teachers they supervise. Which teachers is school policy — a Prep
+assigned the teachers they supervise. **The assignment — teachers to a
+coordinator, or a coordinator to teachers — is made by the Principal only**, and
+only at a school that has the coordinator role in use. Which teachers is school policy — a Prep
 coordinator typically oversees the Pre-Nursery, Nursery and KG teachers — so the
 assignment is to **teachers**, at the coordinator's own branch only.
 
@@ -12805,9 +12823,13 @@ can move who creates, who rates and who views.
   | Key | Default raters |
   | --- | --- |
   | `kpis.rate.teacher` | School Admin, Principal, Coordinator — **not Branch Admin** |
-  | `kpis.rate.coordinator` | School Admin, Principal, Branch Admin |
-  | `kpis.rate.vice_principal` | School Admin, Principal, Branch Admin |
-  | `kpis.rate.hr_manager`, `kpis.rate.accountant`, `kpis.rate.marketing` | School Admin, Principal, Branch Admin |
+  | `kpis.rate.coordinator` | School Admin, Principal (counts, being senior), Branch Admin |
+  | `kpis.rate.vice_principal` | School Admin, Principal *(proposed — confirm)* |
+  | `kpis.rate.hr_manager`, `kpis.rate.accountant`, `kpis.rate.marketing` | School Admin, Branch Admin |
+
+  The grid is the default; rule 7a's "no Branch Admin and several principals"
+  case is a resolver rule on top of it, not a grid entry, because it depends on
+  who the school has appointed rather than on what a role may do.
 
   **Principals and branch admins get no rate key** — rule 7's two settings are
   the only answer to who rates them. A key beside a setting could disagree with
@@ -12844,27 +12866,45 @@ can move who creates, who rates and who views.
   points at `staff.id` — two columns on two tables, and reading one into the
   other silently matches nothing (`gradesByStaff`, `lib/payroll-approval.ts`).
   **Payroll approval covers a person when the campus matches *or* the grades
-  intersect.** Rule 7b is grades only, so the KPI resolver must not reuse
-  `resolveRunApprovers` as it stands: the campus axis would let an O-Levels
-  principal rate a Matric teacher on the same campus. Reuse `gradesByStaff` for
-  the teacher's side and **`resolvePrincipalScope`** for the principal's: a
-  teacher is reachable when one of their grades passes `scopeAdmitsGrade` **and**
-  that grade's `branch_id` passes `scopeAdmitsBranch`. Both halves matter,
+  intersect**, so today one teacher can fall under two principals. Rule 7b says
+  that never happens for KPIs, so the KPI resolver must not reuse
+  `resolveRunApprovers`: it would give a teacher timetabled in Year 8 (Matric)
+  and O1 (O-Levels) two heads, and let an O-Levels head rate a Matric teacher on
+  the same campus.
+- **"The grades they teach most" needs a count, and the count needs a unit.**
+  `gradesByStaff` returns a *set* of grades, which cannot say "most". Count
+  **active `timetable_entries` periods per grade** for the teacher, map each
+  grade to the principal whose `resolvePrincipalScope` admits it, and pick the
+  principal with the most periods. A grade is admitted when it passes
+  `scopeAdmitsGrade` **and** its `branch_id` passes `scopeAdmitsBranch` — both,
   because **an assignment with empty `grade_ids` means *every grade*** in the
-  resolver (`everyGrade` → `gradeIds: null`) — so a campus-wide head reaches
-  every grade *on their campus*, and without the branch half would reach every
-  grade in the school. ⚠ The docblock on `principal_assignments.grade_ids` says
-  empty "reaches no grades"; the resolver and `claimedGrades` both treat it as
-  every class. The code is the behaviour; the docblock is stale.
+  resolver (`everyGrade` → `gradeIds: null`), so a campus-wide head reaches
+  every grade on their campus and, without the branch half, every grade in the
+  school. ⚠ The docblock on `principal_assignments.grade_ids` says empty
+  "reaches no grades"; the resolver and `claimedGrades` both treat it as every
+  class. The code is the behaviour; the docblock is stale.
+- **Store the answer; do not only compute it.** A transfer overrides the
+  derivation, so there must be a row to hold it: one current principal per
+  teacher, with how it was reached (*derived* or *transferred*), since when, and
+  by whose request. Derived rows are recomputed when a timetable or an assignment
+  changes; transferred rows are not (open question 3). A unique index on the
+  teacher among current rows is what makes "one teacher, one principal" a fact
+  and not a habit.
+- **A transfer is a request, so it has a state** — requested, accepted,
+  declined — and the history is kept, for the same reason ratings are.
+- **Payroll approval is not changed by this sprint.** It keeps its union. Note
+  that the two will then disagree about a teacher's principal for anyone
+  timetabled across two divisions; whether payroll should adopt the KPI answer is
+  a later decision, and should be recorded here when made.
 - **Rule 7b must be enforced on the write, not only on the list.**
   `lib/principal-resolver.ts` calls itself *a visibility boundary, not an
   authorization one* — a route that forgets it shows more rows. For ratings that
-  is not good enough: `POST` a rating re-resolves the principal's grades against
-  the teacher's, as `POST /api/school/timetable/entries` re-resolves a section's
-  period structure.
-- **A teacher with no grades is rated by no principal.** No timetable and no
-  class → no grades → no multi-principal head reaches them. Name them on the
-  screen, as payroll names `uncovered`, rather than letting them disappear.
+  is not good enough: `POST` a rating re-reads the teacher's current principal and
+  refuses anyone else, as `POST /api/school/timetable/entries` re-resolves a
+  section's period structure.
+- **A teacher with no timetabled periods has no derived principal.** Name them on
+  the screen, as payroll names `uncovered`, rather than letting them disappear
+  (open question 2 proposes a fallback).
 - **Branch scope goes through `lib/branch-scope.ts`.** A Branch Admin's and a
   coordinator's reach is one campus.
 - **"Branch Admin" is not a value of `USER_ROLES`** (`db/schema/users.ts`); it is
@@ -12904,17 +12944,33 @@ The two earlier confirmations were settled in the third pass: **Principal is
 senior to Branch Admin** (rule 5), and **branch admins have their own rating
 setting** (rule 7).
 
-### Still to confirm — small, but they change the resolver
+The third pass's three were settled in the fourth: **one teacher, one principal**
+(so two principals never rate the same teacher), **Branch Admin rates
+non-teaching staff including coordinators, with the Principal's rating of a
+coordinator counting**, and **with no Branch Admin and several principals,
+non-teaching staff are not rated by principals**.
 
-1. **Two principals, one teacher.** A teacher timetabled in Year 8 (Matric head)
-   and O1 (O-Levels head) is reachable by both, and both are equally senior. If
-   both rate the same KPI, whose counts — the latest, or the mean?
-2. **Branch Admin's default over coordinators.** The requirement says Branch
-   Admin does not rate *teachers* by default; the grid above assumes they *do*
-   rate coordinators and non-teaching staff. Confirm.
-3. **Multi-principal scope for non-teachers.** Rule 7b limits a principal to the
-   teachers of their grades. A coordinator or an accountant has no grades — is a
-   principal's reach over them their campus, or nothing?
+### Still to confirm — each has a proposed default
+
+1. **A tie on "teaches most".** Equal periods under two principals. *Proposed:*
+   the principal of the section they are class teacher of; failing that, the
+   School Admin picks, and it is stored as a transfer.
+2. **No timetabled periods.** *Proposed:* the principal of their class-teacher
+   section; failing that, listed as unassigned for the School Admin.
+3. **Transfers.** Who accepts a request — the other principal, or the School
+   Admin? And does a transferred teacher stay put when their timetable later
+   changes? *Proposed:* the other principal accepts; a transfer sticks until
+   another transfer.
+4. **Principals over non-teaching staff when it is not "no Branch Admin and
+   several principals".** At a one-principal school with no Branch Admin, does
+   the principal rate accountants and HR? *Proposed:* yes.
+5. **Coordinators at a school with several principals and no Branch Admin.**
+   Rule 7a says principals then rate no non-teaching staff, but coordinators are
+   "mostly rated by the Principal". *Proposed:* the coordinator is rated by the
+   principal of the teachers they supervise — which the Principal-only assignment
+   in rule 8 makes a single principal.
+6. **Vice principals.** Not named in the requirement. *Proposed:* teaching-side,
+   so rated by the Principal, not the Branch Admin.
 
 ---
 
