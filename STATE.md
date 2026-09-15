@@ -19,8 +19,10 @@ School Admin-managed grid), and the multi-principal rules. A fourth pass settled
 that **every teacher has exactly one principal**, derived from the grades they
 teach most, with a principal-requested transfer as the only override; that
 **Branch Admin rates non-teaching staff only**; and that coordinators are rated
-mostly by the Principal. Six confirmations, each with a proposed default, remain
-at the end of §5ca. The product film's script already
+mostly by the Principal. **The spec is complete (2026-09-15):** all six proposed
+defaults were accepted, and a **Vice Principal holds the Principal's rights and
+permissions, except that the Principal rates the Vice Principal and never the
+reverse.** Nothing is left open; the sprint can start from §5ca. The product film's script already
 presents it as shipped.
 
 Previously: **Every portal's home loader lives in a `(home)` route group —
@@ -12720,6 +12722,7 @@ KPIs are a full CRUD resource.
 | --- | --- |
 | School Admin | **every role**, including Principal and Branch Admin |
 | Branch Admin, Principal | every other staff role — **not each other, and not themselves** |
+| Vice Principal | as Principal (rule 7c) — and **not** the Principal, the Branch Admin, or the Vice Principal role |
 | Coordinator | nobody — no create, no delete |
 
 **4. Who rates.** School Admin, Branch Admin, Principal and Coordinator, each
@@ -12729,8 +12732,9 @@ one KPI, one staff member, one period. Worked example: a principal defines
 rates September 10 → Punctuality **10/10 = 100%**.
 
 **5. When two people rate the same thing, the senior rater's score counts.**
-Order: **School Admin > Principal > Branch Admin > Coordinator** (Principal is
-senior to Branch Admin — decided 2026-09-15). The junior rating is kept (it is
+Order: **School Admin > Principal > Vice Principal > Branch Admin > Coordinator**
+(Principal is senior to Branch Admin — decided 2026-09-15; Vice Principal sits
+directly under the Principal because they hold the Principal's rights, rule 7c). The junior rating is kept (it is
 still an audit record) but does not enter the score.
 
 **6. Performance is a plain average.** No weights. A KPI's score for a period is
@@ -12774,6 +12778,19 @@ and a principal rates only the teachers who fall under them.
   shared.
 - How a teacher reaches a principal today, and what has to change, is under
   *What that means in this codebase*.
+
+**7c. A Vice Principal has the same rights and permissions as the Principal —
+with one exception: the Principal rates the Vice Principal, and the Vice
+Principal never rates the Principal.**
+
+- A Vice Principal creates KPIs, rates, and reads scores exactly where their
+  Principal may, and is refused exactly where the Principal is.
+- They are not offered as a rater in the *Mark principals' progress?* setting.
+- Where the Principal and Vice Principal both rate the same person, the
+  Principal's score counts (rule 5).
+- At a school with several principals, a Vice Principal reaches the teachers of
+  the principal they serve — the one-principal rule (7b) is what makes that a
+  single set.
 
 **8. Coordinators.** A coordinator is often a teacher too: when one is set up
 they can be given subjects and made a class teacher like any teacher, **and**
@@ -12822,9 +12839,9 @@ can move who creates, who rates and who views.
 
   | Key | Default raters |
   | --- | --- |
-  | `kpis.rate.teacher` | School Admin, Principal, Coordinator — **not Branch Admin** |
-  | `kpis.rate.coordinator` | School Admin, Principal (counts, being senior), Branch Admin |
-  | `kpis.rate.vice_principal` | School Admin, Principal *(proposed — confirm)* |
+  | `kpis.rate.teacher` | School Admin, Principal, Vice Principal, Coordinator — **not Branch Admin** |
+  | `kpis.rate.coordinator` | School Admin, Principal (counts, being senior), Vice Principal, Branch Admin |
+  | `kpis.rate.vice_principal` | School Admin, Principal — **never the Vice Principal** (rule 7c) |
   | `kpis.rate.hr_manager`, `kpis.rate.accountant`, `kpis.rate.marketing` | School Admin, Branch Admin |
 
   The grid is the default; rule 7a's "no Branch Admin and several principals"
@@ -12950,27 +12967,26 @@ non-teaching staff including coordinators, with the Principal's rating of a
 coordinator counting**, and **with no Branch Admin and several principals,
 non-teaching staff are not rated by principals**.
 
-### Still to confirm — each has a proposed default
+### The fourth pass's confirmations — all accepted 2026-09-15
 
-1. **A tie on "teaches most".** Equal periods under two principals. *Proposed:*
-   the principal of the section they are class teacher of; failing that, the
+Proposed as defaults and accepted by the product owner as written. **Nothing in
+§5ca is open.**
+
+1. **A tie on "teaches most"** (equal periods under two principals): the
+   principal of the section the teacher is class teacher of; failing that, the
    School Admin picks, and it is stored as a transfer.
-2. **No timetabled periods.** *Proposed:* the principal of their class-teacher
-   section; failing that, listed as unassigned for the School Admin.
-3. **Transfers.** Who accepts a request — the other principal, or the School
-   Admin? And does a transferred teacher stay put when their timetable later
-   changes? *Proposed:* the other principal accepts; a transfer sticks until
-   another transfer.
-4. **Principals over non-teaching staff when it is not "no Branch Admin and
-   several principals".** At a one-principal school with no Branch Admin, does
-   the principal rate accountants and HR? *Proposed:* yes.
-5. **Coordinators at a school with several principals and no Branch Admin.**
-   Rule 7a says principals then rate no non-teaching staff, but coordinators are
-   "mostly rated by the Principal". *Proposed:* the coordinator is rated by the
-   principal of the teachers they supervise — which the Principal-only assignment
-   in rule 8 makes a single principal.
-6. **Vice principals.** Not named in the requirement. *Proposed:* teaching-side,
-   so rated by the Principal, not the Branch Admin.
+2. **No timetabled periods:** the principal of their class-teacher section;
+   failing that, listed as unassigned for the School Admin.
+3. **Transfers:** the other principal accepts the request, and a transfer sticks
+   until another transfer — a later timetable change does not undo it.
+4. **One principal and no Branch Admin:** the principal rates accountants, HR
+   and other non-teaching staff. The "principals do not rate non-teaching staff"
+   rule applies only with **several** principals and no Branch Admin.
+5. **Coordinators at a school with several principals and no Branch Admin:**
+   rated by the principal of the teachers they supervise — a single principal,
+   because the Principal-only assignment in rule 8 draws them from one.
+6. **Vice principals:** rated by the Principal, never by the Branch Admin — and
+   extended by the product owner into rule 7c.
 
 ---
 
