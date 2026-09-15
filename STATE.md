@@ -4,9 +4,29 @@
 resume without re-deriving context. Updated at the end of every development
 step, before the session ends.
 
-**Last updated:** 2026-09-15 (**Staff KPIs and performance — specified, not
-built, now also carrying the stale-list bug fix. The next sprint — §5ca.** Film
-screens and Askari demo data — §5cb.)
+**Last updated:** 2026-09-15 (**Sprint 32 — staff KPIs and performance —
+shipped: merged (PR #88, `e7692ab`), migration `0045` applied and proved, QA'd in
+a browser. §5cc.** Spec §5ca. Film screens and Askari demo data — §5cb.)
+
+✅ **Sprint 32 is built, merged, migrated and browser-QA'd.** Staff KPIs are a
+paid module (`staff_kpis`). **`0046` is the next free migration number.** Every
+rule in §5ca is enforced server-side in `lib/kpi-access.ts`, and every
+refusal was checked by attempt against a real session. §5cc.
+
+🔴 **The deploy was not observed.** At 13:45 UTC the live origin still reported
+build `2d656f2` (the previous `main`), 45 minutes after the merge. The Hostinger
+API answered 500, 503 or a timeout on every call, and GitHub shows only a Vercel
+status. QA therefore ran on the merged code as a **local standalone build
+against the live database**. First thing next session: read
+`/api/internal/build` in a browser. If it is still `2d656f2`, redeploy from
+hPanel and then run *Verify the live deployment*.
+
+⚠ **Chat defect 2 is still not reproduced.** Playwright's connection closed twice,
+right after hard-loading `/teacher/chat` as a teacher with an empty inbox. No
+message was written either time. §5cc says what to try next.
+
+⚠ **Askari now has `staff_kpis` switched on** (approved by the product owner) and
+carries QA data: one KPI, two ratings and two coordinator links. §5cc.
 
 📋 **The next sprint is the staff KPI calculator — a paid module.** School Admin
 defines KPIs for every role; Branch Admin and Principal for every role except
@@ -12692,6 +12712,164 @@ days, per person, with the date in hand.
    `lib/payroll-approval.ts` now has and the register does not call.
 5. **The bell's `href` is a fixed map of four routes.** A fifth portal would
    need a line in `noticeHrefFor`.
+
+---
+
+## 5cc. Sprint 32 — staff KPIs and performance — 2026-09-15
+
+Built from §5ca. Merged as `e7692ab` (PR #88). Migration `0045` applied.
+Release notes: `release-notes/RELEASE-NOTES-SPRINT-32.md`. Test cases:
+`test-cases/TEST-CASES-SPRINT-32.md`.
+
+### What shipped
+
+| Piece | Where |
+| --- | --- |
+| Module key `staff_kpis`, 10 `kpis.*` keys (`read`, `create`, `delete`, `overall`, `rate.{teacher,coordinator,vice_principal,hr_manager,accountant,marketing}`) | `lib/platform-modules.ts`, `lib/permissions.ts` |
+| Seven tables: `staff_kpis` (soft delete), `staff_kpi_ratings` (**append-only**, a trigger refuses UPDATE), `staff_kpi_settings`, `coordinator_teachers`, `vice_principal_principals`, `teacher_principals` (partial unique on the current row), `teacher_principal_transfers` | `db/schema/staff-kpis.ts`, `0045` |
+| Pure rules: seniority, `definableTargets`, `countingRating`, `summarise`, `derivePrincipal` | `lib/kpis.ts` |
+| Resolver: `loadKpiContext`, `rateRefusal`, `visibilityOf`, teacher-principal reconciliation | `lib/kpi-access.ts` |
+| Read models shared by pages and routes: board, person sheet, the coordinator's teacher profile (allow-list, no salary), setup | `lib/kpi-board.ts` |
+| 11 routes under `/api/school/kpis` | every route `module: 'staff_kpis'` |
+| Screens: `/dashboard/performance` (in an `(overview)` group, per §5bz), `/kpis`, `/staff/[userId]`, `/setup`, `/me`; `/teacher/performance` | sidebar section *Staff performance*; teacher *My Performance* |
+| Stale-list fix: `AnnouncementManager` re-reads `GET /api/school/announcements` after save/send/discard | defect 1 of §5ca |
+
+### Decisions made while building (not in §5ca)
+
+- **The teacher-principal answer is reconciled on read.** `resolveTeacherPrincipals`
+  ends and replaces a stale *derived* row whenever the KPI screens load. That
+  avoids hooking the timetable and assignment routes. *Transferred* and
+  *assigned* rows are left alone. Race-safe: every end is conditional, and every
+  insert is `ON CONFLICT DO NOTHING`.
+- **Specificity decides overlapping assignments.** When an overall head (no
+  grades) and a division head both admit a grade, only the division head gets
+  its periods. Otherwise every teacher would tie with the overall head.
+- **A vice principal's principal is an explicit link**
+  (`vice_principal_principals`), set by the School Admin on Setup. It only
+  matters at a `multiple` school. Without the link a deputy reaches no teachers,
+  and the screen says so.
+- **A KPI has `branch_id`,** nullable, where null means shared. That follows the
+  catalogue convention: a branch admin's KPI belongs to their campus.
+- **Role and period are frozen once anybody is rated** (409). The name and the
+  description can always change. A delete is a soft delete, and its ratings stay
+  in the history as *Deleted KPI*.
+- **A coordinator who supervises nobody** can be rated by **any** principal who
+  reaches their campus, a fallback not covered in §5ca. Where several principals
+  rate that coordinator, the latest rating counts (they share seniority). Once a
+  principal assigns teachers, only that principal's reach applies.
+- **Rule 7's settings are gated on `permissions.manage`.** They belong with
+  whoever owns the grid.
+
+### Defects found before shipping
+
+- **`2026-09-31` in the register query (22008).** The teacher profile bounded a
+  month with `-31`. `check-sprint32` executed the statement and Postgres refused
+  it. It is now bounded by `nextMonthKey`. This was CLAUDE.md's "execute it,
+  don't print it", paying for itself on day one.
+- **`check-branch-scope` could not read a key containing `_`.** Its regex was
+  `'([a-z.]+)'`, so it reported `kpis.rate.vice_principal` and
+  `kpis.rate.hr_manager` as missing from a CHECK that names them. The pattern
+  now allows `_`.
+
+### Evidence
+
+- Green build: typecheck, lint, all ten CI checks, `next build`. CI passed on `e7692ab`.
+- `npm run check-sprint32`: 47/47 against the migrated schema. Before `0045`
+  it reported the new-table statements as predicted `42P01`.
+- `node scripts/verify-0045.mjs --apply`: bookkeeping 45 → 46, and no existing
+  row count moved. **36/36 by attempt:** all 55 permission keys accepted,
+  `kpis.invent` refused 23514, `staff_kpis` accepted and `invented` refused as a
+  module key, score 11 and a mid-month period refused 23514, UPDATE of a rating
+  refused P0001, a second current principal refused 23505, a vice principal
+  refused as a principal rater 23514. Nothing was written by the proofs.
+- **Browser QA on hard-loaded pages** (standalone build on `localhost:3000`
+  against the live DB, Askari, emergency links):
+  - *School admin*:
+    - all four screens render;
+    - empty KPI name refused inline;
+    - *Punctuality* (Teacher, monthly) appeared without a reload;
+    - Setup placed 41 of 42 teachers under a principal. Danish Iqbal is
+      Unassigned: equal periods under Tariq Jameel and Imran Qureshi.
+  - *Principal Imran Qureshi*:
+    - role list excludes Principal and Branch Admin;
+    - rated Adnan Sheikh 10. *10/10 counts — Imran Qureshi (Principal)* and a
+      monthly 100% appeared without a reload;
+    - 403 rating Rukhsana Bano's teacher Faisal Mehmood, naming her;
+    - 403 on a KPI for Branch Admin; 400 on a score of 11 and on a future month;
+    - assigned Adnan and Amna Zaheer to coordinator Bilal Hussain. 403
+      assigning another principal's teacher.
+  - *Coordinator Bilal*:
+    - no Add or Edit buttons; 403 creating a KPI;
+    - 403 rating unassigned Bushra Latif;
+    - rated Adnan 9. The 9 is in the history, and Imran's 10 still counts;
+    - the *About* panel shows no salary, bank or CNIC.
+  - *Accountant Nasreen Akhtar*:
+    - `overallOnly`; no monthly tiles; no other person's row `full` or with a
+      monthly value;
+    - Adnan's sheet is `overall` with 0 KPIs, 0 history and no comment text;
+    - KPI list 403.
+  - *Teacher Adnan*:
+    - *My Performance* in the nav, showing 10/10, the comment and 100%;
+    - no rate buttons;
+    - another person's sheet 404; the board 403.
+  - *Announcements, as Imran*: a draft appeared, and after discard it had left
+    the list and the API, with no reload.
+- **Farah Siddiqui (Early Years) holds no teachers,** correctly. Askari's demo
+  timetable gives every Early Years teacher more Primary periods, so all 26
+  teachers who teach any Early Years periods fall to Imran. That is rule 7b
+  working, not a defect. A film shot of a principal rating needs Imran, not Farah.
+- Browser console: favicon 404 plus the six deliberate 403/400 probes. The
+  server log was clean.
+
+### Data written to Askari (real, still there)
+
+| What | Detail |
+| --- | --- |
+| `school_modules` | `staff_kpis` on, `enabled_by = 'sprint32-qa (approved by product owner 2026-09-15)'` |
+| `staff_kpis` | *Punctuality* — Teacher, monthly, shared |
+| `staff_kpi_ratings` | Adnan Sheikh, Sep 2026: 10 by Imran Qureshi (counts), 9 by Bilal Hussain |
+| `coordinator_teachers` | Bilal Hussain → Adnan Sheikh, Amna Zaheer |
+| `teacher_principals` | 41 derived rows, created by reconciliation |
+| Emergency tokens | 9 minted for school admin, Farah, Imran, Bilal, Nasreen, Adnan (×2), Amna (×2). All used except Nasreen's and Adnan's first pair, which were spent by a background run whose results were lost |
+| Announcements | one QA draft, created and discarded (no row remains) |
+
+### Still open
+
+1. **Deploy not observed.** See the banner at the top of this file.
+2. **Chat defect 2 is not reproduced.** The Playwright MCP connection closed twice,
+   within seconds of hard-loading `/teacher/chat` as Amna Zaheer, before
+   *New conversation* was pressed. Suspects, none tested: the push-permission
+   prompt behind *Notify me on this device*, or the chat stream. Next try: drive
+   a visible Browser pane, or run Playwright headful with notifications denied.
+   Amna's inbox is still empty, which makes her the right account for it.
+3. **The `router.refresh()` audit is sorted but not annotated, and there is no
+   `check-refresh`.** 67 sites in 44 files:
+   - **navigates** (refresh follows a push/replace, fine): SubjectForm,
+     AcademicYearForm, ApplicationReviewCard (convert), StudentEnrollForm,
+     StudentProfileCard (delete), FeedbackForm, RecordPaymentForm, ChildSwitcher,
+     BranchDeleteCard, EmailLoginForm, InviteForm, InviteOTPForm, LogoutButton,
+     SetupPasswordForm, UserDetailPanel (delete), BranchForm, FeedbackDecision
+     (delete), SchoolWizard, SuperAdminTopBar, SuperAdminLoginForm,
+     EmergencyLoginClient, PlatformLoginClient;
+   - **also updated locally** (fine): ChatStreamProvider (counts from
+     `/unread-counts`), AnnouncementManager (fixed this sprint);
+   - **stale on a hard load, not fixed** — refresh is the only update:
+     SetUpChartButton; AcademicYearTable ×2; ApplicationReviewCard (decision);
+     FeeClearancePanel ×2; GuardianPanel ×5; PromotionRunner (copy sections);
+     StudentDocumentsCard ×2; StudentProfileCard (edit, photo); ExamPapers;
+     ExamScheduler (non-navigating path); ExamSettingsEditor;
+     GradingSchemeEditor; PromotionCriteriaEditor; PromotionSheet;
+     ScheduleManager; TermManager ×4; FeedbackThread; AgedDebtTable ×2;
+     ChallanActions; UserDetailPanel (employment, save); FeedbackDecision
+     (status); RequeueFailedEmails; SchoolForm (edit path).
+   - Thirty-odd screens is too many to fix blind. Before rewriting them, find
+     out **why** `router.refresh()` does nothing on a hard-loaded page. One root
+     cause, for example the `?school=` rewrite or the RSC request's headers,
+     would fix all of them at once.
+4. **Payroll approval and KPIs disagree** about a teacher timetabled across two
+   divisions, as §5ca predicted. Payroll still unions campus and grades. No
+   decision has been made.
+5. **Film scene 6** can now show the real Staff performance screen on Askari.
 
 ---
 
