@@ -215,3 +215,7 @@ export * from './holidays';
 export * from './saturday-duty-policies';
 export * from './holiday-notifications';
 export * from './payroll-run-approvals';
+
+// Sprint 32 — staff KPIs and performance. Every table references `schools`,
+// `school_users`, `branches` or `academic_years`, all exported far above.
+export * from './staff-kpis';

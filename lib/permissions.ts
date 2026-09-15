@@ -69,6 +69,17 @@ export const PERMISSIONS = [
   'accounting.read',
   'accounting.write',
   'accounting.settle',
+  // Sprint 32 — staff KPIs. `0045` widens `role_permissions_permission_check`.
+  'kpis.read',
+  'kpis.create',
+  'kpis.delete',
+  'kpis.overall',
+  'kpis.rate.teacher',
+  'kpis.rate.coordinator',
+  'kpis.rate.vice_principal',
+  'kpis.rate.hr_manager',
+  'kpis.rate.accountant',
+  'kpis.rate.marketing',
 ] as const;
 
 export type Permission = (typeof PERMISSIONS)[number];
@@ -156,6 +167,25 @@ export const PERMISSION_GROUPS: readonly PermissionGroup[] = [
     permissions: ['payroll.read', 'payroll.write', 'payroll.approve'],
   },
   {
+    // Sprint 32. The rate keys are one per *target* role, so this group is the
+    // who-rates-whom grid the School Admin manages. Principals and branch
+    // admins have no rate key: two School Admin settings answer that instead.
+    key: 'performance',
+    label: 'Staff performance',
+    permissions: [
+      'kpis.read',
+      'kpis.create',
+      'kpis.delete',
+      'kpis.overall',
+      'kpis.rate.teacher',
+      'kpis.rate.coordinator',
+      'kpis.rate.vice_principal',
+      'kpis.rate.hr_manager',
+      'kpis.rate.accountant',
+      'kpis.rate.marketing',
+    ],
+  },
+  {
     key: 'school',
     label: 'School',
     permissions: [
@@ -217,9 +247,37 @@ export const PERMISSION_LABELS: Record<Permission, string> = {
   'accounting.read': 'See the ledger, expenses and the financial statements',
   'accounting.write': 'Record expenses, post journal entries and edit the chart of accounts',
   'accounting.settle': 'Take a fee counter’s cash in and settle their account',
+  'kpis.read': 'See KPIs, monthly ratings and their comments, for the staff in reach',
+  'kpis.create': 'Define a KPI for a role, and edit one',
+  'kpis.delete': 'Delete a KPI',
+  'kpis.overall': 'See each member of staff’s yearly overall score, and nothing else',
+  'kpis.rate.teacher': 'Rate teachers',
+  'kpis.rate.coordinator': 'Rate coordinators',
+  'kpis.rate.vice_principal': 'Rate vice principals',
+  'kpis.rate.hr_manager': 'Rate HR managers',
+  'kpis.rate.accountant': 'Rate accountants',
+  'kpis.rate.marketing': 'Rate marketing staff',
 };
 
 export const PERMISSION_DESCRIPTIONS: Partial<Record<Permission, string>> = {
+  'kpis.read':
+    'A principal reads the teachers under them, a coordinator the teachers ' +
+    'they supervise, HR the whole school. Individual monthly scores and the ' +
+    'comments behind them.',
+  'kpis.create':
+    'Who a creator may define KPIs for is also fixed: a School Administrator ' +
+    'for every role, a Principal or Branch Administrator for every role except ' +
+    'each other and themselves.',
+  'kpis.overall':
+    'For Finance: one yearly figure per person, the one a salary review reads. ' +
+    'No monthly KPI, no comment, and no rating.',
+  'kpis.rate.teacher':
+    'A principal rates only the teachers who fall under them, and a ' +
+    'coordinator only the teachers assigned to them. Where two people rate ' +
+    'the same thing, the more senior rater’s score counts.',
+  'kpis.rate.vice_principal':
+    'Never a Vice Principal’s own: the Principal rates the Vice Principal, ' +
+    'and not the other way round.',
   'fees.write':
     'Includes marking a voucher paid. Grant it only to people who handle money.',
   'fees.admission':
@@ -444,6 +502,17 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<UserRole, readonly Permission[]> =
     // the head's accountability. `chat.moderate` still lets them act on a
     // *reported* message, which is the thing an office actually has to do.
     'settings.read',
+    // Sprint 32. A branch admin rates the campus's non-teaching staff —
+    // coordinators included, whose work is admin as well as teaching — and
+    // **never teachers**. That omission is rule 7a, not an oversight.
+    'kpis.read',
+    'kpis.create',
+    'kpis.delete',
+    'kpis.overall',
+    'kpis.rate.coordinator',
+    'kpis.rate.hr_manager',
+    'kpis.rate.accountant',
+    'kpis.rate.marketing',
   ],
 
   principal: [
@@ -504,6 +573,17 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<UserRole, readonly Permission[]> =
     // their marks, applied to conversations. It narrows sight and nothing else.
     'chat.oversight',
     'settings.read',
+    // Sprint 32. A head defines KPIs and rates the teachers who fall under
+    // them, their coordinators and their deputy. Non-teaching staff are the
+    // branch admin's — see `lib/kpi-access.ts` for the one-principal school
+    // where nobody else is there to do it.
+    'kpis.read',
+    'kpis.create',
+    'kpis.delete',
+    'kpis.overall',
+    'kpis.rate.teacher',
+    'kpis.rate.coordinator',
+    'kpis.rate.vice_principal',
   ],
 
   vice_principal: [
@@ -535,6 +615,15 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<UserRole, readonly Permission[]> =
     'chat.send',
     'chat.grant',
     'settings.read',
+    // Sprint 32, rule 7c: the Principal's KPI rights exactly, except
+    // `kpis.rate.vice_principal` — a deputy never rates a deputy, and never
+    // the head.
+    'kpis.read',
+    'kpis.create',
+    'kpis.delete',
+    'kpis.overall',
+    'kpis.rate.teacher',
+    'kpis.rate.coordinator',
   ],
 
   coordinator: [
@@ -555,6 +644,11 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<UserRole, readonly Permission[]> =
     'chat.send',
     'chat.grant',
     'settings.read',
+    // Sprint 32, rule 8: read and update, never create or delete. The rate key
+    // reaches only the teachers a principal has assigned to this coordinator.
+    'kpis.read',
+    'kpis.overall',
+    'kpis.rate.teacher',
   ],
 
   // `admissions.read` is not incidental here: a teacher's register and a
@@ -607,6 +701,9 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<UserRole, readonly Permission[]> =
     'chat.read',
     'chat.send',
     'settings.read',
+    // Sprint 32, rule 9. Finance reads the yearly overall a salary review
+    // turns on — never a monthly KPI, never a comment, never a rating.
+    'kpis.overall',
   ],
 
   hr_manager: [
@@ -632,6 +729,9 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<UserRole, readonly Permission[]> =
     'chat.read',
     'chat.send',
     'settings.read',
+    // Sprint 32, rule 10. HR sees scores; rating stays with the line.
+    'kpis.read',
+    'kpis.overall',
   ],
 
   marketing: [

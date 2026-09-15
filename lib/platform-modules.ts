@@ -18,6 +18,9 @@ export const PLATFORM_MODULES = [
   { key: 'hr_payroll', label: 'HR & Payroll', phase: 2 },
   { key: 'accounts', label: 'Accounts & Finance', phase: 2 },
   { key: 'event_mgmt', label: 'Event Management', phase: 2 },
+  // Sprint 32. A paid module: KPIs per role, monthly and annual ratings, and
+  // one performance figure per member of staff. `0045` widens the CHECK.
+  { key: 'staff_kpis', label: 'Staff KPIs & Performance', phase: 2 },
   { key: 'transport', label: 'Transport Management', phase: 3 },
   { key: 'library', label: 'Library Management', phase: 3 },
   { key: 'hostel', label: 'Hostel Management', phase: 3 },

@@ -317,6 +317,37 @@ export function schoolNav({
     });
   }
 
+  /*
+   * Sprint 32. Staff KPIs — a paid module, so gated on the flag first.
+   *
+   * Overview needs `kpis.read` or `kpis.overall` (Finance sees the yearly
+   * column only); KPIs needs `kpis.read`; Setup is the School Administrator's
+   * and the heads'. "My performance" is for everybody who is themselves rated,
+   * which the School Administrator is not.
+   */
+  if (moduleFlags.staff_kpis) {
+    const performanceItems: PortalNavItem[] = [];
+    if (can('kpis.read') || can('kpis.overall')) {
+      performanceItems.push({ label: 'Overview', href: '/dashboard/performance', icon: 'dashboard' });
+    }
+    if (can('kpis.read')) {
+      performanceItems.push({ label: 'KPIs', href: '/dashboard/performance/kpis', icon: 'performance' });
+    }
+    if (can('permissions.manage') || role === 'principal' || role === 'vice_principal') {
+      performanceItems.push({ label: 'Setup', href: '/dashboard/performance/setup', icon: 'settings' });
+    }
+    if (role !== 'school_admin') {
+      performanceItems.push({
+        label: 'My performance',
+        href: '/dashboard/performance/me',
+        icon: 'performance',
+      });
+    }
+    if (performanceItems.length > 0) {
+      sections.push({ label: 'Staff performance', icon: 'performance', items: performanceItems });
+    }
+  }
+
   // Sprint 13.5. This replaces the `Finance` placeholder that pointed at
   // `/dashboard/finance`, which never existed — it was shown to accountants
   // only, and led to a 404 for the one role most likely to click it.
