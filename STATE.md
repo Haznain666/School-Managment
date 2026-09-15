@@ -5,7 +5,8 @@ resume without re-deriving context. Updated at the end of every development
 step, before the session ends.
 
 **Last updated:** 2026-09-15 (**Staff KPIs and performance — specified, not
-built. The next sprint — §5ca.**)
+built, now also carrying the stale-list bug fix. The next sprint — §5ca.** Film
+screens and Askari demo data — §5cb.)
 
 📋 **The next sprint is the staff KPI calculator — a paid module.** School Admin
 defines KPIs for every role; Branch Admin and Principal for every role except
@@ -24,6 +25,17 @@ defaults were accepted, and a **Vice Principal holds the Principal's rights and
 permissions, except that the Principal rates the Vice Principal and never the
 reverse.** Nothing is left open; the sprint can start from §5ca. The product film's script already
 presents it as shipped.
+
+🔴 **The KPI sprint also carries a bug fix: lists that stay stale after a save.**
+On a hard-loaded page, saving or sending an announcement leaves the list
+unchanged until a manual reload — `AnnouncementManager` updates itself with
+`router.refresh()`, which does nothing on a page the browser hard-loaded. That
+pattern has **64 call sites in 41 components**. A second stale list, in chat, has
+a *different and unexplained* cause. Scope and acceptance in §5ca; how both were
+found in §5cb.
+
+**Demo data written to Askari on 2026-09-15** — one sent announcement and one
+chat thread, both real. §5cb.
 
 Previously: **Every portal's home loader lives in a `(home)` route group —
 §5bz.**
@@ -12683,6 +12695,60 @@ days, per person, with the date in hand.
 
 ---
 
+## 5cb. The product film's screens, and demo data written to Askari — 2026-09-15
+
+Not a sprint. Marketing work on the Synthesia film (§5bv's "demo film" is the
+earlier, music-only cut; this is the narrated avatar version). **No code
+changed.** Recorded because it wrote real rows to a live tenant and turned up the
+two defects §5ca now carries.
+
+### What was written to Askari School System — real, and still there
+
+| What | Detail |
+| --- | --- |
+| Announcement **sent** | *"Mango Party — this Friday, 18 September"*, id `9f38d56d-6e1f-45cc-91d0-7ab00eef8b2d`, from Nadia Hameed (Principal, Junior Campus), audience `roles: [teacher]` on Askari Junior Campus, **12 recipients**, `send_email = false` — on notice boards only, no email queued |
+| Chat thread | Hina Aslam (teacher, Junior Campus) → Nadia Hameed, subject *"Unwell today"*, conversation `043a8fe3-462c-4c29-a2fc-1b03c92bcbcd` — a sick-day message |
+| Emergency login tokens | Six minted with `scripts/qa-emergency-link.mjs` — two for the school admin, three for the Junior Campus principal, one for a teacher. Five consumed (one of them lost to the CDN challenge below), one left to expire unused. Single-use, fifteen minutes, rows kept for audit |
+
+Anyone rebuilding the Askari demo estate (§5bv) removes these with it. Anyone
+*not* rebuilding it should know the Mango Party notice is on 12 teachers' boards.
+
+### The film, as it stands in Synthesia
+
+Project *"SchoolHub - For every school."* — **not re-generated**; the last render
+still has the old script. Eight scenes; the script was rewritten around the buyer
+(owner/principal) after outside feedback. Screens now: 3 dashboard, 4 aged debt +
+parent fees phone, 5 a Pexels phone clip (id 946147) under the title *"The old
+way: absences arrive by WhatsApp"* plus the teacher-calendar **Day** view on a
+phone, 6 staff list + staff register phone, 7 parent results phone. Source files
+are in `Desktop\SchoolHub video screens\` on the product owner's machine, with the
+new chat and announcement screenshots.
+
+⚠ **Scene 6 stands in for a screen that does not exist yet.** It narrates monthly
+staff KPIs over the staff list. Replace it with the real performance screen when
+§5ca ships, and do not release the film before then.
+
+### Traps paid for this session
+
+- **Synthesia rejects programmatic uploads.** The browser tool fills the file
+  input and Synthesia sends nothing — no upload request at all, verified in the
+  network log. The product owner uploads by hand; everything after that
+  (placing, resizing, layering) automates fine.
+- **A Chrome window behind other windows is `document.hidden`.** Synthesia stops
+  laying out (panels measure 0px), screenshots time out, and scene clicks do
+  nothing. Keep the window in front for the whole editing session.
+- **The Hostinger CDN challenge intercepts the emergency-login link** unless the
+  browser has already passed it: load `/login`, wait until the body no longer
+  reads *"Checking your browser"*, then open the link. One link was lost to this
+  and had to be re-minted.
+- **`page.goto` on the emergency-login URL can return `null`** — it answers JSON,
+  not a page. Read the token row's `used_at` rather than trusting the navigation
+  result.
+- **An announcement's send asks through `window.confirm`,** which Playwright
+  holds as a modal; nothing else runs until it is handled. Check the row's
+  `status` before answering a second one — dismiss, never re-accept, or it may
+  send twice.
+
 ## 5ca. Staff KPIs and performance — specified, not built — 2026-09-15
 
 **Not built. Scheduled by the product owner as the next sprint.** No code, no
@@ -12987,6 +13053,70 @@ Proposed as defaults and accepted by the product owner as written. **Nothing in
    because the Principal-only assignment in rule 8 draws them from one.
 6. **Vice principals:** rated by the Principal, never by the Branch Admin — and
    extended by the product owner into rule 7c.
+
+### Also in this sprint: lists that stay stale after a save
+
+Added to the KPI sprint by the product owner on 2026-09-15. It belongs here and
+not in a later sprint for a concrete reason: **the KPI screens are forms that
+save into lists** — a KPI saved into the KPI list, a rating saved into the
+rating grid. Built on the current pattern they would ship this defect on day
+one, on exactly the screen a principal hard-loads from a bookmark every month.
+Fix the pattern first, then build the KPI screens on the fixed one.
+
+**Defect 1 — confirmed cause.** `components/comms/AnnouncementManager.tsx` calls
+`router.refresh()` after save, send and discard (three call sites). On a
+hard-loaded `/dashboard/communications`, saving a draft closed the form and left
+the list showing the old announcements; the draft was in the database and
+appeared only after a reload. This is the defect memory records from Sprint 29:
+*`router.refresh()` fires its request and updates the DOM only on a page reached
+by client-side navigation.* Every real user hard-loads.
+
+**The same pattern has 64 call sites across 41 components** (`grep -rn
+"router.refresh()" components`). Not every one is broken in a way anybody sees —
+some are followed by a navigation, some refresh chrome that is already fed by
+`/api/school/unread-counts` — but none has been tested on a hard-loaded page,
+because every existing test clicks its way there.
+
+**Defect 2 — symptom only, cause unknown.** On a hard-loaded `/teacher/chat`
+(430×932), sending a *new conversation* left the list reading *"Nothing yet"*,
+although the message was written (`chat_messages` row at 11:09:25 UTC). **This is
+not the `router.refresh()` defect:** `ChatWorkspace` handles a new conversation by
+awaiting `loadInbox()` itself and then selecting the new thread, which should
+have drawn it. Reproduce before fixing anything. Hypotheses, none tested: the
+inbox read returned before the new row was visible to it; an error in
+`loadInbox` swallowed without a message; or `ChatStreamProvider`'s debounced
+`router.refresh()` resetting client state in the same beat.
+
+**Scope**
+
+1. **`AnnouncementManager`** — the list reflects save, send and discard without a
+   reload, on a hard-loaded page.
+2. **Chat new conversation** — reproduce defect 2 on a hard-loaded page, find the
+   cause, fix it.
+3. **The other call sites** — audit all 41 files and sort each into *works on a
+   hard load* / *broken, fixed here* / *broken, too large for this sprint (listed
+   here by file)*. Do not rewrite 64 call sites blind.
+4. **The KPI screens use the fixed pattern from the start.**
+
+**The fix pattern, in the direction memory already gives:** after a mutation,
+update local state from the response, or re-fetch the list from an endpoint that
+calls the same query the page's server render calls — one implementation, as
+`/api/school/unread-counts` does for the bell. `router.refresh()` alone is not an
+acceptable way to show a user their own write.
+
+**Acceptance**
+
+- **Every check is done on a hard-loaded page** — type the URL, then act. A test
+  that navigates there first passes the broken build; that is how this survived
+  since Sprint 29.
+- Announcements: save a draft, send it, discard one — each change visible within
+  a second with no reload.
+- Chat: a new conversation appears in the list and opens, at desktop and at
+  430px.
+- KPIs: a saved KPI and a saved rating each appear without a reload.
+- Consider a check script that flags a mutation handler whose only follow-up is
+  `router.refresh()`; if one is written, add it to CLAUDE.md's green-build list
+  and to `.github/workflows/ci.yml` together.
 
 ---
 
