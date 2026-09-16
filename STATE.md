@@ -19,7 +19,7 @@ on 2026-09-16 and are recorded in §0 of the spec. This supersedes "the next
 sprint is the stale-list fix" below — that work is not cancelled, it is after
 this round.
 
-🔨 **Part A is merged, migrated and deploying — §5cg.** All six items plus
+✅ **Part A is shipped, live and QA'd — §5cg.** All six items plus
 migration `0046`, on `feature/sprint-33a-defects-campus-notifications`. Every
 gate was run and is green, including a new `check-sprint33a` that executes
 every widened statement against the real schema. **`0046` is applied to the live database and proved** — `relfilenode`
@@ -12758,7 +12758,7 @@ days, per person, with the date in hand.
 Built by the sprint-developer agent on its own worktree, reviewed here line by
 line, then cherry-picked onto `claude/next-sprint-analysis-20e4ac` as `ca83dac`
 and **merged as `f649ee5` (PR #96)**. Migration `0046` is **applied**.
-**Not yet QA'd in a browser.** The spec is `SPRINT-33-SPEC.md` Part A and
+**QA'd on the live build — verdict: ship.** The spec is `SPRINT-33-SPEC.md` Part A and
 §5cf is the round's handover entry. Migration **`0046`**, one column.
 
 ### What was built
@@ -12808,6 +12808,90 @@ newest row currently reads `id = 46` and is `0045` — there are 46 rows for
 0000–0045, and its `created_at` is `1789473600000`, which is 0045's journal
 `when`. 0046's is `1789560000000`. Reading that `id` in a hurry gives exactly
 the wrong answer.
+
+### QA, driven against the live build — verdict: ship
+
+Run on `f649ee5a18e6`, confirmed through `/api/internal/build`, as real members
+of Askari through `scripts/qa-emergency-link.mjs`. Not a local server.
+
+**Proved by attempt, not by reading:**
+
+- **A5, the live hole.** Rizwan Shaikh (`hr_manager`, bound to Main campus)
+  `PATCH`ed a **Junior** campus leave request → **403 `wrong_campus`**; `GET`
+  the same id → **404**; `PATCH` his own campus's request → **200**,
+  `decided_by = Rizwan Shaikh`. The database confirms the Junior request is
+  still `pending` and untouched. **The legitimate case still works**, which is
+  the half a refusal-only test would have missed.
+- **A1.** Cross-schedule placement → **409** naming the other class, both
+  period names and both clock times, and `timetable_entries` changed by **0**
+  — the refusal wrote nothing. The overlap panel renders with the product
+  owner's own pair: *Fauzia Sattar · Monday — Nursery A P2 (8:40–9:20)
+  against Year 1 A P3 (9:05–9:45)*.
+- **A2.** The parent polled `/messages` every 35 ms from a separate live
+  session; the **first** response carrying the new message already carried the
+  attachment in the same payload. No attachment-free window exists.
+- **A3.** Proved by patching `AudioContext.prototype.createOscillator` and
+  counting: hard-loaded `/parent` after reading → **0 chimes in 12s**; a
+  genuinely new message → **exactly 1**; a message into the thread already
+  open → **0**, and it still appeared on screen.
+- **A4's links**, by discrimination rather than coincidence: `?c=<id>` and
+  `?conversation=<id>` each opened the **older** of two threads, not the
+  default newest.
+- **A6.** Fills from the dates, hint reads *"Counted: 5 days (5 October – 9
+  October). Change it for a half day."*, a typed `0.5` sticks.
+- **No 5xx across 193 recorded requests.**
+
+### Two findings, both deferred to Part B on purpose
+
+Neither is broken behaviour and neither justified reopening a verified artifact.
+
+1. 🟡 **A5's acceptance names a Branch Admin, and a Branch Admin cannot reach
+   the guard.** `DEFAULT_ROLE_PERMISSIONS` gives `branch_admin` only `hr.read`;
+   `hr.write` is the HR manager's. Proved: Wajahat Ali `PATCH` → **403
+   `forbidden`** at the *permission* gate, never reaching the campus check. So
+   the guard is exercised by `hr_manager` today. **Part B decision 3 — "Branch
+   Admin approves everything for non-teaching staff" — requires its own
+   approval key (`leave.approve`) before that wording becomes true.** Do not fix
+   it by granting `hr.write`: that would hand a campus office the whole HR
+   module.
+2. 🟡 **The cross-schedule 409 names the other class, not the one being
+   edited.** The spec says "both classes". Both *periods* and both *times* are
+   named, so it is a wording gap. Fold into Part B.
+
+### What QA could not test, stated rather than glossed
+
+- **The builder's inline pre-save warning was never driven in the UI.** The
+  server 409 is proved and the builder computes its message from the same
+  `slotsOverlap` over `/timetable/teacher-busy`, but Askari's grid is 100%
+  dense (1025/1025 cells) and the pane would not paint for clicking. **Somebody
+  should click one cell before Part B closes.**
+- **A4's cadence and cap are time-based** — the 1440-minute interval, the
+  five-reminder ceiling and the email itself cannot be observed in one session.
+  `digest_count` was seen to move (1 while unread, 0 after read), which is not
+  the same as watching the sweep.
+- Responsive and dark mode on the two changed layouts: not run.
+
+⚠ **`QA_BASE_URL` must be the school's subdomain, never the apex host.**
+`https://schoolhub.codexmill.com/api/school/emergency-login/…?school=…` answers
+*"School not found"* — `slugForRequest` returns null on the platform host, so
+`?school=` is never consulted there. Use
+`https://askari-school-system.schoolhub.codexmill.com`. Not a defect; it cost a
+QA round to discover.
+
+⚠ **Askari shows 176 clashes across 41 teachers** in the overlap panel. The
+panel is correct and deliberately read-only, but the seed data presents a very
+long wall. Worth knowing before demoing that screen.
+
+### Data written to Askari by QA (real, and kept)
+
+| What | Detail |
+| --- | --- |
+| `leave_requests` +2 | `7e7d8660` Laraib Ahsan, **Main**, 5–9 Oct 2026, now **approved** by Rizwan Shaikh; `d970b01c` Aqsa Mumtaz, **Junior**, left **pending** — it is the cross-campus target |
+| `chat_messages` +3 | Adnan Sheikh → conversation `b2534fb3` ("Janab", parent Sarfraz Qureshi) |
+| `chat_attachments` +1 | `qa-sprint33a.png`, image/png, 70 B |
+| Read markers | `last_read_at` moved for Sarfraz Qureshi and Aftab Sheikh; their signals were deleted — which is the A3 fix working |
+| `emergency_login_tokens` +9 | all consumed |
+| Deleted | **nothing**. `timetable_entries` changed: 0 |
 
 ### The decisions that should not be re-litigated
 
