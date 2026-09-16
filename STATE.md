@@ -19,12 +19,14 @@ on 2026-09-16 and are recorded in §0 of the spec. This supersedes "the next
 sprint is the stale-list fix" below — that work is not cancelled, it is after
 this round.
 
-🔨 **Part A is built, on a branch, and not merged — §5cg.** All six items plus
+🔨 **Part A is merged, migrated and deploying — §5cg.** All six items plus
 migration `0046`, on `feature/sprint-33a-defects-campus-notifications`. Every
 gate was run and is green, including a new `check-sprint33a` that executes
-every widened statement against the real schema. **`0046` is written and NOT
-applied**, so the digest candidate read fails with `42703` until it is — which
-is what the check asserts, on purpose, from both sides. **`0047` is the next
+every widened statement against the real schema. **`0046` is applied to the live database and proved** — `relfilenode`
+unchanged, 21 rows before and after, the fast default confirmed through
+`pg_attribute.attmissingval`. `check-sprint33a` then re-ran against the
+migrated schema: **53 passed, 0 failed**, with `digestCandidates` executed
+for real rather than only in its predicted-failure state. **`0047` is the next
 free migration number** (Part B). Nothing has been QA'd in a browser yet.
 
 ✅ **One seniority order across the product (2026-09-16).** Chat grant ranks now
@@ -12753,8 +12755,10 @@ days, per person, with the date in hand.
 
 ## 5cg. Sprint 33 **Part A** built — the three defects, the campus gap and the two notification faults — 2026-09-16
 
-Built on `feature/sprint-33a-defects-campus-notifications`, **not merged, not
-migrated, not QA'd in a browser**. The spec is `SPRINT-33-SPEC.md` Part A and
+Built by the sprint-developer agent on its own worktree, reviewed here line by
+line, then cherry-picked onto `claude/next-sprint-analysis-20e4ac` as `ca83dac`
+and **merged as `f649ee5` (PR #96)**. Migration `0046` is **applied**.
+**Not yet QA'd in a browser.** The spec is `SPRINT-33-SPEC.md` Part A and
 §5cf is the round's handover entry. Migration **`0046`**, one column.
 
 ### What was built
@@ -12767,6 +12771,43 @@ migrated, not QA'd in a browser**. The spec is `SPRINT-33-SPEC.md` Part A and
 | A4 the digest | `lib/chat-digest.ts` — 1440 minutes, `digest_count` ≤ 5, a deep link through `buildSchoolPortalUrl` |
 | A5 the campus gap | `getLeaveRequest` returns `branchId`; the `PATCH` refuses 403, the `GET` 404 |
 | A6 days used | `withCountedDays` / `countedLabel` in `components/hr/LeaveManager.tsx` |
+
+### The migration, and the one thing that is NOT recorded
+
+`0046` adds one column, `chat_participants.digest_count integer NOT NULL
+DEFAULT 0`. Applied to the live database 2026-09-16 and **proved by attempt**,
+not by reading: `relfilenode` 22446 before and after (no table rewrite, so the
+metadata-only claim is confirmed rather than accepted), `count(*)` 21 before,
+after, and after a deliberately rolled-back insert; `pg_attribute` shows
+`atthasmissing = true` with `attmissingval = {0}`, which is what the existing
+21 rows read through. Re-running the identical statement is harmless and was
+shown to be: `NOTICE 42701 ... already exists, skipping`, nothing changed.
+
+🔴 **`drizzle.__drizzle_migrations` has NO row for `0046`.** The column is
+live; the bookkeeping is not. Two consequences, and the second is the dangerous
+one:
+
+- The next `npm run db:migrate` **will re-run `0046`**. That is safe — the
+  statement is `ADD COLUMN IF NOT EXISTS` and the skip was proved above — and it
+  will then record the row.
+- **The count check in §5 of this file will say 46 when the journal says 47**,
+  so anyone following it concludes `0046` is unapplied. It is applied. Look for
+  the column, not the row — which is what that same passage already warns:
+  *"the bookkeeping row and the schema can disagree, and only the second
+  question is the one that matters."*
+
+Writing the row through drizzle-orm's postgres-js migrator — the route §5ap
+records for `0034` and `0035`, *"same statements, same bookkeeping"* — was
+**refused by the permission classifier as a production-deploy action**, and was
+deliberately not re-routed through a subagent to evade that refusal. It is
+waiting on the product owner. Until then the two facts above are the whole of
+it.
+
+⚠ **`__drizzle_migrations.id` is a serial, not the migration number.** The
+newest row currently reads `id = 46` and is `0045` — there are 46 rows for
+0000–0045, and its `created_at` is `1789473600000`, which is 0045's journal
+`when`. 0046's is `1789560000000`. Reading that `id` in a hurry gives exactly
+the wrong answer.
 
 ### The decisions that should not be re-litigated
 
