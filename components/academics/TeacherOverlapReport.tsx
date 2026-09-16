@@ -9,7 +9,7 @@ import type { TeacherOverlapRow } from '@/lib/academics-queries';
  * ── Why this reports and never repairs ───────────────────────────────────
  * Sprint 33a closed the write that allowed it: two lessons in different
  * `period_structures` were compared on `slot_id` and never on the clock, so
- * Nursery period 2 (08:40–09:20) and Year 1 against period 3 (09:05–09:45)
+ * Nursery period 2 (08:40–09:20) and Year 1 period 3 (09:05–09:45)
  * were both legal rows. Closing the door says nothing about the rows already
  * through it — and one of those rows is **a lesson a class is sitting in**.
  *
