@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import { notFound } from 'next/navigation';
 
+import { ProbationCard } from '@/components/hr/ProbationCard';
 import { StaffDetailPanel } from '@/components/hr/StaffDetailPanel';
 import { getStaff } from '@/lib/hr-queries';
 import { requireSchoolPermission } from '@/lib/school-guard';
@@ -46,6 +47,20 @@ export default async function StaffDetailPage({
         canCreateLogin={permissions.includes('users.write')}
         canSeeAccounts={permissions.includes('users.read')}
         branches={await listBranchOptions(locationId)}
+      />
+
+      {/* Sprint 33b, QA round 1 (F4): where an extension is actually entered. */}
+      <ProbationCard
+        staffId={staffId}
+        canEdit={permissions.includes('hr.write')}
+        initial={{
+          permanentFrom: member.permanentFrom,
+          isOnProbation: member.isOnProbation,
+          probationDays: member.probationDays,
+          probationStartedOn: member.probationStartedOn,
+          probationEndsOn: member.probationEndsOn,
+          probationExtendedDays: member.probationExtendedDays,
+        }}
       />
     </div>
   );

@@ -12999,6 +12999,46 @@ should become. The three Section Heads' `staff.designation` still reads
   a later sprint may want to fold the first into the second.
 - **Part C is untouched**, per decision 12.
 
+### QA round 1 — verdict "do not ship yet", and what fixed each finding
+
+Part B went live as PR #98 (`2f8776f`), with `0047` and `0048` applied and the
+Askari data step run. QA drove the live build `2f8776fb0e6a` as real Askari
+members. The chain, the campus refusals, the one-head 409s, the holiday,
+overlap and quota refusals, Branch Admin approval, probation and KPI
+reassignment all passed. Five findings came back; all five are fixed on
+`feature/sprint-33b-section-head-leave` on top of `46730b7`. **No migration.**
+
+| # | Finding | Fix |
+| --- | --- | --- |
+| **F1** high | `/dashboard/hr/leave` still filed and decided through `/api/school/hr/leave-requests`, which checks only `hr.write`. As Rizwan Shaikh (HR, Main): a single-day request on Iqbal Day → **201** (the new route says 422); no overlap or quota check; a Junior-campus staffId got past `wrong_campus`; `PATCH` decided a request with no `leave.approve` → **200**. | `LeaveManager` lists through `/api/school/leave/requests` (`scope=all` for `leave.manage`, the chain-scoped inbox otherwise) and files on behalf through the same POST, which applies every refusal and the campus check. **HR does not decide**: Approve/Reject appear only for `leave.approve` and go to `…/[id]/decision`. The legacy `POST` and `PATCH` now **refuse with 410 `moved`** and a sentence naming the new flow; the legacy GETs stay as reads. `LeaveManager` was the only caller — checked. Payroll never used the route; it reads `leave_requests` through `unpaidLeaveDaysByStaff`, unchanged. |
+| **F2** medium | A campus-bound HR manager could not create staff calendars (the button sent `{}` → 403), was shown a school-default rule dropdown whose `PUT {branchId: null}` 403s, and the override route compared `auth.branchId` only. | The calendars page resolves the caller's branch scope on the server and passes it down. "Create both calendars" creates the caller's own campus pair; a school-wide caller chooses the school or a campus. The rule dropdown is drawn only where `PUT` can succeed, and a campus-bound caller sees the school default read-only. Override POST/PATCH/DELETE all go through `calendarWriteRefusal(scope, calendar.branchId)`, which admits the caller's own and granted campuses and refuses the school-wide calendar to a campus-bound caller. PATCH and DELETE had **no** campus check before. |
+| **F3** medium | Leave types were read-only on screen; seeding vanished once any type existed; `PATCH …/leave-types/[id]` had no caller. | Create, edit (name, description, days a year, paid) and **retire / offer again** on the HR leave screen. Retire is `isActive = false`; there is no delete. Seeding is offered whenever a default head is missing. The routes are gated on **`leave.manage`** (create, seed, edit) and **`leave.read`** (list). By default `leave.manage` is held by exactly the roles `hr.write` was, so nobody loses anything, and `check-sprint33b` asserts that. |
+| **F4** low | The API accepted `probationExtendedDays` and refused 120 + 61, but no form could send it. | `components/hr/ProbationCard.tsx` on the staff profile edits `permanent_from`, probation start, length and **extension**, showing the allowance left up to 180 and the end date, with errors from `probationProblem`. The create form gained the extension field too. `getStaff` now returns the probation columns. |
+| **F5** low | On the self-service form the Iqbal Day refusal stayed on screen after the dates changed, and "Days used" never filled in — the A6 complaint again. | `GET /api/school/leave/count` counts with **`countLeaveFor`**, now also what the POST stores with. Both leave forms call it through `useLeaveCount` as the dates change, fill the box, keep it editable for a half day, and say what was counted and whether holidays were left out. A stale response is dropped. The single-day holiday refusal shows before the button is pressed. Changing a date clears the error. Applicant resolution moved to `lib/leave-applicant.ts`, shared by the POST and the count. |
+
+**Decisions not to re-litigate.**
+
+- The legacy write routes **refuse rather than disappear**. A stale tab or a
+  script gets a sentence naming the new flow instead of a 404.
+- The day count is the server's, not the browser's. The person's staff calendar
+  and the campus's holiday rule live there, so a browser count would show one
+  number and store another.
+- Editing a *shared* leave type (branch null — every seeded type) is still
+  allowed for a campus-bound holder of `leave.manage`, as it was under
+  `hr.write`. Both Askari HR managers are campus-bound and every Askari type is
+  shared, so refusing would have left F3 unusable. The consequence is stated:
+  retiring a shared type affects every campus.
+
+**Evidence** (all run in the worktree after the last edit): `typecheck` 0 errors;
+`lint` 0 warnings; `check-branch-scope` 1747; `check-sprint33b` **142 passed, 0
+failed** against the migrated schema (0047 applied, 4/4 one-head indexes present,
+0 duplicate heads); `check-sprint33a` 53/0 (its A5/A6 assertions moved with the
+code); `check-sprint32` 48/0; `check-loaders` 323; the other eight CI checks all pass; `build` green.
+
+**Still open after round 1:** nothing re-QA'd in a browser yet; the Division field
+on the principal-assignments screen and the three Section Heads' designation
+text, both as before.
+
 ## 5cg. Sprint 33 **Part A** built — the three defects, the campus gap and the two notification faults — 2026-09-16
 
 Built by the sprint-developer agent on its own worktree, reviewed here line by

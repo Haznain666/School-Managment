@@ -244,6 +244,13 @@ export interface StaffDetail extends StaffRow {
   bankAccountTitle: string | null;
   bankAccountNumber: string | null;
   bankName: string | null;
+  /** Sprint 33b — the date leave accrues from, and probation. */
+  permanentFrom: string | null;
+  isOnProbation: boolean;
+  probationDays: number | null;
+  probationStartedOn: string | null;
+  probationEndsOn: string | null;
+  probationExtendedDays: number;
 }
 
 export async function getStaff(
@@ -279,6 +286,12 @@ export async function getStaff(
       bankAccountTitle: staff.bankAccountTitle,
       bankAccountNumber: staff.bankAccountNumber,
       bankName: staff.bankName,
+      permanentFrom: staff.permanentFrom,
+      isOnProbation: staff.isOnProbation,
+      probationDays: staff.probationDays,
+      probationStartedOn: staff.probationStartedOn,
+      probationEndsOn: staff.probationEndsOn,
+      probationExtendedDays: staff.probationExtendedDays,
     })
     .from(staff)
     .leftJoin(branches, eq(branches.id, staff.branchId))

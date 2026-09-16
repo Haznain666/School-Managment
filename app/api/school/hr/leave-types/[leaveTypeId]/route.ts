@@ -123,5 +123,11 @@ export const PATCH = withSchoolAuth<RouteContext>(
       return handleApiError(error);
     }
   },
-  { permission: 'hr.write' },
+  /*
+   * Sprint 33b, QA round 1 (F3): gated on the leave keys, the standing rule
+   * that the leave keys decide leave. By default `leave.manage` is held by
+   * exactly the roles `hr.write` was — HR and the School Administrator — so
+   * nobody who could manage leave types yesterday loses it today.
+   */
+  { permission: 'leave.manage' },
 );

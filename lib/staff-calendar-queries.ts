@@ -14,6 +14,7 @@ import {
 } from '@/db/schema';
 import type { UserRole } from '@/types/school-auth';
 
+import type { BranchScope } from './branch-scope';
 import { db } from './drizzle';
 import { expandHolidays, type HolidayRange } from './holiday-calendar';
 import { listHolidays } from './holiday-queries';
@@ -313,4 +314,24 @@ export async function staffHolidayDates(
   }
 
   return { dates: new Set(expanded.keys()), nameFor };
+}
+
+/**
+ * Why this caller may not change a calendar belonging to `branchId` — or null.
+ *
+ * QA round 1, F2. A campus-bound HR manager must be able to change their own
+ * campus's calendar, which is the ordinary case; the route used to compare
+ * `auth.branchId` alone, which also ignored campuses granted beyond the
+ * caller's own. The school-wide calendar is every campus's fallback, so only
+ * a school-wide caller changes it. Tenancy is already settled by the time this
+ * runs: the calendar was read with the caller's `locationId`.
+ */
+export function calendarWriteRefusal(scope: BranchScope, branchId: string | null): string | null {
+  if (!scope.bound) return null;
+  if (branchId === null) {
+    return 'Only a school-wide administrator can change the calendar every campus falls back to. Create your own campus’s calendars and set the exception there.';
+  }
+  return (scope.branchIds ?? []).includes(branchId)
+    ? null
+    : 'That calendar belongs to another campus.';
 }

@@ -111,9 +111,27 @@ function holidayWindow(): { from: string; to: string } {
 
 export interface StaffCalendarManagerProps {
   canEdit: boolean;
+  /**
+   * The caller's campus scope, resolved on the server by `resolveBranchScope`.
+   *
+   * QA round 1, F2. Both Askari HR managers are campus-bound, and this screen
+   * sent them to write the *school-wide* calendar pair and the *school-wide*
+   * holiday rule — both 403. What a control would write is now decided before
+   * it is drawn: a campus-bound caller creates and edits their own campus's,
+   * and a school-wide caller chooses.
+   */
+  scope: { bound: boolean; branchIds: string[] | null };
 }
 
-export function StaffCalendarManager({ canEdit }: StaffCalendarManagerProps) {
+export function StaffCalendarManager({ canEdit, scope }: StaffCalendarManagerProps) {
+  /** Whether a write naming this campus (null = the whole school) can succeed. */
+  const canWriteBranch = (branchId: string | null): boolean =>
+    canEdit &&
+    (!scope.bound || (branchId !== null && (scope.branchIds ?? []).includes(branchId)));
+
+  const [createTarget, setCreateTarget] = useState<string>(
+    scope.bound ? (scope.branchIds?.[0] ?? '') : '',
+  );
   const [calendars, setCalendars] = useState<CalendarRow[] | null>(null);
   const [settings, setSettings] = useState<SettingRow[]>([]);
   const [holidays, setHolidays] = useState<Array<{ id: string; name: string; startsOn: string }>>([]);
@@ -140,8 +158,12 @@ export function StaffCalendarManager({ canEdit }: StaffCalendarManagerProps) {
       setCalendars(calendarPayload.calendars);
       setSettings(settingPayload.settings);
       setHolidays(holidayPayload.holidays);
+      // Open on a calendar this caller can actually change, when there is one.
       setCalendarId((held) =>
-        held === '' ? (calendarPayload.calendars[0]?.id ?? '') : held,
+        held !== ''
+          ? held
+          : ((calendarPayload.calendars.find((row) => canWriteBranch(row.branchId)) ??
+              calendarPayload.calendars[0])?.id ?? ''),
       );
       setError(null);
     } catch (caught) {
@@ -149,6 +171,8 @@ export function StaffCalendarManager({ canEdit }: StaffCalendarManagerProps) {
     } finally {
       setPending(false);
     }
+    // `canWriteBranch` reads props that do not change while the screen is open.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
@@ -175,17 +199,42 @@ export function StaffCalendarManager({ canEdit }: StaffCalendarManagerProps) {
   }, [calendarId, loadOverrides]);
 
   const calendar = (calendars ?? []).find((row) => row.id === calendarId) ?? null;
+  const calendarWritable = calendar !== null && canWriteBranch(calendar.branchId);
+
+  const campusName = (branchId: string): string =>
+    settings.find((row) => row.branchId === branchId)?.branchName ?? 'Your campus';
+
+  /** Where "Create both calendars" may write, as select options. */
+  const createTargets: Array<{ value: string; label: string }> = !canEdit
+    ? []
+    : scope.bound
+      ? (scope.branchIds ?? []).map((id) => ({ value: id, label: campusName(id) }))
+      : [
+          { value: '', label: 'Every campus (the school’s default)' },
+          ...settings
+            .filter((row): row is SettingRow & { branchId: string } => row.branchId !== null)
+            .map((row) => ({ value: row.branchId, label: row.branchName ?? 'A campus' })),
+        ];
+
+  const targetHasPair = (calendars ?? []).some(
+    (row) => (row.branchId ?? '') === createTarget,
+  );
 
   const createCalendars = async (): Promise<void> => {
     setBusy('create');
     setError(null);
+    const branchId = createTarget === '' ? null : createTarget;
     try {
       const payload = await schoolFetch<{ calendars: CalendarRow[] }>(
         '/api/school/staff-calendars',
-        { method: 'POST', body: JSON.stringify({}) },
+        { method: 'POST', body: JSON.stringify({ branchId }) },
       );
       setCalendars(payload.calendars);
-      setCalendarId(payload.calendars[0]?.id ?? '');
+      setCalendarId(
+        payload.calendars.find((row) => row.branchId === branchId)?.id ??
+          payload.calendars[0]?.id ??
+          '',
+      );
       setNotice('Both calendars are ready. Gazetted holidays already appear on each.');
     } catch (caught) {
       setError(schoolErrorMessage(caught, 'Could not create the calendars.'));
@@ -351,7 +400,11 @@ export function StaffCalendarManager({ canEdit }: StaffCalendarManagerProps) {
         }
       >
         <ul className="space-y-3">
-          {settings.map((row) => (
+          {settings
+            // A campus-bound caller sees the school default (read-only, it is
+            // what they inherit) and their own campuses, not the others'.
+            .filter((row) => !scope.bound || row.branchId === null || canWriteBranch(row.branchId))
+            .map((row) => (
             <li
               key={row.branchId ?? 'school'}
               className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-line px-3 py-2"
@@ -365,10 +418,11 @@ export function StaffCalendarManager({ canEdit }: StaffCalendarManagerProps) {
                   {row.isOwn ? '' : ' — inherited from the school'}
                 </p>
               </div>
+              {canWriteBranch(row.branchId) ? (
               <div className="w-full sm:w-64">
                 <Select
                   label={`Rule for ${row.branchName ?? 'every campus'}`}
-                  disabled={!canEdit || busy !== null}
+                  disabled={busy !== null}
                   value={row.holidaySpan}
                   options={HOLIDAY_SPANS.map((span) => ({
                     value: span,
@@ -379,6 +433,7 @@ export function StaffCalendarManager({ canEdit }: StaffCalendarManagerProps) {
                   }}
                 />
               </div>
+              ) : null}
             </li>
           ))}
         </ul>
@@ -389,22 +444,48 @@ export function StaffCalendarManager({ canEdit }: StaffCalendarManagerProps) {
           <CardTitle
             title="Staff calendars"
             description="Teaching and non-teaching staff do not share a year. Gazetted holidays are on both automatically; what you set here are the exceptions."
-            action={
-              canEdit && (calendars?.length ?? 0) === 0 ? (
-                <Button
-                  size="sm"
-                  isLoading={busy === 'create'}
-                  onClick={() => {
-                    void createCalendars();
-                  }}
-                >
-                  Create both calendars
-                </Button>
-              ) : undefined
-            }
           />
         }
       >
+        {/*
+          QA round 1, F2. The pair is created for a campus this caller can
+          write to — their own, for a campus-bound HR manager — and a
+          school-wide caller chooses between the whole school and a campus.
+          Offered only while the chosen target has no pair yet.
+        */}
+        {createTargets.length === 0 ? null : (
+          <div className="mb-4 flex flex-wrap items-end gap-3">
+            {createTargets.length > 1 ? (
+              <div className="w-full sm:w-72">
+                <Select
+                  label="Create calendars for"
+                  value={createTarget}
+                  options={createTargets}
+                  onChange={(event) => {
+                    setCreateTarget(event.target.value);
+                  }}
+                />
+              </div>
+            ) : null}
+            {targetHasPair ? (
+              <p className="text-sm text-ink-muted">
+                {createTargets.find((row) => row.value === createTarget)?.label ?? 'That campus'} already has both calendars.
+              </p>
+            ) : (
+              <Button
+                size="sm"
+                isLoading={busy === 'create'}
+                onClick={() => {
+                  void createCalendars();
+                }}
+              >
+                Create both calendars
+                {createTargets.length === 1 ? ` for ${createTargets[0]?.label ?? 'your campus'}` : ''}
+              </Button>
+            )}
+          </div>
+        )}
+
         {(calendars?.length ?? 0) === 0 ? (
           <p className="text-sm text-ink-muted">
             None yet, and nothing is broken without them: leave is counted against the
@@ -460,7 +541,7 @@ export function StaffCalendarManager({ canEdit }: StaffCalendarManagerProps) {
                       </p>
                     </div>
 
-                    {canEdit ? (
+                    {calendarWritable ? (
                       <div className="flex gap-2">
                         <Button
                           size="sm"
@@ -488,7 +569,15 @@ export function StaffCalendarManager({ canEdit }: StaffCalendarManagerProps) {
               </ul>
             )}
 
-            {canEdit && draft === null ? (
+            {calendar !== null && canEdit && !calendarWritable ? (
+              <p className="text-sm text-ink-muted">
+                {calendar.branchId === null
+                  ? 'This is the calendar every campus falls back to. Only a school-wide administrator can change it — create your own campus’s calendars above to set exceptions for your campus.'
+                  : 'This calendar belongs to another campus.'}
+              </p>
+            ) : null}
+
+            {calendarWritable && draft === null ? (
               <Button
                 variant="secondary"
                 onClick={() => {

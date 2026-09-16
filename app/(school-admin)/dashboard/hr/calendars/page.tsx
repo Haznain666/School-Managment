@@ -3,6 +3,7 @@ import type { Metadata } from 'next';
 import { HrNav } from '@/components/hr/HrNav';
 import { StaffCalendarManager } from '@/components/hr/StaffCalendarManager';
 import { PageHeader } from '@/components/ui/PageHeader';
+import { resolveBranchScope } from '@/lib/branch-scope';
 import { requireSchoolPermission } from '@/lib/school-guard';
 
 export const metadata: Metadata = {
@@ -22,7 +23,11 @@ export const runtime = 'nodejs';
  * four without being able to change the reason.
  */
 export default async function StaffCalendarsPage() {
-  const { permissions } = await requireSchoolPermission('leave.read');
+  const { permissions, claims, locationId } = await requireSchoolPermission('leave.read');
+
+  // QA round 1, F2: which campuses this caller can write to, resolved here so
+  // the screen never draws a control whose write would be refused.
+  const scope = await resolveBranchScope(locationId, { uid: claims.uid, branchId: claims.branchId });
 
   return (
     <div className="space-y-6">
@@ -33,7 +38,10 @@ export default async function StaffCalendarsPage() {
 
       <HrNav />
 
-      <StaffCalendarManager canEdit={permissions.includes('leave.manage')} />
+      <StaffCalendarManager
+        canEdit={permissions.includes('leave.manage')}
+        scope={{ bound: scope.bound, branchIds: scope.branchIds }}
+      />
     </div>
   );
 }

@@ -5,26 +5,18 @@ import { schoolUserIdForUid } from '@/lib/accounting-queries';
 import { effectiveBranchIds, readBranchParam, resolveBranchScope } from '@/lib/branch-scope';
 import { db } from '@/lib/drizzle';
 import { getLeaveType } from '@/lib/hr-queries';
+import { resolveLeaveApplicant } from '@/lib/leave-applicant';
 import {
-  getLeaveApplicant,
-  holidaySpanFor,
+  countLeaveFor,
   leaveSpansFor,
   listApprovalInbox,
   listLeaveForSchool,
   listOwnLeaveRequests,
   quotasFor,
 } from '@/lib/leave-queries';
-import {
-  countLeaveDays,
-  holidayProblem,
-  overlapProblem,
-  quotaProblem,
-  roundToHalf,
-  spanProblem,
-} from '@/lib/leave-quota';
+import { overlapProblem, quotaProblem, roundToHalf } from '@/lib/leave-quota';
 import { hasPermission } from '@/lib/permission-queries';
 import { staffIdForSchoolUser } from '@/lib/staff-self-queries';
-import { staffHolidayDates } from '@/lib/staff-calendar-queries';
 import { isIsoDate, isUuid, readOptionalString } from '@/lib/validation';
 
 /**
@@ -52,7 +44,7 @@ import { isIsoDate, isUuid, readOptionalString } from '@/lib/validation';
  * what that costs: a Branch Admin holds neither and was refused at the
  * permission gate before the campus guard it was written for could run.
  * Widening it would have handed a campus office the whole HR module, so leave
- * has its own four keys and its own endpoint, and the HR one is untouched.
+ * has its own four keys and its own endpoint, and since QA round 1 the HR one refuses to write.
  */
 
 export const runtime = 'nodejs';
@@ -139,61 +131,16 @@ export const POST = withSchoolAuth(
         return apiFailure('invalid_body', 'Expected a JSON body.', 400);
       }
 
-      const schoolUserId = await schoolUserIdForUid(auth.locationId, auth.uid);
-      const ownStaffId =
-        schoolUserId === null ? null : await staffIdForSchoolUser(auth.locationId, schoolUserId);
-
-      const requested = readOptionalString(body.staffId);
-      if (requested !== null && !isUuid(requested)) {
-        return apiFailure('invalid_body', 'Choose a staff member.', 400);
-      }
-
-      const staffId = requested ?? ownStaffId;
-      if (staffId === null) {
-        return apiFailure(
-          'no_staff_record',
-          'Leave is recorded against an HR staff record and your account is not linked to one yet. Ask the school office to link it.',
-          409,
-        );
-      }
-
       /*
-       * Filing for somebody else is a different act, and it is HR's.
-       *
-       * Decision 6: a junior teacher has no login, so HR files for them and it
-       * still travels up the chain. That is `leave.manage` — not `leave.approve`,
-       * which is the other end of the same request and belongs to somebody
-       * else. A person filing and approving their own filing is the control
-       * `payroll.approve` and `accounting.settle` both exist to draw.
+       * Mine, or somebody else's under `leave.manage` at my own campus —
+       * `resolveLeaveApplicant` decides, and the day-count preview asks the
+       * same function. Decision 6's junior teacher is the on-behalf case, and
+       * filing is never `leave.approve`: a person filing and approving their own
+       * filing is the control `payroll.approve` and `accounting.settle` draw.
        */
-      const onBehalf = staffId !== ownStaffId;
-      if (onBehalf && !(await hasPermission(auth.locationId, auth.role, 'leave.manage'))) {
-        return apiFailure(
-          'forbidden',
-          'Only somebody who manages leave can file a request for another member of staff.',
-          403,
-        );
-      }
-
-      const applicant = await getLeaveApplicant(auth.locationId, staffId);
-      if (applicant === null) {
-        return apiFailure('not_found', 'Staff member not found.', 404);
-      }
-
-      // The campus, on the write. Sprint 33a shipped this guard on the
-      // decision; filing has the same hole and the same answer.
-      if (
-        onBehalf &&
-        auth.branchId !== null &&
-        applicant.branchId !== null &&
-        applicant.branchId !== auth.branchId
-      ) {
-        return apiFailure(
-          'wrong_campus',
-          'That member of staff belongs to another campus. Somebody at that campus files their leave.',
-          403,
-        );
-      }
+      const resolved = await resolveLeaveApplicant(auth, body.staffId);
+      if (!resolved.ok) return apiFailure(resolved.code, resolved.message, resolved.status);
+      const { applicant, staffId } = resolved;
 
       const leaveTypeId = readOptionalString(body.leaveTypeId);
       if (leaveTypeId === null || !isUuid(leaveTypeId)) {
@@ -211,31 +158,26 @@ export const POST = withSchoolAuth(
         return apiFailure('invalid_body', 'Enter a valid start and end date.', 400);
       }
 
-      const rangeProblem = spanProblem(startDate, endDate);
-      if (rangeProblem !== null) return apiFailure('invalid_body', rangeProblem, 400);
-
       // Their own calendar, not the raw holiday list: a holiday HR has
-      // cancelled for teaching staff is a working day for them.
-      const [holidays, span, spans] = await Promise.all([
-        staffHolidayDates(auth.locationId, {
-          branchId: applicant.branchId,
-          role: applicant.role,
-          from: startDate,
-          to: endDate,
-        }),
-        holidaySpanFor(auth.locationId, applicant.branchId),
+      // cancelled for teaching staff is a working day for them. Counted by
+      // `countLeaveFor`, which is also what the forms' "Days used" asks — so
+      // what the screen shows is what this write stores.
+      const [counting, spans] = await Promise.all([
+        countLeaveFor(auth.locationId, applicant, startDate, endDate),
         leaveSpansFor(auth.locationId, staffId),
       ]);
 
-      const onHoliday = holidayProblem(startDate, endDate, holidays.dates, (date) =>
-        holidays.nameFor.get(date) ?? null,
-      );
-      if (onHoliday !== null) return apiFailure('school_closed', onHoliday, 422);
+      if (counting.spanProblem !== null) {
+        return apiFailure('invalid_body', counting.spanProblem, 400);
+      }
+      if (counting.holidayProblem !== null) {
+        return apiFailure('school_closed', counting.holidayProblem, 422);
+      }
 
       const clash = overlapProblem(startDate, endDate, spans);
       if (clash !== null) return apiFailure('overlaps', clash, 409);
 
-      const counted = countLeaveDays(startDate, endDate, holidays.dates, span);
+      const counted = counting.count;
       if (counted.days <= 0) {
         return apiFailure(
           'school_closed',

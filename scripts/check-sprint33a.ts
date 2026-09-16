@@ -359,25 +359,34 @@ async function main(): Promise<void> {
 
   console.log('\nA5 — the campus gap:');
 
+  /*
+   * Sprint 33b, QA round 1 moved both of these. The HR PATCH this section
+   * guarded no longer writes at all — it refuses with 410 — and the campus
+   * refusal Part A put on it now lives on the decision endpoint, beside the
+   * approval chain. The legacy GET keeps the 404 on another campus's id.
+   */
   const hrQueries = source('lib/hr-queries.ts');
-  const decisionRoute = source('app/api/school/hr/leave-requests/[requestId]/route.ts');
+  const legacyRoute = source('app/api/school/hr/leave-requests/[requestId]/route.ts');
+  const decisionRoute = source('app/api/school/leave/requests/[requestId]/decision/route.ts');
 
   assert('getLeaveRequest returns the applicant’s campus', hrQueries.includes('branchId: staff.branchId'));
   assert(
     'the decision refuses another campus with 403',
-    decisionRoute.includes("'wrong_campus'") && decisionRoute.includes('outsideCampus('),
-    'the PATCH still checks no campus — any id can be approved from anywhere',
+    decisionRoute.includes("'wrong_campus'") && decisionRoute.includes('auth.branchId !== null'),
+    'the decision endpoint checks no campus — any id can be approved from anywhere',
   );
   assert(
-    'school-wide access still sees everything',
-    decisionRoute.includes('callerBranchId !== null'),
+    'the legacy read still hides another campus’s request, and school-wide access sees everything',
+    legacyRoute.includes('outsideCampus(') && legacyRoute.includes('callerBranchId !== null'),
   );
 
   console.log('\nA6 — days used:');
 
+  // Sprint 33b QA round 1 (F5): the count now comes from the server, through
+  // the same function the write stores with.
   const leaveManager = source('components/hr/LeaveManager.tsx');
-  assert('the draft is filled from the dates', leaveManager.includes('withCountedDays('));
-  assert('and says what it counted', leaveManager.includes('countedLabel('));
+  assert('the draft is filled from the dates', leaveManager.includes('useLeaveCount('));
+  assert('and says what it counted', leaveManager.includes('countHint('));
   assert(
     'the field stays editable for a half day',
     leaveManager.includes('step={0.5}') && leaveManager.includes('totalDays: event.target.value'),

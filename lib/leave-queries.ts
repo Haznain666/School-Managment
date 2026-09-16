@@ -29,9 +29,14 @@ import { db } from './drizzle';
 import {
   academicYearRange,
   computeQuota,
+  countLeaveDays,
+  holidayProblem,
+  spanProblem,
   type AcademicYearLike,
+  type LeaveDayCount,
   type LeaveQuota,
 } from './leave-quota';
+import { staffHolidayDates } from './staff-calendar-queries';
 
 /**
  * `lib/leave-queries.ts` — the reads leave management is built on. Sprint 33b.
@@ -567,6 +572,61 @@ export async function leaveSpansFor(
         inArray(leaveRequests.status, ['pending', 'approved']),
       ),
     );
+}
+
+export interface LeaveCount {
+  /** What the range costs, under this campus's holiday rule. */
+  count: LeaveDayCount;
+  /** The single-day-on-a-holiday refusal, or null. */
+  holidayProblem: string | null;
+  /** The range refusal (empty, backwards, longer than a year), or null. */
+  spanProblem: string | null;
+  holidaySpan: HolidaySpan;
+}
+
+/**
+ * How many days a range costs one applicant — **the** count.
+ *
+ * QA round 1, F5. `POST /api/school/leave/requests` counts with this, and so
+ * does `GET /api/school/leave/count`, which is what both leave forms call as
+ * the dates change. "Days used" is therefore the figure the write will store,
+ * not a calendar span the browser guessed at: the person's own staff calendar
+ * and their campus's holiday rule both live on the server, and a form that
+ * counted without them would say five where the server says four.
+ */
+export async function countLeaveFor(
+  locationId: string,
+  applicant: { branchId: string | null; role: UserRole | null },
+  startDate: string,
+  endDate: string,
+): Promise<LeaveCount> {
+  const range = spanProblem(startDate, endDate);
+  const span = await holidaySpanFor(locationId, applicant.branchId);
+
+  if (range !== null) {
+    return {
+      count: { days: 0, holidayDays: 0, skipped: false },
+      holidayProblem: null,
+      spanProblem: range,
+      holidaySpan: span,
+    };
+  }
+
+  const holidays = await staffHolidayDates(locationId, {
+    branchId: applicant.branchId,
+    role: applicant.role,
+    from: startDate,
+    to: endDate,
+  });
+
+  return {
+    count: countLeaveDays(startDate, endDate, holidays.dates, span),
+    holidayProblem: holidayProblem(startDate, endDate, holidays.dates, (date) =>
+      holidays.nameFor.get(date) ?? null,
+    ),
+    spanProblem: null,
+    holidaySpan: span,
+  };
 }
 
 /** How many people are waiting on this person, for the dashboard tile. */
