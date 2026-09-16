@@ -165,7 +165,7 @@ export function ChatWorkspace({
    * because it runs everywhere.
    */
   const signalHandler = useRef<(conversationIds: string[]) => void>(() => undefined);
-  const { setSoundEnabled, refreshCounts } = useChatSignals(
+  const { setSoundEnabled, refreshCounts, setOpenConversation } = useChatSignals(
     useCallback((conversationIds: string[]) => {
       signalHandler.current(conversationIds);
     }, []),
@@ -246,10 +246,21 @@ export function ChatWorkspace({
          * would fetch a 404 and show them an error for a thread that may not
          * even exist.
          */
-        const requested =
-          typeof window === 'undefined'
-            ? null
-            : new URLSearchParams(window.location.search).get('conversation');
+        /*
+         * Two names for the same thing, and both are kept.
+         *
+         * `?conversation=` is what a bell entry carries (Sprint 29).
+         * `?c=` is what the daily unread-message email carries (Sprint 33a) —
+         * short because it is read in a mail client, where a long URL is
+         * wrapped across two lines and a wrapped URL is a link that does not
+         * open. Accepting one and not the other would make whichever surface
+         * was forgotten drop people in an inbox instead of the thread they
+         * asked for, which is the notification not having worked.
+         */
+        const params =
+          typeof window === 'undefined' ? null : new URLSearchParams(window.location.search);
+
+        const requested = params?.get('conversation') ?? params?.get('c') ?? null;
 
         const wanted =
           requested === null
@@ -289,6 +300,21 @@ export function ChatWorkspace({
       setError(schoolErrorMessage(caught, 'That conversation could not be opened.'));
     });
   }, [selectedId, loadMessages]);
+
+  /*
+   * Sprint 33a. Tell the portal's stream which thread is on screen, so it does
+   * not chime for a message that arrives in the one being read.
+   *
+   * It is told on the way out as well: navigating away from the chat screen
+   * leaves the provider mounted in the layout, and a stale id there would
+   * silence a genuinely new message in that thread for the rest of the session.
+   */
+  useEffect(() => {
+    setOpenConversation(selectedId);
+    return () => {
+      setOpenConversation(null);
+    };
+  }, [selectedId, setOpenConversation]);
 
   useEffect(() => {
     transcriptEnd.current?.scrollIntoView({ block: 'end' });

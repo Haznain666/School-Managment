@@ -99,6 +99,37 @@ export function minutesFromTime(time: string): number {
 }
 
 /**
+ * Whether two periods share any minute of the day.
+ *
+ * ── Why this is a free function and not a query ──────────────────────────
+ * A teacher's clash was tested on `slot_id` equality until Sprint 33a, which
+ * compares nothing when the two lessons sit in **different `period_structures`**
+ * — Nursery period 2 (08:40–09:20) and Year 1 period 3 (09:05–09:45) are
+ * different rows, so both writes were legal and the teacher portal drew the
+ * overlap correctly from two correct rows. The comparison that was missing is
+ * this one, on the minutes.
+ *
+ * It takes four strings and touches no database so the API, the builder and
+ * the report all ask the same function; a second copy in the browser is how the
+ * form and the server come to disagree about what is allowed.
+ *
+ * Half-open `[start, end)`: a period ending at 09:20 and one starting at 09:20
+ * are back to back, not a clash. That is the ordinary shape of a school day and
+ * treating it as an overlap would refuse every consecutive pair.
+ */
+export function slotsOverlap(
+  aStart: string,
+  aEnd: string,
+  bStart: string,
+  bEnd: string,
+): boolean {
+  return (
+    minutesFromTime(aStart) < minutesFromTime(bEnd) &&
+    minutesFromTime(bStart) < minutesFromTime(aEnd)
+  );
+}
+
+/**
  * Why a start/end pair is not usable, or null when it is.
  * Shared by the API and the form so both refuse the same things.
  */

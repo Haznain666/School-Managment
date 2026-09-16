@@ -696,6 +696,16 @@ export interface LeaveRequestRow {
   staffId: string;
   staffName: string;
   employeeCode: string;
+  /**
+   * The campus the applicant belongs to, or null for somebody school-wide.
+   *
+   * Sprint 33a. It was not selected at all, which is why
+   * `PATCH /api/school/hr/leave-requests/[requestId]` had nothing to check a
+   * campus-bound approver against: the list narrows on `auth.branchId` and the
+   * decision route did not, so a request that could not be *seen* from campus
+   * A could be *approved* from it by calling the endpoint with its id.
+   */
+  branchId: string | null;
   leaveTypeId: string;
   leaveTypeName: string;
   isPaid: boolean;
@@ -744,6 +754,7 @@ export async function listLeaveRequests(
       status: leaveRequests.status,
       decisionNote: leaveRequests.decisionNote,
       decidedAt: leaveRequests.decidedAt,
+      branchId: staff.branchId,
       createdAt: leaveRequests.createdAt,
     })
     .from(leaveRequests)
@@ -779,6 +790,8 @@ export async function getLeaveRequest(
       status: leaveRequests.status,
       decisionNote: leaveRequests.decisionNote,
       decidedAt: leaveRequests.decidedAt,
+      // The campus, so the decision route can refuse another one's request.
+      branchId: staff.branchId,
       createdAt: leaveRequests.createdAt,
     })
     .from(leaveRequests)

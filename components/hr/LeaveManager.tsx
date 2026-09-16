@@ -78,6 +78,21 @@ interface Draft {
   reason: string;
 }
 
+/** `2026-03-02` as `2 March`, for saying what was counted. */
+function shortDate(iso: string): string {
+  const parsed = Date.parse(`${iso}T00:00:00Z`);
+  if (Number.isNaN(parsed)) return iso;
+
+  // UTC throughout, matching `spanDays` below. A local-time rendering would
+  // name the day before for anybody west of Greenwich, on a field whose whole
+  // purpose is to agree with the dates above it.
+  return new Date(parsed).toLocaleDateString('en-GB', {
+    day: 'numeric',
+    month: 'long',
+    timeZone: 'UTC',
+  });
+}
+
 /** Inclusive calendar days between two ISO dates, or 0 when either is unset. */
 function spanDays(start: string, end: string): number {
   if (start === '' || end === '') return 0;
@@ -87,6 +102,41 @@ function spanDays(start: string, end: string): number {
   if (Number.isNaN(from) || Number.isNaN(to) || to < from) return 0;
 
   return Math.round((to - from) / 86_400_000) + 1;
+}
+
+/**
+ * What the dates add up to, in words — *"5 days (2 March – 6 March)"*.
+ *
+ * Sprint 33a. The field said **Days used: 0** with the hint "Defaults to the
+ * whole range", and the default was real but invisible: `spanDays` existed,
+ * was never written into the draft, and the API's `Number(body.totalDays) ||
+ * span` fallback was what actually saved the figure. So an approver filing for
+ * somebody read a zero and a promise, and had to trust the promise.
+ *
+ * Saying what was counted matters more than filling the box, because the box
+ * stays editable: a half day is 0.5 of a one-day range, and the sentence is
+ * how somebody knows what they are overriding.
+ */
+function countedLabel(start: string, end: string): string | null {
+  const span = spanDays(start, end);
+  if (span === 0) return null;
+
+  return span === 1
+    ? `1 day (${shortDate(start)})`
+    : `${String(span)} days (${shortDate(start)} – ${shortDate(end)})`;
+}
+
+/**
+ * The draft with its day count filled in from the dates.
+ *
+ * Applied on every date change rather than only on the first, and that is the
+ * deliberate part: a hand-typed 0.5 is an answer about *these* dates, so a
+ * range that changes underneath it makes it a stale answer rather than a
+ * preference to preserve. An untouched range leaves the field alone.
+ */
+function withCountedDays(draft: Draft): Draft {
+  const span = spanDays(draft.startDate, draft.endDate);
+  return span === 0 ? draft : { ...draft, totalDays: String(span) };
 }
 
 export function LeaveManager({ canEdit }: LeaveManagerProps) {
@@ -401,7 +451,7 @@ export function LeaveManager({ canEdit }: LeaveManagerProps) {
               type="date"
               value={draft.startDate}
               onChange={(event) => {
-                setDraft({ ...draft, startDate: event.target.value });
+                setDraft(withCountedDays({ ...draft, startDate: event.target.value }));
               }}
             />
             <Input
@@ -409,7 +459,7 @@ export function LeaveManager({ canEdit }: LeaveManagerProps) {
               type="date"
               value={draft.endDate}
               onChange={(event) => {
-                setDraft({ ...draft, endDate: event.target.value });
+                setDraft(withCountedDays({ ...draft, endDate: event.target.value }));
               }}
             />
             <Input
@@ -418,8 +468,11 @@ export function LeaveManager({ canEdit }: LeaveManagerProps) {
               min={0.5}
               step={0.5}
               value={draft.totalDays}
-              placeholder={String(spanDays(draft.startDate, draft.endDate))}
-              hint="Half days allowed. Defaults to the whole range."
+              hint={
+                countedLabel(draft.startDate, draft.endDate) === null
+                  ? 'Fills in from the dates. Half days allowed.'
+                  : `Counted: ${countedLabel(draft.startDate, draft.endDate) ?? ''}. Change it for a half day.`
+              }
               onChange={(event) => {
                 setDraft({ ...draft, totalDays: event.target.value });
               }}

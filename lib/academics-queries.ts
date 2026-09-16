@@ -19,7 +19,7 @@ import {
   type AttendanceStatus,
 } from '@/db/schema';
 
-import { minutesFromTime } from '@/db/schema/timetable-slots';
+import { minutesFromTime, slotsOverlap } from '@/db/schema/timetable-slots';
 
 import { sharedOrOwnedBy } from './branch-scope';
 import { db } from './drizzle';
@@ -469,6 +469,187 @@ export async function listTeacherTimetable(
     ...row,
     gradeName: gradeLabel({ name: row.gradeName, displayName: gradeDisplayName }),
   }));
+}
+
+export interface TeacherBusySlot {
+  entryId: string;
+  sectionId: string;
+  sectionLabel: string;
+  dayOfWeek: number;
+  slotId: string;
+  slotName: string;
+  startTime: string;
+  endTime: string;
+}
+
+/**
+ * Every period one teacher is already standing in, with its minutes.
+ *
+ * Sprint 33a. The timetable builder asks for this when a cell is opened so the
+ * clerk is refused *before* the request rather than by a 409 after it — and it
+ * carries `start_time`/`end_time` rather than only `slot_id` because the clash
+ * this exists for is between two slots in **different `period_structures`**,
+ * which are never equal and can still be the same half hour.
+ *
+ * The browser and `POST /api/school/timetable/entries` then decide it with the
+ * same `slotsOverlap`, so the two cannot drift apart. The server is still the
+ * rule: this is a courtesy that saves a round trip, and it re-runs on the write.
+ */
+export async function listTeacherBusySlots(
+  locationId: string,
+  teacherId: string,
+  academicYearId: string,
+): Promise<TeacherBusySlot[]> {
+  const rows = await db
+    .select({
+      entryId: timetableEntries.id,
+      sectionId: timetableEntries.sectionId,
+      dayOfWeek: timetableEntries.dayOfWeek,
+      slotId: timetableSlots.id,
+      slotName: timetableSlots.name,
+      startTime: timetableSlots.startTime,
+      endTime: timetableSlots.endTime,
+      gradeName: grades.name,
+      gradeDisplayName: grades.displayName,
+      sectionName: sections.name,
+    })
+    .from(timetableEntries)
+    .innerJoin(timetableSlots, eq(timetableSlots.id, timetableEntries.slotId))
+    .innerJoin(sections, eq(sections.id, timetableEntries.sectionId))
+    .innerJoin(grades, eq(grades.id, sections.gradeId))
+    .where(
+      and(
+        eq(timetableEntries.locationId, locationId),
+        eq(timetableEntries.teacherId, teacherId),
+        eq(timetableEntries.academicYearId, academicYearId),
+        eq(timetableEntries.isActive, true),
+      ),
+    )
+    .orderBy(asc(timetableEntries.dayOfWeek), asc(timetableSlots.startTime));
+
+  return rows.map(({ gradeName, gradeDisplayName, sectionName, ...row }) => ({
+    ...row,
+    sectionLabel: `${gradeLabel({ name: gradeName, displayName: gradeDisplayName })} — ${sectionName}`,
+  }));
+}
+
+export interface TeacherOverlapLesson {
+  entryId: string;
+  sectionLabel: string;
+  slotName: string;
+  startTime: string;
+  endTime: string;
+}
+
+export interface TeacherOverlapRow {
+  teacherId: string;
+  teacherName: string;
+  dayOfWeek: number;
+  first: TeacherOverlapLesson;
+  second: TeacherOverlapLesson;
+}
+
+/**
+ * Teachers who are already booked into two periods that overlap.
+ *
+ * ── Reported, never deleted ──────────────────────────────────────────────
+ * The write guard closes the door from today; it says nothing about the rows
+ * already through it, and one of those rows is a lesson a class is **sitting
+ * in**. Removing either half silently would take a lesson off a grid somebody
+ * is teaching to, and nothing on any screen would say which one went. So this
+ * reads, names both classes and both clocks, and leaves the school to decide.
+ *
+ * One statement and then the pairing in JavaScript, rather than a self-join
+ * with a time predicate. A self-join over `timetable_entries` would return each
+ * pair twice and needs a tie-break to stop it matching a row against itself; the
+ * pairing here is `slotsOverlap` — the same function the route and the builder
+ * use — over a list already narrowed to one year, which is the cheapest thing
+ * this page reads.
+ *
+ * `gradeIds` narrows it to what the caller may see. A head whose grades stop at
+ * Class 4 is shown their own overlaps, not the senior school's, and passing an
+ * empty list returns nothing rather than everything — an empty visible scope is
+ * a scope, not a missing filter.
+ */
+export async function listTeacherOverlaps(
+  locationId: string,
+  academicYearId: string,
+  filters: { gradeIds?: readonly string[] | undefined } = {},
+): Promise<TeacherOverlapRow[]> {
+  if (filters.gradeIds !== undefined && filters.gradeIds.length === 0) return [];
+
+  const conditions: SQL[] = [
+    eq(timetableEntries.locationId, locationId),
+    eq(timetableEntries.academicYearId, academicYearId),
+    eq(timetableEntries.isActive, true),
+  ];
+
+  if (filters.gradeIds !== undefined) {
+    conditions.push(inArray(sections.gradeId, [...filters.gradeIds]));
+  }
+
+  const rows = await db
+    .select({
+      entryId: timetableEntries.id,
+      teacherId: timetableEntries.teacherId,
+      teacherName: schoolUsers.name,
+      dayOfWeek: timetableEntries.dayOfWeek,
+      slotName: timetableSlots.name,
+      startTime: timetableSlots.startTime,
+      endTime: timetableSlots.endTime,
+      gradeName: grades.name,
+      gradeDisplayName: grades.displayName,
+      sectionName: sections.name,
+    })
+    .from(timetableEntries)
+    .innerJoin(timetableSlots, eq(timetableSlots.id, timetableEntries.slotId))
+    .innerJoin(schoolUsers, eq(schoolUsers.id, timetableEntries.teacherId))
+    .innerJoin(sections, eq(sections.id, timetableEntries.sectionId))
+    .innerJoin(grades, eq(grades.id, sections.gradeId))
+    .where(and(...conditions))
+    .orderBy(asc(schoolUsers.name), asc(timetableEntries.dayOfWeek), asc(timetableSlots.startTime));
+
+  const byTeacherDay = new Map<string, typeof rows>();
+  for (const row of rows) {
+    const key = `${row.teacherId}:${String(row.dayOfWeek)}`;
+    const bucket = byTeacherDay.get(key);
+    if (bucket === undefined) byTeacherDay.set(key, [row]);
+    else bucket.push(row);
+  }
+
+  const overlaps: TeacherOverlapRow[] = [];
+
+  for (const bucket of byTeacherDay.values()) {
+    for (let left = 0; left < bucket.length; left += 1) {
+      for (let right = left + 1; right < bucket.length; right += 1) {
+        const a = bucket[left];
+        const b = bucket[right];
+        if (a === undefined || b === undefined) continue;
+        if (!slotsOverlap(a.startTime, a.endTime, b.startTime, b.endTime)) continue;
+
+        const lesson = (row: typeof a): TeacherOverlapLesson => ({
+          entryId: row.entryId,
+          sectionLabel: `${gradeLabel({
+            name: row.gradeName,
+            displayName: row.gradeDisplayName,
+          })} — ${row.sectionName}`,
+          slotName: row.slotName,
+          startTime: row.startTime,
+          endTime: row.endTime,
+        });
+
+        overlaps.push({
+          teacherId: a.teacherId,
+          teacherName: a.teacherName,
+          dayOfWeek: a.dayOfWeek,
+          first: lesson(a),
+          second: lesson(b),
+        });
+      }
+    }
+  }
+
+  return overlaps;
 }
 
 export interface TeacherSectionOption {

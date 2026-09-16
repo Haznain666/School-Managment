@@ -1,0 +1,43 @@
+-- Sprint 33a — the two notification faults, the campus gap and the three
+-- defects. `SPRINT-33-SPEC.md` Part A is the requirement; STATE.md §5cf is the
+-- handover entry.
+--
+-- ── One column, and it is the end of "the email never stops" ─────────────
+-- The unread-message digest went out every **60 minutes, for ever**, with no
+-- link in it. Sprint 33a makes the interval a day and gives the message a deep
+-- link to the thread; neither of those needs a migration. This does: an email
+-- that stops after five unanswered days needs somewhere to count them.
+--
+-- `digest_count` is per **participant row**, not per person, and the
+-- difference is the whole design. Five reminders is a statement about one
+-- unanswered conversation. A different teacher writing about a different child
+-- is a new thing to be told about, and a person-level counter would silence it
+-- because of a thread they had already decided to ignore.
+--
+-- It is raised only when an email is actually queued, and put back to 0 by
+-- `markConversationRead` — in the same transaction that moves `last_read_at`
+-- and deletes that person's `chat_signals` for the thread. So five means five
+-- days in which nobody opened it, and reading it starts the count again.
+--
+-- ── Nothing else in Part A touches the schema ────────────────────────────
+-- In particular there is **no** `role_permissions_permission_check` rewrite,
+-- because Part A adds no permission key. That is checked rather than assumed:
+-- `scripts/check-sprint33a.ts` asserts every key in `PERMISSIONS` still
+-- appears in `0045`'s constraint, so a key added here without its CHECK would
+-- fail the gate rather than wait to become a 23514 on the first school that
+-- overrides a default. Part B's `0047` is where the leave keys arrive.
+--
+-- ── Safe on a live table ─────────────────────────────────────────────────
+-- `ADD COLUMN … NOT NULL DEFAULT` has been metadata-only since Postgres 11:
+-- no table rewrite, no long lock, and every existing row reads 0 without one
+-- being touched. 0 is the right value for every row that exists — nobody has
+-- been reminded about anything yet under the new rule.
+--
+-- No index. The candidate query reaches this column only after
+-- `chat_participants_digested_idx` and the unread comparison have already
+-- narrowed to a handful of rows, and an index on a low-cardinality integer
+-- that is never the leading predicate would be paid for on every write and
+-- read by nothing.
+
+ALTER TABLE "chat_participants"
+  ADD COLUMN IF NOT EXISTS "digest_count" integer DEFAULT 0 NOT NULL;

@@ -65,20 +65,52 @@ function baseOrigin(): string {
 function buildSchoolUrl(path: string, schoolSlug: string): string {
   const origin = baseOrigin();
 
+  /*
+   * `path` may carry a query of its own — Sprint 33a's `?c=<conversation>`
+   * deep link is the first one that does. Both branches below would have
+   * mangled it: the local one by appending a second `?`, and the subdomain one
+   * by assigning the whole string to `pathname`, which percent-encodes the `?`
+   * into the path. Splitting once, here, keeps every caller honest; a path
+   * without a query behaves exactly as it always did.
+   */
+  const [pathname = '/', query = ''] = path.split('?');
+
   if (isLocalOrigin(origin)) {
-    return `${origin}${path}?school=${encodeURIComponent(schoolSlug)}`;
+    const separator = query === '' ? '?' : '&';
+    return `${origin}${path}${separator}school=${encodeURIComponent(schoolSlug)}`;
   }
 
   const url = new URL(origin);
   const baseDomain = serverEnv('PLATFORM_BASE_DOMAIN', url.hostname);
   url.hostname = `${schoolSlug}.${baseDomain}`;
-  url.pathname = path;
+  url.pathname = pathname;
+  url.search = query;
   return url.toString();
 }
 
 /** The absolute URL an invitee clicks. */
 export function buildInviteUrl(token: string, schoolSlug: string): string {
   return buildSchoolUrl(`/invite/${token}`, schoolSlug);
+}
+
+/**
+ * Any portal path, as an absolute URL into one school.
+ *
+ * Sprint 33a. The unread-message email had no link in it at all — *"Sign in to
+ * read and reply"* — so a parent on a phone had to find the portal, sign in,
+ * open Messages and then find the thread the email was about. The digest now
+ * links straight to it, and it builds that link **here** rather than
+ * concatenating a hostname of its own: the local/subdomain difference above is
+ * exactly the trap that mailed people a production origin carrying a
+ * development parameter, and there is no reason for a second module to
+ * rediscover it.
+ *
+ * `path` must start with `/` and may carry its own query string; a link that
+ * already has one is given `&school=` rather than a second `?` on a local
+ * origin.
+ */
+export function buildSchoolPortalUrl(path: string, schoolSlug: string): string {
+  return buildSchoolUrl(path, schoolSlug);
 }
 
 /** The school's sign-in page. */

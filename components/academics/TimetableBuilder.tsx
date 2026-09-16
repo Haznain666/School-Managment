@@ -15,7 +15,7 @@ import {
   TableRow,
 } from '@/components/ui/Table';
 import { subjectShortLabel } from '@/db/schema/subjects';
-import { formatTimeOfDay } from '@/db/schema/timetable-slots';
+import { formatTimeOfDay, slotsOverlap } from '@/db/schema/timetable-slots';
 import { WEEKDAY_NAMES, WEEKDAY_SHORT_NAMES } from '@/db/schema/timetable-entries';
 import { ClassTeacherPicker } from '@/components/academics/ClassTeacherPicker';
 import { schoolErrorMessage, schoolFetch } from '@/lib/school-client';
@@ -145,6 +145,18 @@ interface EditingCell {
   room: string;
 }
 
+/** Where the chosen teacher already is — `GET /timetable/teacher-busy`. */
+interface TeacherBusyRow {
+  entryId: string;
+  sectionId: string;
+  sectionLabel: string;
+  dayOfWeek: number;
+  slotId: string;
+  slotName: string;
+  startTime: string;
+  endTime: string;
+}
+
 
 /** Used when a subject has no colour of its own. */
 const SUBJECT_FALLBACK = '#475569';
@@ -173,6 +185,8 @@ export function TimetableBuilder({
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
+  const [teacherBusy, setTeacherBusy] = useState<TeacherBusyRow[] | null>(null);
+  const [checkingTeacher, setCheckingTeacher] = useState(false);
 
   const sectionOptions = useMemo(
     () =>
@@ -251,6 +265,81 @@ export function TimetableBuilder({
     return payload.entries.filter((entry) => !drawable.has(entry.slotId)).length;
   }, [payload]);
 
+  /*
+   * Where the chosen teacher already stands, read when the dialog opens and
+   * again whenever the teacher in it changes.
+   *
+   * ── Why the grid cannot answer this itself ───────────────────────────
+   * `payload` is one section's week. The clash this exists for is between two
+   * *different* sections on two *different* bell schedules — Nursery period 2
+   * against Year 1 period 3 — so neither grid contains the other's lesson and
+   * no amount of looking at this one would find it.
+   *
+   * The refusal is the server's; this is only about saying it before the
+   * request rather than after. `POST /timetable/entries` re-runs the same
+   * `slotsOverlap` against the live rows, so a stale answer held here cannot
+   * write an overlap.
+   */
+  useEffect(() => {
+    const teacherId = editing?.teacherId ?? '';
+
+    if (teacherId === '' || yearId === '') {
+      setTeacherBusy(null);
+      return;
+    }
+
+    let cancelled = false;
+    setCheckingTeacher(true);
+
+    void schoolFetch<{ busy: TeacherBusyRow[] }>(
+      `/api/school/timetable/teacher-busy?teacherId=${teacherId}&academicYearId=${yearId}`,
+    )
+      .then((data) => {
+        if (!cancelled) setTeacherBusy(data.busy);
+      })
+      .catch(() => {
+        // The server still refuses an overlap. Losing this read costs the
+        // clerk the early warning, not the guarantee.
+        if (!cancelled) setTeacherBusy(null);
+      })
+      .finally(() => {
+        if (!cancelled) setCheckingTeacher(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [editing?.teacherId, yearId]);
+
+  /*
+   * The same test the route runs, from the same function. The section's own
+   * lesson in this cell is excluded, exactly as the route's `ne(section_id)`
+   * does — replacing a lesson must not read as clashing with itself.
+   */
+  const teacherClash = useMemo(() => {
+    if (editing === null || teacherBusy === null) return null;
+
+    return (
+      teacherBusy.find(
+        (row) =>
+          row.dayOfWeek === editing.dayOfWeek &&
+          row.sectionId !== sectionId &&
+          (row.slotId === editing.slot.id ||
+            slotsOverlap(
+              row.startTime,
+              row.endTime,
+              editing.slot.startTime,
+              editing.slot.endTime,
+            )),
+      ) ?? null
+    );
+  }, [editing, teacherBusy, sectionId]);
+
+  const clashMessage =
+    teacherClash === null
+      ? null
+      : `That teacher already takes ${teacherClash.sectionLabel} in ${teacherClash.slotName} (${formatTimeOfDay(teacherClash.startTime)} – ${formatTimeOfDay(teacherClash.endTime)}), which overlaps this period. Choose another teacher.`;
+
   const openCell = (slot: SlotRow, dayOfWeek: number): void => {
     const entry = entriesByCell.get(cellKey(slot.id, dayOfWeek)) ?? null;
 
@@ -270,6 +359,14 @@ export function TimetableBuilder({
 
     if (editing.subjectId === '' || editing.teacherId === '') {
       setError('Choose both a subject and a teacher.');
+      return;
+    }
+
+    // Refused here as well as on the button's disabled state: a disabled
+    // button is not a rule, and this one can be reached by a keyboard while
+    // the read that found the clash was still in flight.
+    if (clashMessage !== null) {
+      setError(clashMessage);
       return;
     }
 
@@ -581,6 +678,25 @@ export function TimetableBuilder({
                   }}
                 />
 
+                {/*
+                  The pending state for the clash read. Every client-side fetch
+                  in this product carries one — CLAUDE.md — and this one earns
+                  it twice over: without it the dialog looks decided while the
+                  answer that may refuse the save is still on its way.
+                */}
+                {checkingTeacher ? (
+                  <p className="text-sm text-ink-muted">
+                    Checking where this teacher is…
+                  </p>
+                ) : clashMessage === null ? null : (
+                  <p
+                    role="alert"
+                    className="rounded-lg bg-status-warning-subtle px-3 py-2 text-sm text-status-warning-onSubtle"
+                  >
+                    {clashMessage}
+                  </p>
+                )}
+
                 {error !== null ? (
                   <p
                     role="alert"
@@ -594,6 +710,7 @@ export function TimetableBuilder({
               <div className="mt-5 flex flex-wrap gap-3">
                 <Button
                   isLoading={busy === 'save'}
+                  disabled={clashMessage !== null}
                   onClick={() => {
                     void save();
                   }}
