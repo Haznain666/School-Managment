@@ -35,7 +35,11 @@ The Section Head role, the chain of command and HR leave management, on
 seven new `staff` columns do not exist, so **every leave screen throws** — the
 feature is inert rather than half-working, and `check-sprint33b` reports exactly
 that state (96 passed, 0 failed, with the new statements in their predicted
-`42P01` / `42703` form). **`0048` is the next free migration number** (Part C).
+`42P01` / `42703` form). **`0048` is Part B too** — one Principal per campus,
+after a data script for Askari — so **`0049` is the next free migration
+number** (Part C). ⚠ **Deploy order: `0047` → code → `scripts/apply-sprint33b-data.mjs --apply` → `0048`.**
+`npm run db:migrate` applies every pending file, so it must not be run with
+both pending; see §5ch.
 ⚠ `0047` rewrites **six** CHECK constraints, not the three the spec named — the
 extra three are `school_invitations_role_check`, `role_permissions_role_check`
 and `saturday_duty_policies_role_check`, each of which a new role reaches the
@@ -12805,8 +12809,8 @@ something — which is the case no default-driven test touches:
   `leave.manage`, and HR deliberately holds **`manage` and not `approve`** —
   the person who computes an entitlement is not the person who signs off
   against it, the same control `payroll.approve` and `accounting.settle` draw.
-- **The one-head-per-campus rule is reported, not enforced blindly.** `0047`'s
-  Step 11 is a `DO` block that counts first: clean estate → four partial unique
+- **The one-head-per-campus rule is reported, not enforced blindly.** `0048`
+  (moved out of `0047` — see the follow-up below) is a `DO` block that counts first: clean estate → four partial unique
   indexes; any duplicate → a `WARNING` per offending (school, campus, role), the
   indexes skipped, and **nothing deleted**. A `CREATE UNIQUE INDEX` that throws
   would stop the fifty statements before it from being recorded. The duplicates
@@ -12868,11 +12872,116 @@ rate key per rateable role plus four.
 
 ### What is still open
 
-- **`0047` is not applied.** That is `sprint-devops`. Until it is, every leave
-  screen and the reporting-line screen throw — the feature is inert, not
-  half-working. Apply it **and read the `WARNING`s**: if any school already has
-  two Principals or two Vice Principals at one campus, the four indexes were
+- **Neither `0047` nor `0048` is applied, and the data script has not run.**
+  That is `sprint-devops`, in the order below. Until `0047` is applied every
+  leave screen and the reporting-line screen throw — the feature is inert, not
+  half-working. Apply `0048` **and read its `WARNING`s**: if any school still
+  has two Principals or two Vice Principals at one campus, the four indexes were
   skipped and the rule is not in force.
+
+### Follow-up, same day: divisions retired — one Principal per campus
+
+**The decision (product owner, 2026-09-16).** Divisions inside a campus are
+retired. One Principal and one Vice Principal per campus, everywhere; the heads
+of what used to be divisions are Section Heads. Per-campus heads stay exactly
+as Sprint 32 built them. `lib/payroll-approval.ts` is **not** touched.
+
+At **Askari Main Campus** (the only `principal_model = 'multiple'` school, which
+had four active Principals, one per division) **Imran Qureshi**
+(`…+principalmain2`) stays Principal; **Farah Siddiqui** (`…main1`, Early
+Years), **Rukhsana Bano** (`…main3`, Middle School) and **Tariq Jameel**
+(`…main4`, O Levels) become Section Heads. Nadia Hameed (Junior Campus) was
+already compliant. Kamran Baig is Main's only Vice Principal.
+
+**The deploy order, and why it has four steps.**
+
+```
+0047  →  code deploy  →  node scripts/apply-sprint33b-data.mjs --apply  →  0048
+```
+
+The three accounts cannot become `section_head` until `0047` widens the role
+CHECK; the uniqueness indexes cannot be created until they have; and none of
+them may sign in as `section_head` before code that recognises the role is
+live. So the indexes moved out of `0047` into
+**`0048_sprint33b_one_head_per_campus.sql`**, same count-first `DO` block.
+
+⚠ **`npm run db:migrate` applies every pending file.** Run with both pending it
+applies `0048` before the data script; at Askari that *warns and skips* rather
+than failing — it was written to — but the migrator then records `0048` as done
+and will never run it again. If that happens, re-run `0048`'s SQL by hand after
+the data script (every statement is `IF NOT EXISTS`), and check `pg_indexes`
+for the four `school_users_one_*_idx`.
+
+**What the data script does** (`scripts/apply-sprint33b-data.mjs`, Askari only,
+dry run by default, `--apply` writes in one transaction). It selects accounts by
+email at slug `askari-school-system`, never by id, and refuses to apply unless
+Main has exactly four active Principals with those four addresses and names,
+`0047` is applied, no in-force assignment starts in the future, and no
+**pending** `payroll_run_approvals` row belongs to the three. It then:
+
+1. sets the three accounts' `role` to `section_head`;
+2. **ends** their in-force `principal_assignments` (`ends_on` = today) — never
+   deletes, the table is tenure history;
+3. ends Imran's Primary-division assignment and inserts one whole-campus
+   assignment for him: Main Campus, `division_name` null, `grade_ids` empty
+   (read as every grade), from today;
+4. ends (`ended_at` = now) the current `teacher_principals` rows pointing at the
+   three — Rukhsana 2 and Tariq 1, as predicted.
+
+It leaves `staff_kpi_ratings` alone (append-only; the rater role is
+snapshotted), reassigns no payroll, and creates no `section_head_coordinators`
+links — nobody has said which coordinators report to whom. A re-run after apply
+finds one Principal and refuses, so it cannot write twice.
+
+⚠ **`ends_on` is inclusive** everywhere it is read (`ends_on >= today`), so an
+assignment ended today is still in force for the rest of today. The KPI reader
+also requires `role = 'principal'`, so the three drop out there immediately;
+**payroll's reader does not check the role**, so they drop out of payroll
+routing the next day.
+
+**Derivation does reassign the teachers — no explicit row is needed.**
+`resolveTeacherPrincipals` treats a current row whose principal is no longer
+wanted by ending it and inserting the derived one, and it runs on every KPI
+screen load (`staff_kpis` is enabled at Askari). With Imran whole-campus every
+Main grade derives to him. The three affected teachers — Faisal Mehmood (24
+periods), Lubna Arif (30), Yusra Kamal (29) — teach only at Main, so there is no
+cross-campus tie for the School Admin to settle.
+
+**Dry run against the live database, 2026-09-16:** everything matched the
+decision — four active Main principals with the expected addresses and names,
+one in-force division assignment each, `teacher_principals` Imran 26 /
+Rukhsana 2 / Tariq 1 (all `derived`). Payroll approvals, live chat grants
+issued by or naming the three, vice-principal links, open transfers, desk seats
+and KPI ratings given: **all none**. Their three `staff` records still say
+designation *Principal* — the script does not change that text. It refused on
+exactly one line: **`0047` is not applied**. That is the expected state today.
+
+**The sentence before the 23505.** `headsAtBranch` had no callers; it moved to
+`lib/one-head-per-campus.ts` with `headConflict` and `isOneHeadIndexConflict`,
+and it asks **exactly** the indexes' question (a school-wide head does not block
+a campus head). Every write that can create a second head now names the one in
+post — *"Askari Main Campus already has a Principal, Imran Qureshi."* — and
+catches the race: `createMemberAccount` (Invite Staff and both "Create a
+login" buttons), `checkNewStaffLogin` (before HR writes the employment record),
+`POST /api/school/users`, `PATCH /api/school/users/[userId]` (role, campus or
+reactivation, excluding the row itself), invitation accept, the operator
+panel's reactivation, and `createFirstSchoolAdmin` for the branch form's head
+field (reported as `skipped`, and a re-run for the same person is still
+`exists`). `principal_model = 'multiple'` is relabelled *"One principal per
+campus"*.
+
+**The payroll-vs-KPI disagreement in §5cc goes away for per-campus heads.**
+Payroll unions campus and grades; KPIs derive one principal from periods. They
+could disagree only when two principals' assignments both admitted a teacher at
+one campus — which is what divisions were. With one whole-campus Principal per
+campus both readers reach the same person. It survives only for a teacher who
+teaches at **two campuses**, and `payroll-approval.ts` is unchanged.
+
+**Still open from the follow-up:** the principal-assignments screen still
+offers a *Division* field — the relabel is done, removing the field is not, and
+nobody has decided what an existing division row at a school other than Askari
+should become. The three Section Heads' `staff.designation` still reads
+*Principal*.
 - **No browser QA.** Nothing here has been exercised against a real session. The
   three that need it most: a Branch Admin deciding leave (the acceptance
   criterion Part A could not meet), a Section Head signing in and landing on

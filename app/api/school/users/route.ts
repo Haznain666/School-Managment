@@ -17,6 +17,11 @@ import {
 import { db } from "@/lib/drizzle";
 import { readListQuery } from "@/lib/list-query";
 import {
+  HEAD_RACE_MESSAGE,
+  headConflict,
+  isOneHeadIndexConflict,
+} from "@/lib/one-head-per-campus";
+import {
   emailHolderAt,
   isEmailIndexConflict,
   isUserStatus,
@@ -201,6 +206,11 @@ export const POST = withSchoolAuth(
         );
       }
 
+      // Sprint 33b. One Principal and one Vice Principal per campus, named
+      // before the write rather than met as a 23505 from `0048`'s index.
+      const head = await headConflict(auth.locationId, { role: body.role, branchId });
+      if (head !== null) return apiFailure("head_exists", head, 409);
+
       let inserted;
       try {
         inserted = await db
@@ -224,6 +234,9 @@ export const POST = withSchoolAuth(
           })
           .returning({ id: schoolUsers.id, name: schoolUsers.name });
       } catch (error) {
+        if (isOneHeadIndexConflict(error)) {
+          return apiFailure("head_exists", HEAD_RACE_MESSAGE, 409);
+        }
         if (!isEmailIndexConflict(error)) throw error;
         return apiFailure(
           "already_exists",

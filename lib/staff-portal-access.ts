@@ -8,6 +8,7 @@ import type { AccessEmailResult } from './access-email';
 import { db } from './drizzle';
 import { isValidEmail, normalizeEmail } from './password-strength';
 import { hasCompletePhoneOfAnyKind, normalisePhoneOfAnyKind } from './phone-formats';
+import { headConflict } from './one-head-per-campus';
 import { createMemberAccount } from './school-member-accounts';
 import { isUuid } from './validation';
 import {
@@ -248,6 +249,13 @@ export async function checkNewStaffLogin(
       return { ok: false, problem: 'That branch does not exist.' };
     }
   }
+
+  // Sprint 33b. Asked here as well as in `createMemberAccount`, because the HR
+  // route writes the employment record between the two: refusing a second
+  // Principal *before* that write keeps the refusal clean, and the later check
+  // still covers the race.
+  const head = await headConflict(locationId, { role: input.role, branchId: input.branchId });
+  if (head !== null) return { ok: false, problem: head };
 
   return {
     ok: true,

@@ -337,6 +337,13 @@
       "when": 1789646400000,
       "tag": "0047_sprint33b_section_head_leave",
       "breakpoints": true
+    },
+    {
+      "idx": 48,
+      "version": "7",
+      "when": 1789732800000,
+      "tag": "0048_sprint33b_one_head_per_campus",
+      "breakpoints": true
     }
   ]
 }

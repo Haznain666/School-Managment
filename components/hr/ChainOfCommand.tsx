@@ -20,7 +20,7 @@ import { ROLE_LABELS, type UserRole } from '@/types/school-auth';
  * rung between them, which is what this screen writes.
  *
  * ── The duplicate report, and why it is on this screen ───────────────────
- * Decision 2 allows one Principal and one Vice Principal per campus, and `0047`
+ * Decision 2 allows one Principal and one Vice Principal per campus, and `0048`
  * creates the indexes that make that a fact **only at a school with no
  * duplicate already** — a migration that fails on live data stops every other
  * statement in the file. So a school that already has two is told here, by

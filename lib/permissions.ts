@@ -275,7 +275,7 @@ export const PERMISSION_LABELS: Record<Permission, string> = {
   'settings.read': 'See the school profile and branding',
   'settings.write': 'Edit the school profile, logo and colours',
   'branches.manage': 'Add, edit and delete a campus',
-  'principals.manage': 'Decide which principal runs which campus or division',
+  'principals.manage': 'Decide which principal runs which campus',
   'permissions.manage': 'Change what every role may do',
   'calendar.manage':
     'Add a holiday, move one, and load the year’s public holidays',

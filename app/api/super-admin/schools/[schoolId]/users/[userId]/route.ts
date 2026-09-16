@@ -10,6 +10,11 @@ import {
 } from "@/lib/api-response";
 import { db } from "@/lib/drizzle";
 import {
+  HEAD_RACE_MESSAGE,
+  headConflict,
+  isOneHeadIndexConflict,
+} from "@/lib/one-head-per-campus";
+import {
   deleteSchoolMember,
   emailHolderAt,
   isEmailIndexConflict,
@@ -71,6 +76,9 @@ async function resolveMember(schoolId: string, userId: string) {
       // Selected for the reactivation refusal below, which has to name the
       // other holder of the address rather than say a collision happened.
       email: schoolUsers.email,
+      // Sprint 33b — for the one-head-per-campus refusal on reactivation.
+      role: schoolUsers.role,
+      branchId: schoolUsers.branchId,
       isActive: schoolUsers.isActive,
       joinedAt: schoolUsers.joinedAt,
     })
@@ -121,12 +129,35 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
      * that — the panel does not show the other person — so the refusal says
      * who it is.
      */
+    /*
+     * Sprint 33b. Reactivating a former Principal at a campus that has since
+     * appointed one would be a second head, and the operator is the one person
+     * with no view of who that is — so the refusal names them.
+     */
+    if (body.is_active && !resolved.member.isActive) {
+      const head = await headConflict(resolved.locationId, {
+        role: resolved.member.role,
+        branchId: resolved.member.branchId,
+        excludeUserId: userId,
+      });
+      if (head !== null) {
+        return apiFailure(
+          "head_exists",
+          `${resolved.member.name} cannot be reactivated. ${head}`,
+          409,
+        );
+      }
+    }
+
     try {
       await db
         .update(schoolUsers)
         .set({ isActive: body.is_active, updatedAt: new Date() })
         .where(eq(schoolUsers.id, userId));
     } catch (error) {
+      if (isOneHeadIndexConflict(error)) {
+        return apiFailure("head_exists", HEAD_RACE_MESSAGE, 409);
+      }
       if (!isEmailIndexConflict(error)) throw error;
       const holder = await emailHolderAt(
         resolved.locationId,

@@ -39,22 +39,18 @@
 -- `staff` do not rewrite the table either. Every table is tenant-keyed on
 -- `location_id` and indexed on it.
 --
--- ══ The one-head-per-branch rule is REPORTED, not enforced blindly ══════
--- Decision 2 is one Principal and one Vice Principal per branch. The obvious
--- statement — `CREATE UNIQUE INDEX … WHERE role = 'principal' AND is_active` —
--- **fails outright** at any school that already has two, and a migration that
--- fails on live data is worse than one that reports: it stops the other
--- fifty-odd statements in this file from being applied and leaves whoever ran
--- it guessing which half went in.
+-- ══ The one-head-per-campus indexes are NOT here — they are `0048` ═══════
+-- They were, and they moved out on 2026-09-16 when the product owner retired
+-- divisions inside a campus. Askari runs four active Principals on Main Campus,
+-- one per division, and three of them become Section Heads. That cannot happen
+-- until THIS migration widens `school_users_role_check`, the index cannot be
+-- created until it has happened, and none of them may sign in as
+-- `section_head` before code that recognises the role is live. So the deploy
+-- order is:
 --
--- So Step 11 is a DO block that counts first. Clean school estate → the four
--- partial indexes are created and the rule becomes a fact. Any duplicate →
--- every offending (school, campus, role) is raised as a WARNING naming it, the
--- indexes are skipped, and **nothing is deleted**. One of those two rows is a
--- person who signs in every morning.
+--   0047  →  code deploy  →  scripts/apply-sprint33b-data.mjs --apply  →  0048
 --
--- `scripts/check-sprint33b.ts` reads which of the two states the database is
--- in and says so rather than assuming the happy one.
+-- and this file must never depend on the data being tidy.
 
 -- ── Step 1. `school_users.role` ────────────────────────────────────────────
 ALTER TABLE "school_users"
@@ -313,59 +309,4 @@ CREATE UNIQUE INDEX IF NOT EXISTS "branch_leave_settings_school_wide_idx"
 
 CREATE UNIQUE INDEX IF NOT EXISTS "branch_leave_settings_branch_idx"
   ON "branch_leave_settings" ("location_id", "branch_id")
-  WHERE "branch_id" IS NOT NULL;--> statement-breakpoint
-
--- ── Step 11. One Principal and one Vice Principal per campus ───────────────
---
--- Counted before it is enforced. See the header: a school that already has two
--- gets a **report**, never a deletion and never a failed migration. Read the
--- WARNINGs this raises before concluding the rule is in force — and read
--- `pg_indexes` rather than this file, which is what `check-sprint33b` does.
---
--- Four indexes, not two: `school_users.branch_id` is nullable and a null means
--- *the whole school*, so the branch-scoped index would not constrain two
--- school-wide principals at all. Postgres counts every NULL as distinct.
-DO $$
-DECLARE
-  duplicate record;
-  found_any boolean := false;
-BEGIN
-  FOR duplicate IN
-    SELECT location_id, branch_id, role, count(*) AS holders
-      FROM school_users
-     WHERE role IN ('principal', 'vice_principal')
-       AND is_active
-     GROUP BY location_id, branch_id, role
-    HAVING count(*) > 1
-  LOOP
-    found_any := true;
-    RAISE WARNING
-      'Sprint 33b: % active % accounts at school % campus % — the one-head-per-campus indexes are NOT being created. Nothing has been deleted; resolve it on the Users screen and re-run this step.',
-      duplicate.holders, duplicate.role, duplicate.location_id,
-      coalesce(duplicate.branch_id::text, '(school-wide)');
-  END LOOP;
-
-  IF found_any THEN
-    RAISE WARNING 'Sprint 33b: skipped school_users_one_principal_* / _one_vice_principal_* — see the warnings above.';
-    RETURN;
-  END IF;
-
-  CREATE UNIQUE INDEX IF NOT EXISTS "school_users_one_principal_per_branch_idx"
-    ON "school_users" ("location_id", "branch_id")
-    WHERE role = 'principal' AND is_active AND branch_id IS NOT NULL;
-
-  CREATE UNIQUE INDEX IF NOT EXISTS "school_users_one_principal_school_wide_idx"
-    ON "school_users" ("location_id")
-    WHERE role = 'principal' AND is_active AND branch_id IS NULL;
-
-  CREATE UNIQUE INDEX IF NOT EXISTS "school_users_one_vice_principal_per_branch_idx"
-    ON "school_users" ("location_id", "branch_id")
-    WHERE role = 'vice_principal' AND is_active AND branch_id IS NOT NULL;
-
-  CREATE UNIQUE INDEX IF NOT EXISTS "school_users_one_vice_principal_school_wide_idx"
-    ON "school_users" ("location_id")
-    WHERE role = 'vice_principal' AND is_active AND branch_id IS NULL;
-
-  RAISE NOTICE 'Sprint 33b: one Principal and one Vice Principal per campus is now enforced.';
-END
-$$;
+  WHERE "branch_id" IS NOT NULL;

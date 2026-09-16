@@ -317,10 +317,85 @@ async function main(): Promise<void> {
   assert('every role is admitted too', rolesMissing.length === 0, rolesMissing.join(', '));
 
   assert(
-    'the one-head-per-campus rule reports rather than failing on live data',
-    migration.includes('RAISE WARNING') && migration.includes('school_users_one_principal'),
-    'a CREATE UNIQUE INDEX that throws stops every statement after it',
+    '0047 does NOT create the one-head indexes — they must wait for the data script',
+    !migration.includes('school_users_one_principal') &&
+      !migration.includes('school_users_one_vice_principal'),
+    'in 0047 they run before Askari’s three extra Principals can become Section Heads',
   );
+
+  console.log('\n0048 — one head per campus, after the data script:');
+
+  // Comments stripped: the header *describes* `CREATE UNIQUE INDEX` before the
+  // block runs one, and an ordering test over prose asserts nothing.
+  const oneHead = source('db/migrations/0048_sprint33b_one_head_per_campus.sql').replace(
+    /--.*$/gm,
+    '',
+  );
+  const { ONE_HEAD_INDEXES, isOneHeadIndexConflict, isHeadRole } = await import(
+    '../lib/one-head-per-campus'
+  );
+
+  assert(
+    '0048 creates all four indexes',
+    ONE_HEAD_INDEXES.every((name) => oneHead.includes(`"${name}"`)),
+  );
+  assert(
+    'and counts first, reporting duplicates as warnings instead of failing',
+    oneHead.includes('HAVING count(*) > 1') &&
+      oneHead.includes('RAISE WARNING') &&
+      oneHead.indexOf('RETURN;') < oneHead.indexOf('CREATE UNIQUE INDEX'),
+    'a CREATE UNIQUE INDEX that throws on live data leaves nobody sure what state they are in',
+  );
+  assert('and deletes nothing', !/\bDELETE\b|\bUPDATE\b/i.test(oneHead.replace(/--.*$/gm, '')));
+
+  const journalText = source('db/migrations/meta/_journal.json');
+  assert(
+    '0048 is in the journal, after 0047',
+    journalText.indexOf('0048_sprint33b_one_head_per_campus') >
+      journalText.indexOf('0047_sprint33b_section_head_leave'),
+  );
+
+  assert('only the two head roles are unique per campus', isHeadRole('principal') && isHeadRole('vice_principal') && !isHeadRole('section_head'));
+  assert(
+    'a violation of one of the four is recognised through the cause chain',
+    isOneHeadIndexConflict({
+      message: 'Failed query',
+      cause: { code: '23505', constraint_name: 'school_users_one_principal_per_branch_idx' },
+    }),
+  );
+  assert(
+    'and the address index is not mistaken for it',
+    !isOneHeadIndexConflict({
+      cause: { code: '23505', constraint_name: 'school_users_location_email_active_idx' },
+    }),
+  );
+
+  for (const path of [
+    'lib/school-member-accounts.ts',
+    'lib/staff-portal-access.ts',
+    'lib/school-bootstrap.ts',
+    'app/api/school/users/route.ts',
+    'app/api/school/users/[userId]/route.ts',
+    'app/api/school/invitations/[inviteRef]/accept/route.ts',
+    'app/api/super-admin/schools/[schoolId]/users/[userId]/route.ts',
+  ]) {
+    const text = source(path);
+    assert(
+      `${path} names the existing head before it writes`,
+      text.includes('headConflict('),
+      'a second head would meet 0048’s index as a raw 23505',
+    );
+  }
+  for (const path of [
+    'lib/school-member-accounts.ts',
+    'lib/school-bootstrap.ts',
+    'app/api/school/users/route.ts',
+    'app/api/school/users/[userId]/route.ts',
+    'app/api/school/invitations/[inviteRef]/accept/route.ts',
+    'app/api/super-admin/schools/[schoolId]/users/[userId]/route.ts',
+  ]) {
+    assert(`${path} catches the race`, source(path).includes('isOneHeadIndexConflict('));
+  }
   assert(
     'the probation ceiling is in the database, not only in the API',
     migration.includes('staff_probation_days_check') && migration.includes('180'),
@@ -725,6 +800,70 @@ async function main(): Promise<void> {
   await newColumn('listFileableStaff — everybody HR may file for, campus-scoped', () =>
     leave.listFileableStaff(TENANT, [NOBODY]),
   );
+
+  /*
+   * 0048 — read from the catalogue, never assumed.
+   *
+   * Three states are legal and one is not. Not applied, with or without
+   * duplicates: fine, the data script has not run. Applied (all four indexes
+   * present): there can be no duplicate left, because the DO block refuses to
+   * create them otherwise. Some but not all four indexes: something ran half of
+   * it, which is a real defect. Any duplicate alongside an index: impossible,
+   * and reported as one.
+   */
+  console.log('\n0048 — the one-head-per-campus indexes:');
+
+  const headIndexes = (await db.execute(sql`
+    select indexname from pg_indexes
+     where schemaname = 'public' and tablename = 'school_users'
+       and indexname like 'school_users_one_%'`)) as unknown as Array<{ indexname: string }>;
+
+  const duplicates = (await db.execute(sql`
+    select su.role, count(*)::int as holders
+      from school_users su
+     where su.role in ('principal', 'vice_principal') and su.is_active
+     group by su.location_id, su.branch_id, su.role
+    having count(*) > 1`)) as unknown as Array<{ role: string; holders: number }>;
+
+  const present = headIndexes.map((row) => row.indexname);
+  const { ONE_HEAD_INDEXES: expectedIndexes, headConflict, headsAtBranch } = await import(
+    '../lib/one-head-per-campus'
+  );
+
+  console.log(
+    `  --    ${String(present.length)}/4 indexes present; ${String(duplicates.length)} campus(es) with more than one active head`,
+  );
+
+  assert(
+    'the indexes are all there or none are',
+    present.length === 0 || expectedIndexes.every((name) => present.includes(name)),
+    present.join(', '),
+  );
+  assert(
+    'and never alongside a duplicate the DO block should have refused',
+    present.length === 0 || duplicates.length === 0,
+    JSON.stringify(duplicates),
+  );
+  if (present.length === 0) {
+    pass(
+      '0048 NOT applied',
+      duplicates.length === 0
+        ? 'no duplicates — it will create the four indexes when it runs'
+        : `${String(duplicates.length)} duplicate(s) — it will warn and skip until the data script runs`,
+    );
+  }
+
+  await mustRun('headsAtBranch — one campus', () =>
+    headsAtBranch(TENANT, 'principal', NOBODY, NOBODY),
+  );
+  await mustRun('headsAtBranch — school-wide', () =>
+    headsAtBranch(TENANT, 'vice_principal', null),
+  );
+  await mustRun('headConflict — the sentence before the 23505', async () => {
+    const answer = await headConflict(TENANT, { role: 'principal', branchId: NOBODY });
+    if (answer !== null) throw new Error(`expected no holder at a tenant with no rows, got: ${answer}`);
+    return answer;
+  });
 
   console.log(
     '\n  --    listApprovalInbox and getLeaveForDecision short-circuit on a tenant that\n' +

@@ -1,6 +1,6 @@
 import 'server-only';
 
-import { and, asc, eq, inArray, isNull, or } from 'drizzle-orm';
+import { and, asc, eq, inArray } from 'drizzle-orm';
 
 import {
   branches,
@@ -397,35 +397,11 @@ export function reachableStaffIds(
   return reachable;
 }
 
-/**
- * The active accounts of one role at a campus — the "is there already a
- * Principal here" question decision 2 turns on.
- *
- * `0047` creates the partial unique indexes that make one-per-campus a fact,
- * **but only at a school with no duplicate already**; see its Step 11. So this
- * exists for both halves: the screen reports the duplicates a school already
- * has, and the invite path asks before it writes rather than relying on an
- * index that may not have been created.
+/*
+ * "Is there already a Principal at this campus" is not a chain question and
+ * does not live here. It is `headsAtBranch` / `headConflict` in
+ * `lib/one-head-per-campus.ts`, called by every write that can make a head.
  */
-export async function headsAtBranch(
-  locationId: string,
-  role: 'principal' | 'vice_principal',
-  branchId: string | null,
-): Promise<Array<{ id: string; name: string }>> {
-  return db
-    .select({ id: schoolUsers.id, name: schoolUsers.name })
-    .from(schoolUsers)
-    .where(
-      and(
-        eq(schoolUsers.locationId, locationId),
-        eq(schoolUsers.role, role),
-        eq(schoolUsers.isActive, true),
-        branchId === null
-          ? isNull(schoolUsers.branchId)
-          : or(eq(schoolUsers.branchId, branchId), isNull(schoolUsers.branchId)),
-      ),
-    );
-}
 
 /* ------------------------------------------------------- the setup screen */
 
@@ -448,7 +424,7 @@ export interface ChainSetup {
  * The chain of command as the screen that edits it needs it.
  *
  * ── The duplicate report is part of the screen, not a migration artefact ──
- * `0047` will not create the one-head-per-campus indexes at a school that
+ * `0048` will not create the one-head-per-campus indexes at a school that
  * already has two, because a migration that fails on live data stops every
  * other statement in the file. So the duplicates are **reported here**, on the
  * screen of the person who can resolve them, and nothing is ever deleted: one

@@ -19,6 +19,11 @@ import {
 import { schoolDeleteRefusal } from "@/lib/school-user-policy";
 import { referencedExplanation } from "@/lib/user-deletion";
 import { revokeSchoolSession } from "@/lib/school-auth";
+import {
+  HEAD_RACE_MESSAGE,
+  headConflict,
+  isOneHeadIndexConflict,
+} from "@/lib/one-head-per-campus";
 import { isUuid, readString } from "@/lib/validation";
 import { BRANCH_REQUIRED_ROLES, isUserRole } from "@/types/school-auth";
 
@@ -169,6 +174,29 @@ export const PATCH = withSchoolAuth<RouteContext>(
         return apiFailure("invalid_body", "This role requires a branch.", 400);
       }
 
+      /*
+       * Sprint 33b — a role, campus or reactivation that would make a second
+       * Principal or Vice Principal at a campus.
+       *
+       * Asked only when one of the three actually changes, so renaming the
+       * Principal is never refused for colliding with themselves — and the row
+       * is excluded from its own check for the same reason. The catch below
+       * covers two administrators on the same minute.
+       */
+      if (
+        updates.role !== undefined ||
+        updates.branchId !== undefined ||
+        updates.isActive === true
+      ) {
+        const head = await headConflict(auth.locationId, {
+          role: nextRole,
+          branchId: nextBranchId,
+          isActive: updates.isActive ?? existing.isActive,
+          excludeUserId: userId,
+        });
+        if (head !== null) return apiFailure("head_exists", head, 409);
+      }
+
       updates.updatedAt = new Date();
 
       /*
@@ -204,6 +232,9 @@ export const PATCH = withSchoolAuth<RouteContext>(
             isActive: schoolUsers.isActive,
           });
       } catch (error) {
+        if (isOneHeadIndexConflict(error)) {
+          return apiFailure("head_exists", HEAD_RACE_MESSAGE, 409);
+        }
         if (!isEmailIndexConflict(error)) throw error;
         const holder = await emailHolderAt(
           auth.locationId,

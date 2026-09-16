@@ -9,6 +9,11 @@ import {
   readJsonBody,
 } from "@/lib/api-response";
 import { db } from "@/lib/drizzle";
+import {
+  HEAD_RACE_MESSAGE,
+  headConflict,
+  isOneHeadIndexConflict,
+} from "@/lib/one-head-per-campus";
 import { emailHolderAt, isEmailIndexConflict } from "@/lib/school-queries";
 import { getOrCreateAuthUser, mintSessionForEmail } from "@/lib/supabase-auth";
 import { verifyOTPSession } from "@/lib/otp";
@@ -204,6 +209,29 @@ export async function POST(request: NextRequest, context: RouteContext) {
       );
     }
 
+    /*
+     * Sprint 33b — the race decision 2 cares about.
+     *
+     * An invitation for a Principal can sit unaccepted for days while somebody
+     * else is made Principal of the same campus. Checked again here, at the
+     * last moment, and answered in words the invitee can forward — they are
+     * outside the school and a `23505` is nothing they can act on. The row this
+     * upsert merges into is excluded, so re-accepting is not a collision with
+     * oneself. The invitation is left unaccepted, exactly as for the address.
+     */
+    const head = await headConflict(invitation.locationId, {
+      role: invitation.role,
+      branchId: invitation.branchId,
+      excludeUserId: phoneHolder[0]?.id ?? null,
+    });
+    if (head !== null) {
+      return apiFailure(
+        "head_exists",
+        `This invitation cannot be accepted: ${head} Ask the school office to change the invitation.`,
+        409,
+      );
+    }
+
     // Upsert rather than update: creating an invitation does not create the
     // member row, but someone added directly and then invited already has one.
     try {
@@ -235,6 +263,13 @@ export async function POST(request: NextRequest, context: RouteContext) {
           },
         });
     } catch (error) {
+      if (isOneHeadIndexConflict(error)) {
+        return apiFailure(
+          "head_exists",
+          `This invitation cannot be accepted: ${HEAD_RACE_MESSAGE} Ask the school office to change the invitation.`,
+          409,
+        );
+      }
       if (!isEmailIndexConflict(error)) throw error;
       return apiFailure(
         "already_exists",
