@@ -69,6 +69,10 @@ const ATTACHING_ROLES: readonly string[] = [
   'branch_admin',
   'principal',
   'vice_principal',
+  // Sprint 33b. Staff attach files; a Section Head is staff. Left out, they
+  // would be the one member of the school office told "only school staff can
+  // attach files".
+  'section_head',
   'coordinator',
   'teacher',
   'accountant',

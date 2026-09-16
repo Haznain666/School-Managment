@@ -529,7 +529,8 @@ section('One seniority order — chat grant ranks agree with KPI rating seniorit
   const byChat = [...heads].sort((a, b) => GRANT_RANKS[b] - GRANT_RANKS[a]);
 
   ok(
-    byKpi.join(' > ') === 'school_admin > principal > vice_principal > branch_admin > coordinator',
+    byKpi.join(' > ') ===
+      'school_admin > principal > vice_principal > branch_admin > section_head > coordinator',
     `KPI seniority is the agreed order (got ${byKpi.join(' > ')})`,
   );
   ok(
@@ -557,6 +558,25 @@ section('One seniority order — chat grant ranks agree with KPI rating seniorit
   ok(
     canBan.join(',') === 'branch_admin,principal,school_admin,vice_principal',
     `exactly the four heads may ban a named person from chat (got ${canBan.join(', ')})`,
+  );
+  /*
+   * Sprint 33b, decision 14, asserted rather than assumed.
+   *
+   * A Section Head ranks 45 — above a Coordinator and below the Branch Admin's
+   * 50, which is `RANK_TO_BAN_A_PERSON`. So the list above stays **four**, and
+   * that is the intent and not an omission: a section head runs a section, and
+   * ending a parent's ability to write to the school is a head's call. Written
+   * as its own assertion because "the count is still four" is silent about
+   * *why* a new senior role is outside it.
+   */
+  ok(
+    GRANT_RANKS.section_head < GRANT_RANKS.branch_admin &&
+      GRANT_RANKS.section_head > GRANT_RANKS.coordinator,
+    `a section head ranks between the coordinator and the branch admin (got ${String(GRANT_RANKS.section_head)})`,
+  );
+  ok(
+    !canBan.includes('section_head'),
+    'a section head cannot ban a named person from chat — decision 14',
   );
 }
 

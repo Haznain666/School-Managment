@@ -56,7 +56,7 @@
  * worktree has no env of its own.
  */
 
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 
 import { sql } from 'drizzle-orm';
 
@@ -396,8 +396,33 @@ async function main(): Promise<void> {
   assert('0046 is in the journal', journal.includes('0046_sprint33a_chat_digest_count'));
 
   const { PERMISSIONS } = await import('../lib/permissions');
-  const constraintMigration = source('db/migrations/0045_sprint32_staff_kpis.sql');
+
+  /*
+   * The migration that *currently* defines the constraint, not a named file.
+   *
+   * This read `0045` by name, which was correct for exactly as long as `0045`
+   * was the last migration to rewrite `role_permissions_permission_check`.
+   * Sprint 33b's `0047` widened it for `kpis.rate.section_head` and the four
+   * `leave.*` keys, and this assertion failed saying they were "missing" — from
+   * a file that is no longer the authority. `check-branch-scope.ts` learnt the
+   * same lesson in CI when `0040` widened it, and `latestMigrationDefining`
+   * there is the shape this now copies.
+   *
+   * The claim being made is *"the live constraint admits every key in
+   * `PERMISSIONS`"*, and the file that answers it is the newest one to rewrite
+   * it.
+   */
+  const needle = 'ADD CONSTRAINT "role_permissions_permission_check"';
+  const constraintFile =
+    readdirSync('db/migrations')
+      .filter((name) => name.endsWith('.sql'))
+      .sort()
+      .reverse()
+      .find((name) => source(`db/migrations/${name}`).includes(needle)) ?? '(none)';
+
+  const constraintMigration = constraintFile === '(none)' ? '' : source(`db/migrations/${constraintFile}`);
   const missing = PERMISSIONS.filter((key) => !constraintMigration.includes(`'${key}'`));
+  console.log(`  --    the permission CHECK is defined by ${constraintFile}`);
   assert(
     'every permission key is still admitted by the newest CHECK',
     missing.length === 0,

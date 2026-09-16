@@ -26,8 +26,20 @@ every widened statement against the real schema. **`0046` is applied to the live
 unchanged, 21 rows before and after, the fast default confirmed through
 `pg_attribute.attmissingval`. `check-sprint33a` then re-ran against the
 migrated schema: **53 passed, 0 failed**, with `digestCandidates` executed
-for real rather than only in its predicted-failure state. **`0047` is the next
-free migration number** (Part B). Nothing has been QA'd in a browser yet.
+for real rather than only in its predicted-failure state. Nothing has been QA'd in a browser yet.
+
+🟡 **Part B is built and committed, and its migration is NOT applied — §5ch.**
+The Section Head role, the chain of command and HR leave management, on
+`feature/sprint-33b-section-head-leave`. Migration **`0047`** is written and
+**waiting on `sprint-devops`**; until it is applied the four new tables and the
+seven new `staff` columns do not exist, so **every leave screen throws** — the
+feature is inert rather than half-working, and `check-sprint33b` reports exactly
+that state (96 passed, 0 failed, with the new statements in their predicted
+`42P01` / `42703` form). **`0048` is the next free migration number** (Part C).
+⚠ `0047` rewrites **six** CHECK constraints, not the three the spec named — the
+extra three are `school_invitations_role_check`, `role_permissions_role_check`
+and `saturday_duty_policies_role_check`, each of which a new role reaches the
+first time a school configures anything.
 
 ✅ **One seniority order across the product (2026-09-16).** Chat grant ranks now
 follow KPI rating seniority: School Admin 100 > Principal 80 > Vice Principal
@@ -12752,6 +12764,131 @@ days, per person, with the date in hand.
    need a line in `noticeHrefFor`.
 
 ---
+
+## 5ch. Sprint 33 **Part B** built — the Section Head, the chain of command and HR leave — 2026-09-16
+
+Built on `feature/sprint-33b-section-head-leave`, off `main` at `507a5be`. The
+spec is `SPRINT-33-SPEC.md` Part B, §5cf is the round's handover entry and §5cg
+is Part A, which is live. Migration **`0047`**, **not applied**.
+
+### What was built
+
+| Item | Where |
+| --- | --- |
+| B1 the role | `section_head` in `USER_ROLES`, `ROLE_HOME_ROUTES` (`/dashboard`), `ROLE_LABELS`, `ROLE_DESCRIPTIONS`, `ADMIN_PORTAL_ROLES`, `INVITABLE_ROLES`; `GRANT_RANKS` 45; `RATER_SENIORITY` 2; `STAFF_KPI_TARGET_ROLES` + `kpis.rate.section_head`; the staff-role lists in `lib/chat-queries.ts`, `lib/chat-threads.ts`, `lib/chat-attachments.ts` and `CalendarManager`'s notify list |
+| B2 the chain | `db/schema/section-head-coordinators.ts`; `lib/approval-chain.ts` (`loadChainIndex`, `resolveChain`, `decisionRefusal`, `reachableStaffIds`, `listChainSetup`); `GET/PUT /api/school/chain/section-heads`; `components/hr/ChainOfCommand.tsx` on `/dashboard/hr/chain` |
+| B3 leave | four keys in `lib/permissions.ts`; `lib/leave-quota.ts`; `lib/leave-queries.ts`; `lib/staff-calendar-queries.ts`; `db/schema/staff-calendars.ts` + `branch-leave-settings.ts`; `/api/school/leave/{requests,requests/[id],requests/[id]/decision,me,settings}`; `/api/school/staff-calendars/**`; `components/leave/{LeaveSelfService,LeaveApprovals}.tsx`; `components/hr/StaffCalendarManager.tsx`; `/dashboard/leave`, `/dashboard/leave/me`, `/dashboard/hr/calendars`, and `/teacher/leave` rewritten |
+| B4 probation | seven columns on `staff`; `lib/probation.ts`; `lib/probation-notifier.ts` wired into `instrumentation.ts`; the fields on `StaffManager` and both staff routes |
+| Part A's two findings | the cross-schedule 409 now names **both** classes; `branch_admin` reaches the campus guard through `leave.approve` rather than through `hr.write` |
+
+### 🔴 `0047` rewrites **six** CHECK constraints, not three
+
+The spec named three. Adding a value to `USER_ROLES` reaches six, and every one
+of the extra three is only ever hit by a school that has **configured**
+something — which is the case no default-driven test touches:
+
+| Constraint | Last defined | What breaks without it |
+| --- | --- | --- |
+| `school_users_role_check` | `0010` | nobody can hold the role at all |
+| `school_invitations_role_check` | `0010` | the invite is written before the member exists, and is written against this |
+| `role_permissions_role_check` | `0010`, inline | one toggle on the permissions matrix → `23514` |
+| `saturday_duty_policies_role_check` | `0043`, inline | the duty screen saves **one row per role in `USER_ROLES`** — its first save after deploy fails |
+| `staff_kpis_target_role_check` | `0045` | a KPI written for a Section Head |
+| `role_permissions_permission_check` | `0045` | the five new keys, CLAUDE.md's standing rule |
+
+### The decisions that should not be re-litigated
+
+- **Leave got four keys of its own rather than `hr.write`.** Part A's QA proved
+  `branch_admin` holds only `hr.read` and never reached the campus guard written
+  for it. Granting `hr.write` would have handed a campus office salaries and
+  personnel files. `leave.read` / `leave.request` / `leave.approve` /
+  `leave.manage`, and HR deliberately holds **`manage` and not `approve`** —
+  the person who computes an entitlement is not the person who signs off
+  against it, the same control `payroll.approve` and `accounting.settle` draw.
+- **The one-head-per-campus rule is reported, not enforced blindly.** `0047`'s
+  Step 11 is a `DO` block that counts first: clean estate → four partial unique
+  indexes; any duplicate → a `WARNING` per offending (school, campus, role), the
+  indexes skipped, and **nothing deleted**. A `CREATE UNIQUE INDEX` that throws
+  would stop the fifty statements before it from being recorded. The duplicates
+  are also reported on `/dashboard/hr/chain`, where somebody can act on them.
+  **Four indexes, not two:** `branch_id` is nullable and Postgres counts every
+  NULL as distinct, so the school-wide case needs its own.
+- **A missing rung is skipped and several supervisors is a rung skipped.** A
+  teacher under two coordinators — which is every junior teacher — routes to the
+  Vice Principal and above. Picking one of the two would make the approval
+  depend on insert order.
+- **A junior teacher is a `staff` row with no `school_user_id`.** No schema
+  change, no role. HR files for them under `leave.manage`, and it travels up the
+  same chain.
+- **A staff calendar is a filter over `holidays`, never a second copy.** Every
+  override names a holiday row, including the ones that add days, which is what
+  lets *Notify* be `POST /api/school/holidays/[holidayId]/notify` — the one
+  delivery path. The override route sends nothing itself, and `check-sprint33b`
+  asserts it never will.
+- **`staff.permanent_from` null means the whole year's quota.** Every row in
+  production holds null. Reading it as "not permanent, no leave" would take
+  every teacher's entitlement away on the morning this deploys, silently, on a
+  screen that had always shown a number.
+- **A leave day is a calendar day**, minus gazetted holidays when the campus
+  says `skip`. Weekends are deliberately not excluded: whether a Saturday is a
+  working day is per role **and** per person here, and a counter that guessed
+  would be wrong for somebody at every school running a rota. It is also what
+  `leave_requests.total_days` already means, so no existing row changes meaning.
+- **`section_head` cannot ban a named person from chat.** 45 < the Branch
+  Admin's 50, which is `RANK_TO_BAN_A_PERSON`. `check-branch-scope` still
+  asserts *exactly four* heads may ban, and now asserts the new rank's position
+  and the exclusion by name.
+- **Withdrawing your own request is `leave.request`, not `leave.approve`.**
+  `DELETE /api/school/leave/requests/[id]` moves it to `cancelled` and keeps the
+  row. The overlap refusal tells people to do exactly this, and a sentence
+  naming an action nothing offers is the orphaned-endpoint problem in reverse.
+
+### Evidence — every gate was run, and this is the real output
+
+- `typecheck` 0 errors; `lint` 0 warnings; `build` green.
+- The ten CI checks: `check-loaders` 323, `check-import-sample` 25,
+  `check-forms` 98, `check-address-phone` 50, `check-cnic` 36,
+  `check-currency` 7, `check-theme` 7 palettes, `check-sprint-periods` 107,
+  `check-accounting` 121, **`check-branch-scope` 1,729** — all pass.
+- **`check-sprint33b` (new): 96 passed, 0 failed.** Six statements over existing
+  tables execute; nine fail with exactly `42P01` and three with exactly `42703`,
+  which is the predicted state while `0047` is unapplied.
+- `check-sprint33a` **53 passed, 0 failed** and `check-sprint32` **48 passed, 0
+  failed** — both after being repaired, see below.
+
+### Two older checks had to be repaired, and the fix is the same one twice
+
+Both named `0045` by filename when asking *"does the live constraint admit every
+key"*. `0047` is now the authority, so both reported the new keys as missing
+from a file that no longer enforces anything. Each now **looks the migration up**
+— the newest one containing `ADD CONSTRAINT "role_permissions_permission_check"`
+— which is what `check-branch-scope` learnt to do in CI when `0040` widened it.
+`check-sprint32` also counted `kpis.*` keys as a literal ten; it now counts one
+rate key per rateable role plus four.
+
+### What is still open
+
+- **`0047` is not applied.** That is `sprint-devops`. Until it is, every leave
+  screen and the reporting-line screen throw — the feature is inert, not
+  half-working. Apply it **and read the `WARNING`s**: if any school already has
+  two Principals or two Vice Principals at one campus, the four indexes were
+  skipped and the rule is not in force.
+- **No browser QA.** Nothing here has been exercised against a real session. The
+  three that need it most: a Branch Admin deciding leave (the acceptance
+  criterion Part A could not meet), a Section Head signing in and landing on
+  `/dashboard` with scoped navigation, and a single-day request on a gazetted
+  holiday being refused.
+- **`listApprovalInbox` and `getLeaveForDecision` are not executed by the check
+  script.** Both short-circuit on a tenant matching no row, before they reach
+  the chain reads. That is reported as *not exercised* rather than passed; their
+  statements are covered directly by `loadChainIndex` and `listLeaveApplicants`.
+- **The probation sweep has never run.** Claim, revert and email are asserted by
+  source and by shape, not by watching a timer.
+- **`lib/hr-queries.ts`' `listLeaveRequests` / `getLeaveRequest` are untouched**
+  and HR's own screen still runs on `hr.read` / `hr.write`. Two leave listings
+  now exist, deliberately — HR's whole-school one and the chain-scoped one — and
+  a later sprint may want to fold the first into the second.
+- **Part C is untouched**, per decision 12.
 
 ## 5cg. Sprint 33 **Part A** built — the three defects, the campus gap and the two notification faults — 2026-09-16
 

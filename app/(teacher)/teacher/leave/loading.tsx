@@ -1,22 +1,20 @@
-import { SkeletonPageHeader, SkeletonTable } from '@/components/ui/Skeleton';
+import { SkeletonForm, SkeletonPageHeader } from '@/components/ui/Skeleton';
 
 /**
  * Loading state for `/teacher/leave`.
  *
- * Next.js renders this the moment the route is entered and swaps in the page
- * when its server component has finished fetching. It is what stands between a
- * click and the data on a deployment whose origin was measured at ~1s per
- * uncached request, and it is required on every data-fetching route in this
- * app — `npm run check-loaders` fails the build without it.
+ * The shape changed with the page. It was a list and is now a form above a
+ * list, so the skeleton is a form — a table shape here would promise a layout
+ * that then jumps, which is worse than no skeleton at all.
  *
- * The shape mirrors the page it stands in for. A skeleton that is the wrong
- * shape is worse than none: it promises a layout that then jumps.
+ * Required on every data-fetching route in this app; `npm run check-loaders`
+ * fails the build without it.
  */
 export default function Loading() {
   return (
     <div>
-      <SkeletonPageHeader action />
-      <SkeletonTable rows={8} columns={5} />
+      <SkeletonPageHeader />
+      <SkeletonForm fields={5} />
     </div>
   );
 }

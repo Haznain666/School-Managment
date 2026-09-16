@@ -7,6 +7,7 @@ import { normalizeCnic } from '@/lib/national-id';
 import { joiningDateProblem } from '@/lib/dates';
 import { db } from '@/lib/drizzle';
 import { getStaff, getStaffSalaryStructure } from '@/lib/hr-queries';
+import { probationEndDate, probationProblem, type ProbationInput } from '@/lib/probation';
 import { getSchoolUserById } from '@/lib/school-queries';
 import { isIsoDate, isUuid, readOptionalString, readString } from '@/lib/validation';
 
@@ -27,6 +28,28 @@ export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 type RouteContext = { params: Promise<{ staffId: string }> };
+
+/**
+ * The probation fields off a request body. The same reading `POST
+ * /api/school/hr/staff` does, for the same reason: one meaning of "180 days
+ * including an extension", in one shape, on both doors.
+ */
+function readProbation(body: {
+  isOnProbation?: unknown;
+  probationDays?: unknown;
+  probationStartedOn?: unknown;
+  probationExtendedDays?: unknown;
+}): ProbationInput {
+  const days = Number(body.probationDays);
+  const extended = Number(body.probationExtendedDays ?? 0);
+
+  return {
+    isOnProbation: body.isOnProbation === true,
+    startedOn: readOptionalString(body.probationStartedOn),
+    days: Number.isFinite(days) && days > 0 ? Math.trunc(days) : null,
+    extendedDays: Number.isFinite(extended) && extended > 0 ? Math.trunc(extended) : 0,
+  };
+}
 
 export const GET = withSchoolAuth<RouteContext>(
   async (_request, auth, context) => {
@@ -93,6 +116,12 @@ interface UpdateStaffBody {
   status?: unknown;
   joinedOn?: unknown;
   resignedOn?: unknown;
+  /** Sprint 33b. See the block that reads them for why they move together. */
+  permanentFrom?: unknown;
+  isOnProbation?: unknown;
+  probationDays?: unknown;
+  probationStartedOn?: unknown;
+  probationExtendedDays?: unknown;
   branchId?: unknown;
   phone?: unknown;
   email?: unknown;
@@ -170,7 +199,15 @@ export const PATCH = withSchoolAuth<RouteContext>(
         else return apiFailure('invalid_body', 'Choose a valid gender.', 400);
       }
 
-      for (const field of ['joinedOn', 'resignedOn', 'dateOfBirth'] as const) {
+      for (const field of [
+        'joinedOn',
+        'resignedOn',
+        'dateOfBirth',
+        // Sprint 33b. `permanent_from` is a plain date and belongs in this
+        // loop; the probation *triple* does not, because the three fields are
+        // one decision and are read together below.
+        'permanentFrom',
+      ] as const) {
         if (body[field] === undefined) continue;
 
         const value = readOptionalString(body[field]);
@@ -219,6 +256,37 @@ export const PATCH = withSchoolAuth<RouteContext>(
         // and silently emptying it here would move a promotion screen out from
         // under the person using it.
         updates.isClassTeacher = body.isClassTeacher;
+      }
+
+      /*
+       * Probation — Sprint 33b, decision 4.
+       *
+       * ── The three fields move together, on purpose ─────────────────────
+       * A PATCH that touched `probation_days` alone would have to merge the
+       * new value with the stored start date to recompute the end, which means
+       * reading the row back and hoping nothing changed in between. So sending
+       * `isOnProbation` means sending the whole answer: whether they are on
+       * probation, from when, for how long, and by how much it has been
+       * extended. The end date is computed from those four and nothing else.
+       *
+       * Turning it **off** clears every probation column including the
+       * notification claim, so a person put back on probation later is told
+       * about again rather than silently skipped by the sweep.
+       */
+      if (body.isOnProbation !== undefined) {
+        const probation = readProbation(body);
+        const fault = probationProblem(probation);
+        if (fault !== null) return apiFailure('invalid_body', fault, 400);
+
+        updates.isOnProbation = probation.isOnProbation;
+        updates.probationDays = probation.isOnProbation ? probation.days : null;
+        updates.probationStartedOn = probation.isOnProbation ? probation.startedOn : null;
+        updates.probationExtendedDays = probation.isOnProbation ? probation.extendedDays : 0;
+        updates.probationEndsOn =
+          probation.isOnProbation && probation.startedOn !== null && probation.days !== null
+            ? probationEndDate(probation.startedOn, probation.days, probation.extendedDays)
+            : null;
+        updates.probationNotifiedAt = null;
       }
 
       const optionalText = [

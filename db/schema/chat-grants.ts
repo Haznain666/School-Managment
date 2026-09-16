@@ -110,6 +110,12 @@ export const GRANT_RANKS: Record<UserRole, number> = {
   principal: 80,
   vice_principal: 60,
   branch_admin: 50,
+  // Sprint 33b, decision 14. Between the Branch Admin and the Coordinator, and
+  // the gap below 50 is the decision rather than a spacing accident:
+  // `RANK_TO_BAN_A_PERSON` in `lib/chat-grant-scope.ts` is the Branch Admin's
+  // rank, so a Section Head **cannot ban a named person from chat**. They run a
+  // section; ending a parent's ability to write to the school is a head's call.
+  section_head: 45,
   coordinator: 40,
   teacher: 20,
   accountant: 0,

@@ -87,6 +87,17 @@ export async function register(): Promise<void> {
     // compilation.
     const { startHolidayNotifier } = await import('./lib/holiday-notifier');
     startHolidayNotifier();
+
+    // Sprint 33b. Probation ends on a date and nothing else in the product
+    // looks at that date, so without this a person stays on probation until
+    // somebody happens to open their record. Each person is claimed with a
+    // conditional UPDATE on `probation_notified_at` — seven server processes,
+    // one email — and the claim is handed back on a throw, because a claim
+    // kept after a failure is a reminder the school believes it received.
+    // Same positive `=== 'nodejs'` block, for the same reason: the import must
+    // not be recorded in the Edge compilation.
+    const { startProbationNotifier } = await import('./lib/probation-notifier');
+    startProbationNotifier();
   }
 }
 

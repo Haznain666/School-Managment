@@ -20,12 +20,29 @@
  * holding one could open the portal. There is deliberately no cap on how many
  * people hold any of them: a school with three campuses has three principals,
  * and each is scoped by `branchId` (null = the whole school).
+ *
+ * ⚠ **Adding a value here widens six CHECK constraints, not one.** Sprint 33b
+ * added `section_head` and `0047` had to rewrite all of them:
+ * `school_users_role_check`, `school_invitations_role_check` (the role is
+ * invitable), `role_permissions_role_check` (a school overriding the new
+ * role's defaults writes a row keyed by it), `saturday_duty_policies_role_check`
+ * (the duty screen saves one row **per role in this list**),
+ * `staff_kpis_target_role_check`, and `role_permissions_permission_check` for
+ * the keys that came with it. Each one missed is a `23514` on a screen that
+ * has never failed — and every one of them is reached only by a school that
+ * has configured something, which is the case no default-driven test touches.
+ *
+ * ── The order of this list is the seniority the portal reads it in ───────
+ * `section_head` sits between `vice_principal` and `coordinator` because that
+ * is where it sits in the chain of command (`lib/approval-chain.ts`), and the
+ * permissions matrix draws its columns in this order.
  */
 export const USER_ROLES = [
   'school_admin',
   'branch_admin',
   'principal',
   'vice_principal',
+  'section_head',
   'coordinator',
   'teacher',
   'student',
@@ -80,6 +97,11 @@ export const ROLE_HOME_ROUTES: Record<UserRole, string> = {
   branch_admin: '/dashboard',
   principal: '/dashboard',
   vice_principal: '/dashboard',
+  // Sprint 33b, decision 13: the administrative dashboard with scoped
+  // navigation, exactly as Coordinator and Vice Principal work today. A route
+  // group of its own would be a fifth shell to keep in step with four others
+  // for a role whose screens are the ones already there.
+  section_head: '/dashboard',
   coordinator: '/dashboard',
   accountant: '/dashboard',
   hr_manager: '/dashboard',
@@ -95,6 +117,7 @@ export const ROLE_LABELS: Record<UserRole, string> = {
   branch_admin: 'Branch Administrator',
   principal: 'Principal',
   vice_principal: 'Vice Principal',
+  section_head: 'Section Head',
   coordinator: 'Coordinator',
   teacher: 'Teacher',
   student: 'Student',
@@ -114,6 +137,7 @@ export const ROLE_DESCRIPTIONS: Record<UserRole, string> = {
   branch_admin: 'Runs one campus. Sees only their own branch.',
   principal: 'Heads the school or a campus. Oversight across every module.',
   vice_principal: 'Deputises for the principal. Oversight without payroll.',
+  section_head: 'Runs a section. The coordinators under them report here.',
   coordinator: 'Runs the timetable and the register for their section.',
   teacher: 'Teaches classes and takes the register.',
   student: 'Sees their own timetable, attendance and fees.',
@@ -134,6 +158,7 @@ export const ADMIN_PORTAL_ROLES: readonly UserRole[] = [
   'branch_admin',
   'principal',
   'vice_principal',
+  'section_head',
   'coordinator',
   'accountant',
   'hr_manager',
@@ -152,6 +177,7 @@ export const INVITABLE_ROLES: readonly UserRole[] = [
   'branch_admin',
   'principal',
   'vice_principal',
+  'section_head',
   'coordinator',
   'teacher',
   'accountant',

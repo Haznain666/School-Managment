@@ -3,6 +3,7 @@ import { withSchoolAuth } from '@/lib/api-auth';
 import { apiFailure, apiSuccess, handleApiError, readJsonBody } from '@/lib/api-response';
 import { normalizeCnic } from '@/lib/national-id';
 import { joiningDateProblem } from '@/lib/dates';
+import { probationEndDate, probationProblem, type ProbationInput } from '@/lib/probation';
 import { visibleScopeFor } from '@/lib/principal-visibility';
 import { db } from '@/lib/drizzle';
 import { listDepartments, listStaff } from '@/lib/hr-queries';
@@ -94,9 +95,47 @@ export const GET = withSchoolAuth(
   { permission: 'hr.read' },
 );
 
+/**
+ * The probation fields off a request body, as `lib/probation.ts` takes them.
+ *
+ * Shared by the create and the amend so the two cannot come to disagree about
+ * what "180 days including an extension" means — the ceiling is checked here,
+ * again by `probationProblem`, and a third time by
+ * `staff_probation_days_check` in the database.
+ */
+function readProbation(body: {
+  isOnProbation?: unknown;
+  probationDays?: unknown;
+  probationStartedOn?: unknown;
+  probationExtendedDays?: unknown;
+}): ProbationInput {
+  const days = Number(body.probationDays);
+  const extended = Number(body.probationExtendedDays ?? 0);
+
+  return {
+    isOnProbation: body.isOnProbation === true,
+    startedOn: readOptionalString(body.probationStartedOn),
+    days: Number.isFinite(days) && days > 0 ? Math.trunc(days) : null,
+    extendedDays: Number.isFinite(extended) && extended > 0 ? Math.trunc(extended) : 0,
+  };
+}
+
+/** The end date, from a probation that has already been validated. */
+function probationEndsOn(probation: ProbationInput): string | null {
+  return probation.startedOn === null || probation.days === null
+    ? null
+    : probationEndDate(probation.startedOn, probation.days, probation.extendedDays);
+}
+
 interface CreateStaffBody {
   employeeCode?: unknown;
   isClassTeacher?: unknown;
+  /** Sprint 33b — the date leave starts accruing from. */
+  permanentFrom?: unknown;
+  isOnProbation?: unknown;
+  probationDays?: unknown;
+  probationStartedOn?: unknown;
+  probationExtendedDays?: unknown;
   firstName?: unknown;
   lastName?: unknown;
   designation?: unknown;
@@ -207,6 +246,27 @@ export const POST = withSchoolAuth(
         return apiFailure('invalid_body', 'Enter a valid date of birth.', 400);
       }
 
+      /*
+       * Probation and the date leave starts accruing — Sprint 33b.
+       *
+       * `permanent_from` is what `lib/leave-quota.ts` pro-rates the year's
+       * entitlement from, and null is the ordinary answer: it means the school
+       * has not started recording it, and the person gets the whole year. It is
+       * deliberately not defaulted to `joinedOn` — a person joins on probation
+       * and becomes permanent later, and conflating the two grants six months
+       * of leave nobody earned.
+       */
+      const permanentFrom = readOptionalString(body.permanentFrom);
+      if (permanentFrom !== null && !isIsoDate(permanentFrom)) {
+        return apiFailure('invalid_body', 'Enter a valid permanent-from date.', 400);
+      }
+
+      const probation = readProbation(body);
+      const probationFault = probationProblem(probation);
+      if (probationFault !== null) {
+        return apiFailure('invalid_body', probationFault, 400);
+      }
+
       // A branch admin may only file staff against their own branch.
       const requestedBranch = readOptionalString(body.branchId);
       const branchId = auth.branchId ?? requestedBranch;
@@ -307,6 +367,16 @@ export const POST = withSchoolAuth(
             ? body.employmentType
             : null,
           joinedOn,
+          permanentFrom,
+          isOnProbation: probation.isOnProbation,
+          probationDays: probation.isOnProbation ? probation.days : null,
+          probationStartedOn: probation.isOnProbation ? probation.startedOn : null,
+          // Computed on write, not by a trigger: extending probation is a
+          // decision somebody makes with a date in front of them, and a column
+          // the database recomputed behind them would move that date the next
+          // time an unrelated field was saved.
+          probationEndsOn: probation.isOnProbation ? probationEndsOn(probation) : null,
+          probationExtendedDays: probation.isOnProbation ? probation.extendedDays : 0,
           phone: readOptionalString(body.phone),
           email: readOptionalString(body.email),
           // One spelling, as everywhere else a CNIC is stored. See

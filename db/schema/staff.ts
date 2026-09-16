@@ -155,6 +155,57 @@ export const staff = pgTable(
      * Values are 1–5: which Saturday of its own month.
      */
     saturdayOrdinals: integer('saturday_ordinals').array(),
+
+    /**
+     * The date this person became permanent (Sprint 33b, decision 5).
+     *
+     * ── It is the date leave starts accruing, and nothing else ───────────
+     * Entitlement is **pro-rated from here** against the school's academic year
+     * and **lapses** at the end of it — no carry-forward (decision 10). Somebody
+     * made permanent in January at a school running August–July gets seven
+     * twelfths of each head's annual quota for that year, and a fresh whole
+     * one in August.
+     *
+     * Null is the ordinary state for a school that has not started using
+     * probation, and it means **the whole year's quota**. That is deliberate:
+     * treating null as "not permanent, no leave" would take every existing
+     * teacher's entitlement away on the day this deploys, silently, on a screen
+     * that had always shown a number. `lib/leave-quota.ts` is the one place
+     * that decides it.
+     *
+     * Deliberately separate from `joined_on`. A person joins on probation and
+     * becomes permanent later; conflating the two grants six months of leave
+     * that was never earned.
+     */
+    permanentFrom: date('permanent_from'),
+
+    /*
+     * Probation (Sprint 33b, decision 4).
+     *
+     * ── 180 calendar days is a ceiling, holidays included ────────────────
+     * `probation_days + probation_extended_days <= 180`, enforced by a CHECK
+     * below *and* by the API, and counted in plain calendar days rather than
+     * working ones — that is what the product owner said and it is the number a
+     * labour contract is written in. An extension may not push past it.
+     *
+     * `probation_ends_on` is computed on write rather than by a trigger or a
+     * generated column: extending probation is a decision somebody makes with a
+     * date in front of them, and a column the database recomputes behind them
+     * would move a person's end date the next time an unrelated field was
+     * saved.
+     *
+     * `probation_notified_at` is a **claim**, not a log line. The sweep in
+     * `lib/probation-notifier.ts` moves it with a conditional
+     * `UPDATE … RETURNING` before it emails HR, because production runs seven
+     * scheduler processes and a read-then-`if` would send seven emails.
+     */
+    isOnProbation: boolean('is_on_probation').notNull().default(false),
+    probationDays: integer('probation_days'),
+    probationStartedOn: date('probation_started_on'),
+    probationEndsOn: date('probation_ends_on'),
+    probationExtendedDays: integer('probation_extended_days').notNull().default(0),
+    probationNotifiedAt: timestamp('probation_notified_at', { withTimezone: true }),
+
     /** Set when the person leaves. Payroll skips them from this date. */
     resignedOn: date('resigned_on'),
     createdAt: timestamp('created_at', { withTimezone: true })
@@ -187,8 +238,20 @@ export const staff = pgTable(
         `gender IS NULL OR gender IN (${GENDERS.map((value) => `'${value}'`).join(', ')})`,
       ),
     ),
+    // Sprint 33b. The 180-day ceiling, in the database as well as in the API.
+    // A ceiling enforced only by a route is a ceiling the next route forgets.
+    check(
+      'staff_probation_days_check',
+      sql`${table.probationDays} IS NULL
+          OR (${table.probationDays} BETWEEN 1 AND 180
+              AND ${table.probationDays} + ${table.probationExtendedDays} <= 180)`,
+    ),
+    check('staff_probation_extended_check', sql`${table.probationExtendedDays} >= 0`),
   ],
 );
+
+/** The longest anybody may be kept on probation, in calendar days. */
+export const MAX_PROBATION_DAYS = 180;
 
 export type { Gender };
 

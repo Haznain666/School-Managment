@@ -258,6 +258,10 @@ const STAFF_ROLES: readonly UserRole[] = [
   'branch_admin',
   'principal',
   'vice_principal',
+  // Sprint 33b. A Section Head is staff, and this list is what decides who may
+  // be seated with whom — a role missing from it is a colleague the school
+  // cannot start a conversation with, which reads as chat being broken.
+  'section_head',
   'coordinator',
   'teacher',
   'accountant',

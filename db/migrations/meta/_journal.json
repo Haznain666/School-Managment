@@ -330,6 +330,13 @@
       "when": 1789560000000,
       "tag": "0046_sprint33a_chat_digest_count",
       "breakpoints": true
+    },
+    {
+      "idx": 47,
+      "version": "7",
+      "when": 1789646400000,
+      "tag": "0047_sprint33b_section_head_leave",
+      "breakpoints": true
     }
   ]
 }

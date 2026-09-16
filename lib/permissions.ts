@@ -80,6 +80,29 @@ export const PERMISSIONS = [
   'kpis.rate.hr_manager',
   'kpis.rate.accountant',
   'kpis.rate.marketing',
+  // Sprint 33b — the Section Head joins the roles a KPI can be written for.
+  'kpis.rate.section_head',
+  /*
+   * Sprint 33b — leave. `0047` widens `role_permissions_permission_check`.
+   *
+   * ── Why four keys and not `hr.write` ────────────────────────────────────
+   * Part A's QA found the hole this closes. Decision 3 says a Branch Admin
+   * approves everything for non-teaching staff, and `DEFAULT_ROLE_PERMISSIONS`
+   * gives `branch_admin` only `hr.read` — so the campus guard `0046` shipped
+   * was never reached by the role its own acceptance criterion named. Wajahat
+   * Ali's PATCH was a 403 at the *permission* gate.
+   *
+   * Granting `branch_admin` `hr.write` would have fixed the symptom and handed
+   * a campus office the entire HR module: salaries, personnel files, the lot.
+   * So leave gets its own four, and this is the round's standing rule —
+   * **every approval right is a permission key, never a hard-coded role
+   * list.** A school that disagrees with any of the defaults below changes it
+   * on the matrix, which is what Sprint 8 is for.
+   */
+  'leave.read',
+  'leave.request',
+  'leave.approve',
+  'leave.manage',
 ] as const;
 
 export type Permission = (typeof PERMISSIONS)[number];
@@ -183,7 +206,19 @@ export const PERMISSION_GROUPS: readonly PermissionGroup[] = [
       'kpis.rate.hr_manager',
       'kpis.rate.accountant',
       'kpis.rate.marketing',
+      'kpis.rate.section_head',
     ],
+  },
+  {
+    /*
+     * Sprint 33b. Its own group rather than four more rows under HR, because
+     * the people who hold these are not HR: a Coordinator approves a teacher's
+     * leave and holds nothing else in that section. A row buried under a
+     * heading that does not apply to the holder is a row nobody finds.
+     */
+    key: 'leave',
+    label: 'Leave',
+    permissions: ['leave.read', 'leave.request', 'leave.approve', 'leave.manage'],
   },
   {
     key: 'school',
@@ -257,6 +292,11 @@ export const PERMISSION_LABELS: Record<Permission, string> = {
   'kpis.rate.hr_manager': 'Rate HR managers',
   'kpis.rate.accountant': 'Rate accountants',
   'kpis.rate.marketing': 'Rate marketing staff',
+  'kpis.rate.section_head': 'Rate section heads',
+  'leave.read': 'See leave requests within your reach',
+  'leave.request': 'Apply for your own leave',
+  'leave.approve': 'Decide a leave request from somebody below you',
+  'leave.manage': 'Set leave types, quotas, the staff calendars and the holiday rule',
 };
 
 export const PERMISSION_DESCRIPTIONS: Partial<Record<Permission, string>> = {
@@ -278,6 +318,20 @@ export const PERMISSION_DESCRIPTIONS: Partial<Record<Permission, string>> = {
   'kpis.rate.vice_principal':
     'Never a Vice Principal’s own: the Principal rates the Vice Principal, ' +
     'and not the other way round.',
+  'leave.read':
+    'Narrower than it sounds: the chain decides *whose*. A coordinator sees ' +
+    'their own teachers, a section head their coordinators, a head their ' +
+    'campus, and HR the school. This key opens the screen; ' +
+    'lib/approval-chain.ts draws the boundary.',
+  'leave.approve':
+    'Deciding is checked twice — this key, and then the chain, again on the ' +
+    'write. A resolver used only for the list is a visibility boundary, not ' +
+    'an authorisation one. The Principal holds it for their whole campus.',
+  'leave.manage':
+    'The rules rather than the requests: the leave heads and their quotas, ' +
+    'the two staff calendars, and whether a gazetted holiday inside a leave ' +
+    'range is counted. Deliberately not the same key as approving — the ' +
+    'person who sets the quota is not the person who signs off against it.',
   'fees.write':
     'Includes marking a voucher paid. Grant it only to people who handle money.',
   'fees.admission':
@@ -513,6 +567,14 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<UserRole, readonly Permission[]> =
     'kpis.rate.hr_manager',
     'kpis.rate.accountant',
     'kpis.rate.marketing',
+    // Sprint 33b, decision 3. A Branch Admin ranks with the Vice Principal and
+    // heads the non-teaching roles, so they decide leave at their own campus —
+    // and `0046`'s campus guard is what keeps "their own" honest. This is the
+    // key Part A's QA found missing: the guard existed and the role could not
+    // reach it, because `hr.write` is HR's and nothing narrower existed.
+    'leave.read',
+    'leave.request',
+    'leave.approve',
   ],
 
   principal: [
@@ -584,6 +646,16 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<UserRole, readonly Permission[]> =
     'kpis.rate.teacher',
     'kpis.rate.coordinator',
     'kpis.rate.vice_principal',
+    // Sprint 33b. A head rates the section heads under them, as they already
+    // rate their coordinators and their deputy.
+    'kpis.rate.section_head',
+    // Decision 3, and it is the strongest sentence in this file about leave:
+    // **the Principal holds every approval permission at their branch.** The
+    // chain resolves upward and the Principal is the top of every one of them,
+    // so a request that nobody below has picked up is still decidable.
+    'leave.read',
+    'leave.request',
+    'leave.approve',
   ],
 
   vice_principal: [
@@ -624,6 +696,52 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<UserRole, readonly Permission[]> =
     'kpis.overall',
     'kpis.rate.teacher',
     'kpis.rate.coordinator',
+    'kpis.rate.section_head',
+    'leave.read',
+    'leave.request',
+    'leave.approve',
+  ],
+
+  /*
+   * Sprint 33b — the Section Head, between the Vice Principal and the
+   * Coordinator (decision 14).
+   *
+   * The list is the Coordinator's academic rights plus the two things the role
+   * exists for: it **approves** the leave of the coordinators under it, and it
+   * **rates** them. Everything else a school might want to add — publishing
+   * results, sending a notice — is one toggle away on the permissions matrix,
+   * and starting narrow is the choice that cannot silently widen somebody's
+   * reach on the day this deploys.
+   *
+   * Deliberately absent: `hr.read`. A section head reads *leave*, which is now
+   * its own key; reading personnel files and salaries is not part of running a
+   * section. That distinction is the whole reason the four keys exist.
+   */
+  section_head: [
+    'admissions.read',
+    'students.read',
+    'academics.read',
+    'academics.write',
+    'attendance.mark',
+    'exams.read',
+    'exams.write',
+    'results.enter',
+    'comms.read',
+    'comms.write',
+    'chat.read',
+    'chat.send',
+    // Opens a class for an activity. It does **not** let them ban a named
+    // person: `GRANT_RANKS.section_head` is 45 and the threshold is the Branch
+    // Admin's 50. See `lib/chat-grant-scope.ts`.
+    'chat.grant',
+    'settings.read',
+    'kpis.read',
+    'kpis.overall',
+    'kpis.rate.teacher',
+    'kpis.rate.coordinator',
+    'leave.read',
+    'leave.request',
+    'leave.approve',
   ],
 
   coordinator: [
@@ -649,6 +767,12 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<UserRole, readonly Permission[]> =
     'kpis.read',
     'kpis.overall',
     'kpis.rate.teacher',
+    // Sprint 33b. The first rung of the chain: a coordinator decides the leave
+    // of the teachers assigned to them in `coordinator_teachers`, and of
+    // nobody else. The key is the door; `lib/approval-chain.ts` is the room.
+    'leave.read',
+    'leave.request',
+    'leave.approve',
   ],
 
   // `admissions.read` is not incidental here: a teacher's register and a
@@ -674,6 +798,11 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<UserRole, readonly Permission[]> =
     'chat.read',
     'chat.send',
     'chat.grant',
+    // Sprint 33b. `leave.request` and not `leave.read`: a teacher applies for
+    // their own leave and sees their own record, which `/teacher/leave` reads
+    // from their own staff row rather than from the leave listing. Reading the
+    // listing is what an approver does, and a teacher approves nobody.
+    'leave.request',
   ],
 
   // Sprint 13.5 gives the accountant the module named after them, and stops
@@ -704,6 +833,7 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<UserRole, readonly Permission[]> =
     // Sprint 32, rule 9. Finance reads the yearly overall a salary review
     // turns on — never a monthly KPI, never a comment, never a rating.
     'kpis.overall',
+    'leave.request',
   ],
 
   hr_manager: [
@@ -732,6 +862,17 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<UserRole, readonly Permission[]> =
     // Sprint 32, rule 10. HR sees scores; rating stays with the line.
     'kpis.read',
     'kpis.overall',
+    /*
+     * Sprint 33b. HR keeps the rules and files for the people who cannot —
+     * decision 6's junior teacher, who is a `staff` row with no login — and
+     * **does not approve**. The application they file still travels up the
+     * chain, which is the third place in this file where an omission is the
+     * decision: HR computing an entitlement and HR signing off against it is
+     * the same control `accounting.settle` and `payroll.approve` both draw.
+     */
+    'leave.read',
+    'leave.request',
+    'leave.manage',
   ],
 
   marketing: [
@@ -745,6 +886,7 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<UserRole, readonly Permission[]> =
     'chat.read',
     'chat.send',
     'settings.read',
+    'leave.request',
   ],
 
   // Students and parents reach their own portals, which query by uid rather

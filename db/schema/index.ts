@@ -219,3 +219,16 @@ export * from './payroll-run-approvals';
 // Sprint 32 — staff KPIs and performance. Every table references `schools`,
 // `school_users`, `branches` or `academic_years`, all exported far above.
 export * from './staff-kpis';
+
+// Sprint 33b — the chain of command and HR leave management.
+//
+// `section-head-coordinators` is the rung above Sprint 32's
+// `coordinator_teachers`, which is reused unchanged rather than duplicated —
+// see its docblock for why two answers to one question is the thing to avoid.
+//
+// `staff-calendars` is exported after `holidays` (far above), which every
+// override references: a calendar is a *filter* over the school's one holiday
+// list, never a second copy of it.
+export * from './section-head-coordinators';
+export * from './staff-calendars';
+export * from './branch-leave-settings';
