@@ -3,6 +3,7 @@ import {
   boolean,
   check,
   index,
+  integer,
   pgTable,
   text,
   timestamp,
@@ -121,6 +122,24 @@ export const chatParticipants = pgTable(
      * same job and put a chat concern on the row every request already reads.
      */
     digestedAt: timestamp('digested_at', { withTimezone: true }),
+    /**
+     * How many times this person has been emailed about *this* conversation
+     * without having opened it. Sprint 33a, migration `0046`.
+     *
+     * The product owner's report was that the unread-message email "keeps
+     * coming, for ever" — it went hourly and had no end. The interval is now a
+     * day and this column is the end: the candidate query refuses a row at
+     * `DIGEST_MAX_REMINDERS`, the claim raises it, and
+     * `markConversationRead` puts it back to 0 in the same transaction that
+     * moves `last_read_at`.
+     *
+     * Per participant rather than per person, because five reminders is a
+     * statement about one unanswered thread. A different teacher writing about
+     * a different child is a new thing to be told about, and a person-level
+     * counter would silence it because of a thread they had already decided to
+     * ignore.
+     */
+    digestCount: integer('digest_count').notNull().default(0),
     /** Left the thread. Kept rather than deleted: they read what was said. */
     leftAt: timestamp('left_at', { withTimezone: true }),
   },

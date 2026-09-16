@@ -1,5 +1,7 @@
 import 'server-only';
 
+import { randomUUID } from 'node:crypto';
+
 import {
   and,
   asc,
@@ -28,6 +30,7 @@ import {
   ROLE_INBOXES,
   roleInboxLabel,
 } from '@/db/schema/chat-conversations';
+import { chatAttachments } from '@/db/schema/chat-attachments';
 import { chatGrants, grantRankFor } from '@/db/schema/chat-grants';
 import { chatMessages } from '@/db/schema/chat-messages';
 import { chatParticipants } from '@/db/schema/chat-participants';
@@ -733,13 +736,44 @@ export interface PostedMessage {
   createdAt: Date;
 }
 
+/** A file that arrives with the message. Already uploaded; only the row is left. */
+export interface PostedAttachment {
+  storagePath: string;
+  fileName: string;
+  contentType: string;
+  size: number;
+}
+
 /**
- * Writes a message, moves the conversation's clock, rolls every pupil's reply
- * window, and fans out the signals — in **one transaction**.
+ * Writes a message, moves the conversation's clock, files its attachment, rolls
+ * every pupil's reply window, and fans out the signals — in **one transaction**,
+ * signals last.
  *
- * All four or none. A message whose `last_message_at` did not move is a message
- * that never reaches an inbox, and a signal written outside the transaction is
- * a notification for a message a rollback removed.
+ * All of it or none. A message whose `last_message_at` did not move is a
+ * message that never reaches an inbox, and a signal written outside the
+ * transaction is a notification for a message a rollback removed.
+ *
+ * ── Why the attachment moved in here (Sprint 33a) ────────────────────────
+ * It used to be a second `db.insert(chatAttachments)` in the route, **after**
+ * this function had already committed the message *and its signals*. The
+ * recipient is woken by that signal and immediately fetches `/messages`, which
+ * answers `{ messages, attachments }` — so a fetch landing in the gap between
+ * the two commits returned the message with no file. That is precisely the
+ * product owner's report: *"it did not go the first time, and it went the next
+ * time"*, because the next fetch saw the row.
+ *
+ * The upload to object storage still happens before this is called, and stays
+ * outside the transaction. An orphaned object is invisible and harmless; a
+ * message without its file is neither.
+ *
+ * ── The id is generated here, and that is what makes one batch possible ──
+ * `batch()` builds every statement *before* any of them runs, so a statement
+ * that needs the message id cannot wait for the insert to return it. Minting
+ * the uuid in JavaScript — the same v4 the column's `defaultRandom()` would
+ * have produced — lets the attachment row and the signal rows name it in the
+ * same batch, which is the whole point. Statements are built on `tx`, never on
+ * `db`: a builder made from `db` runs outside the transaction even when it is
+ * awaited inside one.
  *
  * The signal rows carry a conversation id and a message id and nothing else.
  * The client fetches the content back through `withSchoolAuth`, where
@@ -755,6 +789,7 @@ export async function postMessage(input: {
   body: string;
   kind?: 'text' | 'system';
   flaggedReason?: string | null;
+  attachment?: PostedAttachment | null;
 }): Promise<PostedMessage> {
   const now = new Date();
   const settings = await getChatSchoolSettings(input.locationId);
@@ -813,56 +848,7 @@ export async function postMessage(input: {
     )
     .limit(1);
 
-  const [inserted] = await batch(db, (tx) => [
-    tx
-      .insert(chatMessages)
-      .values({
-        locationId: input.locationId,
-        conversationId: input.conversationId,
-        senderSchoolUserId: input.senderSchoolUserId,
-        senderName: input.senderName,
-        senderRole: input.senderRole,
-        kind: input.kind ?? 'text',
-        body: input.body,
-        flaggedAt: input.flaggedReason === undefined || input.flaggedReason === null ? null : now,
-        flaggedReason: input.flaggedReason ?? null,
-        createdAt: now,
-      })
-      .returning({ id: chatMessages.id, createdAt: chatMessages.createdAt }),
-    tx
-      .update(chatConversations)
-      .set({ lastMessageAt: now, updatedAt: now })
-      .where(
-        and(
-          eq(chatConversations.locationId, input.locationId),
-          eq(chatConversations.id, input.conversationId),
-        ),
-      ),
-  ]);
-
-  const messageId = inserted[0]?.id;
-  if (messageId === undefined) {
-    throw new Error('chat: the message insert returned no row');
-  }
-
-  // A staff message re-opens every pupil's reply window on this thread. This is
-  // the rolling half of the rule: without it a teacher answering at ten at
-  // night leaves a pupil unable to respond, which reads to the teacher as being
-  // ignored.
-  if (senderIsStaff) {
-    await db
-      .update(chatParticipants)
-      .set({
-        replyWindowExpiresAt: new Date(now.getTime() + settings.replyWindowMinutes * 60_000),
-      })
-      .where(
-        and(
-          eq(chatParticipants.locationId, input.locationId),
-          eq(chatParticipants.conversationId, input.conversationId),
-          eq(chatParticipants.isStudent, true),
-        ),
-      );
-  }
+  const messageId = randomUUID();
 
   const signals = recipients.flatMap((row) =>
     row.authUserId === null
@@ -878,9 +864,89 @@ export async function postMessage(input: {
         ],
   );
 
-  if (signals.length > 0) {
-    await db.insert(chatSignals).values(signals);
-  }
+  await batch(db, (tx) => {
+    const statements: PromiseLike<unknown>[] = [
+      tx.insert(chatMessages).values({
+        id: messageId,
+        locationId: input.locationId,
+        conversationId: input.conversationId,
+        senderSchoolUserId: input.senderSchoolUserId,
+        senderName: input.senderName,
+        senderRole: input.senderRole,
+        kind: input.kind ?? 'text',
+        body: input.body,
+        flaggedAt:
+          input.flaggedReason === undefined || input.flaggedReason === null ? null : now,
+        flaggedReason: input.flaggedReason ?? null,
+        createdAt: now,
+      }),
+      tx
+        .update(chatConversations)
+        .set({ lastMessageAt: now, updatedAt: now })
+        .where(
+          and(
+            eq(chatConversations.locationId, input.locationId),
+            eq(chatConversations.id, input.conversationId),
+          ),
+        ),
+    ];
+
+    // The file, in the same commit as the message it hangs off. See the
+    // docblock: this being a separate, later commit is the whole of the lost
+    // attachment.
+    const attachment = input.attachment ?? null;
+    if (attachment !== null) {
+      statements.push(
+        tx.insert(chatAttachments).values({
+          locationId: input.locationId,
+          messageId,
+          storagePath: attachment.storagePath,
+          fileName: attachment.fileName,
+          contentType: attachment.contentType,
+          sizeBytes: attachment.size,
+        }),
+      );
+    }
+
+    // A staff message re-opens every pupil's reply window on this thread. This
+    // is the rolling half of the rule: without it a teacher answering at ten at
+    // night leaves a pupil unable to respond, which reads to the teacher as
+    // being ignored. It is inside the transaction because it is a consequence
+    // of the message, and a window rolled for a message that rolled back would
+    // be a window nobody can explain.
+    if (senderIsStaff) {
+      statements.push(
+        tx
+          .update(chatParticipants)
+          .set({
+            replyWindowExpiresAt: new Date(
+              now.getTime() + settings.replyWindowMinutes * 60_000,
+            ),
+          })
+          .where(
+            and(
+              eq(chatParticipants.locationId, input.locationId),
+              eq(chatParticipants.conversationId, input.conversationId),
+              eq(chatParticipants.isStudent, true),
+            ),
+          ),
+      );
+    }
+
+    /*
+     * Signals last, and that ordering is the fix.
+     *
+     * A signal is what wakes the recipient's client, and the client's next act
+     * is to fetch this conversation. Nothing it could fetch must be missing at
+     * the moment the signal becomes visible — so the signal is the last row
+     * written inside the transaction that wrote everything it points at.
+     */
+    if (signals.length > 0) {
+      statements.push(tx.insert(chatSignals).values(signals));
+    }
+
+    return statements;
+  });
 
   /*
    * Sprint 29. The bell, which is the half of this that reaches somebody who is
@@ -1189,15 +1255,33 @@ export async function listMessages(
 /**
  * Marks everything in a conversation read, for one participant.
  *
- * Two markers move, and Sprint 29 added the second. `chat_participants.
- * last_read_at` is what the inbox dot and the sidebar badge are computed from;
- * the bell keeps its own row per thread, and leaving that behind would make the
- * bell a number that only ever grows — which is precisely how a badge stops
- * being read. A person who has the thread open has seen it, on both surfaces.
+ * Four things move now, and each was added for a reported fault.
  *
- * The bell half is best-effort: this is called fire-and-forget from the client
- * and the marker that matters is the first one, so a failed bell clear must not
- * lose the read.
+ * `chat_participants.last_read_at` is what the inbox dot and the sidebar badge
+ * are computed from. The bell keeps its own row per thread (Sprint 29), and
+ * leaving that behind would make the bell a number that only ever grows —
+ * which is precisely how a badge stops being read.
+ *
+ * ── Sprint 33a: the signals go, and the digest counter resets ────────────
+ * **The chime rang for messages already read.** Nothing deleted a
+ * `chat_signal` when its conversation was opened, so every catch-up that
+ * reached back over a read message delivered it again — and since Sprint 29
+ * `ChatStreamProvider` is mounted in *every* portal layout, so each page load
+ * re-armed that catch-up. A signal is worthless the moment it is delivered;
+ * its own schema says so. Deleting this person's signals for this thread is
+ * the server-side half of the fix, and it is the half that holds on **every**
+ * device: reading on a phone silences the laptop.
+ *
+ * `digest_count` goes back to 0 for the same reason in the other channel. It
+ * counts how many daily emails this thread has already produced, and having
+ * read it is the answer those emails were asking for.
+ *
+ * All three are in **one transaction**: a `last_read_at` that moved while the
+ * signals survived is exactly the state the chime defect lived in.
+ *
+ * The bell half stays best-effort and outside it. This is called
+ * fire-and-forget from the client, the marker that matters is the first one,
+ * and a failed bell clear must not lose the read.
  */
 export async function markConversationRead(
   locationId: string,
@@ -1205,16 +1289,53 @@ export async function markConversationRead(
   schoolUserId: string,
   role: UserRole,
 ): Promise<void> {
-  await db
-    .update(chatParticipants)
-    .set({ lastReadAt: new Date() })
-    .where(
-      and(
-        eq(chatParticipants.locationId, locationId),
-        eq(chatParticipants.conversationId, conversationId),
-        eq(chatParticipants.schoolUserId, schoolUserId),
-      ),
-    );
+  /*
+   * `chat_signals` is keyed by the GoTrue id — see that table's docblock for
+   * why the RLS policy needs it rather than a join — so the caller's auth id
+   * is read first and the delete uses `eq`. One indexed read outside the
+   * transaction, rather than a correlated subquery inside it.
+   */
+  const accounts = await db
+    .select({ authUserId: schoolUsers.authUserId })
+    .from(schoolUsers)
+    .where(and(eq(schoolUsers.locationId, locationId), eq(schoolUsers.id, schoolUserId)))
+    .limit(1);
+
+  const authUserId = accounts[0]?.authUserId ?? null;
+
+  await batch(db, (tx) => {
+    const statements: PromiseLike<unknown>[] = [
+      tx
+        .update(chatParticipants)
+        .set({ lastReadAt: new Date(), digestCount: 0 })
+        .where(
+          and(
+            eq(chatParticipants.locationId, locationId),
+            eq(chatParticipants.conversationId, conversationId),
+            eq(chatParticipants.schoolUserId, schoolUserId),
+          ),
+        ),
+    ];
+
+    // Nobody with no sign-in account has ever been sent a signal, so there is
+    // nothing to delete for them — and a delete with a null recipient would be
+    // a delete with no predicate on the column that scopes it to one person.
+    if (authUserId !== null) {
+      statements.push(
+        tx
+          .delete(chatSignals)
+          .where(
+            and(
+              eq(chatSignals.locationId, locationId),
+              eq(chatSignals.conversationId, conversationId),
+              eq(chatSignals.recipientAuthUserId, authUserId),
+            ),
+          ),
+      );
+    }
+
+    return statements;
+  });
 
   try {
     await markChatNotificationsRead(schoolUserId, role, conversationId);
@@ -1292,7 +1413,28 @@ export function rankFor(role: UserRole): number {
   return grantRankFor(role);
 }
 
-/** Signals newer than a cursor, for a client catching up after a reconnect. */
+/**
+ * Signals newer than a cursor, for a client catching up after a reconnect.
+ *
+ * ── Sprint 33a: a read conversation delivers nothing ─────────────────────
+ * This used to filter on the recipient and `created_at` and **nothing else**,
+ * which is what made the chime ring for messages somebody had already read: a
+ * catch-up cursor that reaches back over a read message finds its signal still
+ * sitting there. `markConversationRead` now deletes those rows, and this is the
+ * belt to that pair of braces — a signal written before the read, on a device
+ * that has been asleep since, is excluded by the marker rather than by whether
+ * the delete happened to have run.
+ *
+ * The join is `chat_signals` → `school_users` (the GoTrue id the signal is
+ * addressed to is not a `school_users.id`) → that person's seat in the
+ * conversation. It is a **left** join: a signal for a thread somebody has since
+ * left still belongs to them, and an inner join would silently stop delivering
+ * it.
+ *
+ * `lt(lastReadAt, createdAt)` is column against column, so no JavaScript
+ * `Date` reaches the driver through it — CLAUDE.md's rule, and the reason no
+ * raw template appears anywhere in this statement.
+ */
 export async function listSignalsSince(
   locationId: string,
   authUserId: string,
@@ -1305,11 +1447,29 @@ export async function listSignalsSince(
       createdAt: chatSignals.createdAt,
     })
     .from(chatSignals)
+    .innerJoin(
+      schoolUsers,
+      and(
+        eq(schoolUsers.locationId, chatSignals.locationId),
+        eq(schoolUsers.authUserId, chatSignals.recipientAuthUserId),
+      ),
+    )
+    .leftJoin(
+      chatParticipants,
+      and(
+        eq(chatParticipants.conversationId, chatSignals.conversationId),
+        eq(chatParticipants.schoolUserId, schoolUsers.id),
+      ),
+    )
     .where(
       and(
         eq(chatSignals.locationId, locationId),
         eq(chatSignals.recipientAuthUserId, authUserId),
         gte(chatSignals.createdAt, since),
+        or(
+          isNull(chatParticipants.lastReadAt),
+          lt(chatParticipants.lastReadAt, chatSignals.createdAt),
+        ),
       ),
     )
     .orderBy(asc(chatSignals.createdAt))

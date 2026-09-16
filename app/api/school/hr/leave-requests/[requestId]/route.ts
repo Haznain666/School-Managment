@@ -37,6 +37,18 @@ function isDecision(value: unknown): value is Decision {
   return typeof value === 'string' && (DECISIONS as readonly string[]).includes(value);
 }
 
+/**
+ * Whether this request is outside the caller's campus.
+ *
+ * `auth.branchId === null` is school-wide access and sees everything, which is
+ * the same rule the list applies with `branchId: auth.branchId ?? undefined`.
+ * A staff member with no campus of their own belongs to the school rather than
+ * to a campus, so a campus-bound approver does not own them either.
+ */
+function outsideCampus(callerBranchId: string | null, staffBranchId: string | null): boolean {
+  return callerBranchId !== null && staffBranchId !== callerBranchId;
+}
+
 export const GET = withSchoolAuth<RouteContext>(
   async (_request, auth, context) => {
     try {
@@ -47,6 +59,13 @@ export const GET = withSchoolAuth<RouteContext>(
 
       const leaveRequest = await getLeaveRequest(auth.locationId, requestId);
       if (leaveRequest === null) {
+        return apiFailure('not_found', 'Leave request not found.', 404);
+      }
+
+      // 404 rather than 403 on the read: whether another campus has a request
+      // with this id is not something a campus-bound reader should learn, and
+      // the list they came from never showed it to them.
+      if (outsideCampus(auth.branchId, leaveRequest.branchId)) {
         return apiFailure('not_found', 'Leave request not found.', 404);
       }
 
@@ -74,6 +93,31 @@ export const PATCH = withSchoolAuth<RouteContext>(
       const existing = await getLeaveRequest(auth.locationId, requestId);
       if (existing === null) {
         return apiFailure('not_found', 'Leave request not found.', 404);
+      }
+
+      /*
+       * The campus, checked on the write. Sprint 33a — a live hole.
+       *
+       * `GET /api/school/hr/leave-requests` has always narrowed to
+       * `auth.branchId`, so a campus-bound approver cannot *see* another
+       * campus's application. This route checked nothing at all, and an id is
+       * all it takes: a Branch Admin at campus A could approve campus B's
+       * leave by calling this endpoint directly. A permission answered "may
+       * you decide leave" and nothing answered "whose".
+       *
+       * 403 rather than 404 here, unlike the read above: somebody addressing
+       * this endpoint already holds the id and is trying to act on it, and a
+       * refusal they can read is what stops them trying again.
+       *
+       * Part B replaces this with the full approval chain. It lands now
+       * because it is live.
+       */
+      if (outsideCampus(auth.branchId, existing.branchId)) {
+        return apiFailure(
+          'wrong_campus',
+          'That request belongs to another campus. Only somebody at that campus can decide it.',
+          403,
+        );
       }
 
       if (existing.status !== 'pending') {

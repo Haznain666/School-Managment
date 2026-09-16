@@ -88,6 +88,14 @@ interface ChatStreamValue {
   /** Re-reads the counts now. For "I have just read this thread". */
   refreshCounts: () => void;
   /**
+   * Which conversation is on screen, so the chime can stay out of it.
+   *
+   * Held here rather than read from the URL because the chat screen selects a
+   * thread in state and never navigates. Null means "none open", which is
+   * every page of every portal except one.
+   */
+  setOpenConversation: (conversationId: string | null) => void;
+  /**
    * The bell and Messages counts, or null until the first read has answered.
    *
    * Null means "the server render is still the best answer", which is what
@@ -132,6 +140,8 @@ export function ChatStreamProvider({ children }: { children: ReactNode }) {
 
   const subscribers = useRef<Set<Subscriber>>(new Set());
   const refreshTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /** The thread on screen, if any. A ref: nothing re-renders when it changes. */
+  const openConversation = useRef<string | null>(null);
   const eagerCount = useRef(0);
   const [eager, setEager] = useState(false);
 
@@ -223,13 +233,31 @@ export function ChatStreamProvider({ children }: { children: ReactNode }) {
   const onSignal = useCallback(
     (conversationIds: string[]) => {
       /*
-       * The chime first, and unconditionally: this fires only for a signal,
-       * and a signal is only ever written for somebody *else's* message — see
-       * `postMessage`, which excludes the sender from the recipient list. So
-       * the "never chime at your own message" rule the chat screen enforces by
-       * comparing sender ids is enforced here by the table.
+       * The chime, once per delivered batch and never for the thread already
+       * open on screen.
+       *
+       * ── What this used to be, and what it cost ─────────────────────────
+       * `play()`, unconditionally. The argument in its docblock was true and
+       * answered a different question: a signal is only ever written for
+       * somebody *else's* message, so the sender never hears their own. What
+       * nothing checked was whether the recipient had **already read it** —
+       * and until Sprint 33a nothing deleted a signal when its conversation
+       * was opened, while `listSignalsSince` filtered on the recipient and the
+       * cursor and nothing else. Since Sprint 29 this provider is mounted in
+       * every portal layout, so every page load re-armed that catch-up and
+       * rang again for messages the person had read hours ago.
+       *
+       * The server side is the fix (the signals are deleted on read, and the
+       * catch-up excludes anything older than the read marker). This is the
+       * half that has to hold on the screen the person is looking at: a
+       * message arriving in the thread already in front of them is visible the
+       * moment it lands, and a chime for it is noise.
+       *
+       * A burst — a broadcast to a class — arrives as one call with several
+       * ids, so this is one chime and not five.
        */
-      play();
+      const elsewhere = conversationIds.filter((id) => id !== openConversation.current);
+      if (elsewhere.length > 0) play();
 
       for (const fn of [...subscribers.current]) {
         try {
@@ -256,6 +284,10 @@ export function ChatStreamProvider({ children }: { children: ReactNode }) {
     };
   }, []);
 
+  const setOpenConversation = useCallback((conversationId: string | null) => {
+    openConversation.current = conversationId;
+  }, []);
+
   const claimEager = useCallback(() => {
     eagerCount.current += 1;
     setEager(true);
@@ -280,13 +312,23 @@ export function ChatStreamProvider({ children }: { children: ReactNode }) {
       subscribe,
       claimEager,
       refreshCounts,
+      setOpenConversation,
       transport,
       soundEnabled,
       setSoundEnabled,
       armSound: arm,
       counts,
     }),
-    [subscribe, claimEager, refreshCounts, transport, soundEnabled, arm, counts],
+    [
+      subscribe,
+      claimEager,
+      refreshCounts,
+      setOpenConversation,
+      transport,
+      soundEnabled,
+      arm,
+      counts,
+    ],
   );
 
   return <ChatStreamContext.Provider value={value}>{children}</ChatStreamContext.Provider>;
@@ -305,6 +347,7 @@ export function useChatSignals(onSignal: Subscriber, eagerly = false): {
   setSoundEnabled: (enabled: boolean) => void;
   armSound: () => void;
   refreshCounts: () => void;
+  setOpenConversation: (conversationId: string | null) => void;
   counts: UnreadCounts | null;
 } {
   const context = useContext(ChatStreamContext);
@@ -329,6 +372,8 @@ export function useChatSignals(onSignal: Subscriber, eagerly = false): {
     return claimEager();
   }, [eagerly, claimEager]);
 
+  // One no-op serves both shapes: a zero-argument function satisfies the
+  // single-argument setter, and it is never called with anything anyway.
   const noop = useCallback(() => undefined, []);
 
   return {
@@ -337,6 +382,7 @@ export function useChatSignals(onSignal: Subscriber, eagerly = false): {
     setSoundEnabled: context?.setSoundEnabled ?? noop,
     armSound: context?.armSound ?? noop,
     refreshCounts: context?.refreshCounts ?? noop,
+    setOpenConversation: context?.setOpenConversation ?? noop,
     counts: context?.counts ?? null,
   };
 }

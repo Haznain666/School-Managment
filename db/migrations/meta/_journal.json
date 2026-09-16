@@ -323,6 +323,13 @@
       "when": 1789473600000,
       "tag": "0045_sprint32_staff_kpis",
       "breakpoints": true
+    },
+    {
+      "idx": 46,
+      "version": "7",
+      "when": 1789560000000,
+      "tag": "0046_sprint33a_chat_digest_count",
+      "breakpoints": true
     }
   ]
 }

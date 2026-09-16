@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 
+import { TeacherOverlapReport } from '@/components/academics/TeacherOverlapReport';
 import { TimetableWorkspace } from '@/components/academics/TimetableWorkspace';
 import { PrincipalScopeNote } from '@/components/school/PrincipalScopeNote';
 import { PageHeader } from '@/components/ui/PageHeader';
@@ -7,6 +8,7 @@ import {
   listAcademicYearOptions,
   listSubjects,
   listTeacherOptions,
+  listTeacherOverlaps,
 } from '@/lib/academics-queries';
 import { listGrades, listSections } from '@/lib/admissions-queries';
 import { narrowGrades, visibleScopeFor } from '@/lib/principal-visibility';
@@ -50,6 +52,25 @@ export default async function TimetablePage() {
   const grades = narrowGrades(visible, allGrades);
   const gradeIds = new Set(grades.map((grade) => grade.id));
 
+  /*
+   * Sprint 33a. Teachers who are already in two places at once.
+   *
+   * Read after the narrowing rather than beside it, because the grades this
+   * caller may see are the scope of the report: a head is shown their own
+   * clashes and not the senior school's, and a campus-bound administrator
+   * never learns another campus's timetable from a warning panel.
+   *
+   * The current year only. A clash in a year that finished is not something
+   * anybody can act on, and listing it would bury the one that matters.
+   */
+  const reportYear = academicYears.find((year) => year.isActive) ?? null;
+  const overlaps =
+    reportYear === null
+      ? []
+      : await listTeacherOverlaps(locationId, reportYear.id, {
+          gradeIds: grades.map((grade) => grade.id),
+        });
+
   return (
     <div className="space-y-6">
       <PageHeader
@@ -58,6 +79,10 @@ export default async function TimetablePage() {
       />
 
       <PrincipalScopeNote note={visible.note} />
+
+      {reportYear === null ? null : (
+        <TeacherOverlapReport overlaps={overlaps} academicYearName={reportYear.name} />
+      )}
 
       {/*
         Sprint 23, item 4. `sections.class_teacher_id` is written through

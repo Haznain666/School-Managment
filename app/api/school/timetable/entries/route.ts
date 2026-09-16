@@ -1,4 +1,4 @@
-import { and, eq, ne } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 
 import {
   isSchoolDay,
@@ -8,10 +8,12 @@ import {
   timetableEntries,
   WEEKDAY_NAMES,
 } from '@/db/schema';
+import { formatTimeOfDay, slotsOverlap } from '@/db/schema/timetable-slots';
 import { withSchoolAuth } from '@/lib/api-auth';
 import { apiFailure, apiSuccess, handleApiError, readJsonBody } from '@/lib/api-response';
 import {
   getTimetableSlot,
+  listTeacherBusySlots,
   listTimetableEntries,
   listSlotsForSection,
   resolveStructureForSection,
@@ -202,30 +204,54 @@ export const POST = withSchoolAuth(
         );
       }
 
-      // A teacher cannot be in two rooms at once. The unique index only protects
-      // the section's own cell, so the clash across sections is checked here.
-      const clash = await db
-        .select({ sectionName: sections.name })
-        .from(timetableEntries)
-        .innerJoin(sections, eq(sections.id, timetableEntries.sectionId))
-        .where(
-          and(
-            eq(timetableEntries.locationId, auth.locationId),
-            eq(timetableEntries.academicYearId, academicYearId),
-            eq(timetableEntries.teacherId, teacherId),
-            eq(timetableEntries.slotId, slotId),
-            eq(timetableEntries.dayOfWeek, dayOfWeek),
-            eq(timetableEntries.isActive, true),
-            ne(timetableEntries.sectionId, sectionId),
-          ),
-        )
-        .limit(1);
+      /*
+       * A teacher cannot be in two rooms at once.
+       *
+       * ── What this used to test, and why it let an overlap through ───────
+       * Until Sprint 33a the condition was `slot_id = :slotId` and nothing
+       * else. Two lessons in **different `period_structures`** never share a
+       * slot id, so Nursery period 2 (08:40–09:20) and Year 1 period 3
+       * (09:05–09:45) were both legal writes and the teacher portal drew the
+       * overlap correctly from two correct rows. Nothing compared the minutes.
+       *
+       * So the test is now the minutes, across every schedule the teacher
+       * teaches in: read their other lessons on this day and ask
+       * `slotsOverlap` — the same function `TimetableBuilder` asks before it
+       * sends, so the browser and the server cannot come to different answers.
+       *
+       * The same-slot equality is kept as the first disjunct. It is the fast
+       * path in the literal sense — it is what catches the ordinary
+       * one-schedule school without any arithmetic at all — and it costs
+       * nothing to keep beside the test that subsumes it.
+       *
+       * A teacher has at most a day's worth of lessons, so this is a handful
+       * of rows off the `(location, section, teacher)` index rather than a
+       * time predicate the planner would have to reason about.
+       *
+       * It is `listTeacherBusySlots` — the *same* read the builder makes — so
+       * the two sides cannot diverge in what they compare, and so
+       * `check-sprint33a` can execute the statement this refusal rests on.
+       */
+      const busy = await listTeacherBusySlots(auth.locationId, teacherId, academicYearId);
 
-      const conflicting = clash[0];
+      const conflicting = busy.find(
+        (row) =>
+          row.dayOfWeek === dayOfWeek &&
+          row.sectionId !== sectionId &&
+          (row.slotId === slotId ||
+            slotsOverlap(row.startTime, row.endTime, slot.startTime, slot.endTime)),
+      );
+
       if (conflicting !== undefined) {
+        const day = WEEKDAY_NAMES[dayOfWeek] ?? 'that day';
+
+        // Both classes and both clocks. "That teacher is busy" is not something
+        // a clerk can act on; "she is with 5-A in Period 3, 9:05–9:45" is.
         return apiFailure(
           'teacher_busy',
-          `That teacher already takes section ${conflicting.sectionName} in ${slot.name} on ${WEEKDAY_NAMES[dayOfWeek] ?? 'that day'}.`,
+          conflicting.slotId === slotId
+            ? `That teacher already takes ${conflicting.sectionLabel} in ${slot.name} on ${day}.`
+            : `That teacher already takes ${conflicting.sectionLabel} on ${day} in ${conflicting.slotName} (${formatTimeOfDay(conflicting.startTime)} – ${formatTimeOfDay(conflicting.endTime)}), which overlaps ${slot.name} (${formatTimeOfDay(slot.startTime)} – ${formatTimeOfDay(slot.endTime)}).`,
           409,
         );
       }

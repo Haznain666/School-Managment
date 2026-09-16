@@ -73,16 +73,27 @@ export const CHAT_NOTIFICATION_KIND = 'chat_message';
  * no extra column is needed to hold a key that was already in the row.
  */
 export function chatPortalHref(role: UserRole, conversationId: string): string {
-  const base =
-    role === 'parent'
-      ? '/parent/chat'
-      : role === 'student'
-        ? '/student/chat'
-        : role === 'teacher'
-          ? '/teacher/chat'
-          : '/dashboard/chat';
+  return `${chatPortalBase(role)}?conversation=${encodeURIComponent(conversationId)}`;
+}
 
-  return `${base}?conversation=${encodeURIComponent(conversationId)}`;
+/**
+ * The chat screen of the portal this role signs in to.
+ *
+ * Split out in Sprint 33a for the digest's deep link, which wants the same four
+ * paths and a different parameter (`?c=`, short enough to survive being
+ * wrapped by a mail client). Two copies of this mapping is one copy that goes
+ * stale the first time a portal moves — and `ROLE_HOME_ROUTES` is not it: the
+ * home route is `/dashboard` for eight of the eleven roles, and chat lives
+ * under it rather than at it.
+ */
+export function chatPortalBase(role: UserRole): string {
+  return role === 'parent'
+    ? '/parent/chat'
+    : role === 'student'
+      ? '/student/chat'
+      : role === 'teacher'
+        ? '/teacher/chat'
+        : '/dashboard/chat';
 }
 
 export interface ChatNotificationRecipient {

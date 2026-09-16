@@ -1,6 +1,5 @@
 import { randomUUID } from 'node:crypto';
 
-import { chatAttachments } from '@/db/schema/chat-attachments';
 import { MESSAGE_BODY_MAX } from '@/db/schema/chat-messages';
 import { withSchoolAuth } from '@/lib/api-auth';
 import { apiFailure, apiSuccess, handleApiError, readJsonBody } from '@/lib/api-response';
@@ -24,7 +23,6 @@ import {
   schoolName,
 } from '@/lib/chat-safeguarding';
 import { attachmentProblem, attachmentsForMessages, staffOnlyProblem } from '@/lib/chat-attachments';
-import { db } from '@/lib/drizzle';
 import { hasPermission } from '@/lib/permission-queries';
 import { getSchoolUserByUid } from '@/lib/school-queries';
 import { buildStoragePath, uploadBuffer } from '@/lib/storage';
@@ -261,6 +259,21 @@ export const POST = withSchoolAuth<RouteContext>(
       // bubble somebody has to hover to understand.
       const storedBody = body === '' ? 'Sent a file.' : body;
 
+      /*
+       * The message and its file commit together (Sprint 33a).
+       *
+       * This was two writes: `postMessage`, which commits the message, the
+       * conversation bump **and the signals**, and then a second
+       * `db.insert(chatAttachments)`. The recipient is woken by the signal and
+       * fetches `/messages` — which answers `{ messages, attachments }` — so a
+       * fetch landing between the two commits returned the message with no
+       * file. That is the product owner's *"it did not go the first time, and
+       * it went the next time"*: the next fetch saw the row.
+       *
+       * The upload above stays where it is. An orphaned object costs bytes; a
+       * message that arrives without its attachment costs the school the belief
+       * that the feature works.
+       */
       const posted = await postMessage({
         locationId: auth.locationId,
         conversationId,
@@ -269,18 +282,8 @@ export const POST = withSchoolAuth<RouteContext>(
         senderRole: auth.role,
         body: storedBody,
         flaggedReason,
+        attachment: upload,
       });
-
-      if (upload !== null) {
-        await db.insert(chatAttachments).values({
-          locationId: auth.locationId,
-          messageId: posted.id,
-          storagePath: upload.storagePath,
-          fileName: upload.fileName,
-          contentType: upload.contentType,
-          sizeBytes: upload.size,
-        });
-      }
 
       // The message is stored first and escalated second, and never the other
       // way round: a pupil's words must survive a failing mail queue. `escalate`

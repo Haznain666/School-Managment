@@ -11,13 +11,21 @@ demo data and the film's KPI scene — §5cd.** **Next sprint: the stale-list fi
 Payroll vs KPI principals is waiting on the product owner.** 2026-09-16: **chat
 grant ranks aligned to KPI seniority — §5ce.**)
 
-📋 **Sprint 33 is specified and not built — `SPRINT-33-SPEC.md`, §5cf.**
-The product owner's feedback round: fourteen items from `next sprint.docx`,
-split into **three parts** at their instruction (33a defects + the campus gap,
-33b the Section Head role and HR leave, 33c the portal work). Fourteen decisions
-were taken with them on 2026-09-16 and are recorded in §0 of the spec. **`0046`
-is the next free migration number.** This supersedes "the next sprint is the
-stale-list fix" below — that work is not cancelled, it is after this round.
+📋 **Sprint 33 is specified — `SPRINT-33-SPEC.md`, §5cf.** The product owner's
+feedback round: fourteen items from `next sprint.docx`, split into **three
+parts** at their instruction (33a defects + the campus gap, 33b the Section Head
+role and HR leave, 33c the portal work). Fourteen decisions were taken with them
+on 2026-09-16 and are recorded in §0 of the spec. This supersedes "the next
+sprint is the stale-list fix" below — that work is not cancelled, it is after
+this round.
+
+🔨 **Part A is built, on a branch, and not merged — §5cg.** All six items plus
+migration `0046`, on `feature/sprint-33a-defects-campus-notifications`. Every
+gate was run and is green, including a new `check-sprint33a` that executes
+every widened statement against the real schema. **`0046` is written and NOT
+applied**, so the digest candidate read fails with `42703` until it is — which
+is what the check asserts, on purpose, from both sides. **`0047` is the next
+free migration number** (Part B). Nothing has been QA'd in a browser yet.
 
 ✅ **One seniority order across the product (2026-09-16).** Chat grant ranks now
 follow KPI rating seniority: School Admin 100 > Principal 80 > Vice Principal
@@ -12742,6 +12750,105 @@ days, per person, with the date in hand.
    need a line in `noticeHrefFor`.
 
 ---
+
+## 5cg. Sprint 33 **Part A** built — the three defects, the campus gap and the two notification faults — 2026-09-16
+
+Built on `feature/sprint-33a-defects-campus-notifications`, **not merged, not
+migrated, not QA'd in a browser**. The spec is `SPRINT-33-SPEC.md` Part A and
+§5cf is the round's handover entry. Migration **`0046`**, one column.
+
+### What was built
+
+| Item | Where |
+| --- | --- |
+| A1 the overlap | `slotsOverlap` in `db/schema/timetable-slots.ts`; `listTeacherBusySlots` + `listTeacherOverlaps` in `lib/academics-queries.ts`; `GET /api/school/timetable/teacher-busy`; the clash test in `POST /api/school/timetable/entries`; `TimetableBuilder`; `components/academics/TeacherOverlapReport.tsx` on `/dashboard/academics/timetable` |
+| A2 the lost attachment | `postMessage` takes an `attachment` and writes it on `tx`; the second `db.insert` is gone from the messages route |
+| A3 the chime | `markConversationRead` deletes the signals and resets `digest_count`; `listSignalsSince` excludes anything older than the read marker; `ChatStreamProvider` rings once per batch and never for the open thread |
+| A4 the digest | `lib/chat-digest.ts` — 1440 minutes, `digest_count` ≤ 5, a deep link through `buildSchoolPortalUrl` |
+| A5 the campus gap | `getLeaveRequest` returns `branchId`; the `PATCH` refuses 403, the `GET` 404 |
+| A6 days used | `withCountedDays` / `countedLabel` in `components/hr/LeaveManager.tsx` |
+
+### The decisions that should not be re-litigated
+
+- **The overlap is compared in JavaScript, not in SQL.** `HH:MM` text does
+  compare correctly with `<` — it is zero-padded — but writing the predicate in
+  SQL would mean the route and the browser deciding the same question with two
+  different pieces of code. Both now call `slotsOverlap` over the rows
+  `listTeacherBusySlots` returns, which is at most a teacher's week, and that is
+  also what lets `check-sprint33a` execute the statement the refusal rests on.
+  The same-slot equality is kept as the first disjunct, which is the fast path
+  for the one-schedule school even though the time test subsumes it.
+- **Existing overlaps are reported and never repaired.** One of the two lessons
+  is a class somebody is sitting in. The panel is silent when there is nothing
+  to say, and scoped to the grades the caller may see.
+- **`postMessage` mints the message id in JavaScript.** `batch()` builds every
+  statement before any of them runs, so a statement needing the id cannot wait
+  for the insert to return it. `randomUUID()` is the same v4 the column's
+  `defaultRandom()` would have produced, and it is what makes one batch —
+  message, bump, attachment, reply window, **signals last** — possible at all.
+  Do not replace it with a `db.transaction` callback; the convention is `batch`.
+- **The reply-window roll moved inside the transaction.** It was a separate
+  `db.update` after the commit. It is a consequence of the message and now
+  commits with it.
+- **`digest_count` is per participant row, not per person.** Five reminders is
+  a statement about one unanswered conversation; a person-level counter would
+  silence a *different* teacher writing about a *different* child. It is raised
+  only after an email is actually queued — so there is no decrement to get wrong
+  in the failure path — and only over the conversations that were unread when
+  the candidate was read.
+- **The claim is untouched.** `claimDigest` is still the conditional
+  `UPDATE … RETURNING` with its revert-on-failure. Seven schedulers, one email.
+- **The deep link is `?c=`, and `?conversation=` still works.** The bell has
+  carried the long one since Sprint 29 and the email carries the short one
+  because mail clients wrap long URLs. `ChatWorkspace` reads both.
+- **`buildSchoolUrl` now splits a query off the path.** Without it the local
+  branch appends a second `?` and the subdomain branch percent-encodes the `?`
+  into the pathname. Every existing caller passes a path with no query and is
+  unaffected.
+- **A5 refuses 403 on the write and 404 on the read.** Somebody addressing the
+  decision endpoint already holds the id; somebody reading should not learn that
+  another campus has a request with it.
+- **Part A adds no permission key**, so `role_permissions_permission_check` is
+  deliberately not rewritten. `check-sprint33a` asserts every key in
+  `PERMISSIONS` still appears in `0045`, so a key added here without its CHECK
+  fails the gate rather than becoming a 23514 at the first school that overrides
+  a default.
+
+### Evidence
+
+Everything below was run in the worktree and is real output.
+
+- `typecheck` 0 errors; `lint` 0 warnings; `build` green.
+- The ten CI checks: `check-loaders` 315, `check-import-sample` 25,
+  `check-forms` 98, `check-address-phone` 50, `check-cnic` 36,
+  `check-currency` 7, `check-theme` 7 palettes, `check-sprint-periods` 107,
+  `check-accounting` 121, `check-branch-scope` 1,673 — all pass.
+- `check-sprint24` (chat, executed against the real schema): 28 ok, 0 failed.
+- **`check-sprint33a` (new): 50 passed, 0 failed**, against the live schema with
+  a tenant matching no row. `listSignalsSince`, `listTeacherBusySlots`,
+  `listTeacherOverlaps` (both scopes), `getLeaveRequest` and `listLeaveRequests`
+  (both filters) all execute; `digestCandidates` fails with exactly `42703`,
+  which is the predicted answer while `0046` is unapplied.
+
+### What is still open
+
+- **`0046` is not applied.** That is `sprint-devops`. Until it is, the digest
+  sweep's candidate read throws every five minutes — the sweep catches and logs
+  it, so nothing else breaks, but **no digest goes out** in that window. Apply
+  it before deploying.
+- **No browser QA.** Nothing here has been exercised against a real session.
+  The three that need it most: a 409 naming both classes, a parent's first fetch
+  of a message with an attachment, and a Branch Admin `PATCH`ing another
+  campus's leave request — the last is the one A5's acceptance criterion says
+  must be proved by attempt.
+- The Askari overlap in the product owner's screenshot should appear in the
+  report panel. That has not been looked at, because looking at it needs the
+  live data and a browser.
+- `postMessage`, `markConversationRead`, `claimDigest` and `raiseDigestCount`
+  are not executed by any check script — they write, and `check-sprint24`'s
+  header records why a check script does not issue an `UPDATE` against a live
+  database. Their columns are covered by the catalogue block instead.
+- Parts B and C are untouched, in that order, per decision 12.
 
 ## 5cf. Sprint 33 specified — the product owner's feedback round — 2026-09-16
 
