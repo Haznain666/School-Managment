@@ -1468,3 +1468,30 @@ record (I-8) is the only part still owed.
 
 **Ongoing, not blocking:**
 - A real pilot school (§4.3).
+
+---
+
+## 8. Sprint 33 — the product owner's feedback round (2026-09-16)
+
+⚠ **Numbering.** §2 above still carries the *original plan's* numbers, where 33
+was "Biometric device integration". The repo's actual counter is what has
+shipped: Sprint 32 was **staff KPIs** (`STATE.md` §5cc), so this round is
+**Sprint 33**. The plan entries in §2 from 29 onwards are aspirational names,
+not the built sequence — `STATE.md` is the truth, as §0 of this file says.
+
+The requirement is `next sprint.docx`, read in full on 2026-09-16, and the spec
+is **`SPRINT-33-SPEC.md`** at the repo root. Fourteen items, split into three
+parts at the product owner's instruction, each merged, migrated, deployed and
+QA'd before the next begins:
+
+| Part | What | Migration |
+| --- | --- | --- |
+| **33a** | The three live defects (overlapping teacher periods, the lost attachment, the chime that rings for read messages), the leave-approval **campus gap**, the once-a-day capped unread email, and the calculated leave days | `0046` |
+| **33b** | The **Section Head** role, one principal and one vice principal per branch, the approval chain, HR leave management (types, quotas, two staff calendars, gazette overrides), self-service leave and probation | `0047` |
+| **33c** | The parent timetable, the paid-voucher **receipt**, chat recipient chips and search, and teacher availability with quick substitutes | `0048` if the timetable is date-scoped |
+
+**A standing rule comes out of this round and binds every later sprint:** every
+approval-type setting is controlled from the Permissions section — a key in
+`PERMISSIONS`, a default in `DEFAULT_ROLE_PERMISSIONS`, a row on the matrix, and
+a migration widening `role_permissions_permission_check`. Never a hard-coded
+role list.

@@ -11,6 +11,14 @@ demo data and the film's KPI scene — §5cd.** **Next sprint: the stale-list fi
 Payroll vs KPI principals is waiting on the product owner.** 2026-09-16: **chat
 grant ranks aligned to KPI seniority — §5ce.**)
 
+📋 **Sprint 33 is specified and not built — `SPRINT-33-SPEC.md`, §5cf.**
+The product owner's feedback round: fourteen items from `next sprint.docx`,
+split into **three parts** at their instruction (33a defects + the campus gap,
+33b the Section Head role and HR leave, 33c the portal work). Fourteen decisions
+were taken with them on 2026-09-16 and are recorded in §0 of the spec. **`0046`
+is the next free migration number.** This supersedes "the next sprint is the
+stale-list fix" below — that work is not cancelled, it is after this round.
+
 ✅ **One seniority order across the product (2026-09-16).** Chat grant ranks now
 follow KPI rating seniority: School Admin 100 > Principal 80 > Vice Principal
 60 > **Branch Admin 50** (was 80, equal to Principal) > Coordinator 40 >
@@ -12734,6 +12742,71 @@ days, per person, with the date in hand.
    need a line in `noticeHrefFor`.
 
 ---
+
+## 5cf. Sprint 33 specified — the product owner's feedback round — 2026-09-16
+
+Not built. The requirement is `next sprint.docx`, read in full; the spec is
+**`SPRINT-33-SPEC.md`** at the repo root and `SPRINTS.md` §8 is the plan entry.
+
+### What was decided, and by whom
+
+Nine questions were put to the product owner and all nine were answered; five
+further decisions were taken with them on the shape of the work. All fourteen
+are in §0 of the spec. The ones a later session is most likely to re-litigate:
+
+- **One Principal and one Vice Principal per branch.** Branch Admin ranks with
+  the Vice Principal and heads the non-teaching roles; the **Principal holds
+  every approval permission** at their branch.
+- **Section Head is a real role**, permission-bearing, on the **administrative
+  dashboard with scoped navigation** — not a new route group. Its chat grant
+  rank is **45**, below Branch Admin's 50, so it **cannot ban a named person**.
+- **Probation is at most 180 calendar days**, holidays included.
+- **Leave quota is pro-rated from `permanent_from`** against the school's
+  academic year, and **lapses** — no carry-forward.
+- **A holiday inside a leave range is a per-branch HR setting** (`skip` or
+  `include`). Only a **single-day** request on a gazetted holiday is refused.
+- **No parent-facing timetable history.** Past weeks must merely not be
+  rewritten.
+
+### Three defects, root-caused by reading before any code was written
+
+1. **Overlapping teacher periods are a write-guard gap, not a display bug.**
+   `POST /api/school/timetable/entries` tests a teacher clash on **`slot_id`
+   equality**. Nursery period 2 (08:40–09:20) and Year 1 period 3
+   (09:05–09:45) are different slots in different `period_structures`, so
+   nothing compares their minutes. Both rows are legal today.
+   `listSlotsForTeacher` unions the two schedules and orders by the clock, which
+   is what puts the overlap on screen. The fix is a time-overlap test across
+   structures; **existing overlaps are reported, never deleted.**
+2. **The lost attachment is a two-commit race.** `postMessage` commits the
+   message, the `last_message_at` bump and the `chat_signals` rows in one
+   transaction; `db.insert(chatAttachments)` is a **separate, later** commit. The
+   recipient is woken by the signal and fetches `/messages` in between, getting
+   the message with no attachment — exactly "it did not go the first time, and
+   went the next". One transaction fixes it.
+3. **The chime is driven by the signal row, never by unread state.**
+   `ChatStreamProvider.onSignal` calls `play()` unconditionally; nothing deletes
+   a signal when its conversation is read (`markConversationRead` moves
+   `last_read_at` only); and `listSignalsSince` filters on recipient and
+   `created_at` and nothing else. Since Sprint 29 the provider is mounted in
+   **every portal layout**, so each page load re-arms the catch-up and rings for
+   messages already read.
+
+### 🔴 The campus gap is real, and it is live
+
+`GET /api/school/hr/leave-requests` narrows to `auth.branchId`. The `PATCH` that
+approves or rejects **checks no campus at all**, and `getLeaveRequest` does not
+even select one. A campus-bound approver cannot see another campus's request on
+screen and **can approve it by calling the endpoint with its id**. Fixed in 33a
+rather than waiting for the chain in 33b.
+
+### The standing rule this round establishes
+
+**Every approval-type setting lives in the Permissions section** — leave,
+payroll, and every approval built from here on: a key in `PERMISSIONS`, a
+default in `DEFAULT_ROLE_PERMISSIONS`, a row on the matrix, and a migration
+widening `role_permissions_permission_check`. Never a hard-coded role list.
+Held in memory as `approvals-live-in-the-permissions-section`.
 
 ## 5ce. Chat grant ranks aligned to KPI seniority — 2026-09-16
 
