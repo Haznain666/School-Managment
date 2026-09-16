@@ -19,6 +19,11 @@ const LINKS: ReadonlyArray<{ href: string; label: string }> = [
   { href: '/dashboard/hr/staff', label: 'Staff' },
   { href: '/dashboard/hr/salary-components', label: 'Salary components' },
   { href: '/dashboard/hr/leave', label: 'Leave' },
+  // Sprint 33b. The rules behind the leave screen rather than the requests on
+  // it: the two staff calendars and the per-campus holiday rule, and the
+  // reporting line that decides who approves whose.
+  { href: '/dashboard/hr/calendars', label: 'Staff calendars' },
+  { href: '/dashboard/hr/chain', label: 'Reporting line' },
   { href: '/dashboard/hr/attendance', label: 'Staff register' },
   { href: '/dashboard/payroll', label: 'Payroll' },
 ];

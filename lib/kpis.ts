@@ -59,6 +59,8 @@ export function rateKeyFor(role: StaffKpiTargetRole): Permission | null {
       return 'kpis.rate.coordinator';
     case 'vice_principal':
       return 'kpis.rate.vice_principal';
+    case 'section_head':
+      return 'kpis.rate.section_head';
     case 'hr_manager':
       return 'kpis.rate.hr_manager';
     case 'accountant':
@@ -74,16 +76,23 @@ export function rateKeyFor(role: StaffKpiTargetRole): Permission | null {
 /**
  * Rule 5: when two people rate the same thing, the senior rater's score counts.
  *
- * School Admin > Principal > Vice Principal > Branch Admin > Coordinator. The
- * Vice Principal sits directly under the Principal because they hold the
- * Principal's rights (rule 7c). Anybody else a school has granted a rate key
- * ranks below all five.
+ * School Admin > Principal > Vice Principal > Branch Admin > Section Head >
+ * Coordinator. The Vice Principal sits directly under the Principal because
+ * they hold the Principal's rights (rule 7c). Anybody else a school has granted
+ * a rate key ranks below all six.
+ *
+ * Sprint 33b inserted `section_head` below `branch_admin` (decision 14) and
+ * renumbered rather than wedging a fraction in: the numbers are an ordering and
+ * nothing reads their magnitude. `check-branch-scope` asserts this order and the
+ * chat grant ranks in `db/schema/chat-grants.ts` still agree, which is the only
+ * thing standing between the two features disagreeing about who outranks whom.
  */
 export const RATER_SENIORITY: Readonly<Partial<Record<UserRole, number>>> = {
-  school_admin: 5,
-  principal: 4,
-  vice_principal: 3,
-  branch_admin: 2,
+  school_admin: 6,
+  principal: 5,
+  vice_principal: 4,
+  branch_admin: 3,
+  section_head: 2,
   coordinator: 1,
 };
 

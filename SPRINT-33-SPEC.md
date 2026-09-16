@@ -31,6 +31,8 @@ further decisions were taken on the shape of the work.
 | 12 | How to ship fourteen items | **Three parts, in order.** Each is merged, migrated, deployed and QA'd before the next begins. |
 | 13 | The Section Head portal's shape | **The administrative dashboard with scoped navigation**, exactly as Coordinator and Vice Principal work today. No new route group. |
 | 14 | Section Head's rank | **Below Branch Admin.** Principal 80 > Vice Principal 60 > Branch Admin 50 > **Section Head 45** > Coordinator 40 > Teacher 20. A Section Head may **not** ban a named person from chat. |
+| 15 | Askari runs four principals on Main Campus (Sprint 32's division model). How does that fit "one per branch"? | **Retire divisions inside a campus, everywhere.** One Principal and one Vice Principal per campus. Per-campus heads keep working as Sprint 32 built them. (2026-09-16) |
+| 16 | Which Askari Main Campus principal stays? | **Imran Qureshi.** Farah Siddiqui, Rukhsana Bano and Tariq Jameel become **Section Heads**. Nadia Hameed (Junior Campus) is already compliant. (2026-09-16) |
 
 ### The standing rule this round establishes
 

@@ -1,6 +1,8 @@
 import { and, eq } from 'drizzle-orm';
 
 import {
+  gradeLabel,
+  grades,
   isSchoolDay,
   schoolUsers,
   sections,
@@ -10,6 +12,7 @@ import {
 } from '@/db/schema';
 import { formatTimeOfDay, slotsOverlap } from '@/db/schema/timetable-slots';
 import { withSchoolAuth } from '@/lib/api-auth';
+import { sectionLabel } from '@/lib/class-labels';
 import { apiFailure, apiSuccess, handleApiError, readJsonBody } from '@/lib/api-response';
 import {
   getTimetableSlot,
@@ -127,9 +130,24 @@ export const POST = withSchoolAuth(
       // so an id belonging to another school must resolve to nothing rather
       // than be written into this school's timetable.
       const [section, subject, teacher, slot] = await Promise.all([
+        /*
+         * The grade's name comes back with the section's, and it is not
+         * decoration. Part A's QA found the cross-schedule 409 named the class
+         * the teacher was *already* in and not the one being edited, while the
+         * spec asks for "both classes" — so a clerk placing Year 1 A was told
+         * about Nursery A and had to work out which of their two tabs it meant.
+         * One extra join on a statement that already runs, and the refusal
+         * names both ends of the clash.
+         */
         db
-          .select({ id: sections.id })
+          .select({
+            id: sections.id,
+            sectionName: sections.name,
+            gradeName: grades.name,
+            gradeDisplayName: grades.displayName,
+          })
           .from(sections)
+          .innerJoin(grades, eq(grades.id, sections.gradeId))
           .where(
             and(
               eq(sections.locationId, auth.locationId),
@@ -245,13 +263,23 @@ export const POST = withSchoolAuth(
       if (conflicting !== undefined) {
         const day = WEEKDAY_NAMES[dayOfWeek] ?? 'that day';
 
-        // Both classes and both clocks. "That teacher is busy" is not something
-        // a clerk can act on; "she is with 5-A in Period 3, 9:05–9:45" is.
+        /*
+         * Both classes, both periods and both clocks — Sprint 33b, from Part
+         * A's QA. "That teacher is busy" is not something a clerk can act on;
+         * neither, quite, is naming only the class they are *not* looking at.
+         * The sentence now reads from the lesson being placed to the one that
+         * refuses it, which is the order the person is thinking in.
+         */
+        const placing = sectionLabel(
+          gradeLabel({ name: section[0].gradeName, displayName: section[0].gradeDisplayName }),
+          section[0].sectionName,
+        );
+
         return apiFailure(
           'teacher_busy',
           conflicting.slotId === slotId
-            ? `That teacher already takes ${conflicting.sectionLabel} in ${slot.name} on ${day}.`
-            : `That teacher already takes ${conflicting.sectionLabel} on ${day} in ${conflicting.slotName} (${formatTimeOfDay(conflicting.startTime)} – ${formatTimeOfDay(conflicting.endTime)}), which overlaps ${slot.name} (${formatTimeOfDay(slot.startTime)} – ${formatTimeOfDay(slot.endTime)}).`,
+            ? `That teacher cannot take ${placing} in ${slot.name} on ${day}: they already take ${conflicting.sectionLabel} in that period.`
+            : `That teacher cannot take ${placing} in ${slot.name} (${formatTimeOfDay(slot.startTime)} – ${formatTimeOfDay(slot.endTime)}) on ${day}: they already take ${conflicting.sectionLabel} in ${conflicting.slotName} (${formatTimeOfDay(conflicting.startTime)} – ${formatTimeOfDay(conflicting.endTime)}), and the two overlap.`,
           409,
         );
       }

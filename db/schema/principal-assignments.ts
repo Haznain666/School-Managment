@@ -61,7 +61,10 @@ export type PrincipalModel = (typeof PRINCIPAL_MODELS)[number];
 
 export const PRINCIPAL_MODEL_LABELS: Record<PrincipalModel, string> = {
   single: 'One principal for the whole school',
-  multiple: 'Separate principals by campus or division',
+  // Sprint 33b, the product owner's decision of 2026-09-16: divisions inside a
+  // campus are retired. A campus has one Principal; the heads of what used to
+  // be divisions are Section Heads. `0048` enforces it.
+  multiple: 'One principal per campus',
 };
 
 export function isPrincipalModel(value: unknown): value is PrincipalModel {

@@ -24,7 +24,7 @@
  * passed while short-circuited (Trap 2).
  */
 
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 
 import { sql } from 'drizzle-orm';
 
@@ -126,8 +126,22 @@ async function main(): Promise<void> {
   console.log('\nThe module and the keys:');
   assert('staff_kpis is a platform module', PLATFORM_MODULE_KEYS.includes('staff_kpis'));
 
+  /*
+   * Counted from the catalogue rather than written as a literal.
+   *
+   * It said `=== 10`, which was true until Sprint 33b gave the Section Head a
+   * KPI target role and `kpis.rate.section_head` with it. The claim worth
+   * asserting is not "there are ten" — it is **one rate key per target role
+   * that has one, plus the four that are not rate keys**, which stays true the
+   * next time a role joins.
+   */
   const kpiKeys = PERMISSIONS.filter((key) => key.startsWith('kpis.'));
-  assert('ten kpis.* keys', kpiKeys.length === 10, kpiKeys.join(', '));
+  const rateKeys = kpis.STAFF_KPI_TARGET_ROLES.filter((role) => kpis.rateKeyFor(role) !== null);
+  assert(
+    'one kpis.rate.* key per rateable role, plus read/create/delete/overall',
+    kpiKeys.length === rateKeys.length + 4,
+    kpiKeys.join(', '),
+  );
   assert(
     'every kpis.* key is in a permission group and has a label',
     kpiKeys.every(
@@ -137,10 +151,33 @@ async function main(): Promise<void> {
     ),
   );
 
+  /*
+   * `0045` is still the authority on the **module** key, which nothing since
+   * has touched. It is no longer the authority on the permission list:
+   * `0047` rewrote `role_permissions_permission_check` for
+   * `kpis.rate.section_head`, so asking `0045` about that key reports it as
+   * missing from a file that is not the one enforcing it any more. The same
+   * lesson `check-branch-scope` learnt in CI when `0040` widened the
+   * constraint — look the file up rather than naming it.
+   */
   const migration = readFileSync('db/migrations/0045_sprint32_staff_kpis.sql', 'utf8');
+  assert('0045 names the module key', migration.includes("'staff_kpis'"));
+
+  const needle = 'ADD CONSTRAINT "role_permissions_permission_check"';
+  const constraintFile =
+    readdirSync('db/migrations')
+      .filter((name) => name.endsWith('.sql'))
+      .sort()
+      .reverse()
+      .find((name) => readFileSync(`db/migrations/${name}`, 'utf8').includes(needle)) ?? '(none)';
+
+  const constraint =
+    constraintFile === '(none)' ? '' : readFileSync(`db/migrations/${constraintFile}`, 'utf8');
+
   assert(
-    '0045 names every kpis.* key and the module key',
-    kpiKeys.every((key) => migration.includes(`'${key}'`)) && migration.includes("'staff_kpis'"),
+    `the newest CHECK (${constraintFile}) names every kpis.* key`,
+    kpiKeys.every((key) => constraint.includes(`'${key}'`)),
+    kpiKeys.filter((key) => !constraint.includes(`'${key}'`)).join(', '),
   );
 
   console.log('\nThe default grid (§5ca):');
@@ -180,7 +217,13 @@ async function main(): Promise<void> {
   assert('no rate key exists for principals or branch admins', kpis.rateKeyFor('principal') === null && kpis.rateKeyFor('branch_admin') === null);
 
   console.log('\nWho may define for whom (rule 3):');
-  assert('School Admin defines for every role', kpis.definableTargets('school_admin').length === 8);
+  // Counted from the list rather than written as a literal: Sprint 33b added
+  // `section_head` to it, and a number typed here is a number that goes stale
+  // the next time a role joins.
+  assert(
+    'School Admin defines for every role',
+    kpis.definableTargets('school_admin').length === kpis.STAFF_KPI_TARGET_ROLES.length,
+  );
   for (const role of ['principal', 'branch_admin'] as const) {
     const targets = kpis.definableTargets(role);
     assert(

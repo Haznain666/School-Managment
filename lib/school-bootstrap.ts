@@ -11,6 +11,7 @@ import {
 } from '@/db/schema';
 
 import { db as defaultDb, type Database, type Tx } from './drizzle';
+import { headConflict, isOneHeadIndexConflict } from './one-head-per-campus';
 import { InvalidPhoneError, normalizePhone } from './phone';
 import { getOrCreateAuthUser } from './supabase-auth';
 
@@ -182,23 +183,57 @@ export async function createFirstSchoolAdmin(
 
   const email = (params.email ?? '').trim();
 
-  const inserted = await db
-    .insert(schoolUsers)
-    .values({
-      locationId: params.locationId,
-      name,
-      phone,
-      email: email === '' ? null : email,
-      role: params.role ?? 'school_admin',
-      branchId: params.branchId ?? null,
-      isActive: true,
-      // `firebase_uid` stays null on purpose. The account is created lazily at
-      // first sign-in by `getOrCreateSchoolFirebaseUser`, so this row is enough
-      // to log in with — there is no invite to accept.
-    })
-    // Phone is unique per school, so a re-run cannot duplicate the member.
-    .onConflictDoNothing({ target: [schoolUsers.locationId, schoolUsers.phone] })
-    .returning({ id: schoolUsers.id });
+  /*
+   * Sprint 33b. The branch form's "who heads this campus" is the one path by
+   * which the platform operator can make a Principal, and a campus that already
+   * has one gets a sentence naming them rather than `0048`'s 23505 — reported
+   * as `skipped`, the shape this function already uses for every refusal that
+   * must not fail the rest of the request.
+   */
+  const role = params.role ?? 'school_admin';
+
+  // A re-run for the same person holds this phone already and is `exists`,
+  // not a second head — so that row is excluded from its own check.
+  const samePerson = await db
+    .select({ id: schoolUsers.id })
+    .from(schoolUsers)
+    .where(and(eq(schoolUsers.locationId, params.locationId), eq(schoolUsers.phone, phone)))
+    .limit(1);
+
+  const head = await headConflict(
+    params.locationId,
+    { role, branchId: params.branchId ?? null, excludeUserId: samePerson[0]?.id ?? null },
+    db,
+  );
+  if (head !== null) return { status: 'skipped', reason: head };
+
+  let inserted;
+  try {
+    inserted = await db
+      .insert(schoolUsers)
+      .values({
+        locationId: params.locationId,
+        name,
+        phone,
+        email: email === '' ? null : email,
+        role,
+        branchId: params.branchId ?? null,
+        isActive: true,
+        // `firebase_uid` stays null on purpose. The account is created lazily at
+        // first sign-in by `getOrCreateSchoolFirebaseUser`, so this row is enough
+        // to log in with — there is no invite to accept.
+      })
+      // Phone is unique per school, so a re-run cannot duplicate the member.
+      .onConflictDoNothing({ target: [schoolUsers.locationId, schoolUsers.phone] })
+      .returning({ id: schoolUsers.id });
+  } catch (error) {
+    if (!isOneHeadIndexConflict(error)) throw error;
+    return {
+      status: 'skipped',
+      reason:
+        'Somebody else was made head of that campus a moment ago, so no account was created. A campus has one Principal.',
+    };
+  }
 
   const created = inserted[0];
   if (created !== undefined) {

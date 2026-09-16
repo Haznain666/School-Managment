@@ -301,6 +301,32 @@ export function schoolNav({
     });
   }
 
+  /*
+   * Sprint 33b — leave, and it is **not** gated on the HR module.
+   *
+   * Every member of staff applies for their own leave and a great many of them
+   * approve somebody else's, and neither is an HR-module screen: a coordinator
+   * holds `leave.approve` and no HR key at all. Hiding these behind
+   * `hr_payroll` would hide "My leave" from the whole school at any school that
+   * has not bought the module — which is a person's own record.
+   *
+   * The two entries are separately gated, so a teacher-equivalent with only
+   * `leave.request` sees one item and no empty approvals screen.
+   */
+  {
+    const leaveItems: PortalNavItem[] = [];
+
+    if (can('leave.read')) {
+      leaveItems.push({ label: 'Approvals', href: '/dashboard/leave', icon: 'leave' });
+    }
+    if (can('leave.request')) {
+      leaveItems.push({ label: 'My leave', href: '/dashboard/leave/me', icon: 'leave' });
+    }
+    if (leaveItems.length > 0) {
+      sections.push({ label: 'Leave', icon: 'leave', items: leaveItems });
+    }
+  }
+
   if (moduleFlags.hr_payroll && can('payroll.read')) {
     sections.push({
       label: 'Payroll',

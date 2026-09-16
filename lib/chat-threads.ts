@@ -61,6 +61,10 @@ const STAFF_ROLES: readonly UserRole[] = [
   'branch_admin',
   'principal',
   'vice_principal',
+  // Sprint 33b. The same list as `lib/chat-queries.ts`, and the same reason:
+  // `isStaffRole` is what the safeguarding seating rules turn on, and a member
+  // of staff outside it would be treated as neither staff nor family.
+  'section_head',
   'coordinator',
   'teacher',
   'accountant',

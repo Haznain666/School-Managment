@@ -39,6 +39,11 @@ export const STAFF_KPI_TARGET_ROLES = [
   'principal',
   'vice_principal',
   'branch_admin',
+  // Sprint 33b. A Section Head is rated by the heads above them, which is why
+  // they join this list and why `0047` rewrites `staff_kpis_target_role_check`
+  // — a KPI written for the new role would otherwise be a 23514 on the first
+  // save. `kpis.rate.section_head` is the key that permits it.
+  'section_head',
   'coordinator',
   'teacher',
   'hr_manager',

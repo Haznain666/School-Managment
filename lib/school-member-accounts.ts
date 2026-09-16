@@ -6,6 +6,7 @@ import { schoolUsers, schools } from '@/db/schema';
 
 import { queueAccessEmail, type AccessEmailResult } from './access-email';
 import { db } from './drizzle';
+import { HEAD_RACE_MESSAGE, headConflict, isOneHeadIndexConflict } from './one-head-per-campus';
 import { emailHolderAt, isEmailIndexConflict } from './school-queries';
 import type { UserRole } from '@/types/school-auth';
 
@@ -64,7 +65,12 @@ export interface CreatedMember {
 
 export type MemberAccountResult =
   | { ok: true; member: CreatedMember; delivery: AccessEmailResult }
-  | { ok: false; code: 'already_exists' | 'not_found'; message: string; status: number };
+  | {
+      ok: false;
+      code: 'already_exists' | 'not_found' | 'head_exists';
+      message: string;
+      status: number;
+    };
 
 /**
  * Creates the `school_users` row and queues the set-password mail.
@@ -98,6 +104,22 @@ export async function createMemberAccount(
     };
   }
 
+  /*
+   * Sprint 33b — one Principal and one Vice Principal per campus.
+   *
+   * The fourth guard, and it travels with the other three for the same reason:
+   * Invite Staff and both "Create a login" buttons come through here, and a
+   * second head would otherwise meet `0048`'s index as a raw `23505`. The read
+   * names the person already in post; the catch below covers the race.
+   */
+  const head = await headConflict(input.locationId, {
+    role: input.role,
+    branchId: input.branchId,
+  });
+  if (head !== null) {
+    return { ok: false, code: 'head_exists', status: 409, message: head };
+  }
+
   let inserted;
   try {
     inserted = await db
@@ -123,6 +145,9 @@ export async function createMemberAccount(
         authUserId: schoolUsers.authUserId,
       });
   } catch (error) {
+    if (isOneHeadIndexConflict(error)) {
+      return { ok: false, code: 'head_exists', status: 409, message: HEAD_RACE_MESSAGE };
+    }
     if (!isEmailIndexConflict(error)) throw error;
     return {
       ok: false,

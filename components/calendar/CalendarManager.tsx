@@ -57,6 +57,9 @@ const NOTIFY_ROLES: readonly UserRole[] = [
   'student',
   'teacher',
   'coordinator',
+  // Sprint 33b. A holiday notice that could not be addressed to section heads
+  // would be a closure the people running the sections were not told about.
+  'section_head',
   'principal',
   'vice_principal',
   'branch_admin',

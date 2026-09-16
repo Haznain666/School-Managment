@@ -295,7 +295,7 @@ export function PrincipalAssignments({
       header={
         <CardTitle
           title="Principals"
-          description="Whether one head runs the whole school, or each campus and division has its own."
+          description="Whether one head runs the whole school, or each campus has its own Principal."
         />
       }
     >

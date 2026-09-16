@@ -11,15 +11,21 @@ import { Input } from '@/components/ui/Input';
 import { PhoneField } from '@/components/ui/PhoneField';
 import { DataTable, type DataTableColumn } from '@/components/ui/DataTable';
 import { Select } from '@/components/ui/Select';
+import { Toggle } from '@/components/ui/Toggle';
 import {
   EMPLOYMENT_TYPE_LABELS,
   EMPLOYMENT_TYPES,
+  MAX_PROBATION_DAYS,
   STAFF_STATUS_LABELS,
   STAFF_STATUSES,
   type EmploymentType,
   type StaffStatus,
 } from '@/db/schema/staff';
 import { maxJoiningDate } from '@/lib/dates';
+// Sprint 33b. The same two functions the route validates with, so the browser
+// and the server cannot disagree about what 180 days including an extension
+// means. `lib/probation.ts` is free of `server-only` for exactly this.
+import { probationEndDate, probationProblem } from '@/lib/probation';
 import { schoolErrorMessage, schoolFetch } from '@/lib/school-client';
 import {
   BRANCH_REQUIRED_ROLES,
@@ -120,6 +126,11 @@ interface Draft {
   department: string;
   employmentType: string;
   joinedOn: string;
+  /** Sprint 33b — the date leave starts accruing from. Blank = the whole year. */
+  permanentFrom: string;
+  isOnProbation: boolean;
+  probationStartedOn: string;
+  probationDays: string;
   phone: string;
   email: string;
   isClassTeacher: boolean;
@@ -137,6 +148,15 @@ const EMPTY_DRAFT: Draft = {
   department: '',
   employmentType: 'full_time',
   joinedOn: '',
+  // Blank is the ordinary answer and means the whole year's entitlement. See
+  // `lib/leave-quota.ts`: reading it the other way would take every existing
+  // teacher's leave away on the day this deploys.
+  permanentFrom: '',
+  // Off by default. A school that does not run probation should not have to
+  // clear a field on every record it enters.
+  isOnProbation: false,
+  probationStartedOn: '',
+  probationDays: '90',
   phone: '',
   email: '',
   // The restrictive default. A school names its class teachers deliberately.
@@ -309,6 +329,11 @@ export function StaffManager({
           department: draft.department.trim(),
           employmentType: draft.employmentType === '' ? null : draft.employmentType,
           joinedOn: draft.joinedOn === '' ? null : draft.joinedOn,
+          permanentFrom: draft.permanentFrom === '' ? null : draft.permanentFrom,
+          isOnProbation: draft.isOnProbation,
+          probationStartedOn:
+            draft.probationStartedOn === '' ? null : draft.probationStartedOn,
+          probationDays: draft.probationDays === '' ? null : Number(draft.probationDays),
           phone: draft.phone.trim(),
           email: draft.email.trim(),
           isClassTeacher: draft.isClassTeacher,
@@ -521,6 +546,83 @@ export function StaffManager({
                 setDraft({ ...draft, joinedOn: event.target.value });
               }}
             />
+
+            {/*
+              Sprint 33b, decisions 4 and 5.
+
+              `permanent_from` is the date leave accrues from — blank means the
+              whole year's entitlement, which is what every record in the
+              product holds today and what must not change under anybody.
+
+              Probation is offered only for full-time staff, which is where the
+              product owner put it. The 180-day ceiling is checked here from
+              `probationProblem` and again by the route from the same function,
+              so the browser and the server cannot come to different answers.
+            */}
+            <Input
+              label="Permanent from"
+              type="date"
+              value={draft.permanentFrom}
+              hint="Leave blank if they are already permanent. Leave is worked out from this date."
+              onChange={(event) => {
+                setDraft({ ...draft, permanentFrom: event.target.value });
+              }}
+            />
+
+            {draft.employmentType === 'full_time' ? (
+              <div className="sm:col-span-2 space-y-4 rounded-lg border border-line p-4">
+                <Toggle
+                  label="On probation"
+                  description="At most 180 calendar days in total, holidays included. HR is emailed when it ends."
+                  checked={draft.isOnProbation}
+                  onChange={(next) => {
+                    setDraft({ ...draft, isOnProbation: next });
+                  }}
+                />
+
+                {draft.isOnProbation ? (
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    <Input
+                      label="Probation started"
+                      type="date"
+                      value={draft.probationStartedOn}
+                      onChange={(event) => {
+                        setDraft({ ...draft, probationStartedOn: event.target.value });
+                      }}
+                    />
+                    <Input
+                      label="Probation days"
+                      type="number"
+                      min={1}
+                      max={MAX_PROBATION_DAYS}
+                      value={draft.probationDays}
+                      error={
+                        probationProblem({
+                          isOnProbation: true,
+                          startedOn: draft.probationStartedOn === '' ? null : draft.probationStartedOn,
+                          days: draft.probationDays === '' ? null : Number(draft.probationDays),
+                          extendedDays: 0,
+                        }) ?? undefined
+                      }
+                      hint={
+                        draft.probationStartedOn === '' || draft.probationDays === ''
+                          ? `Calendar days, ${String(MAX_PROBATION_DAYS)} at most.`
+                          : `Ends ${
+                              probationEndDate(
+                                draft.probationStartedOn,
+                                Number(draft.probationDays),
+                              ) ?? '—'
+                            }.`
+                      }
+                      onChange={(event) => {
+                        setDraft({ ...draft, probationDays: event.target.value });
+                      }}
+                    />
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
+
             <PhoneField
               label="Phone"
               value={draft.phone}
