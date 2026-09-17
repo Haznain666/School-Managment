@@ -13122,6 +13122,27 @@ emergency tokens. Adnan Sheikh's six probation columns were restored exactly.
 **The Iqbal Day override `68cb5048` was not touched** — the product owner
 excluded it and will handle it; cases 6.5 and 6.6 were not re-run because of it.
 
+**N1 was re-proved against the live build `d65c821de368`** (2026-09-17, after
+the close-out merge), as Uzma Tariq — `hr_manager`, bound to Junior Campus:
+
+| Probe | Before | Now |
+| --- | --- | --- |
+| `GET /staff-calendars/<Main teaching>/overrides` | 200 + Main's override | **404 `not_found`** |
+| `GET /staff-calendars/<her own>/overrides` | 200 | **200**, unchanged |
+| `POST /staff-calendars {branchId: Junior}` — the button | all **four** calendars | **her two only** |
+| `GET /staff-calendars` | Junior only | Junior only |
+| `POST {}` (school-wide) | 403 | **403**, unchanged |
+
+The server-rendered HTML of `/dashboard/hr/calendars` for her — 127,587 bytes —
+contains "Junior Campus" and **no occurrence of "Main Campus"**.
+
+⚠ Two tool notes, both already in this file and both re-confirmed: the Browser
+pane left the page on its loading skeleton (`<template id="B:0">`, the sidebar
+painted and `main` never resolved), so the screen was read by fetching its HTML
+from inside the page; and **Playwright cannot reach this origin at all** — the
+Hostinger CDN answers its request with the 403 JS challenge, exactly as it does
+curl. The in-app pane is the only browser that gets through.
+
 **Still open:** the Division field on the principal-assignments screen and the
 three Section Heads' `staff.designation` still reading "Principal", both as
 before; the timetable builder's inline pre-save warning (Part A) has still never
