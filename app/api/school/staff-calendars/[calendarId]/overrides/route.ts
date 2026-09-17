@@ -6,6 +6,7 @@ import { db } from '@/lib/drizzle';
 import { getHoliday } from '@/lib/holiday-queries';
 import { resolveBranchScope } from '@/lib/branch-scope';
 import {
+  calendarIsVisible,
   calendarWriteRefusal,
   getStaffCalendar,
   listCalendarOverrides,
@@ -49,6 +50,18 @@ export const GET = withSchoolAuth<RouteContext>(
 
       const calendar = await getStaffCalendar(auth.locationId, calendarId);
       if (calendar === null) {
+        return apiFailure('not_found', 'Calendar not found.', 404);
+      }
+
+      // The campus, on the read — QA round 2, N1. The write below has checked
+      // this since round 1; the read checked only the tenant, so another
+      // campus's overrides came back to anybody holding `leave.read` and the
+      // id. **404, not 403**: a campus-bound reader should not learn that the
+      // other campus's calendar exists, which is the same answer the legacy
+      // leave GET gives for a request at another campus.
+      if (
+        !calendarIsVisible(await resolveBranchScope(auth.locationId, auth), calendar.branchId)
+      ) {
         return apiFailure('not_found', 'Calendar not found.', 404);
       }
 

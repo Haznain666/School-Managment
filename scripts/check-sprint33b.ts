@@ -804,8 +804,35 @@ async function main(): Promise<void> {
     source('app/api/school/leave/requests/route.ts').includes('countLeaveFor('),
   );
   assert(
+    // Both banners clear: the page-level one and, since QA round 2's N2, the
+    // form's own. An assertion that pinned those two statements together would
+    // have failed on a change that improves the screen, so the middle line is
+    // optional here.
     'F5: a refusal about the old dates is cleared when the dates change',
-    (selfService.match(/setError\(null\);\n\s*setDraft\(\{ \.\.\.draft, (start|end)Date/g) ?? []).length === 2,
+    (
+      selfService.match(
+        /setError\(null\);\n\s*(?:setApplyError\(null\);\n\s*)?setDraft\(\{ \.\.\.draft, (?:start|end)Date/g,
+      ) ?? []
+    ).length === 2,
+  );
+  assert(
+    'N2: a refused application is reported beside the button that was pressed',
+    selfService.includes('setApplyError(') &&
+      source('components/hr/LeaveManager.tsx').includes('setFileError('),
+  );
+  assert(
+    // N1 is the read half of F2. The write has been guarded since round 1; the
+    // GET checked the tenant and stopped there, so another campus's overrides
+    // came back to anybody holding `leave.read` and a calendar id.
+    'N1: the override GET scopes the read to the campus, not just the tenant',
+    source('app/api/school/staff-calendars/[calendarId]/overrides/route.ts').includes(
+      'calendarIsVisible(',
+    ),
+  );
+  assert(
+    'N1: ensureStaffCalendars returns only the calendars the caller may see',
+    source('app/api/school/staff-calendars/route.ts').includes('effectiveBranchIds(scope)') &&
+      source('lib/staff-calendar-queries.ts').includes('visibleBranchIds'),
   );
 
   /* ══════════════════════════════════ part two: against the real schema */

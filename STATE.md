@@ -26,20 +26,29 @@ every widened statement against the real schema. **`0046` is applied to the live
 unchanged, 21 rows before and after, the fast default confirmed through
 `pg_attribute.attmissingval`. `check-sprint33a` then re-ran against the
 migrated schema: **53 passed, 0 failed**, with `digestCandidates` executed
-for real rather than only in its predicted-failure state. Nothing has been QA'd in a browser yet.
+for real rather than only in its predicted-failure state. **QA was driven in
+a browser against the live build `f649ee5a18e6` — verdict ship**, and Part A
+is merged to `main` as `f649ee5a`.
 
-🟡 **Part B is built and committed, and its migration is NOT applied — §5ch.**
-The Section Head role, the chain of command and HR leave management, on
-`feature/sprint-33b-section-head-leave`. Migration **`0047`** is written and
-**waiting on `sprint-devops`**; until it is applied the four new tables and the
-seven new `staff` columns do not exist, so **every leave screen throws** — the
-feature is inert rather than half-working, and `check-sprint33b` reports exactly
-that state (96 passed, 0 failed, with the new statements in their predicted
-`42P01` / `42703` form). **`0048` is Part B too** — one Principal per campus,
-after a data script for Askari — so **`0049` is the next free migration
-number** (Part C). ⚠ **Deploy order: `0047` → code → `scripts/apply-sprint33b-data.mjs --apply` → `0048`.**
-`npm run db:migrate` applies every pending file, so it must not be run with
-both pending; see §5ch.
+✅ **Part B is shipped and live — §5ch.** The Section Head role, the chain of
+command and HR leave management, merged to `main` as `2f8776fb` and the QA
+round-1 fixes as `90311989`, both deployed by Hostinger and confirmed through
+`/api/internal/build`. **`0047` and `0048` are applied and proved by attempt**,
+and the Askari data step has run: Imran Qureshi is the sole Principal on Main
+Campus, and Farah Siddiqui, Rukhsana Bano and Tariq Jameel are Section Heads.
+`check-sprint33b` reports **145 passed, 0 failed** against the migrated schema.
+**QA has been driven in a browser twice against the live build.** Round 1's
+F1–F5 are fixed and re-proved; round 2 found three more — N1, a campus-bound
+HR manager able to **read** another campus's staff calendar, and two screen
+faults — and all three are fixed. **`0049` is the next free migration
+number** (Part C).
+
+⚠ **The deploy order mattered and is worth keeping**: `0047` → code →
+`scripts/apply-sprint33b-data.mjs --apply` → `0048`. The role CHECK has to widen
+before an account can be `section_head`, the code has to recognise the role
+before those people sign in, and the uniqueness index can only be created once
+the duplicates are gone. `npm run db:migrate` was never safe here — see §5cg.
+
 ⚠ `0047` rewrites **six** CHECK constraints, not the three the spec named — the
 extra three are `school_invitations_role_check`, `role_permissions_role_check`
 and `saturday_duty_policies_role_check`, each of which a new role reaches the
@@ -13039,6 +13048,86 @@ code); `check-sprint32` 48/0; `check-loaders` 323; the other eight CI checks all
 on the principal-assignments screen and the three Section Heads' designation
 text, both as before.
 
+### QA round 2 — the fixes hold, and three new findings, all fixed
+
+Run against the **live deployed build `90311989dbd6`** (the PR #99 merge),
+confirmed twice through `/api/internal/build`. No local server: round 1 was run
+against the live origin and round 2 was too, so the verdict is about the code
+Askari is actually running. Seven emergency links, `used_at` checked before
+each. Full grid in `test-cases/TEST-CASES-SPRINT-33B.md`.
+
+**F1–F5 are all fixed and none of them could be broken.** The legacy leave door
+is shut — `POST` and `PATCH` on `/api/school/hr/leave-requests` both **410
+`moved`**, including the two shapes that returned 201/200 in round 1 — and
+`/dashboard/hr/leave` was watched in the network panel filing and listing
+through `/api/school/leave/requests` with **no Approve/Reject column at all**.
+
+**Verdict was do-not-ship on one finding.** Three came back; all three are fixed
+in this round and the gates re-run green.
+
+**N1 (medium) — the read half of F2 was missing.** A campus-bound HR manager
+could read the *other* campus's staff calendar and its overrides, in three
+clicks from the calendars screen. Two causes, both reads, both confirmed in the
+source before anything was changed:
+
+- `ensureStaffCalendars` ended `return listStaffCalendars(locationId)` with no
+  branch argument, so the **POST response** handed a campus-bound caller every
+  campus's calendars *and their ids*. A reload cleared them again, which is
+  exactly why it survived round 1.
+- the override `GET` checked the tenant and stopped. The `POST` beside it has
+  called `calendarWriteRefusal` since round 1.
+
+Fixed with `calendarIsVisible(scope, branchId)` — the read rule stated once,
+identical to the filter `listStaffCalendars` already applies, so the list and
+the detail cannot drift apart. The GET answers **404, not 403**: a campus-bound
+reader should not learn that the other campus's calendar exists, which is the
+same answer the legacy leave GET gives. `ensureStaffCalendars` now requires
+`visibleBranchIds`.
+
+⚠ **The lesson worth keeping: a write guard is not a read guard.** F2 was
+written, reviewed and QA'd as "campus-scoped", and the *write* genuinely was.
+Nobody checked the read beside it, and the response body of the write handed out
+the ids that made the read reachable. When a route pair is scoped, assert both
+halves — `check-sprint33b` now does.
+
+**N2 (medium) — a refusal rendered where nobody was looking.** A 409 overlap or
+a 422 quota went to the page-level banner, measured at `top: -552` while the
+button that was pressed sat at `396` in a 768px viewport. The screen went quiet
+and the obvious response is to press again. The holiday case was masked because
+`holidayProblem` already paints beside the button. Both forms now carry their
+own refusal beside their own button (`fileError`, `applyError`); the page-level
+banner keeps loading and withdrawing.
+
+**N3 (low)** — the new "Add a leave type" button was crushed by `CardTitle`'s
+action slot, reading only **"leave"** at 1024px. `shrink-0` plus
+`whitespace-nowrap` at the call site.
+
+**Evidence, after the round 2 fixes:** `typecheck` 0 errors; `lint` 0 warnings;
+the ten CI checks all pass; `check-sprint24`, `check-sprint30`, `check-sprint32`
+and `check-sprint33a` all pass; **`check-sprint33b` 145 passed, 0 failed**
+(142 + three new assertions, one of them a *loosened* F5 regex — see below);
+`build` green.
+
+⚠ **One assertion had to be loosened, and that is the right direction.** F5's
+check matched `setError(null);` immediately followed by `setDraft({ ...draft,
+startDate`. N2's fix inserts `setApplyError(null);` between them, so a correct
+improvement failed the gate. The regex now makes the middle line optional.
+An assertion that pins two statements *adjacent* rather than *both present* will
+fail the next person who improves the screen; prefer the weaker form.
+
+**Data:** QA round 2 left a retired leave type (`9199ac23` — retiring is the
+product's answer, there is no delete), an approved leave request (`5480bbb9`,
+kept as evidence), Junior Campus's two staff calendars, and seven consumed
+emergency tokens. Adnan Sheikh's six probation columns were restored exactly.
+**The Iqbal Day override `68cb5048` was not touched** — the product owner
+excluded it and will handle it; cases 6.5 and 6.6 were not re-run because of it.
+
+**Still open:** the Division field on the principal-assignments screen and the
+three Section Heads' `staff.designation` still reading "Principal", both as
+before; the timetable builder's inline pre-save warning (Part A) has still never
+been driven in a browser; dark mode is untested on the new screens because the
+theme is not driven by `prefers-color-scheme`.
+
 ## 5cg. Sprint 33 **Part A** built — the three defects, the campus gap and the two notification faults — 2026-09-16
 
 Built by the sprint-developer agent on its own worktree, reviewed here line by
@@ -13069,31 +13158,29 @@ after, and after a deliberately rolled-back insert; `pg_attribute` shows
 21 rows read through. Re-running the identical statement is harmless and was
 shown to be: `NOTICE 42701 ... already exists, skipping`, nothing changed.
 
-🔴 **`drizzle.__drizzle_migrations` has NO row for `0046`.** The column is
-live; the bookkeeping is not. Two consequences, and the second is the dangerous
-one:
+✅ **`drizzle.__drizzle_migrations` is in sync — 49 rows, 49 journal
+entries** (2026-09-17, read back read-only). The rows for `0046`, `0047` and
+`0048` were missing for a day while the columns were already live. Writing them
+through drizzle-orm's postgres-js migrator — the route §5ap records for `0034`
+and `0035`, *"same statements, same bookkeeping"* — was **refused by the
+permission classifier as a production-deploy action**, and was deliberately not
+re-routed through a subagent to evade that refusal; the product owner ran the
+script instead.
 
-- The next `npm run db:migrate` **will re-run `0046`**. That is safe — the
-  statement is `ADD COLUMN IF NOT EXISTS` and the skip was proved above — and it
-  will then record the row.
-- **The count check in §5 of this file will say 46 when the journal says 47**,
-  so anyone following it concludes `0046` is unapplied. It is applied. Look for
-  the column, not the row — which is what that same passage already warns:
-  *"the bookkeeping row and the schema can disagree, and only the second
-  question is the one that matters."*
+⚠ **While a row is missing, `npm run db:migrate` is unsafe**, and the reason
+outlives this sprint: the next run re-applies every file the bookkeeping does
+not claim — harmless for `0046`'s `ADD COLUMN IF NOT EXISTS`, and *not* harmless
+for `0047`'s six CHECK rewrites — and then records the pending ones as though
+they had just been applied. Every Sprint 33 migration was therefore applied by
+hand, in the order §5ch gives. **Look for the column, not the row**, which is
+what §5 of this file already warns: *"the bookkeeping row and the schema can
+disagree, and only the second question is the one that matters."*
 
-Writing the row through drizzle-orm's postgres-js migrator — the route §5ap
-records for `0034` and `0035`, *"same statements, same bookkeeping"* — was
-**refused by the permission classifier as a production-deploy action**, and was
-deliberately not re-routed through a subagent to evade that refusal. It is
-waiting on the product owner. Until then the two facts above are the whole of
-it.
-
-⚠ **`__drizzle_migrations.id` is a serial, not the migration number.** The
-newest row currently reads `id = 46` and is `0045` — there are 46 rows for
-0000–0045, and its `created_at` is `1789473600000`, which is 0045's journal
-`when`. 0046's is `1789560000000`. Reading that `id` in a hurry gives exactly
-the wrong answer.
+⚠ **`__drizzle_migrations.id` is a serial, not the migration number — it is one
+ahead.** `0000` is row 1, so with `0000`–`0048` recorded the newest row reads
+`id = 49` and *is* `0048`. Its `created_at` is `1789732800000`, which is 0048's
+journal `when`; that is the field to match on. Reading the `id` in a hurry gives
+exactly the wrong answer.
 
 ### QA, driven against the live build — verdict: ship
 
