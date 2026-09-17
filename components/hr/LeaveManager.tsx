@@ -2,23 +2,46 @@
 
 import { useCallback, useEffect, useState } from 'react';
 
+import { countHint, useLeaveCount } from '@/components/leave/useLeaveCount';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { Card, CardTitle } from '@/components/ui/Card';
+import { DataTable, type DataTableColumn } from '@/components/ui/DataTable';
 import { Input } from '@/components/ui/Input';
 import { Select } from '@/components/ui/Select';
-import { DataTable, type DataTableColumn } from '@/components/ui/DataTable';
 import { Textarea } from '@/components/ui/Textarea';
+import { Toggle } from '@/components/ui/Toggle';
 import { LEAVE_STATUS_LABELS, type LeaveStatus } from '@/db/schema/leave-requests';
+import { dayLabel } from '@/lib/leave-quota';
 import { schoolErrorMessage, schoolFetch } from '@/lib/school-client';
 
 /**
- * Leave: the heads a school grants, and the applications against them.
+ * HR's leave screen: the heads a school grants, and every application.
  *
- * Whether a head is paid is shown on every row rather than buried in its
- * settings, because that single flag is what decides if an approval costs the
- * teacher money. An approver about to sign off five days should be able to see
- * it without opening anything.
+ * ── QA round 1 moved this onto the new flow (F1) ─────────────────────────
+ * This screen filed and decided through `/api/school/hr/leave-requests`, which
+ * checked only `hr.write`. QA, as an HR manager, filed a single-day request on
+ * Iqbal Day (201 — the new route refuses it 422), filed for another campus's
+ * staff past the `wrong_campus` refusal, and **decided** a request although HR
+ * holds no `leave.approve`. Every rule Part B added was one screen away from
+ * being skipped.
+ *
+ * So it now lists through `/api/school/leave/requests` — `scope=all` for
+ * whoever manages leave, the chain-scoped queue for an approver who does not —
+ * and files through the same POST the self-service form uses, which applies
+ * the holiday, overlap, quota and campus checks. **HR does not decide leave**:
+ * the Approve and Reject buttons appear only for somebody holding
+ * `leave.approve`, and go to the decision endpoint, which re-resolves the chain.
+ * The two legacy write routes refuse with 410.
+ *
+ * ── Leave types have their controls (F3) ─────────────────────────────────
+ * The spec gives HR create, edit and retire. Retire means inactive: a head that
+ * has requests against it is referenced by payslips and must stay explainable,
+ * so there is no delete. Seeding is idempotent and offered whenever a default
+ * is missing, not only on an empty school.
+ *
+ * Whether a head is paid is shown on every row, because that single flag is
+ * what decides if an approval costs the teacher money.
  */
 
 interface LeaveTypeRow {
@@ -35,6 +58,7 @@ interface LeaveRequestRow {
   staffId: string;
   staffName: string;
   employeeCode: string;
+  branchName: string | null;
   leaveTypeName: string;
   isPaid: boolean;
   startDate: string;
@@ -43,6 +67,9 @@ interface LeaveRequestRow {
   reason: string | null;
   status: LeaveStatus;
   decisionNote: string | null;
+  decidedByName: string | null;
+  /** Present on the approver's queue; absent on HR's whole-school list. */
+  canDecide?: boolean;
 }
 
 interface StaffOption {
@@ -52,7 +79,10 @@ interface StaffOption {
 }
 
 export interface LeaveManagerProps {
-  canEdit: boolean;
+  /** `leave.manage` — file on behalf, see every request, keep the leave heads. */
+  canManage: boolean;
+  /** `leave.approve` — decide, within the chain the server resolves. */
+  canApprove: boolean;
 }
 
 const STATUS_VARIANT: Record<LeaveStatus, 'success' | 'warning' | 'danger' | 'neutral'> = {
@@ -69,7 +99,10 @@ const STATUS_FILTERS = [
   { value: 'rejected', label: 'Rejected' },
 ];
 
-interface Draft {
+/** The four heads `DEFAULT_LEAVE_TYPES` seeds, by name. */
+const DEFAULT_NAMES = ['Casual Leave', 'Sick Leave', 'Annual Leave', 'Unpaid Leave'];
+
+interface RequestDraft {
   staffId: string;
   leaveTypeId: string;
   startDate: string;
@@ -78,94 +111,68 @@ interface Draft {
   reason: string;
 }
 
-/** `2026-03-02` as `2 March`, for saying what was counted. */
-function shortDate(iso: string): string {
-  const parsed = Date.parse(`${iso}T00:00:00Z`);
-  if (Number.isNaN(parsed)) return iso;
-
-  // UTC throughout, matching `spanDays` below. A local-time rendering would
-  // name the day before for anybody west of Greenwich, on a field whose whole
-  // purpose is to agree with the dates above it.
-  return new Date(parsed).toLocaleDateString('en-GB', {
-    day: 'numeric',
-    month: 'long',
-    timeZone: 'UTC',
-  });
+interface TypeDraft {
+  /** Null = a new head. */
+  id: string | null;
+  name: string;
+  description: string;
+  annualQuotaDays: string;
+  isPaid: boolean;
 }
 
-/** Inclusive calendar days between two ISO dates, or 0 when either is unset. */
-function spanDays(start: string, end: string): number {
-  if (start === '' || end === '') return 0;
+const EMPTY_TYPE: TypeDraft = {
+  id: null,
+  name: '',
+  description: '',
+  annualQuotaDays: '0',
+  isPaid: true,
+};
 
-  const from = Date.parse(`${start}T00:00:00Z`);
-  const to = Date.parse(`${end}T00:00:00Z`);
-  if (Number.isNaN(from) || Number.isNaN(to) || to < from) return 0;
-
-  return Math.round((to - from) / 86_400_000) + 1;
-}
-
-/**
- * What the dates add up to, in words — *"5 days (2 March – 6 March)"*.
- *
- * Sprint 33a. The field said **Days used: 0** with the hint "Defaults to the
- * whole range", and the default was real but invisible: `spanDays` existed,
- * was never written into the draft, and the API's `Number(body.totalDays) ||
- * span` fallback was what actually saved the figure. So an approver filing for
- * somebody read a zero and a promise, and had to trust the promise.
- *
- * Saying what was counted matters more than filling the box, because the box
- * stays editable: a half day is 0.5 of a one-day range, and the sentence is
- * how somebody knows what they are overriding.
- */
-function countedLabel(start: string, end: string): string | null {
-  const span = spanDays(start, end);
-  if (span === 0) return null;
-
-  return span === 1
-    ? `1 day (${shortDate(start)})`
-    : `${String(span)} days (${shortDate(start)} – ${shortDate(end)})`;
-}
-
-/**
- * The draft with its day count filled in from the dates.
- *
- * Applied on every date change rather than only on the first, and that is the
- * deliberate part: a hand-typed 0.5 is an answer about *these* dates, so a
- * range that changes underneath it makes it a stale answer rather than a
- * preference to preserve. An untouched range leaves the field alone.
- */
-function withCountedDays(draft: Draft): Draft {
-  const span = spanDays(draft.startDate, draft.endDate);
-  return span === 0 ? draft : { ...draft, totalDays: String(span) };
-}
-
-export function LeaveManager({ canEdit }: LeaveManagerProps) {
+export function LeaveManager({ canManage, canApprove }: LeaveManagerProps) {
   const [types, setTypes] = useState<LeaveTypeRow[] | null>(null);
   const [requests, setRequests] = useState<LeaveRequestRow[] | null>(null);
   const [staff, setStaff] = useState<StaffOption[]>([]);
   const [statusFilter, setStatusFilter] = useState('pending');
-  const [draft, setDraft] = useState<Draft | null>(null);
+  const [draft, setDraft] = useState<RequestDraft | null>(null);
+  const [typeDraft, setTypeDraft] = useState<TypeDraft | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [pending, setPending] = useState(true);
 
+  const counting = useLeaveCount(
+    draft?.startDate ?? '',
+    draft?.endDate ?? '',
+    draft === null || draft.staffId === '' ? null : draft.staffId,
+  );
+
+  // The counted figure fills the box; a typed half day survives until the
+  // dates change, because it is an answer about *those* dates.
+  const countedDays = counting.result?.days ?? null;
+  useEffect(() => {
+    if (countedDays === null) return;
+    setDraft((held) => (held === null ? held : { ...held, totalDays: String(countedDays) }));
+  }, [countedDays]);
+
   const load = useCallback(async () => {
-    // The status filter refetches, so the table shows a skeleton for the
-    // second load as well as the first.
     setPending(true);
     try {
-      const query = statusFilter === '' ? '' : `?status=${statusFilter}`;
+      const status = statusFilter === '' ? '' : `&status=${statusFilter}`;
+      // HR sees the school; an approver without `leave.manage` sees their queue.
+      const listPath = canManage
+        ? `/api/school/leave/requests?scope=all${status}`
+        : `/api/school/leave/requests?scope=inbox${status}`;
 
       const [typePayload, requestPayload, staffPayload] = await Promise.all([
         schoolFetch<{ leaveTypes: LeaveTypeRow[] }>('/api/school/hr/leave-types'),
-        schoolFetch<{ leaveRequests: LeaveRequestRow[] }>(
-          `/api/school/hr/leave-requests${query}`,
-        ),
-        schoolFetch<{ staff: StaffOption[] }>('/api/school/hr/staff?status=active'),
+        schoolFetch<{ leaveRequests?: LeaveRequestRow[]; rows?: LeaveRequestRow[] }>(listPath),
+        canManage
+          ? schoolFetch<{ staff: StaffOption[] }>('/api/school/hr/staff?status=active')
+          : Promise.resolve({ staff: [] as StaffOption[] }),
       ]);
 
       setTypes(typePayload.leaveTypes);
-      setRequests(requestPayload.leaveRequests);
+      setRequests(requestPayload.leaveRequests ?? requestPayload.rows ?? []);
       setStaff(staffPayload.staff);
       setError(null);
     } catch (caught) {
@@ -173,93 +180,137 @@ export function LeaveManager({ canEdit }: LeaveManagerProps) {
     } finally {
       setPending(false);
     }
-  }, [statusFilter]);
+  }, [statusFilter, canManage]);
 
   useEffect(() => {
     void load();
   }, [load]);
 
-  const seed = async (): Promise<void> => {
-    setBusy('seed');
+  const run = async (key: string, work: () => Promise<void>, failure: string): Promise<void> => {
+    setBusy(key);
     setError(null);
-
+    setNotice(null);
     try {
-      await schoolFetch('/api/school/hr/leave-types', {
-        method: 'POST',
-        body: JSON.stringify({ seed: true }),
-      });
-      await load();
+      await work();
     } catch (caught) {
-      setError(schoolErrorMessage(caught, 'Could not seed the leave types.'));
+      setError(schoolErrorMessage(caught, failure));
     } finally {
       setBusy(null);
     }
   };
 
-  const file = async (): Promise<void> => {
-    if (draft === null) return;
+  const seed = (): Promise<void> =>
+    run(
+      'seed',
+      async () => {
+        await schoolFetch('/api/school/hr/leave-types', {
+          method: 'POST',
+          body: JSON.stringify({ seed: true }),
+        });
+        setNotice('The standard leave types are in place. Any you had already tuned were left alone.');
+        await load();
+      },
+      'Could not add the standard leave types.',
+    );
 
+  const saveType = (): Promise<void> => {
+    if (typeDraft === null) return Promise.resolve();
+    const body = {
+      name: typeDraft.name.trim(),
+      description: typeDraft.description.trim(),
+      annualQuotaDays: Number(typeDraft.annualQuotaDays),
+      isPaid: typeDraft.isPaid,
+    };
+
+    return run(
+      'type',
+      async () => {
+        await schoolFetch(
+          typeDraft.id === null ? '/api/school/hr/leave-types' : `/api/school/hr/leave-types/${typeDraft.id}`,
+          { method: typeDraft.id === null ? 'POST' : 'PATCH', body: JSON.stringify(body) },
+        );
+        setNotice(typeDraft.id === null ? `${body.name} added.` : `${body.name} saved.`);
+        setTypeDraft(null);
+        await load();
+      },
+      'Could not save that leave type.',
+    );
+  };
+
+  const setActive = (row: LeaveTypeRow, isActive: boolean): Promise<void> =>
+    run(
+      `type-${row.id}`,
+      async () => {
+        await schoolFetch(`/api/school/hr/leave-types/${row.id}`, {
+          method: 'PATCH',
+          body: JSON.stringify({ isActive }),
+        });
+        setNotice(
+          isActive
+            ? `${row.name} is offered again.`
+            : `${row.name} is retired. It is no longer offered, and every request already made under it is kept.`,
+        );
+        await load();
+      },
+      'Could not change that leave type.',
+    );
+
+  const file = (): Promise<void> => {
+    if (draft === null) return Promise.resolve();
     if (draft.staffId === '' || draft.leaveTypeId === '') {
       setError('Choose a staff member and a leave type.');
-      return;
+      return Promise.resolve();
     }
 
-    const span = spanDays(draft.startDate, draft.endDate);
-    if (span === 0) {
-      setError('Enter a start and end date, with the end on or after the start.');
-      return;
-    }
-
-    setBusy('file');
-    setError(null);
-
-    try {
-      await schoolFetch('/api/school/hr/leave-requests', {
-        method: 'POST',
-        body: JSON.stringify({
-          staffId: draft.staffId,
-          leaveTypeId: draft.leaveTypeId,
-          startDate: draft.startDate,
-          endDate: draft.endDate,
-          totalDays: Number(draft.totalDays) || span,
-          reason: draft.reason.trim(),
-        }),
-      });
-      setDraft(null);
-      await load();
-    } catch (caught) {
-      setError(schoolErrorMessage(caught, 'Could not file the leave request.'));
-    } finally {
-      setBusy(null);
-    }
+    return run(
+      'file',
+      async () => {
+        const result = await schoolFetch<{ counted: { days: number } }>('/api/school/leave/requests', {
+          method: 'POST',
+          body: JSON.stringify({
+            staffId: draft.staffId,
+            leaveTypeId: draft.leaveTypeId,
+            startDate: draft.startDate,
+            endDate: draft.endDate,
+            totalDays: draft.totalDays === '' ? undefined : Number(draft.totalDays),
+            reason: draft.reason.trim(),
+          }),
+        });
+        setDraft(null);
+        setNotice(
+          `Filed for ${dayLabel(result.counted.days)}. It goes up the approval chain like any other request.`,
+        );
+        await load();
+      },
+      'Could not file the leave request.',
+    );
   };
 
-  const decide = async (row: LeaveRequestRow, status: LeaveStatus): Promise<void> => {
+  const decide = (row: LeaveRequestRow, status: 'approved' | 'rejected'): Promise<void> => {
     let note = '';
-
     if (status === 'rejected') {
       const entered = window.prompt('Why is this being rejected? The staff member sees it.');
-      if (entered === null || entered.trim() === '') return;
+      if (entered === null || entered.trim() === '') return Promise.resolve();
       note = entered.trim();
     }
 
-    setBusy(row.id);
-    setError(null);
-
-    try {
-      await schoolFetch(`/api/school/hr/leave-requests/${row.id}`, {
-        method: 'PATCH',
-        body: JSON.stringify({ status, decisionNote: note }),
-      });
-      await load();
-    } catch (caught) {
-      setError(schoolErrorMessage(caught, 'Could not record the decision.'));
-    } finally {
-      setBusy(null);
-    }
+    return run(
+      row.id,
+      async () => {
+        await schoolFetch(`/api/school/leave/requests/${row.id}/decision`, {
+          method: 'POST',
+          body: JSON.stringify({ status, decisionNote: note }),
+        });
+        await load();
+      },
+      'Could not record the decision.',
+    );
   };
 
   const activeTypes = (types ?? []).filter((row) => row.isActive);
+  const missingDefaults = DEFAULT_NAMES.filter(
+    (name) => !(types ?? []).some((row) => row.name === name),
+  );
 
   const requestColumns: Array<DataTableColumn<LeaveRequestRow>> = [
     {
@@ -270,7 +321,10 @@ export function LeaveManager({ canEdit }: LeaveManagerProps) {
       cell: (row) => (
         <>
           <p className="font-medium text-ink">{row.staffName}</p>
-          <p className="text-xs text-ink-muted">{row.employeeCode}</p>
+          <p className="text-xs text-ink-muted">
+            {row.employeeCode}
+            {row.branchName === null ? '' : ` · ${row.branchName}`}
+          </p>
         </>
       ),
     },
@@ -320,24 +374,27 @@ export function LeaveManager({ canEdit }: LeaveManagerProps) {
       sortValue: (row) => LEAVE_STATUS_LABELS[row.status],
       cell: (row) => (
         <>
-          <Badge variant={STATUS_VARIANT[row.status]}>
-            {LEAVE_STATUS_LABELS[row.status]}
-          </Badge>
+          <Badge variant={STATUS_VARIANT[row.status]}>{LEAVE_STATUS_LABELS[row.status]}</Badge>
           {row.decisionNote === null || row.decisionNote === '' ? null : (
-            <p className="mt-1 text-xs text-ink-muted">{row.decisionNote}</p>
+            <p className="mt-1 text-xs text-ink-muted">
+              {row.decidedByName === null ? '' : `${row.decidedByName}: `}
+              {row.decisionNote}
+            </p>
           )}
         </>
       ),
     },
   ];
 
-  if (canEdit) {
+  // Only somebody who may approve sees the buttons, and only where the chain
+  // has not already said no. The decision endpoint re-resolves it either way.
+  if (canApprove) {
     requestColumns.push({
       id: 'decide',
       header: <span className="sr-only">Decide</span>,
       align: 'end',
       cell: (row) =>
-        row.status === 'pending' ? (
+        row.status === 'pending' && row.canDecide !== false ? (
           <div className="flex justify-end gap-2">
             <Button
               size="sm"
@@ -370,22 +427,43 @@ export function LeaveManager({ canEdit }: LeaveManagerProps) {
         </p>
       ) : null}
 
+      {notice !== null ? (
+        <p className="rounded-lg bg-status-success-subtle px-3 py-2 text-sm text-status-success-ink">
+          {notice}
+        </p>
+      ) : null}
+
       <Card
         header={
           <CardTitle
             title="Leave types"
-            description="Whether a head is paid decides if approving it costs the teacher money."
+            description="Whether a head is paid decides if approving it costs the teacher money. Retiring one stops it being offered and keeps every request made under it."
             action={
-              canEdit && (types?.length ?? 0) === 0 ? (
-                <Button
-                  size="sm"
-                  isLoading={busy === 'seed'}
-                  onClick={() => {
-                    void seed();
-                  }}
-                >
-                  Seed defaults
-                </Button>
+              canManage ? (
+                <div className="flex flex-wrap gap-2">
+                  {missingDefaults.length > 0 ? (
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      isLoading={busy === 'seed'}
+                      onClick={() => {
+                        void seed();
+                      }}
+                    >
+                      {(types?.length ?? 0) === 0 ? 'Seed defaults' : 'Add missing defaults'}
+                    </Button>
+                  ) : null}
+                  {typeDraft === null ? (
+                    <Button
+                      size="sm"
+                      onClick={() => {
+                        setTypeDraft(EMPTY_TYPE);
+                      }}
+                    >
+                      Add a leave type
+                    </Button>
+                  ) : null}
+                </div>
               ) : undefined
             }
           />
@@ -395,33 +473,141 @@ export function LeaveManager({ canEdit }: LeaveManagerProps) {
           <p className="text-sm text-ink-muted">Loading leave types…</p>
         ) : types.length === 0 ? (
           <p className="text-sm text-ink-muted">
-            No leave types yet. Seeding creates the usual four — Casual (10 days),
-            Sick (8), Annual (14) and Unpaid, the one that docks pay.
+            No leave types yet. Seeding creates the usual four — Casual (10 days), Sick (8),
+            Annual (14) and Unpaid, the one that docks pay.
           </p>
         ) : (
-          <ul className="flex flex-wrap gap-2">
+          <ul className="divide-y divide-line rounded-lg border border-line">
             {types.map((row) => (
-              <li
-                key={row.id}
-                className="rounded-lg border border-line px-3 py-2 text-sm"
-              >
-                <span className="font-medium text-ink">{row.name}</span>
-                <span className="ml-2 text-ink-muted">
-                  {row.annualQuotaDays === 0
-                    ? 'no quota'
-                    : `${row.annualQuotaDays} days/year`}
-                </span>
-                <Badge className="ml-2" variant={row.isPaid ? 'success' : 'danger'}>
-                  {row.isPaid ? 'Paid' : 'Unpaid'}
-                </Badge>
+              <li key={row.id} className="flex flex-wrap items-center justify-between gap-3 px-3 py-2 text-sm">
+                <div className="min-w-0">
+                  <span className={row.isActive ? 'font-medium text-ink' : 'font-medium text-ink-muted line-through'}>
+                    {row.name}
+                  </span>
+                  <span className="ml-2 text-ink-muted">
+                    {row.annualQuotaDays === 0 ? 'no quota' : `${row.annualQuotaDays} days/year`}
+                  </span>
+                  <Badge className="ml-2" variant={row.isPaid ? 'success' : 'danger'}>
+                    {row.isPaid ? 'Paid' : 'Unpaid'}
+                  </Badge>
+                  {row.isActive ? null : (
+                    <Badge className="ml-2" variant="neutral">
+                      Retired
+                    </Badge>
+                  )}
+                  {row.description === null || row.description === '' ? null : (
+                    <p className="text-xs text-ink-muted">{row.description}</p>
+                  )}
+                </div>
+
+                {canManage ? (
+                  <div className="flex gap-2">
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => {
+                        setTypeDraft({
+                          id: row.id,
+                          name: row.name,
+                          description: row.description ?? '',
+                          annualQuotaDays: String(row.annualQuotaDays),
+                          isPaid: row.isPaid,
+                        });
+                      }}
+                    >
+                      Edit
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      isLoading={busy === `type-${row.id}`}
+                      onClick={() => {
+                        void setActive(row, !row.isActive);
+                      }}
+                    >
+                      {row.isActive ? 'Retire' : 'Offer again'}
+                    </Button>
+                  </div>
+                ) : null}
               </li>
             ))}
           </ul>
         )}
+
+        {typeDraft === null ? null : (
+          <div className="mt-4 space-y-4 rounded-lg border border-line p-4">
+            <div className="grid gap-4 sm:grid-cols-2">
+              <Input
+                label="Name"
+                value={typeDraft.name}
+                maxLength={60}
+                placeholder="Maternity Leave"
+                onChange={(event) => {
+                  setTypeDraft({ ...typeDraft, name: event.target.value });
+                }}
+              />
+              <Input
+                label="Days a year"
+                type="number"
+                min={0}
+                max={365}
+                step={1}
+                value={typeDraft.annualQuotaDays}
+                hint="0 means no quota — every request is decided by hand."
+                onChange={(event) => {
+                  setTypeDraft({ ...typeDraft, annualQuotaDays: event.target.value });
+                }}
+              />
+              <div className="sm:col-span-2">
+                <Textarea
+                  label="Description"
+                  rows={2}
+                  value={typeDraft.description}
+                  onChange={(event) => {
+                    setTypeDraft({ ...typeDraft, description: event.target.value });
+                  }}
+                />
+              </div>
+            </div>
+            <Toggle
+              label="Paid"
+              description="Off means every approved day of this leave is docked from pay."
+              checked={typeDraft.isPaid}
+              onChange={(next) => {
+                setTypeDraft({ ...typeDraft, isPaid: next });
+              }}
+            />
+            <div className="flex gap-3">
+              <Button
+                isLoading={busy === 'type'}
+                onClick={() => {
+                  void saveType();
+                }}
+              >
+                {typeDraft.id === null ? 'Add leave type' : 'Save'}
+              </Button>
+              <Button
+                variant="ghost"
+                onClick={() => {
+                  setTypeDraft(null);
+                }}
+              >
+                Cancel
+              </Button>
+            </div>
+          </div>
+        )}
       </Card>
 
       {draft !== null ? (
-        <Card header={<CardTitle title="New leave request" />}>
+        <Card
+          header={
+            <CardTitle
+              title="File a request for somebody"
+              description="For a member of staff who cannot apply themselves. It goes up their approval chain like any other request."
+            />
+          }
+        >
           <div className="grid gap-4 sm:grid-cols-2">
             <Select
               label="Staff member"
@@ -432,6 +618,7 @@ export function LeaveManager({ canEdit }: LeaveManagerProps) {
               }))}
               value={draft.staffId}
               onChange={(event) => {
+                setError(null);
                 setDraft({ ...draft, staffId: event.target.value });
               }}
             />
@@ -451,7 +638,8 @@ export function LeaveManager({ canEdit }: LeaveManagerProps) {
               type="date"
               value={draft.startDate}
               onChange={(event) => {
-                setDraft(withCountedDays({ ...draft, startDate: event.target.value }));
+                setError(null);
+                setDraft({ ...draft, startDate: event.target.value, totalDays: '' });
               }}
             />
             <Input
@@ -459,7 +647,8 @@ export function LeaveManager({ canEdit }: LeaveManagerProps) {
               type="date"
               value={draft.endDate}
               onChange={(event) => {
-                setDraft(withCountedDays({ ...draft, endDate: event.target.value }));
+                setError(null);
+                setDraft({ ...draft, endDate: event.target.value, totalDays: '' });
               }}
             />
             <Input
@@ -469,9 +658,9 @@ export function LeaveManager({ canEdit }: LeaveManagerProps) {
               step={0.5}
               value={draft.totalDays}
               hint={
-                countedLabel(draft.startDate, draft.endDate) === null
-                  ? 'Fills in from the dates. Half days allowed.'
-                  : `Counted: ${countedLabel(draft.startDate, draft.endDate) ?? ''}. Change it for a half day.`
+                draft.staffId === ''
+                  ? 'Choose the staff member first — their calendar decides what counts.'
+                  : countHint(counting, draft.startDate, draft.endDate)
               }
               onChange={(event) => {
                 setDraft({ ...draft, totalDays: event.target.value });
@@ -489,9 +678,16 @@ export function LeaveManager({ canEdit }: LeaveManagerProps) {
             </div>
           </div>
 
+          {counting.result?.holidayProblem == null ? null : (
+            <p className="mt-3 rounded-lg bg-status-warning-subtle px-3 py-2 text-sm text-status-warning-ink">
+              {counting.result.holidayProblem}
+            </p>
+          )}
+
           <div className="mt-4 flex gap-3">
             <Button
               isLoading={busy === 'file'}
+              disabled={counting.pending}
               onClick={() => {
                 void file();
               }}
@@ -519,12 +715,6 @@ export function LeaveManager({ canEdit }: LeaveManagerProps) {
         pending={pending}
         defaultSort={{ columnId: 'dates', direction: 'desc' }}
         search={{ placeholder: 'Staff name, code or leave type' }}
-        /*
-         * The state filter stays a server round trip — the API narrows by it,
-         * and a queue of pending requests is what an approver opens this screen
-         * for. Everything else is over what came back, which is one state's
-         * worth of rows and already in memory.
-         */
         extraFilters={
           <div className="w-full sm:w-52">
             <Select
@@ -538,7 +728,7 @@ export function LeaveManager({ canEdit }: LeaveManagerProps) {
           </div>
         }
         actions={
-          canEdit && draft === null && activeTypes.length > 0 ? (
+          canManage && draft === null && activeTypes.length > 0 ? (
             <Button
               onClick={() => {
                 setDraft({
@@ -557,7 +747,11 @@ export function LeaveManager({ canEdit }: LeaveManagerProps) {
         }
         itemNoun={{ singular: 'request', plural: 'requests' }}
         emptyTitle="No leave requests to show"
-        emptyDescription="Applications filed by staff appear here for a decision."
+        emptyDescription={
+          canManage
+            ? 'Applications from staff, and those filed here, appear once they exist.'
+            : 'Requests from the people who report to you appear here for a decision.'
+        }
         noResultTitle="No requests in that state"
         noResultDescription="Choose another state, or show every request."
       />

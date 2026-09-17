@@ -131,6 +131,8 @@ interface Draft {
   isOnProbation: boolean;
   probationStartedOn: string;
   probationDays: string;
+  /** QA round 1, F4 — the extension, inside the same 180-day total. */
+  probationExtendedDays: string;
   phone: string;
   email: string;
   isClassTeacher: boolean;
@@ -157,6 +159,7 @@ const EMPTY_DRAFT: Draft = {
   isOnProbation: false,
   probationStartedOn: '',
   probationDays: '90',
+  probationExtendedDays: '0',
   phone: '',
   email: '',
   // The restrictive default. A school names its class teachers deliberately.
@@ -334,6 +337,8 @@ export function StaffManager({
           probationStartedOn:
             draft.probationStartedOn === '' ? null : draft.probationStartedOn,
           probationDays: draft.probationDays === '' ? null : Number(draft.probationDays),
+          probationExtendedDays:
+            draft.probationExtendedDays === '' ? 0 : Number(draft.probationExtendedDays),
           phone: draft.phone.trim(),
           email: draft.email.trim(),
           isClassTeacher: draft.isClassTeacher,
@@ -601,7 +606,8 @@ export function StaffManager({
                           isOnProbation: true,
                           startedOn: draft.probationStartedOn === '' ? null : draft.probationStartedOn,
                           days: draft.probationDays === '' ? null : Number(draft.probationDays),
-                          extendedDays: 0,
+                          extendedDays:
+                            draft.probationExtendedDays === '' ? 0 : Number(draft.probationExtendedDays),
                         }) ?? undefined
                       }
                       hint={
@@ -611,11 +617,23 @@ export function StaffManager({
                               probationEndDate(
                                 draft.probationStartedOn,
                                 Number(draft.probationDays),
+                                draft.probationExtendedDays === '' ? 0 : Number(draft.probationExtendedDays),
                               ) ?? '—'
                             }.`
                       }
                       onChange={(event) => {
                         setDraft({ ...draft, probationDays: event.target.value });
+                      }}
+                    />
+                    <Input
+                      label="Extended by"
+                      type="number"
+                      min={0}
+                      max={Math.max(0, MAX_PROBATION_DAYS - (Number(draft.probationDays) || 0))}
+                      value={draft.probationExtendedDays}
+                      hint={`Up to ${String(Math.max(0, MAX_PROBATION_DAYS - (Number(draft.probationDays) || 0)))} more days — ${String(MAX_PROBATION_DAYS)} in total, holidays included. Usually 0 on a new record; extend it later from their profile.`}
+                      onChange={(event) => {
+                        setDraft({ ...draft, probationExtendedDays: event.target.value });
                       }}
                     />
                   </div>

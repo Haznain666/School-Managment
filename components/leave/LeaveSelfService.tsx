@@ -22,6 +22,8 @@ import {
 } from '@/lib/leave-quota';
 import { schoolErrorMessage, schoolFetch } from '@/lib/school-client';
 
+import { countHint, useLeaveCount } from './useLeaveCount';
+
 /**
  * Applying for your own leave — Sprint 33b.
  *
@@ -136,9 +138,22 @@ export function LeaveSelfService() {
     void load();
   }, [load]);
 
+  /*
+   * QA round 1, F5. "Days used" is counted by the server, by the function the
+   * write stores with, and fills the box as soon as it answers. A typed half
+   * day survives until the dates change, because it is an answer about *those*
+   * dates.
+   */
+  const counting = useLeaveCount(draft.startDate, draft.endDate);
+  const countedDays = counting.result?.days ?? null;
+  useEffect(() => {
+    if (countedDays === null) return;
+    setDraft((held) => ({ ...held, totalDays: String(countedDays) }));
+  }, [countedDays]);
+
   const span = calendarSpan(draft.startDate, draft.endDate);
   const quota = payload?.quotas.find((row) => row.leaveTypeId === draft.leaveTypeId) ?? null;
-  const days = roundToHalf(Number(draft.totalDays) || span);
+  const days = roundToHalf(Number(draft.totalDays) || (countedDays ?? span));
 
   // The same function the server refuses with, so nobody is told "fine" here
   // and "no" a second later.
@@ -301,11 +316,7 @@ export function LeaveSelfService() {
             min={0.5}
             step={0.5}
             value={draft.totalDays}
-            hint={
-              span === 0
-                ? 'Fills in from the dates. Half days allowed.'
-                : `${dayLabel(span)} between those dates. Change it for a half day; holidays are settled when you apply.`
-            }
+            hint={countHint(counting, draft.startDate, draft.endDate)}
             onChange={(event) => {
               setDraft({ ...draft, totalDays: event.target.value });
             }}
@@ -315,6 +326,8 @@ export function LeaveSelfService() {
             type="date"
             value={draft.startDate}
             onChange={(event) => {
+              // A refusal about the old dates is not about these. QA round 1, F5.
+              setError(null);
               setDraft({ ...draft, startDate: event.target.value, totalDays: '' });
             }}
           />
@@ -323,6 +336,7 @@ export function LeaveSelfService() {
             type="date"
             value={draft.endDate}
             onChange={(event) => {
+              setError(null);
               setDraft({ ...draft, endDate: event.target.value, totalDays: '' });
             }}
           />
@@ -338,6 +352,12 @@ export function LeaveSelfService() {
           </div>
         </div>
 
+        {counting.result?.holidayProblem == null ? null : (
+          <p className="mt-3 rounded-lg bg-status-warning-subtle px-3 py-2 text-sm text-status-warning-ink">
+            {counting.result.holidayProblem}
+          </p>
+        )}
+
         {preview === null ? null : (
           <p className="mt-3 rounded-lg bg-status-warning-subtle px-3 py-2 text-sm text-status-warning-ink">
             {preview}
@@ -347,7 +367,7 @@ export function LeaveSelfService() {
         <div className="mt-4 flex flex-wrap items-center gap-3">
           <Button
             isLoading={busy === 'apply'}
-            disabled={preview !== null}
+            disabled={preview !== null || counting.pending}
             onClick={() => {
               void apply();
             }}

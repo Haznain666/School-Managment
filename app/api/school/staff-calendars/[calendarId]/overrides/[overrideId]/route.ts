@@ -4,7 +4,12 @@ import { staffCalendarOverrides } from '@/db/schema';
 import { withSchoolAuth } from '@/lib/api-auth';
 import { apiFailure, apiSuccess, handleApiError, readJsonBody } from '@/lib/api-response';
 import { db } from '@/lib/drizzle';
-import { getStaffCalendar, listCalendarOverrides } from '@/lib/staff-calendar-queries';
+import { resolveBranchScope } from '@/lib/branch-scope';
+import {
+  calendarWriteRefusal,
+  getStaffCalendar,
+  listCalendarOverrides,
+} from '@/lib/staff-calendar-queries';
 import { isUuid, readBoolean } from '@/lib/validation';
 
 /**
@@ -50,6 +55,13 @@ export const PATCH = withSchoolAuth<RouteContext>(
         return apiFailure('not_found', 'Calendar not found.', 404);
       }
 
+      // The campus, on the write — QA round 1, F2. This route checked none.
+      const refusal = calendarWriteRefusal(
+        await resolveBranchScope(auth.locationId, auth),
+        calendar.branchId,
+      );
+      if (refusal !== null) return apiFailure('forbidden', refusal, 403);
+
       const body = await readJsonBody<PatchOverrideBody>(request);
       if (body === null || !readBoolean(body.markNotified, false)) {
         return apiFailure('invalid_body', 'Nothing to change.', 400);
@@ -88,6 +100,17 @@ export const DELETE = withSchoolAuth<RouteContext>(
       if (!isUuid(calendarId) || !isUuid(overrideId)) {
         return apiFailure('not_found', 'Override not found.', 404);
       }
+
+      const calendar = await getStaffCalendar(auth.locationId, calendarId);
+      if (calendar === null) {
+        return apiFailure('not_found', 'Override not found.', 404);
+      }
+
+      const refusal = calendarWriteRefusal(
+        await resolveBranchScope(auth.locationId, auth),
+        calendar.branchId,
+      );
+      if (refusal !== null) return apiFailure('forbidden', refusal, 403);
 
       const deleted = await db
         .delete(staffCalendarOverrides)

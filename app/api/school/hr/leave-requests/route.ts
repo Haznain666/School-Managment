@@ -1,26 +1,21 @@
-import { isLeaveStatus, leaveRequests } from '@/db/schema';
+import { isLeaveStatus } from '@/db/schema';
 import { withSchoolAuth } from '@/lib/api-auth';
-import { apiFailure, apiSuccess, handleApiError, readJsonBody } from '@/lib/api-response';
-import { db } from '@/lib/drizzle';
-import { getLeaveType, getStaff, listLeaveRequests } from '@/lib/hr-queries';
-import { isIsoDate, isUuid, readOptionalString } from '@/lib/validation';
+import { apiFailure, apiSuccess, handleApiError } from '@/lib/api-response';
+import { listLeaveRequests } from '@/lib/hr-queries';
+import { isUuid } from '@/lib/validation';
 
 /**
  * /api/school/hr/leave-requests
  *
  * GET  applications, newest first
- * POST file one
+ * POST retired — refuses with 410 and points at /api/school/leave/requests
  *
- * ── On `totalDays` ───────────────────────────────────────────────────────
- * The number of days consumed is submitted rather than derived from the date
- * range, because half days exist: a teacher taking the morning off consumes
- * 0.5 of their casual leave, and a range of one calendar day cannot say that.
- * It is bounded by the calendar span so the figure cannot claim more days than
- * the request actually covers — that would dock a payslip for time nobody took.
- *
- * A request is created `pending`. Nothing here can approve one; that is the
- * PATCH route, and keeping the two apart is what stops a self-filed
- * application from also being its own approval.
+ * ── Only the read is left ────────────────────────────────────────────────
+ * The GET stays as a campus-scoped read on `hr.read` for anything that still
+ * wants it; nothing in the product calls it since Sprint 33b's QA round 1, when
+ * the HR leave screen moved to `/api/school/leave/requests?scope=all`. Filing
+ * lives there too, with the half-day rule, the holiday and overlap refusals,
+ * the quota and the campus guard — see the POST below for why this door shut.
  */
 
 export const runtime = 'nodejs';
@@ -48,110 +43,30 @@ export const GET = withSchoolAuth(
   { permission: 'hr.read' },
 );
 
-interface CreateLeaveRequestBody {
-  staffId?: unknown;
-  leaveTypeId?: unknown;
-  startDate?: unknown;
-  endDate?: unknown;
-  totalDays?: unknown;
-  reason?: unknown;
-}
 
-/** Calendar days in an inclusive ISO date range. */
-function calendarSpan(start: string, end: string): number {
-  const from = Date.parse(`${start}T00:00:00Z`);
-  const to = Date.parse(`${end}T00:00:00Z`);
-  return Math.round((to - from) / 86_400_000) + 1;
-}
-
+/**
+ * POST — retired in Sprint 33b, QA round 1 (F1). It refuses, and says where to go.
+ *
+ * This route filed leave checking only `hr.write`, so QA filed a single-day request on
+ * Iqbal Day (201 here, 422 on the new route), filed for another campus's staff
+ * past the `wrong_campus` refusal, and had HR decide a request HR holds no
+ * `leave.approve` for. Every rule Part B added — the holiday refusals, the
+ * overlap and quota checks, the campus guard and the approval chain — lives on
+ * `/api/school/leave/requests`, and a second door that skips them makes all of
+ * them advisory.
+ *
+ * It refuses rather than disappears so anything still calling it gets a
+ * sentence instead of a 404. Nothing in the product does: `LeaveManager` was
+ * the only caller and now files through the new route. Payroll never used it —
+ * it reads `leave_requests` directly through `unpaidLeaveDaysByStaff`, which
+ * is unchanged.
+ */
 export const POST = withSchoolAuth(
-  async (request, auth) => {
-    try {
-      const body = await readJsonBody<CreateLeaveRequestBody>(request);
-      if (body === null) {
-        return apiFailure('invalid_body', 'Expected a JSON body.', 400);
-      }
-
-      const staffId = readOptionalString(body.staffId);
-      if (staffId === null || !isUuid(staffId)) {
-        return apiFailure('invalid_body', 'Choose a staff member.', 400);
-      }
-
-      // Existence *and* tenancy in one check — `getStaff` filters on location.
-      const member = await getStaff(auth.locationId, staffId);
-      if (member === null) {
-        return apiFailure('not_found', 'Staff member not found.', 404);
-      }
-
-      const leaveTypeId = readOptionalString(body.leaveTypeId);
-      if (leaveTypeId === null || !isUuid(leaveTypeId)) {
-        return apiFailure('invalid_body', 'Choose a leave type.', 400);
-      }
-
-      const leaveType = await getLeaveType(auth.locationId, leaveTypeId);
-      if (leaveType === null) {
-        return apiFailure('not_found', 'Leave type not found.', 404);
-      }
-
-      const startDate = readOptionalString(body.startDate);
-      const endDate = readOptionalString(body.endDate);
-
-      if (startDate === null || !isIsoDate(startDate)) {
-        return apiFailure('invalid_body', 'Enter a valid start date.', 400);
-      }
-
-      if (endDate === null || !isIsoDate(endDate)) {
-        return apiFailure('invalid_body', 'Enter a valid end date.', 400);
-      }
-
-      if (endDate < startDate) {
-        return apiFailure('invalid_body', 'The end date is before the start date.', 400);
-      }
-
-      const span = calendarSpan(startDate, endDate);
-
-      const totalDays = Number(body.totalDays ?? span);
-      if (!Number.isFinite(totalDays) || totalDays <= 0) {
-        return apiFailure('invalid_body', 'Enter how many days this leave uses.', 400);
-      }
-
-      if (totalDays > span) {
-        return apiFailure(
-          'invalid_body',
-          `This range covers ${span} day${span === 1 ? '' : 's'}, so it cannot use ${totalDays}.`,
-          400,
-        );
-      }
-
-      // Half-day granularity, matching what payroll can dock.
-      const days = Math.round(totalDays * 2) / 2;
-      if (days <= 0) {
-        return apiFailure('invalid_body', 'Leave must be at least half a day.', 400);
-      }
-
-      const created = await db
-        .insert(leaveRequests)
-        .values({
-          // Tenant comes from the verified session, never from the body.
-          locationId: auth.locationId,
-          staffId,
-          leaveTypeId,
-          startDate,
-          endDate,
-          totalDays: days.toFixed(1),
-          reason: readOptionalString(body.reason),
-          status: 'pending',
-        })
-        .returning({ id: leaveRequests.id });
-
-      if (created[0] === undefined) {
-        return apiFailure('internal_error', 'Could not file the leave request.', 500);
-      }
-
-      return apiSuccess({ leaveRequestId: created[0].id }, 201);
-    } catch (error) {
-      return handleApiError(error);
-    }
-  },
+  async () =>
+    apiFailure(
+      'moved',
+      'Leave is filed through /api/school/leave/requests now, which applies the holiday, overlap, quota and campus checks. Use the Leave screen, or POST there with staffId.',
+      410,
+    ),
   { permission: 'hr.write' },
 );

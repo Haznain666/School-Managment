@@ -12,6 +12,15 @@ export const metadata: Metadata = {
 export const dynamic = 'force-dynamic';
 export const runtime = 'nodejs';
 
+/**
+ * HR's leave screen.
+ *
+ * Sprint 33b, QA round 1: what it may *do* is decided by the leave keys, not by
+ * `hr.write`. `leave.manage` keeps the heads, sees the whole school's requests
+ * and files for somebody who cannot; `leave.approve` shows the decide buttons,
+ * which go to the decision endpoint and the approval chain. HR holds the first
+ * and not the second, so HR files and does not decide.
+ */
 export default async function LeavePage() {
   const { permissions } = await requireSchoolPermission('hr.read');
 
@@ -24,7 +33,10 @@ export default async function LeavePage() {
 
       <HrNav />
 
-      <LeaveManager canEdit={permissions.includes('hr.write')} />
+      <LeaveManager
+        canManage={permissions.includes('leave.manage')}
+        canApprove={permissions.includes('leave.approve')}
+      />
     </div>
   );
 }

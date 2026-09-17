@@ -4,7 +4,9 @@ import { apiFailure, apiSuccess, handleApiError, readJsonBody } from '@/lib/api-
 import { schoolUserIdForUid } from '@/lib/accounting-queries';
 import { db } from '@/lib/drizzle';
 import { getHoliday } from '@/lib/holiday-queries';
+import { resolveBranchScope } from '@/lib/branch-scope';
 import {
+  calendarWriteRefusal,
   getStaffCalendar,
   listCalendarOverrides,
 } from '@/lib/staff-calendar-queries';
@@ -99,22 +101,13 @@ export const POST = withSchoolAuth<RouteContext>(
         return apiFailure('not_found', 'Calendar not found.', 404);
       }
 
-      // A campus-bound caller may not edit the calendar the whole school falls
-      // back to, nor another campus's.
-      if (
-        auth.branchId !== null &&
-        calendar.branchId !== null &&
-        calendar.branchId !== auth.branchId
-      ) {
-        return apiFailure('forbidden', 'That calendar belongs to another campus.', 403);
-      }
-      if (auth.branchId !== null && calendar.branchId === null) {
-        return apiFailure(
-          'forbidden',
-          'Only a school-wide administrator can change the calendar every campus falls back to.',
-          403,
-        );
-      }
+      // The campus, on the write — QA round 1, F2. The caller's whole scope,
+      // granted campuses included, not `auth.branchId` alone.
+      const refusal = calendarWriteRefusal(
+        await resolveBranchScope(auth.locationId, auth),
+        calendar.branchId,
+      );
+      if (refusal !== null) return apiFailure('forbidden', refusal, 403);
 
       const body = await readJsonBody<CreateOverrideBody>(request);
       if (body === null) {

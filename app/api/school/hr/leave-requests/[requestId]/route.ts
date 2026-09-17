@@ -1,17 +1,13 @@
-import { and, eq } from 'drizzle-orm';
-
-import { leaveRequests, schoolUsers } from '@/db/schema';
 import { withSchoolAuth } from '@/lib/api-auth';
-import { apiFailure, apiSuccess, handleApiError, readJsonBody } from '@/lib/api-response';
-import { db } from '@/lib/drizzle';
+import { apiFailure, apiSuccess, handleApiError } from '@/lib/api-response';
 import { getLeaveRequest } from '@/lib/hr-queries';
-import { isUuid, readOptionalString, readString } from '@/lib/validation';
+import { isUuid } from '@/lib/validation';
 
 /**
  * /api/school/hr/leave-requests/[requestId]
  *
  * GET   one application
- * PATCH decide it — approve, reject or cancel
+ * PATCH retired — refuses with 410; decisions go to /api/school/leave/requests/[id]/decision
  *
  * ── On the transitions ───────────────────────────────────────────────────
  * Only a `pending` request may be decided, and a decision is final. Payroll
@@ -29,13 +25,6 @@ export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 type RouteContext = { params: Promise<{ requestId: string }> };
-
-const DECISIONS = ['approved', 'rejected', 'cancelled'] as const;
-type Decision = (typeof DECISIONS)[number];
-
-function isDecision(value: unknown): value is Decision {
-  return typeof value === 'string' && (DECISIONS as readonly string[]).includes(value);
-}
 
 /**
  * Whether this request is outside the caller's campus.
@@ -77,125 +66,30 @@ export const GET = withSchoolAuth<RouteContext>(
   { permission: 'hr.read' },
 );
 
-interface DecideLeaveBody {
-  status?: unknown;
-  decisionNote?: unknown;
-}
 
+/**
+ * PATCH — retired in Sprint 33b, QA round 1 (F1). It refuses, and says where to go.
+ *
+ * This route decided leave checking only `hr.write`, so QA filed a single-day request on
+ * Iqbal Day (201 here, 422 on the new route), filed for another campus's staff
+ * past the `wrong_campus` refusal, and had HR decide a request HR holds no
+ * `leave.approve` for. Every rule Part B added — the holiday refusals, the
+ * overlap and quota checks, the campus guard and the approval chain — lives on
+ * `/api/school/leave/requests`, and a second door that skips them makes all of
+ * them advisory.
+ *
+ * It refuses rather than disappears so anything still calling it gets a
+ * sentence instead of a 404. Nothing in the product does: `LeaveManager` was
+ * the only caller and now files through the new route. Payroll never used it —
+ * it reads `leave_requests` directly through `unpaidLeaveDaysByStaff`, which
+ * is unchanged.
+ */
 export const PATCH = withSchoolAuth<RouteContext>(
-  async (request, auth, context) => {
-    try {
-      const { requestId } = await context.params;
-      if (!isUuid(requestId)) {
-        return apiFailure('not_found', 'Leave request not found.', 404);
-      }
-
-      const existing = await getLeaveRequest(auth.locationId, requestId);
-      if (existing === null) {
-        return apiFailure('not_found', 'Leave request not found.', 404);
-      }
-
-      /*
-       * The campus, checked on the write. Sprint 33a — a live hole.
-       *
-       * `GET /api/school/hr/leave-requests` has always narrowed to
-       * `auth.branchId`, so a campus-bound approver cannot *see* another
-       * campus's application. This route checked nothing at all, and an id is
-       * all it takes: a Branch Admin at campus A could approve campus B's
-       * leave by calling this endpoint directly. A permission answered "may
-       * you decide leave" and nothing answered "whose".
-       *
-       * 403 rather than 404 here, unlike the read above: somebody addressing
-       * this endpoint already holds the id and is trying to act on it, and a
-       * refusal they can read is what stops them trying again.
-       *
-       * Part B replaces this with the full approval chain. It lands now
-       * because it is live.
-       */
-      if (outsideCampus(auth.branchId, existing.branchId)) {
-        return apiFailure(
-          'wrong_campus',
-          'That request belongs to another campus. Only somebody at that campus can decide it.',
-          403,
-        );
-      }
-
-      if (existing.status !== 'pending') {
-        return apiFailure(
-          'invalid_state',
-          `This request has already been ${existing.status}. File a new one instead.`,
-          409,
-        );
-      }
-
-      const body = await readJsonBody<DecideLeaveBody>(request);
-      if (body === null) {
-        return apiFailure('invalid_body', 'Expected a JSON body.', 400);
-      }
-
-      if (!isDecision(body.status)) {
-        return apiFailure(
-          'invalid_body',
-          'Choose whether to approve, reject or cancel this request.',
-          400,
-        );
-      }
-
-      const note = readString(body.decisionNote);
-      if (body.status === 'rejected' && note === '') {
-        return apiFailure(
-          'invalid_body',
-          'Say why the request is being rejected — the staff member will see it.',
-          400,
-        );
-      }
-
-      // Who decided, resolved from the verified uid rather than the body.
-      const deciders = await db
-        .select({ id: schoolUsers.id })
-        .from(schoolUsers)
-        .where(
-          and(
-            eq(schoolUsers.locationId, auth.locationId),
-            eq(schoolUsers.authUserId, auth.uid),
-          ),
-        )
-        .limit(1);
-
-      const updated = await db
-        .update(leaveRequests)
-        .set({
-          status: body.status,
-          decidedBy: deciders[0]?.id ?? null,
-          decidedAt: new Date(),
-          decisionNote: readOptionalString(body.decisionNote),
-          updatedAt: new Date(),
-        })
-        .where(
-          and(
-            eq(leaveRequests.id, requestId),
-            eq(leaveRequests.locationId, auth.locationId),
-            // Re-checked in SQL so two administrators deciding at the same
-            // moment cannot both write; the second matches no rows.
-            eq(leaveRequests.status, 'pending'),
-          ),
-        )
-        .returning({ id: leaveRequests.id });
-
-      if (updated[0] === undefined) {
-        return apiFailure(
-          'invalid_state',
-          'This request was decided by someone else a moment ago.',
-          409,
-        );
-      }
-
-      return apiSuccess({
-        leaveRequest: await getLeaveRequest(auth.locationId, requestId),
-      });
-    } catch (error) {
-      return handleApiError(error);
-    }
-  },
+  async () =>
+    apiFailure(
+      'moved',
+      'Leave is decided through /api/school/leave/requests/[id]/decision now, by somebody in the approval chain who holds leave.approve. HR files and manages leave but does not decide it.',
+      410,
+    ),
   { permission: 'hr.write' },
 );

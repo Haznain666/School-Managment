@@ -174,7 +174,18 @@ function afterMigration(applied: boolean, expected: string) {
   };
 }
 
-const source = (path: string): string => readFileSync(path, 'utf8');
+/**
+ * Source text, always LF.
+ *
+ * The repository is developed on Windows with `core.autocrlf=true`, so the
+ * working tree is CRLF and git stores LF. A pattern anchored on `\n` therefore
+ * matches in one checkout and silently matches **nothing** in another —
+ * `scripts/check-branch-scope.ts` normalises for the same reason and its
+ * docblock records the cost. Found here when QA round 1's F5 assertion passed
+ * in the build agent's worktree and failed in the session's.
+ */
+const source = (path: string): string =>
+  readFileSync(path, 'utf8').split('\r\n').join('\n');
 
 async function main(): Promise<void> {
   /* ══════════════════════════════════════════════ part one: the rules */
@@ -690,6 +701,111 @@ async function main(): Promise<void> {
   assert(
     'the screen fires the announcement route that already exists',
     source('components/hr/StaffCalendarManager.tsx').includes('/notify'),
+  );
+
+  /* ─────────────────────────────────────────────── QA round 1, 2026-09-16 */
+
+  console.log('\nQA round 1 · F1 — no second door that skips the leave rules:');
+
+  const legacyList = source('app/api/school/hr/leave-requests/route.ts');
+  const legacyOne = source('app/api/school/hr/leave-requests/[requestId]/route.ts');
+  const writesLeave = (text: string): boolean =>
+    /\.insert\(leaveRequests\)|\.update\(leaveRequests\)/.test(text);
+
+  assert(
+    'the legacy POST refuses (410) and writes nothing',
+    /export const POST[\s\S]*?'moved'[\s\S]*?410/.test(legacyList) && !writesLeave(legacyList),
+    'HR could file a single-day request on Iqbal Day and for another campus through it',
+  );
+  assert(
+    'the legacy PATCH refuses (410) and decides nothing',
+    /export const PATCH[\s\S]*?'moved'[\s\S]*?410/.test(legacyOne) && !writesLeave(legacyOne),
+    'HR decided a request it holds no leave.approve for through it',
+  );
+  assert(
+    'the legacy reads are kept',
+    legacyList.includes('export const GET') && legacyOne.includes('export const GET'),
+  );
+
+  const leaveManager = source('components/hr/LeaveManager.tsx');
+  assert(
+    'the HR screen files and lists through the new route, not the legacy one',
+    // A call, not the docblock that explains why the call went away.
+    !/schoolFetch(<[^>]*>)?\(\s*['`]\/api\/school\/hr\/leave-requests/.test(leaveManager) &&
+      leaveManager.includes('/api/school/leave/requests?scope=all'),
+  );
+  assert(
+    'and decides only through the decision endpoint, only for leave.approve',
+    leaveManager.includes('/decision') && leaveManager.includes('if (canApprove)'),
+  );
+  assert(
+    'payroll still reads leave_requests directly, not through a route',
+    source('lib/hr-queries.ts').includes('export async function unpaidLeaveDaysByStaff'),
+  );
+
+  console.log('\nQA round 1 · F3 — leave types are managed under the leave keys:');
+
+  const typesRoute = source('app/api/school/hr/leave-types/route.ts');
+  const typeRoute = source('app/api/school/hr/leave-types/[leaveTypeId]/route.ts');
+  assert(
+    'create and seed need leave.manage',
+    /export const POST[\s\S]*?permission: 'leave\.manage'/.test(typesRoute),
+  );
+  assert('edit and retire need leave.manage', /permission: 'leave\.manage'/.test(typeRoute));
+  assert('reading the heads needs leave.read', /export const GET[\s\S]*?permission: 'leave\.read'/.test(typesRoute));
+  assert(
+    'no leave-type route is still gated on the hr keys',
+    !/permission: 'hr\./.test(typesRoute) && !/permission: 'hr\./.test(typeRoute),
+  );
+  assert('there is no DELETE — retiring is inactive', !/export const DELETE/.test(typeRoute));
+  assert(
+    'nobody who held hr.write by default loses the leave types',
+    (Object.keys(DEFAULT_ROLE_PERMISSIONS) as Array<keyof typeof DEFAULT_ROLE_PERMISSIONS>)
+      .filter((role) => holds(role, 'hr.write'))
+      .every((role) => holds(role, 'leave.manage')),
+  );
+  assert(
+    'the screen has create, edit and retire',
+    leaveManager.includes("'/api/school/hr/leave-types'") &&
+      leaveManager.includes('/api/school/hr/leave-types/${') &&
+      leaveManager.includes('isActive'),
+  );
+
+  console.log('\nQA round 1 · F2, F4, F5:');
+
+  const calendarScreen = source('components/hr/StaffCalendarManager.tsx');
+  assert(
+    'F2: "Create both calendars" names a campus, never an empty body',
+    calendarScreen.includes('JSON.stringify({ branchId })') &&
+      !calendarScreen.includes("body: JSON.stringify({}) }"),
+  );
+  assert(
+    'F2: controls are drawn only where the write can succeed',
+    calendarScreen.includes('canWriteBranch('),
+  );
+  for (const path of [
+    'app/api/school/staff-calendars/[calendarId]/overrides/route.ts',
+    'app/api/school/staff-calendars/[calendarId]/overrides/[overrideId]/route.ts',
+  ]) {
+    assert(`F2: ${path} checks the campus through the caller’s scope`, source(path).includes('calendarWriteRefusal('));
+  }
+  assert(
+    'F4: an existing record’s probation, with the extension, can be edited',
+    source('components/hr/ProbationCard.tsx').includes('probationExtendedDays') &&
+      source('app/(school-admin)/dashboard/hr/staff/[staffId]/page.tsx').includes('<ProbationCard'),
+  );
+  const selfService = source('components/leave/LeaveSelfService.tsx');
+  assert(
+    'F5: "Days used" is counted by the server as the dates change',
+    selfService.includes('useLeaveCount(') && source('app/api/school/leave/count/route.ts').includes('countLeaveFor('),
+  );
+  assert(
+    'F5: and the write counts with the same function',
+    source('app/api/school/leave/requests/route.ts').includes('countLeaveFor('),
+  );
+  assert(
+    'F5: a refusal about the old dates is cleared when the dates change',
+    (selfService.match(/setError\(null\);\n\s*setDraft\(\{ \.\.\.draft, (start|end)Date/g) ?? []).length === 2,
   );
 
   /* ══════════════════════════════════ part two: against the real schema */

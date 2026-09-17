@@ -44,7 +44,8 @@ export const GET = withSchoolAuth(
       return handleApiError(error);
     }
   },
-  { permission: 'hr.read' },
+  // Reading the heads is part of seeing leave at all.
+  { permission: 'leave.read' },
 );
 
 interface CreateLeaveTypeBody {
@@ -146,5 +147,11 @@ export const POST = withSchoolAuth(
       return handleApiError(error);
     }
   },
-  { permission: 'hr.write' },
+  /*
+   * Sprint 33b, QA round 1 (F3): gated on the leave keys, the standing rule
+   * that the leave keys decide leave. By default `leave.manage` is held by
+   * exactly the roles `hr.write` was — HR and the School Administrator — so
+   * nobody who could manage leave types yesterday loses it today.
+   */
+  { permission: 'leave.manage' },
 );
