@@ -104,11 +104,20 @@ export async function listStaffCalendars(
  * Idempotent through the two partial unique indexes: pressing the button twice
  * writes nothing the second time, which is the same contract the leave-type and
  * holiday seeds have. A school that has tuned the names keeps them.
+ *
+ * `visibleBranchIds` is what the caller may **see**, and it is not optional:
+ * this returns a list that goes straight onto a screen, so it has to be the
+ * same list `GET /api/school/staff-calendars` would have given them. It was
+ * `listStaffCalendars(locationId)` until QA round 2 (N1), which meant pressing
+ * the create button handed a campus-bound HR manager every campus's calendars
+ * and their ids — a reload cleared them again, which is what made it easy to
+ * miss.
  */
 export async function ensureStaffCalendars(
   locationId: string,
   branchId: string | null,
   createdBy: string | null,
+  visibleBranchIds: string[] | null,
 ): Promise<StaffCalendarRow[]> {
   await db
     .insert(staffCalendars)
@@ -123,7 +132,7 @@ export async function ensureStaffCalendars(
     )
     .onConflictDoNothing();
 
-  return listStaffCalendars(locationId);
+  return listStaffCalendars(locationId, visibleBranchIds);
 }
 
 /** One calendar, scoped to the school. Null when it belongs to somebody else. */
@@ -326,6 +335,26 @@ export async function staffHolidayDates(
  * a school-wide caller changes it. Tenancy is already settled by the time this
  * runs: the calendar was read with the caller's `locationId`.
  */
+/**
+ * Whether a caller may **read** this calendar — the same rule
+ * `listStaffCalendars` filters on, in one place so the list and the detail
+ * cannot drift apart.
+ *
+ * A school-wide calendar stays visible to a campus-bound reader, exactly as a
+ * school-wide holiday does: it is the pair their own campus falls back to, so
+ * hiding it would hide the days they are actually shut.
+ *
+ * QA round 2, N1. The override GET checked the tenant and stopped there, so a
+ * campus-bound HR manager could read another campus's overrides by id — and the
+ * ids were handed to them, because `ensureStaffCalendars` returned the whole
+ * school's list. The write side was guarded from the start; this is the read.
+ */
+export function calendarIsVisible(scope: BranchScope, branchId: string | null): boolean {
+  if (!scope.bound) return true;
+  if (branchId === null) return true;
+  return (scope.branchIds ?? []).includes(branchId);
+}
+
 export function calendarWriteRefusal(scope: BranchScope, branchId: string | null): string | null {
   if (!scope.bound) return null;
   if (branchId === null) {

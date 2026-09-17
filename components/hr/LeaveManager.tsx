@@ -136,6 +136,16 @@ export function LeaveManager({ canManage, canApprove }: LeaveManagerProps) {
   const [draft, setDraft] = useState<RequestDraft | null>(null);
   const [typeDraft, setTypeDraft] = useState<TypeDraft | null>(null);
   const [error, setError] = useState<string | null>(null);
+  /**
+   * A refusal of the *file-a-request form*, rendered beside its button.
+   *
+   * QA round 2, N2: a 409 overlap or a 422 quota went to `error` at the top
+   * of the page, measured 552px above the viewport while the button sat at
+   * 396 — so the clerk saw nothing change and pressed it again. The holiday
+   * case was masked because `holidayProblem` already paints beside the
+   * button; the refusals with no client-side preview had nothing.
+   */
+  const [fileError, setFileError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [pending, setPending] = useState(true);
@@ -186,14 +196,21 @@ export function LeaveManager({ canManage, canApprove }: LeaveManagerProps) {
     void load();
   }, [load]);
 
-  const run = async (key: string, work: () => Promise<void>, failure: string): Promise<void> => {
+  const run = async (
+    key: string,
+    work: () => Promise<void>,
+    failure: string,
+    /** Where a refusal is shown. Defaults to the banner at the top of the page. */
+    report: (message: string) => void = setError,
+  ): Promise<void> => {
     setBusy(key);
     setError(null);
+    setFileError(null);
     setNotice(null);
     try {
       await work();
     } catch (caught) {
-      setError(schoolErrorMessage(caught, failure));
+      report(schoolErrorMessage(caught, failure));
     } finally {
       setBusy(null);
     }
@@ -258,7 +275,7 @@ export function LeaveManager({ canManage, canApprove }: LeaveManagerProps) {
   const file = (): Promise<void> => {
     if (draft === null) return Promise.resolve();
     if (draft.staffId === '' || draft.leaveTypeId === '') {
-      setError('Choose a staff member and a leave type.');
+      setFileError('Choose a staff member and a leave type.');
       return Promise.resolve();
     }
 
@@ -283,6 +300,7 @@ export function LeaveManager({ canManage, canApprove }: LeaveManagerProps) {
         await load();
       },
       'Could not file the leave request.',
+      setFileError,
     );
   };
 
@@ -439,12 +457,18 @@ export function LeaveManager({ canManage, canApprove }: LeaveManagerProps) {
             title="Leave types"
             description="Whether a head is paid decides if approving it costs the teacher money. Retiring one stops it being offered and keeps every request made under it."
             action={
+              // `shrink-0` and `whitespace-nowrap` together — QA round 2, N3.
+              // CardTitle lays the action out beside the description with no
+              // `flex-shrink` of its own, so at 1024px this button was 83px
+              // wide around a 46px-tall label and read "leave"; at 375px it
+              // was three lines deep and overlapped Seed defaults.
               canManage ? (
-                <div className="flex flex-wrap gap-2">
+                <div className="flex shrink-0 flex-wrap gap-2">
                   {missingDefaults.length > 0 ? (
                     <Button
                       size="sm"
                       variant="secondary"
+                      className="whitespace-nowrap"
                       isLoading={busy === 'seed'}
                       onClick={() => {
                         void seed();
@@ -456,6 +480,7 @@ export function LeaveManager({ canManage, canApprove }: LeaveManagerProps) {
                   {typeDraft === null ? (
                     <Button
                       size="sm"
+                      className="whitespace-nowrap"
                       onClick={() => {
                         setTypeDraft(EMPTY_TYPE);
                       }}
@@ -619,6 +644,7 @@ export function LeaveManager({ canManage, canApprove }: LeaveManagerProps) {
               value={draft.staffId}
               onChange={(event) => {
                 setError(null);
+                setFileError(null);
                 setDraft({ ...draft, staffId: event.target.value });
               }}
             />
@@ -639,6 +665,7 @@ export function LeaveManager({ canManage, canApprove }: LeaveManagerProps) {
               value={draft.startDate}
               onChange={(event) => {
                 setError(null);
+                setFileError(null);
                 setDraft({ ...draft, startDate: event.target.value, totalDays: '' });
               }}
             />
@@ -648,6 +675,7 @@ export function LeaveManager({ canManage, canApprove }: LeaveManagerProps) {
               value={draft.endDate}
               onChange={(event) => {
                 setError(null);
+                setFileError(null);
                 setDraft({ ...draft, endDate: event.target.value, totalDays: '' });
               }}
             />
@@ -684,6 +712,15 @@ export function LeaveManager({ canManage, canApprove }: LeaveManagerProps) {
             </p>
           )}
 
+          {fileError === null ? null : (
+            <p
+              role="alert"
+              className="mt-3 rounded-lg bg-status-danger-subtle px-3 py-2 text-sm text-status-danger-ink"
+            >
+              {fileError}
+            </p>
+          )}
+
           <div className="mt-4 flex gap-3">
             <Button
               isLoading={busy === 'file'}
@@ -699,6 +736,7 @@ export function LeaveManager({ canManage, canApprove }: LeaveManagerProps) {
               onClick={() => {
                 setDraft(null);
                 setError(null);
+                setFileError(null);
               }}
             >
               Cancel

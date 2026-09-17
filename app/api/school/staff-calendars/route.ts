@@ -79,6 +79,9 @@ export const POST = withSchoolAuth(
             auth.locationId,
             branchId,
             await schoolUserIdForUid(auth.locationId, auth.uid),
+            // What this caller may see, not what the school has — the answer
+            // goes straight onto their screen. QA round 2, N1.
+            effectiveBranchIds(scope),
           ),
         },
         201,

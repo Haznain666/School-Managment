@@ -115,6 +115,16 @@ export function LeaveSelfService() {
   const [pending, setPending] = useState(true);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  /**
+   * A refusal of *this form*, rendered beside the Apply button.
+   *
+   * QA round 2, N2: every refusal used to go to `error` at the top of the
+   * page, which measured 285px above the viewport with Apply still on
+   * screen — so a 409 or a 422 looked like nothing happening, and the
+   * obvious response is to press Apply again. `error` keeps the failures
+   * that are about the page rather than the form: loading, and withdrawing.
+   */
+  const [applyError, setApplyError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
   const load = useCallback(async () => {
@@ -163,15 +173,16 @@ export function LeaveSelfService() {
   const apply = async (): Promise<void> => {
     const rangeProblem = spanProblem(draft.startDate, draft.endDate);
     if (rangeProblem !== null) {
-      setError(rangeProblem);
+      setApplyError(rangeProblem);
       return;
     }
     if (draft.leaveTypeId === '') {
-      setError('Choose which leave this is.');
+      setApplyError('Choose which leave this is.');
       return;
     }
 
     setBusy('apply');
+    setApplyError(null);
     setError(null);
     setNotice(null);
 
@@ -197,7 +208,7 @@ export function LeaveSelfService() {
       );
       await load();
     } catch (caught) {
-      setError(schoolErrorMessage(caught, 'Could not apply for leave.'));
+      setApplyError(schoolErrorMessage(caught, 'Could not apply for leave.'));
     } finally {
       setBusy(null);
     }
@@ -328,6 +339,7 @@ export function LeaveSelfService() {
             onChange={(event) => {
               // A refusal about the old dates is not about these. QA round 1, F5.
               setError(null);
+              setApplyError(null);
               setDraft({ ...draft, startDate: event.target.value, totalDays: '' });
             }}
           />
@@ -337,6 +349,7 @@ export function LeaveSelfService() {
             value={draft.endDate}
             onChange={(event) => {
               setError(null);
+              setApplyError(null);
               setDraft({ ...draft, endDate: event.target.value, totalDays: '' });
             }}
           />
@@ -361,6 +374,15 @@ export function LeaveSelfService() {
         {preview === null ? null : (
           <p className="mt-3 rounded-lg bg-status-warning-subtle px-3 py-2 text-sm text-status-warning-ink">
             {preview}
+          </p>
+        )}
+
+        {applyError === null ? null : (
+          <p
+            role="alert"
+            className="mt-3 rounded-lg bg-status-danger-subtle px-3 py-2 text-sm text-status-danger-ink"
+          >
+            {applyError}
           </p>
         )}
 
