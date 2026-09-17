@@ -174,7 +174,18 @@ function afterMigration(applied: boolean, expected: string) {
   };
 }
 
-const source = (path: string): string => readFileSync(path, 'utf8');
+/**
+ * Source text, always LF.
+ *
+ * The repository is developed on Windows with `core.autocrlf=true`, so the
+ * working tree is CRLF and git stores LF. A pattern anchored on `\n` therefore
+ * matches in one checkout and silently matches **nothing** in another —
+ * `scripts/check-branch-scope.ts` normalises for the same reason and its
+ * docblock records the cost. Found here when QA round 1's F5 assertion passed
+ * in the build agent's worktree and failed in the session's.
+ */
+const source = (path: string): string =>
+  readFileSync(path, 'utf8').split('\r\n').join('\n');
 
 async function main(): Promise<void> {
   /* ══════════════════════════════════════════════ part one: the rules */
