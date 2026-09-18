@@ -338,8 +338,11 @@ the seniority order including `section_head`).
 
 ## Part C — the portal work
 
-**Migration:** `0048` if the timetable history needs one (see C1); otherwise
-none.
+**Migration:** ~~`0048`~~ **`0049`**. Corrected 2026-09-18: `0047` and `0048`
+are Part B's and both are applied to the live database. The timetable history
+*did* need one, and it also carries the substitutions table and the permission
+CHECK — `db/migrations/0049_sprint33c_portal_work.sql`. See `STATE.md` §5ci,
+which is the truth; this file is the plan.
 
 ### C1. A parent sees their child's timetable
 

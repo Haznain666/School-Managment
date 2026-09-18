@@ -232,3 +232,10 @@ export * from './staff-kpis';
 export * from './section-head-coordinators';
 export * from './staff-calendars';
 export * from './branch-leave-settings';
+
+// Sprint 33c — one day's cover. Exported last because it references
+// `timetable-entries`, `sections`, `timetable-slots` and `school-users`, all of
+// which are above. It is deliberately *not* beside `timetable-entries`: a
+// substitution is not a timetable change, and keeping the two apart in this
+// file is the cheapest reminder of that there is.
+export * from './timetable-substitutions';

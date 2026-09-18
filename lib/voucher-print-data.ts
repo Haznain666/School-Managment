@@ -1,6 +1,7 @@
 import 'server-only';
 
 import type { ChallanPrintData } from '@/components/fees/ChallanPrintView';
+import { PAYMENT_METHOD_LABELS } from '@/db/schema/fee-payments';
 
 import { listVoucherBankAccounts } from './bank-accounts';
 import { calculateLateFee, parseDateOnly } from './fee-calculator';
@@ -76,6 +77,48 @@ export async function buildVoucherPrintData(
       ? null
       : calculateLateFee(challan.dueDate, lateFeeRule, parseDateOnly(addDays(challan.dueDate, graceDays + 1)));
 
+  return assemble(challan, {
+    logoUrl: options.logoUrl,
+    validUpto,
+    // Null means "print no after-due-date row at all". Zero would be a row.
+    lateFeeAfterDueDate:
+      lateFeeAfterDueDate === null || lateFeeAfterDueDate <= 0
+        ? null
+        : lateFeeAfterDueDate.toFixed(2),
+    banks: banks.map((bank) => ({
+      id: bank.id,
+      bankName: bank.bankName,
+      accountTitle: bank.accountTitle,
+      accountNumber: bank.accountNumber,
+      branchNameOfBank: bank.branchNameOfBank,
+      branchCode: bank.branchCode,
+      iban: bank.iban,
+      swiftCode: bank.swiftCode,
+      bankAddress: bank.bankAddress,
+      intermediaryBank: bank.intermediaryBank,
+      intermediarySwift: bank.intermediarySwift,
+      currency: bank.currency,
+      instructions: bank.instructions,
+    })),
+  });
+}
+
+/**
+ * The half of a printed fee document that is the same on both of them.
+ *
+ * Sprint 33c pulled this out of `buildVoucherPrintData` so that the receipt
+ * could reuse it without either re-reading the bank accounts it does not print
+ * or re-spreading `ChallanDetail` by hand — which is the thing the docblock
+ * above exists to stop happening a fourth time. Everything that *differs*
+ * between the two documents is an argument.
+ */
+function assemble(
+  challan: ChallanDetail,
+  parts: Pick<
+    ChallanPrintData,
+    'logoUrl' | 'validUpto' | 'lateFeeAfterDueDate' | 'banks'
+  >,
+): ChallanPrintData {
   return {
     challanNumber: challan.challanNumber,
     schoolName: challan.schoolName,
@@ -98,35 +141,86 @@ export async function buildVoucherPrintData(
     academicYearName: challan.academicYearName,
     issueDate: challan.issueDate,
     dueDate: challan.dueDate,
-    validUpto,
+    validUpto: parts.validUpto,
     subtotal: challan.subtotal,
     concessionAmount: challan.concessionAmount,
     creditApplied: challan.creditApplied,
     lateFeeAmount: challan.lateFeeAmount,
-    // Null means "print no after-due-date row at all". Zero would be a row.
-    lateFeeAfterDueDate:
-      lateFeeAfterDueDate === null || lateFeeAfterDueDate <= 0
-        ? null
-        : lateFeeAfterDueDate.toFixed(2),
+    lateFeeAfterDueDate: parts.lateFeeAfterDueDate,
     totalAmount: challan.totalAmount,
     paidAmount: challan.paidAmount,
     items: challan.items,
-    banks: banks.map((bank) => ({
-      id: bank.id,
-      bankName: bank.bankName,
-      accountTitle: bank.accountTitle,
-      accountNumber: bank.accountNumber,
-      branchNameOfBank: bank.branchNameOfBank,
-      branchCode: bank.branchCode,
-      iban: bank.iban,
-      swiftCode: bank.swiftCode,
-      bankAddress: bank.bankAddress,
-      intermediaryBank: bank.intermediaryBank,
-      intermediarySwift: bank.intermediarySwift,
-      currency: bank.currency,
-      instructions: bank.instructions,
-    })),
-    logoUrl: options.logoUrl,
+    banks: parts.banks,
+    logoUrl: parts.logoUrl,
+  };
+}
+
+/**
+ * The receipt for a voucher that has been paid, in whole or in part.
+ * Sprint 33c, C2.
+ *
+ * ── Why this sits beside `buildVoucherPrintData` and not in a new module ──
+ * Same reason that one exists. Three screens print a fee document — the
+ * parent's portal, the admin detail page and the bulk run — and the moment one
+ * of them assembles it by hand the three drift, which is precisely the defect
+ * Sprint 20 spent an afternoon undoing. The receipt now has the same property:
+ * one helper, three callers, and nothing to keep in step.
+ *
+ * ── What it is NOT ───────────────────────────────────────────────────────
+ * It is not the voucher with a different word at the top. Sprint 20's decision
+ * that a paid slip must not read as a demand stands and is what `kind` on
+ * `ChallanPrintData` enforces: **no bank block** — account numbers under the
+ * word RECEIPT read as a second request for the money — and **no "valid upto"**,
+ * because there is no last day on which a settled figure is what is owed.
+ *
+ * ── It refuses to build a receipt for an unpaid voucher ──────────────────
+ * Null, rather than a document reading "Total received: 0.00". A receipt for
+ * nothing is the mirror of the demand-for-a-settled-bill this whole decision
+ * exists to prevent: it is a piece of school stationery saying money changed
+ * hands when it did not. The callers render nothing and offer no button.
+ *
+ * `partial` is deliberately included. A parent who has paid half has had half
+ * their money taken and is entitled to the record of it — and the two documents
+ * are then both offered, one for what is still owed and one for what has been
+ * received, which is the honest description of that voucher.
+ *
+ * ── Outstanding is not computed here ─────────────────────────────────────
+ * The printed "Outstanding" line is a literal zero in the component. That is
+ * not a rounding shortcut: on a `partial` voucher the outstanding balance
+ * belongs on the *voucher*, which is the document that asks for it. A receipt
+ * says what was received, and the amount received is outstanding against
+ * nothing.
+ */
+export function buildReceiptPrintData(
+  challan: ChallanDetail,
+  options: { logoUrl: string | null },
+): ChallanPrintData | null {
+  if (challan.status !== 'paid' && challan.status !== 'partial') return null;
+  if (challan.payments.length === 0) return null;
+
+  return {
+    ...assemble(challan, {
+      logoUrl: options.logoUrl,
+      // A receipt carries no bank block and no after-due-date figure, and
+      // neither is reachable by a caller passing the wrong options. It is also
+      // why this function is synchronous: the only read `buildVoucherPrintData`
+      // makes is for the accounts a receipt does not print.
+      banks: [],
+      validUpto: null,
+      lateFeeAfterDueDate: null,
+    }),
+    kind: 'receipt',
+    // Oldest first: a parent reading three visits wants them in the order they
+    // happened, and `ChallanPrintView` takes the **last** one as "Paid on".
+    payments: [...challan.payments]
+      .sort((left, right) => left.paymentDate.localeCompare(right.paymentDate))
+      .map((payment) => ({
+        id: payment.id,
+        paymentDate: payment.paymentDate,
+        amount: payment.amount,
+        method: PAYMENT_METHOD_LABELS[payment.paymentMethod],
+        referenceNumber: payment.referenceNumber,
+      })),
   };
 }
 

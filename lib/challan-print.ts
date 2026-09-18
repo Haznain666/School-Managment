@@ -28,7 +28,22 @@
  */
 export const MAX_PRINTABLE_CHALLANS = 200;
 
+/**
+ * Which document a bulk run prints.
+ *
+ * Sprint 33c. One run, one kind — never a mixture. A stack in which some
+ * sheets are demands and some are receipts is a stack nobody can hand out, and
+ * the person sorting it has to read every one to know which is which. The
+ * filters on the list already separate open vouchers from settled ones, so a
+ * school prints one run of each rather than one run of both.
+ */
+export type BulkPrintDocument = 'voucher' | 'receipt';
+
 /** The bulk print URL for a set of challan ids. */
-export function challanPrintHref(ids: readonly string[]): string {
-  return `/dashboard/fees/challans/print?ids=${ids.join(',')}`;
+export function challanPrintHref(
+  ids: readonly string[],
+  document: BulkPrintDocument = 'voucher',
+): string {
+  const suffix = document === 'receipt' ? '&document=receipt' : '';
+  return `/dashboard/fees/challans/print?ids=${ids.join(',')}${suffix}`;
 }

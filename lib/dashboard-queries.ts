@@ -44,6 +44,7 @@ import {
 import { toDateOnly } from './fee-queries';
 import { percentageOf, resolveBand, toMark, type ResolvedBand } from './grading';
 import { toPaise } from './money';
+import { liveTimetableEntries } from './timetable-history';
 
 /**
  * The aggregate reads behind the dashboard charts.
@@ -1802,6 +1803,8 @@ async function timetableCoverage(
       and(
         eq(timetableEntries.sectionId, sections.id),
         eq(timetableEntries.isActive, true),
+        // Sprint 33c: the version in force today. `lib/timetable-history.ts`.
+        liveTimetableEntries(),
       ),
     )
     .where(and(eq(sections.locationId, locationId), eq(sections.isActive, true)));

@@ -40,8 +40,22 @@ Campus, and Farah Siddiqui, Rukhsana Bano and Tariq Jameel are Section Heads.
 **QA has been driven in a browser twice against the live build.** Round 1's
 F1–F5 are fixed and re-proved; round 2 found three more — N1, a campus-bound
 HR manager able to **read** another campus's staff calendar, and two screen
-faults — and all three are fixed. **`0049` is the next free migration
-number** (Part C).
+faults — and all three are fixed.
+
+📋 **Part C is built and not yet merged, migrated or QA'd — §5ci.** The parent
+timetable and the end of history being rewritten, the receipt, the recipient
+picker and the substitutes panel, on
+`feature/sprint-33c-portal-work`. Migration **`0049`**, **not applied**.
+**`0050` is the next free migration number.** Every gate was run and is green,
+including a new `check-sprint33c` — **93 passed, 0 failed** — which executes
+every widened statement against the real schema and predicts the exact
+SQLSTATE each one fails with while `0049` is pending. **No browser QA.**
+
+⚠ **`0049` has no ordering trap, and that is worth stating because Part B's
+did.** Apply `0049`, then deploy the code. Nothing in it depends on data,
+nothing in it narrows anything, and the old code running against the new schema
+behaves identically — it simply never selects the new columns. The preference
+for migration-first is only that the new code's reads name `effective_from`.
 
 ⚠ **The deploy order mattered and is worth keeping**: `0047` → code →
 `scripts/apply-sprint33b-data.mjs --apply` → `0048`. The role CHECK has to widen
@@ -12777,6 +12791,176 @@ days, per person, with the date in hand.
    need a line in `noticeHrefFor`.
 
 ---
+
+## 5ci. Sprint 33 **Part C** built — the portal work — 2026-09-18
+
+Built on `feature/sprint-33c-portal-work`, off `main` at `8c0bc0c`. The spec is
+`SPRINT-33-SPEC.md` Part C; §5cf is the round's handover entry, §5cg is Part A
+and §5ch is Part B, both of which are live. Migration **`0049`**, **not
+applied**.
+
+⚠ **The migration number is `0049`, not the `0048` the spec names.** `0047` and
+`0048` are Part B's and both are applied. This is settled and is not to be
+re-litigated.
+
+### What was built
+
+| Item | Where |
+| --- | --- |
+| C1a the parent's timetable | `app/(parent)/parent/timetable/{page,loading}.tsx`; the entry in `components/parent/parent-nav.ts` between Results and Fees |
+| C1b history stops being rewritten | `effective_from` / `effective_to` on `timetable_entries`; `lib/timetable-history.ts` (`liveTimetableEntries`, `timetableToday`, `supersededOn`); the supersede in `POST /api/school/timetable/entries`; the live filter in `academics-queries`, `chat-queries`, `dashboard-queries`, `exam-queries`, `kpi-access`, `kpi-board`, `report-queries` and `teacher-calendar` |
+| C2 the receipt | `buildReceiptPrintData` + the extracted `assemble()` in `lib/voucher-print-data.ts`; `kind` / `payments` on `ChallanPrintData`; `components/fees/ChallanPrintChoice.tsx`; both fee screens, the bulk run and the vouchers list |
+| C3 the recipient picker | `role` + `branchName` on `ReachableTarget`; `withBranchNames`, `studentContextFor`, `childrenOfParents` in `lib/chat-queries.ts`; chips, search and the cleared-selection guard in `components/chat/ChatWorkspace.tsx` |
+| C4 substitutes | `db/schema/timetable-substitutions.ts`; `lib/teacher-availability.ts`; `lib/substitute-notifier.ts`; `GET`/`POST /api/school/timetable/substitutes`; `components/academics/SubstitutePanel.tsx` on `/dashboard`; the `timetable.substitute` key |
+
+### 🔴 The unique index was the trap, and it is the whole of C1's risk
+
+`timetable_entries_location_section_slot_day_idx` was
+`UNIQUE (location_id, section_id, slot_id, day_of_week)` over the whole table.
+**Superseding writes a second row for the same cell** — that is what
+superseding is — so with the index as it stood the very first teacher change at
+every school would have been a `23505` on a form that has never failed.
+
+`0049` drops it and re-creates it **partial**, over the live rows only:
+`WHERE "effective_to" IS NULL AND "is_active"`. Two consequences that must not
+drift:
+
+- the predicate has to stay identical to the one the reads filter on
+  (`liveTimetableEntries`), or the index constrains a set the queries do not
+  draw and a duplicate lesson appears with nothing refusing it;
+- **`ON CONFLICT` cannot infer a partial index** unless the statement repeats
+  the predicate. The insert passes it as `targetWhere`. Without that the
+  statement does not lose its fallback, it **fails outright** — and only on the
+  path nothing tests.
+
+### The decisions that should not be re-litigated
+
+- **The boundary is a whole day.** A superseded row closes on
+  `CURRENT_DATE - 1` and its replacement opens on `CURRENT_DATE`. Sharing the
+  boundary date would make both live on it and draw the cell twice.
+- **A version that has not survived a day is corrected, not superseded.**
+  `effective_from >= today` means the clerk placed the wrong teacher ten minutes
+  ago. A history made of ten-minute versions is a history nobody reads.
+- **A subject change supersedes as well as a teacher change.** The spec named
+  only the teacher; both are facts about what happened in that room last
+  Tuesday. A **room** is not — it is where the same lesson sat, and correcting
+  it is a correction.
+- **`effective_from` defaults to `CURRENT_DATE`, which is the date the migration
+  runs and not the date the lesson was first scheduled.** The product has never
+  recorded the second. Back-dating every row to the start of the academic year
+  would assert something no column has ever known.
+- **`lib/payroll-approval.ts` is deliberately untouched**, per the sprint's own
+  "what this does not do". It therefore reads *both* versions of a superseded
+  cell. Nothing is wrong today — no row is superseded — and it is named here as
+  an open item rather than fixed quietly inside a sprint that was told not to.
+- **A substitution is for one date and never touches `timetable_entries`.**
+  Cover written into the grid is cover for every Tuesday until somebody notices,
+  and since `0049` it would also open a new version of the cell. `cover_date` is
+  NOT NULL, `check-sprint33c` asserts the route contains no write to
+  `timetable_entries`, and `original_teacher_id` is **recorded** rather than
+  re-derived — re-deriving it months later would answer with whoever takes the
+  period now, which is the defect `0049` exists to close.
+- **Arranging cover is a permission key, not a role list.** `timetable.substitute`,
+  with `0049` widening `role_permissions_permission_check`. The spec's four
+  roles are the default; the **Branch Admin is deliberately not one of them** —
+  a campus office runs the campus, and deciding a named teacher loses their free
+  period tomorrow is an academic call one toggle away.
+- **The reach is `lib/approval-chain.ts`, not a second resolver.** A coordinator
+  reaches their own teachers, a section head their coordinators'. It follows
+  that the caller is **not** in their own candidate list: `decisionRefusal`
+  refuses a person over themselves and that rule is not weakened for one screen.
+- **Leave is read through `listLeaveForSchool`, not `getTeacherCalendar`.** The
+  second is per teacher and makes three reads each; forty teachers on one date
+  is a hundred and twenty round trips for a panel. Same table, same window
+  semantics, no second reader either way.
+- **Only one `PrintSheet` is ever mounted.** A sheet is hidden on screen and
+  revealed by `@media print`, so two on a page put a demand *and* a receipt on
+  the paper of anybody pressing Ctrl+P — and Ctrl+P is not a button anybody can
+  gate. `ChallanPrintChoice` is three exports rather than one component for a
+  second reason: the screen tree carries `print:hidden`, which is `display:
+  none` at print time, and a `display: none` ancestor defeats the
+  `visibility: visible` the sheet relies on (§5bd's blank voucher). The buttons
+  go inside that tree, the sheet outside it, and a provider keeps them agreeing.
+- **A receipt refuses to exist for a voucher no money has been taken against.**
+  Null, not a document reading "Total received: 0.00" — the mirror of the
+  demand-for-a-settled-bill this decision exists to prevent.
+- **A desk has no role.** `ReachableTarget.role` is nullable and an inbox
+  carries null. Labelling the Accounts Office `accountant` would put a guess on
+  a chip somebody then filters by; at most schools all four desks are answered
+  by the school administrator.
+- **The reachable route still takes no search term.** Its docblock says at
+  length that it is not a directory, and that property is load-bearing. The
+  search filters **client-side** over the list the server already derived for
+  that one caller.
+- **A recipient filtered away is cleared.** Without it the composer keeps a
+  hidden selection: the `<select>` shows "Choose…" and the send posts to whoever
+  was picked before the filter changed — somebody written to by name whose name
+  nobody read on screen.
+
+### Evidence — every gate was run, and this is the real output
+
+- `typecheck` 0 errors; `lint` 0 warnings; `build` green (exit 0).
+- The ten CI checks: `check-loaders` 325, `check-import-sample` 25,
+  `check-forms` 98, `check-address-phone` 50, `check-cnic` 36,
+  `check-currency` 7, `check-theme` 7 palettes, `check-sprint-periods` 107,
+  `check-accounting` 121, **`check-branch-scope` 1,774** — all pass.
+- **`check-sprint33c` (new): 93 passed, 0 failed.** Six statements over
+  existing tables execute; fourteen fail with exactly `42703` and three with
+  `42P01` or `42703`, which is the predicted state while `0049` is unapplied.
+- `check-portals` PASS — 18 of 22 executed, **4 reported as predicted `42703`
+  waiting on `0049`**; `check-sprint33a` 53/0 and `check-sprint33b` 145/0, both
+  after the repairs below.
+
+### Three older checks had to be repaired, and two of the repairs are the same one again
+
+- **`check-sprint33b` named `0047` by filename** when asking *"does the CHECK
+  admit every permission key"*. `0049` is now the authority for
+  `role_permissions_permission_check`, so it reported `timetable.substitute` as
+  missing from a file that no longer enforces anything. It now **looks the
+  migration up** — the newest one containing
+  `ADD CONSTRAINT "role_permissions_permission_check"` — which is exactly what
+  `check-sprint32` and `check-branch-scope` were taught in Part B, for exactly
+  the same reason. **Three times now.** The roles are still read from `0047`,
+  correctly: nothing since has touched `school_users_role_check`.
+- **`check-sprint33a` and `check-portals`** execute timetable reads that now
+  name `effective_from`. Both were taught to read the catalogue and accept
+  **exactly** `42703` naming one of the two new columns while `0049` is
+  pending, and nothing else. `check-portals` needed the cause-chain trap spelled
+  out a second time: postgres-js's outer message is "Failed query: …" plus the
+  SQL, which *contains* `"effective_from"` quoted — so matching the outer
+  message would have accepted a query that failed for any other reason.
+
+### What is still open
+
+- **`0049` is not applied.** That is `sprint-devops`. Until then every timetable
+  screen throws — the four `check-portals` entries above are the same statements
+  — so the deploy order is **migration first, then code**.
+- **No browser QA.** Nothing here has been exercised against a real session.
+  The three that need it most: a teacher change on a live grid, then reading the
+  parent's timetable and confirming the *old* teacher is still attached to
+  nothing and the cell is not doubled; a part-paid voucher offering both
+  documents and Ctrl+P producing exactly one; and a Coordinator arranging cover
+  and the teacher receiving both the bell entry and the chat message.
+- **`lib/payroll-approval.ts` does not filter on the live version**, by
+  instruction. It is harmless until the first supersede and wrong afterwards.
+  Fold it into whichever sprint is allowed to touch payroll approval.
+- **`resolveTeacherPrincipals` and `subjectAttendance` are not executed by
+  `check-sprint33c`** — the first writes, the second is private behind
+  `runReport`. Both carry the same one-line predicate as the twelve statements
+  that are executed, and `check-dashboard` / `check-reports` run them for real.
+- **`getTeacherCalendar` is not exercised** either: it reads the teacher row
+  first and returns null for a tenant that owns none, so it never reaches its
+  timetable join. Reported as *not exercised* rather than passed.
+- **Nothing reads the history.** There is no history view (decision 9) and the
+  `timetable_entries_history_idx` exists for the support question nobody has
+  asked yet. If one is ever wanted, the rows are there and correct from the day
+  `0049` runs — but nothing before it, which is the honest limit.
+- **A substitution has no screen of its own and no cancel.** The panel shows
+  the cover arranged against each period and re-arranging it replaces it; there
+  is no "cancel this cover" and no list of tomorrow's substitutions. Both are
+  obvious next steps and neither was in Part C.
+- **`components/fees/PrintButton.tsx` was deleted** — its only caller was the
+  parent fees page, which now uses `ChallanPrintButtons`.
 
 ## 5ch. Sprint 33 **Part B** built — the Section Head, the chain of command and HR leave — 2026-09-16
 

@@ -43,6 +43,7 @@ import {
 } from './accounting';
 import { db } from './drizzle';
 import { fromPaise, toPaise } from './money';
+import { liveTimetableEntries } from './timetable-history';
 import {
   foldStudentTotals,
   readExamMarks,
@@ -371,6 +372,8 @@ async function subjectAttendance(
         eq(timetableEntries.locationId, scope.locationId),
         eq(timetableEntries.sectionId, studentEnrollments.sectionId),
         eq(timetableEntries.isActive, true),
+        // Sprint 33c: the version in force today. `lib/timetable-history.ts`.
+        liveTimetableEntries(),
         sql`${timetableEntries.dayOfWeek} = extract(isodow from ${attendanceRecords.date})::int - 1`,
       ),
     )

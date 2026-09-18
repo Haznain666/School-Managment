@@ -9,6 +9,7 @@ import { Input } from '@/components/ui/Input';
 import { Textarea } from '@/components/ui/Textarea';
 import { schoolErrorMessage, schoolFetch } from '@/lib/school-client';
 import { cn } from '@/lib/utils';
+import { ROLE_LABELS, type UserRole } from '@/types/school-auth';
 
 import { ChatNotificationControls } from './ChatNotificationControls';
 import { useChatSignals } from './ChatStreamProvider';
@@ -79,6 +80,48 @@ export interface ReachableTarget {
   id: string;
   name: string;
   detail: string;
+  /** Sprint 33c. Null for a desk — it is not a role and is not held by one. */
+  role: UserRole | null;
+  /** Null means the whole school, as `branch_id` has since Sprint 19a. */
+  branchName: string | null;
+}
+
+/** The chip a target sits under. A desk is its own group, not a role. */
+const DESK_GROUP = 'inbox';
+
+function groupOf(target: ReachableTarget): string {
+  return target.kind === 'inbox' ? DESK_GROUP : (target.role ?? 'other');
+}
+
+function groupLabel(group: string): string {
+  if (group === DESK_GROUP) return 'School offices';
+  if (group === 'other') return 'Other';
+  return ROLE_LABELS[group as UserRole] ?? group.replace(/_/g, ' ');
+}
+
+/**
+ * Does this target match what was typed? Sprint 33c, C3.
+ *
+ * Over the **name, the detail and the campus** — because the detail is now the
+ * thing a person actually remembers. A teacher looking for a father types the
+ * child's name, not the father's; a head looking for a pupil types "5 A". Both
+ * of those are in `detail` and neither is in `name`.
+ *
+ * Client-side, over a list the server already derived for this one caller.
+ * `GET /api/school/chat/reachable` takes no search term and its docblock says
+ * at length why — it is not a directory, it answers for the caller and nobody
+ * else — and adding a query parameter would turn it into one. The list is small
+ * by construction for a parent and a pupil, and for staff it is the school's
+ * own directory, which they already have on the users screen.
+ */
+function matchesSearch(target: ReachableTarget, needle: string): boolean {
+  if (needle === '') return true;
+  const hay = `${target.name} ${target.detail} ${target.branchName ?? ''}`.toLowerCase();
+  return needle
+    .toLowerCase()
+    .split(/\s+/)
+    .filter((word) => word !== '')
+    .every((word) => hay.includes(word));
 }
 
 export interface ChatAttachmentRow {
@@ -139,6 +182,10 @@ export function ChatWorkspace({
   const [subject, setSubject] = useState('');
   const [composing, setComposing] = useState(false);
   const [targetKey, setTargetKey] = useState('');
+  // Sprint 33c. The two filters over the resolved list. `null` on the chip row
+  // means "everybody", which is a state and not the absence of one.
+  const [targetGroup, setTargetGroup] = useState<string | null>(null);
+  const [targetSearch, setTargetSearch] = useState('');
 
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -356,6 +403,73 @@ export function ChatWorkspace({
     () => conversations?.find((row) => row.conversationId === selectedId) ?? null,
     [conversations, selectedId],
   );
+
+  /*
+   * Sprint 33c, C3. The chips, in the order a school thinks of people.
+   *
+   * Derived from the list rather than from `USER_ROLES`, so a chip is never
+   * offered that would filter to nothing — a parent sees "Teacher" and "School
+   * offices" and nothing else, because that is all their list holds. The order
+   * is seniority-ish and stable; the desks go last, because they are not a
+   * kind of person.
+   */
+  const targetGroups = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const target of targets ?? []) {
+      const group = groupOf(target);
+      counts.set(group, (counts.get(group) ?? 0) + 1);
+    }
+
+    const order = [
+      'teacher',
+      'coordinator',
+      'section_head',
+      'vice_principal',
+      'principal',
+      'branch_admin',
+      'school_admin',
+      'hr_manager',
+      'accountant',
+      'marketing',
+      'student',
+      'parent',
+      'other',
+      DESK_GROUP,
+    ];
+
+    return [...counts.entries()]
+      .sort((left, right) => {
+        const byOrder = order.indexOf(left[0]) - order.indexOf(right[0]);
+        return byOrder === 0 ? left[0].localeCompare(right[0]) : byOrder;
+      })
+      .map(([group, total]) => ({ group, total }));
+  }, [targets]);
+
+  const visibleTargets = useMemo(
+    () =>
+      (targets ?? []).filter(
+        (target) =>
+          (targetGroup === null || groupOf(target) === targetGroup) &&
+          matchesSearch(target, targetSearch.trim()),
+      ),
+    [targets, targetGroup, targetSearch],
+  );
+
+  /*
+   * A chosen recipient who has been filtered away is cleared.
+   *
+   * Without this the composer keeps a hidden selection: the `<select>` shows
+   * "Choose…" because the option is gone, and the send button posts to whoever
+   * was picked before the filter changed. Somebody would be written to by name
+   * and nobody would have read their name on screen.
+   */
+  useEffect(() => {
+    if (targetKey === '') return;
+    if (visibleTargets.some((target) => `${target.kind}:${target.id}` === targetKey)) {
+      return;
+    }
+    setTargetKey('');
+  }, [visibleTargets, targetKey]);
 
   /**
    * Take a desk enquiry.
@@ -577,6 +691,62 @@ export function ChatWorkspace({
             <label className="block text-sm font-medium text-ink" htmlFor="chat-target">
               To
             </label>
+
+            {/*
+              Sprint 33c, C3. Chips and a search box over the list the server
+              already resolved for this caller.
+
+              ── Both are drawn only when there is something to filter ───────
+              A parent with two teachers and one open desk is handed a chip row
+              that is longer than the list beneath it, which is a control that
+              makes a short list harder to read. The thresholds below are the
+              smallest honest ones: more than one group is what a chip row is
+              *for*, and a handful of names needs no search.
+
+              ── An empty list still says the sentence it always said ────────
+              The `targets.length === 0` branch below is untouched. A pupil with
+              no live grant is the ordinary case, not a failure, and they must
+              read "you can reply to your teachers' messages" rather than an
+              empty chip row above an empty dropdown.
+            */}
+            {targets !== null && targets.length > 0 ? (
+              <>
+                {targetGroups.length > 1 ? (
+                  <div className="flex flex-wrap gap-1.5" role="group" aria-label="Filter by role">
+                    <FilterChip
+                      label={`All (${String(targets.length)})`}
+                      active={targetGroup === null}
+                      onClick={() => {
+                        setTargetGroup(null);
+                      }}
+                    />
+                    {targetGroups.map(({ group, total }) => (
+                      <FilterChip
+                        key={group}
+                        label={`${groupLabel(group)} (${String(total)})`}
+                        active={targetGroup === group}
+                        onClick={() => {
+                          setTargetGroup(targetGroup === group ? null : group);
+                        }}
+                      />
+                    ))}
+                  </div>
+                ) : null}
+
+                {targets.length > 8 ? (
+                  <Input
+                    label="Search"
+                    placeholder="A name, a class, or a child's name"
+                    value={targetSearch}
+                    onChange={(event) => {
+                      setTargetSearch(event.target.value);
+                    }}
+                    hint={`${String(visibleTargets.length)} of ${String(targets.length)}`}
+                  />
+                ) : null}
+              </>
+            ) : null}
+
             <select
               id="chat-target"
               value={targetKey}
@@ -586,9 +756,10 @@ export function ChatWorkspace({
               className="h-10 w-full rounded-input border border-line-strong bg-surface px-3 text-sm text-ink"
             >
               <option value="">Choose…</option>
-              {(targets ?? []).map((target) => (
+              {visibleTargets.map((target) => (
                 <option key={`${target.kind}:${target.id}`} value={`${target.kind}:${target.id}`}>
                   {target.name} — {target.detail}
+                  {target.branchName === null ? '' : ` · ${target.branchName}`}
                 </option>
               ))}
             </select>
@@ -597,6 +768,29 @@ export function ChatWorkspace({
               <p className="text-sm text-ink-muted">
                 There is nobody you can start a conversation with right now. You can
                 still reply to anything the school sends you.
+              </p>
+            ) : null}
+
+            {/*
+              The list is not empty, but the filters have emptied it. Said
+              separately from the sentence above, because they are different
+              facts: one is about the school, the other is about two controls
+              the reader has just used and can undo.
+            */}
+            {targets !== null && targets.length > 0 && visibleTargets.length === 0 ? (
+              <p className="text-sm text-ink-muted">
+                Nobody matches that.{' '}
+                <button
+                  type="button"
+                  className="font-medium text-brand-primary hover:underline"
+                  onClick={() => {
+                    setTargetGroup(null);
+                    setTargetSearch('');
+                  }}
+                >
+                  Clear the filters
+                </button>
+                .
               </p>
             ) : null}
 
@@ -785,5 +979,39 @@ export function ChatWorkspace({
         ) : null}
       </section>
     </div>
+  );
+}
+
+/**
+ * One role chip. Sprint 33c.
+ *
+ * A `<button>` with `aria-pressed`, not a checkbox dressed as a pill: a screen
+ * reader is told it is a toggle and told which way it is set, which is the
+ * whole accessibility content of a filter chip. Pressing the active one clears
+ * it — the same gesture in both directions, so nobody has to find "All" again.
+ */
+function FilterChip({
+  label,
+  active,
+  onClick,
+}: {
+  label: string;
+  active: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      aria-pressed={active}
+      onClick={onClick}
+      className={cn(
+        'rounded-full border px-2.5 py-1 text-xs font-medium transition-colors',
+        active
+          ? 'border-brand-primary bg-brand-primary text-brand-onPrimary'
+          : 'border-line bg-surface text-ink-muted hover:text-ink',
+      )}
+    >
+      {label}
+    </button>
   );
 }

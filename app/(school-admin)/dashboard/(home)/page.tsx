@@ -10,6 +10,7 @@ import {
   TrendingUp,
 } from 'lucide-react';
 
+import { SubstitutePanel } from '@/components/academics/SubstitutePanel';
 import { BarChart } from '@/components/charts/BarChart';
 import { DonutChart } from '@/components/charts/DonutChart';
 import { LineChart } from '@/components/charts/LineChart';
@@ -1206,6 +1207,26 @@ export default async function SchoolDashboardPage({
             )}
           </Card>
         </div>
+      ) : null}
+
+      {/*
+        Sprint 33c, C4. Cover for the day.
+
+        Below attendance because that is the sequence of the morning: the
+        register says who is not in, and the next question is who takes their
+        periods. It is a client island rather than a server read — it is three
+        dependent choices, none of which the page can know at render time, and
+        putting them in the URL would make every one of them a full page load.
+
+        Gated on the **permission**, never on a role list. The spec names the
+        Principal, Vice Principal, Section Head and Coordinator; those four are
+        the default for `timetable.substitute` in `DEFAULT_ROLE_PERMISSIONS`,
+        and a school that disagrees moves it on the permissions matrix. That is
+        this round's standing rule, and it is also what keeps this line in step
+        with the route, which enforces the same key.
+      */}
+      {moduleFlags.academics && permissions.includes('timetable.substitute') ? (
+        <SubstitutePanel />
       ) : null}
 
       {/*

@@ -1,8 +1,11 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
 
-import { ChallanPrintView } from '@/components/fees/ChallanPrintView';
-import { PrintButton } from '@/components/fees/PrintButton';
+import {
+  ChallanPrintButtons,
+  ChallanPrintProvider,
+  ChallanPrintSheet,
+} from '@/components/fees/ChallanPrintChoice';
 import { ChildSelector } from '@/components/parent/ChildSelector';
 import { Badge, type BadgeVariant } from '@/components/ui/Badge';
 import { Card, CardTitle } from '@/components/ui/Card';
@@ -36,7 +39,7 @@ import { requireSchoolRole } from '@/lib/school-guard';
 import { getSchoolUserByUid } from '@/lib/school-queries';
 import { getSchoolBranding } from '@/lib/school-tenant';
 import { isUuid } from '@/lib/validation';
-import { buildVoucherPrintData } from '@/lib/voucher-print-data';
+import { buildReceiptPrintData, buildVoucherPrintData } from '@/lib/voucher-print-data';
 
 export const metadata: Metadata = {
   title: 'Fees',
@@ -145,6 +148,9 @@ export default async function ParentFeesPage({
    * a paid slip is looking at history; printing it would hand them a demand for
    * money they have already paid, and a bank counter cannot tell the two apart.
    */
+  const logoUrl =
+    openChallan === null ? null : ((await getSchoolBranding(locationId))?.logoUrl ?? null);
+
   const printData =
     openChallan === null ||
     !(openChallan.status === 'unpaid' || openChallan.status === 'partial')
@@ -152,11 +158,26 @@ export default async function ParentFeesPage({
       : await buildVoucherPrintData(openChallan, {
           locationId,
           lateFeeRule: await getLateFeeRule(locationId),
-          logoUrl: (await getSchoolBranding(locationId))?.logoUrl ?? null,
+          logoUrl,
         });
 
+  /*
+   * The other half — Sprint 33c, C2.
+   *
+   * A paid slip must not read as a demand, and that is why `printData` above is
+   * built only for an open voucher. The missing piece was never the voucher: it
+   * was that a parent who has paid walks away with nothing. `buildReceiptPrintData`
+   * returns null for anything not yet paid, so this is `null` in exactly the
+   * cases where there is nothing to receipt, and a **partial** voucher carries
+   * both — the demand for what is still owed and the receipt for what has been
+   * taken. `ChallanPrintChoice` makes sure only one of them reaches the paper.
+   */
+  const receiptData =
+    openChallan === null ? null : buildReceiptPrintData(openChallan, { logoUrl });
+
   return (
-    <div className="space-y-6">
+    <ChallanPrintProvider voucher={printData} receipt={receiptData}>
+      <div className="space-y-6">
       <Heading />
 
       {/* The open challan is deliberately not carried across a child switch:
@@ -239,23 +260,30 @@ export default async function ParentFeesPage({
               </Table>
             </div>
 
-            <div className="mt-4 flex flex-wrap items-center gap-3">
-              <PrintButton label="Print this voucher" />
-              <p className="text-sm text-ink-muted">
-                Take the printed slip to your nearest bank branch to pay.
-              </p>
+            {/*
+              The buttons and the document, in one client island — see
+              `ChallanPrintChoice`. Two `PrintSheet`s on one page both reach the
+              paper on Ctrl+P, which on this page means a parent carrying a
+              demand and a receipt for the same money into a bank.
+
+              The documents themselves are the same ones the school prints,
+              assembled by the same helpers. Before Sprint 20 this page spread
+              `ChallanDetail` in by hand and would therefore have printed a slip
+              with no bank details on it while the school's own copy had them,
+              which is the worst possible place for the two to differ.
+            */}
+            <div className="mt-4 print:hidden">
+              <ChallanPrintButtons
+                hint={
+                  printData === null
+                    ? null
+                    : 'Take the printed slip to your nearest bank branch to pay.'
+                }
+              />
             </div>
           </Card>
 
-          {/*
-            The same document the school prints, assembled by the same helper
-            — bank block, NTN, valid-upto and both totals included. Before
-            Sprint 20 this page spread `ChallanDetail` in by hand and would
-            therefore have printed a slip with no bank details on it while the
-            school's own copy had them, which is the worst possible place for
-            the two to differ.
-          */}
-          {printData === null ? null : <ChallanPrintView data={printData} />}
+          <ChallanPrintSheet />
         </>
       )}
 
@@ -318,7 +346,8 @@ export default async function ParentFeesPage({
           </div>
         )}
       </Card>
-    </div>
+      </div>
+    </ChallanPrintProvider>
   );
 }
 

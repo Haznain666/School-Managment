@@ -103,6 +103,25 @@ export const PERMISSIONS = [
   'leave.request',
   'leave.approve',
   'leave.manage',
+  /*
+   * Sprint 33c — arranging cover. `0049` widens
+   * `role_permissions_permission_check`.
+   *
+   * ── Why it is not folded into `academics.write` ─────────────────────────
+   * `academics.write` is "build the timetable": a plan, made in advance, that
+   * anybody can look at before it binds anyone. Arranging a substitute is a
+   * different act — it commits a named colleague's Tuesday afternoon, this
+   * afternoon, and tells them so. A coordinator building next term's grid at
+   * half past four should not, by that fact alone, be able to put a teacher in
+   * a room tomorrow morning.
+   *
+   * It is also the round's standing rule applied honestly: **every
+   * approval-type or access setting is a permission key, never a hard-coded
+   * role list.** The spec names four roles for the substitutes panel; those
+   * four are the *default* below, and a school that disagrees changes it on the
+   * permissions matrix, which is what Sprint 8 is for.
+   */
+  'timetable.substitute',
 ] as const;
 
 export type Permission = (typeof PERMISSIONS)[number];
@@ -148,7 +167,14 @@ export const PERMISSION_GROUPS: readonly PermissionGroup[] = [
   {
     key: 'academics',
     label: 'Academics',
-    permissions: ['academics.read', 'academics.write', 'attendance.mark'],
+    permissions: [
+      'academics.read',
+      'academics.write',
+      'attendance.mark',
+      // Sprint 33c. On the Academics row because it is about the timetable,
+      // even though what it really commits is a person's afternoon.
+      'timetable.substitute',
+    ],
   },
   {
     key: 'exams',
@@ -252,6 +278,7 @@ export const PERMISSION_LABELS: Record<Permission, string> = {
   'academics.read': 'See subjects, the timetable and the register',
   'academics.write': 'Set subjects and build the timetable',
   'attendance.mark': 'Take the student register',
+  'timetable.substitute': 'Arrange a substitute teacher for one day',
   'exams.read': 'See exam terms, datesheets and published results',
   'exams.write': 'Schedule exams, add papers and set grading schemes',
   'exams.publish': 'Announce a datesheet and publish a term’s report cards',
@@ -656,6 +683,22 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<UserRole, readonly Permission[]> =
     'leave.read',
     'leave.request',
     'leave.approve',
+    /*
+     * Sprint 33c — one day's cover (C4).
+     *
+     * The spec names the Principal, Vice Principal, Section Head and
+     * Coordinator, and those four are the default here. The **panel is drawn
+     * from the key**, not from that list: this round's standing rule is that
+     * every approval-type or access setting is a permission key, so a school
+     * that wants its campus office arranging cover grants it on the matrix
+     * rather than waiting for a release.
+     *
+     * The Branch Admin is deliberately not in the default set. A campus office
+     * runs the campus; deciding that a named teacher loses their free period
+     * tomorrow is an academic call, and it is one toggle away for the school
+     * that disagrees.
+     */
+    'timetable.substitute',
   ],
 
   vice_principal: [
@@ -700,6 +743,8 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<UserRole, readonly Permission[]> =
     'leave.read',
     'leave.request',
     'leave.approve',
+    // Sprint 33c. Cover for one day — see the Principal's entry above.
+    'timetable.substitute',
   ],
 
   /*
@@ -742,6 +787,9 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<UserRole, readonly Permission[]> =
     'leave.read',
     'leave.request',
     'leave.approve',
+    // Sprint 33c. Cover for one day, over their own coordinators' teachers —
+    // the reach is `reachableStaffIds`, not this key.
+    'timetable.substitute',
   ],
 
   coordinator: [
@@ -773,6 +821,9 @@ export const DEFAULT_ROLE_PERMISSIONS: Record<UserRole, readonly Permission[]> =
     'leave.read',
     'leave.request',
     'leave.approve',
+    // Sprint 33c. Cover for one day, over their own teachers and nobody
+    // else's — the same chain decides the reach, for the same reason.
+    'timetable.substitute',
   ],
 
   // `admissions.read` is not incidental here: a teacher's register and a
