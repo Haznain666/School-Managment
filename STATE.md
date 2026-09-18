@@ -13146,6 +13146,33 @@ after this sprint: Part C reworked that page's print controls and not its access
 check. It is a pre-existing leak in the fee module and has its own task rather
 than riding along with the Part C fixes.
 
+### The five fixes, re-proved in a browser against live `364994e5e3a5`
+
+Not "the tests pass" — each one driven against the live origin on the Askari
+tenant, through real member sessions, after the fix deployed.
+
+| Finding | Evidence |
+| --- | --- |
+| **F1** | `/parent/timetable` draws for **both** of Aftab Awan's children. Faizan: *Year 7 — A · 2026-2027*, **8 periods** from 07:45. Zainab: *Nursery — A · 2026-2027*, **5 periods** from 08:00 |
+| **F2** | Year 3 — A (Main): 12 free + 18 busy, **every one Main**. Nursery — A (Junior): 3 + 9, **every one Junior**. 30 + 12 = 42, QA's original total — the pool is *partitioned*, not truncated |
+| **F3** | Coordinator Bilal Hussain now sees **21** sections (was 29), Main only. The Junior section id gives **404** on GET with **zero lessons** in the body, and **404** on POST |
+| **F4** | Every label carries its campus; duplicate labels **0** (was six pairs) |
+| **F6** | Iqbal Day: every busy reason is `"Iqbal Day"`, **none** says "Teaching". An ordinary Monday still reports the real clash |
+
+⚠ **F1's second half is the stronger evidence and was not something QA asked
+for.** The two children's grids carry **different bell schedules** — eight
+periods from 07:45 against five from 08:00. That is `listSlotsForSection`
+resolving each child's own grade, which is exactly the "infant class laid out
+against the senior school's eight rows" failure CLAUDE.md's timetable rule
+exists to prevent. The fix restored the screen *and* the rule in one.
+
+**F3's POST was proved with a control, not on its own.** The same well-formed
+body against the caller's *own* section returns **409 `not_free`** naming the
+teacher and the clash. So the request reached the availability check and the
+404 on the other campus is the guard, not body validation — which the first
+attempt, with placeholder uuids, could not distinguish (it returned 400
+`invalid_body` before reaching anything).
+
 ### What QA could **not** exercise — named, not passed
 
 ⚠ **The supersede itself has never run.** `0049` gives every pre-existing row
