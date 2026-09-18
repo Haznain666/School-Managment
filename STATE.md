@@ -4,11 +4,14 @@
 resume without re-deriving context. Updated at the end of every development
 step, before the session ends.
 
-**Last updated:** 2026-09-18 (**Sprint 33 Part C — the portal work — shipped:
-merged `44a4ad50` (PR #102), migration `0049` applied and proved (50/0), live
-build `44a4ad50668d`. §5ci.** The round is complete: A §5cg, B §5ch, C §5ci.
-**Read §5ci's deploy record before touching `timetable_entries` — the migration
-header's "the old code behaves identically" is false and §5ci says why.**
+**Last updated:** 2026-09-18 (**Sprint 33 Part C — the portal work — shipped
+and QA'd: merged `44a4ad50` (PR #102), migration `0049` applied and proved
+(50/0), QA round 1 fixes merged `364994e5` (PR #103). §5ci.** The round is
+complete: A §5cg, B §5ch, C §5ci. **Read §5ci's deploy record before touching
+`timetable_entries` — the migration header's "the old code behaves identically"
+is false and §5ci says why.** ⚠ **The supersede has still never run** — every
+row's `effective_from` is the day `0049` was applied, so the first teacher
+change took the in-place branch; **re-test on or after 2026-09-19**.
 **Next sprint: the stale-list fix.**)
 
 **Earlier:** 2026-09-15 (**Sprint 32 — staff KPIs and performance —
@@ -13085,6 +13088,123 @@ columns is how it read as five. And "exactly one migration is pending" cannot
 hold once the migration is applied, so it was reporting FAIL on precisely the
 state the other fifty assertions prove is correct; it now reports
 not-exercised. **Both were found by running it, which is the point.**
+
+### QA round 1 — browser, against the live build — verdict was *do not ship*
+
+Driven against live build `44a4ad50668d` on the Askari tenant
+(`askari-school-system.schoolhub.codexmill.com`), nine emergency-link sessions,
+every one a real member — **not** the operator seat, which has no `school_users`
+row and cannot exercise most of this. Test cases:
+`test-cases/TEST-CASES-SPRINT-33C.md`, 302 lines.
+
+Six findings. Four fixed in `59eaa82` and merged as **`364994e5`**; one is
+pre-existing and has its own task; the sixth is cosmetic and fixed with them.
+
+| # | Finding | State |
+| --- | --- | --- |
+| **F1** 🔴 | `/parent/timetable` rendered no grid, **for any child at any school** | fixed |
+| **F2** 🟠 | the substitute panel offered *and accepted* a teacher at another campus | fixed |
+| **F3** 🟠 | a campus-bound Coordinator / VP / Section Head read the other campus's timetable | fixed |
+| **F4** 🟡 | the class picker could not tell two campuses apart — six identical pairs | fixed |
+| **F5** 🟡 | a campus-bound Principal can open another campus's **fee voucher** | **not fixed — pre-existing, own task** |
+| **F6** 🔵 | on a gazetted holiday, 26 of 42 teachers read "Teaching Year 4 — A" | fixed |
+
+🔴 **F1 is the one to learn from, because every gate passed over it.** The page
+called `getStudentPlacement(locationId, selected.studentProfileId, …)`, and that
+function's second parameter is a **`school_users.id`** — it filters
+`eq(studentProfiles.schoolUserId, …)`. A `student_profiles.id` can never equal a
+`student_profiles.school_user_id`, so it resolved to null for every child
+everywhere and C1's first acceptance criterion never worked at all.
+
+Both ids are `string`. It compiled, the route returned 200, the console was
+clean, and **`check-sprint33c` executed the statement and passed** — because
+executing the *wrong function* proves only that the wrong function runs. The
+fix is `getPlacementForStudentProfile`, a separately named sibling filtering
+`student_profiles.id`; a named function rather than a comment, because the type
+system cannot tell the two ids apart and the next caller will not either. Both
+are now executed by the gate, adjacent and labelled with the column each
+filters on. **That catches no future swap** — nothing mechanical can — and the
+honest lesson is that a same-typed id pair is caught by opening the screen, not
+by a check script.
+
+**F2 and F3 are one mistake wearing two faces: two scope mechanisms in one
+handler.** The teacher pool went through `resolveBranchScope`; the class list
+went only through `visibleScopeFor`, which short-circuits to `UNSCOPED` for
+**every role except `principal`**. Askari has 21 Main sections and 8 Junior —
+the Principal got 21, the Vice Principal, Section Head and Coordinator each got
+29. And the pool was scoped to the *caller's* campus rather than the *lesson's*,
+so a school-wide account arranging cover for a 07:45 period at Main was offered
+a Junior Campus teacher and the write was accepted, with no campus named in
+either the bell notification or the chat message. Who may be asked is decided by
+**where the lesson is**, intersected with where the caller may act. This is the
+same shape as Part B round 2's N1, which is twice now.
+
+⏸ **F5 is not Part C's.** A campus-bound Principal can open another campus's
+fee voucher — including the print sheet with that campus's address and bank
+details. `git show 8c0bc0c:` proves the guard is **byte-identical** before and
+after this sprint: Part C reworked that page's print controls and not its access
+check. It is a pre-existing leak in the fee module and has its own task rather
+than riding along with the Part C fixes.
+
+### The five fixes, re-proved in a browser against live `364994e5e3a5`
+
+Not "the tests pass" — each one driven against the live origin on the Askari
+tenant, through real member sessions, after the fix deployed.
+
+| Finding | Evidence |
+| --- | --- |
+| **F1** | `/parent/timetable` draws for **both** of Aftab Awan's children. Faizan: *Year 7 — A · 2026-2027*, **8 periods** from 07:45. Zainab: *Nursery — A · 2026-2027*, **5 periods** from 08:00 |
+| **F2** | Year 3 — A (Main): 12 free + 18 busy, **every one Main**. Nursery — A (Junior): 3 + 9, **every one Junior**. 30 + 12 = 42, QA's original total — the pool is *partitioned*, not truncated |
+| **F3** | Coordinator Bilal Hussain now sees **21** sections (was 29), Main only. The Junior section id gives **404** on GET with **zero lessons** in the body, and **404** on POST |
+| **F4** | Every label carries its campus; duplicate labels **0** (was six pairs) |
+| **F6** | Iqbal Day: every busy reason is `"Iqbal Day"`, **none** says "Teaching". An ordinary Monday still reports the real clash |
+
+⚠ **F1's second half is the stronger evidence and was not something QA asked
+for.** The two children's grids carry **different bell schedules** — eight
+periods from 07:45 against five from 08:00. That is `listSlotsForSection`
+resolving each child's own grade, which is exactly the "infant class laid out
+against the senior school's eight rows" failure CLAUDE.md's timetable rule
+exists to prevent. The fix restored the screen *and* the rule in one.
+
+**F3's POST was proved with a control, not on its own.** The same well-formed
+body against the caller's *own* section returns **409 `not_free`** naming the
+teacher and the clash. So the request reached the availability check and the
+404 on the other campus is the guard, not body validation — which the first
+attempt, with placeholder uuids, could not distinguish (it returned 400
+`invalid_body` before reaching anything).
+
+### What QA could **not** exercise — named, not passed
+
+⚠ **The supersede itself has never run.** `0049` gives every pre-existing row
+`effective_from = CURRENT_DATE`, and the route supersedes only when
+`standing.effectiveFrom < today` — so on the day it was applied, every teacher
+change took the **in-place** branch. QA proved this rather than assuming it: the
+change returned the *same* row id and left the count at 40.
+
+So the close-and-open transaction, **the partial unique index holding a real
+second row**, and the `ON CONFLICT … targetWhere` race fallback have not run
+against real data. They become reachable on **2026-09-19**. `verify-0049.mjs`
+drove all three inside rolled-back transactions and they behave correctly, but
+that is the schema, not the route. **Re-test a teacher change on or after
+2026-09-19** — it is the one path that can only fail in production.
+
+Also not exercised: a parent with **no enrolled child** (no such fixture at
+Askari); **Section Head scoping**, because no coordinators are linked to any
+Askari Section Head — the same data gap Part B's case 1.4 recorded; the
+Principal's dashboard panel, inferred from a 200 and the permission rather than
+seen; a real print dialog (`window.print()` was stubbed and layout measured
+structurally); cross-school tenancy with a *second school's real ids*, only an
+all-zero UUID; and dark mode.
+
+### QA side effects left on the Askari tenant
+
+Year 3 — A (Main) Monday Period 1 teacher is now **Amna Zaheer** (was Tooba
+Ansari); Monday Period 2 room is **"Lab B (QA 33c)"**; one chat thread from
+Aftab Awan to the School Office reading "QA Sprint 33c — please ignore"; and
+substitution `90f26c75-c838-40e6-ac6e-464be9a4d9da` (Hina Aslam covering Year
+3 — A Period 1 on 2026-09-18), which was **F2's evidence** and can now be
+removed. The permissions override granted during the CHECK-by-attempt test was
+reverted — `overrides: []`.
 
 ### Rollback, and the day it stops being possible
 
