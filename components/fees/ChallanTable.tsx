@@ -485,16 +485,40 @@ export function ChallanTable({
                 Print selected
               </Button>
             ) : (
-              <Link
-                href={challanPrintHref(selectedIds)}
-                // A new tab so the list, its filters and the selection survive
-                // the print run — printing is rarely the last thing someone
-                // does on this page.
-                target="_blank"
-                rel="noopener"
-              >
-                <Button size="sm">Print selected ({selectedIds.length})</Button>
-              </Link>
+              <>
+                <Link
+                  href={challanPrintHref(selectedIds)}
+                  // A new tab so the list, its filters and the selection survive
+                  // the print run — printing is rarely the last thing someone
+                  // does on this page.
+                  target="_blank"
+                  rel="noopener"
+                >
+                  <Button size="sm">Print vouchers ({selectedIds.length})</Button>
+                </Link>
+
+                {/*
+                  Sprint 33c. The receipt run.
+
+                  A second button rather than a mode on the first, because they
+                  are two stacks of paper that must not be mixed — and because
+                  the selection is usually not the same one: a school prints
+                  vouchers for what is open and receipts for what has been
+                  paid. The print page drops whatever in the selection has no
+                  document of the kind asked for and says how many it dropped,
+                  so pressing this on a mixed selection is safe and honest
+                  rather than refused.
+                */}
+                <Link
+                  href={challanPrintHref(selectedIds, 'receipt')}
+                  target="_blank"
+                  rel="noopener"
+                >
+                  <Button size="sm" variant="secondary">
+                    Print receipts
+                  </Button>
+                </Link>
+              </>
             )}
           </div>
         </div>

@@ -23,6 +23,7 @@ import { minutesFromTime, slotsOverlap } from '@/db/schema/timetable-slots';
 
 import { sharedOrOwnedBy } from './branch-scope';
 import { db } from './drizzle';
+import { liveTimetableEntries } from './timetable-history';
 
 /**
  * Tenant-scoped reads for the Academics module.
@@ -333,6 +334,10 @@ export async function listSlotsForTeacher(
         eq(timetableEntries.teacherId, teacherId),
         eq(timetableEntries.academicYearId, academicYearId),
         eq(timetableEntries.isActive, true),
+        // Sprint 33c: the version of this cell in force today. Before `0049`
+        // every row was the answer; a superseded one is now closed and stays
+        // readable without being drawn. See `lib/timetable-history.ts`.
+        liveTimetableEntries(),
       ),
     );
 
@@ -417,6 +422,10 @@ export async function listTimetableEntries(
         eq(timetableEntries.sectionId, filters.sectionId),
         eq(timetableEntries.academicYearId, filters.academicYearId),
         eq(timetableEntries.isActive, true),
+        // Sprint 33c: the version of this cell in force today. Before `0049`
+        // every row was the answer; a superseded one is now closed and stays
+        // readable without being drawn. See `lib/timetable-history.ts`.
+        liveTimetableEntries(),
       ),
     )
     .orderBy(asc(timetableEntries.dayOfWeek));
@@ -461,6 +470,10 @@ export async function listTeacherTimetable(
         eq(timetableEntries.teacherId, teacherId),
         eq(timetableEntries.academicYearId, academicYearId),
         eq(timetableEntries.isActive, true),
+        // Sprint 33c: the version of this cell in force today. Before `0049`
+        // every row was the answer; a superseded one is now closed and stays
+        // readable without being drawn. See `lib/timetable-history.ts`.
+        liveTimetableEntries(),
       ),
     )
     .orderBy(asc(timetableEntries.dayOfWeek));
@@ -523,6 +536,10 @@ export async function listTeacherBusySlots(
         eq(timetableEntries.teacherId, teacherId),
         eq(timetableEntries.academicYearId, academicYearId),
         eq(timetableEntries.isActive, true),
+        // Sprint 33c: the version of this cell in force today. Before `0049`
+        // every row was the answer; a superseded one is now closed and stays
+        // readable without being drawn. See `lib/timetable-history.ts`.
+        liveTimetableEntries(),
       ),
     )
     .orderBy(asc(timetableEntries.dayOfWeek), asc(timetableSlots.startTime));
@@ -582,6 +599,10 @@ export async function listTeacherOverlaps(
     eq(timetableEntries.locationId, locationId),
     eq(timetableEntries.academicYearId, academicYearId),
     eq(timetableEntries.isActive, true),
+    // Sprint 33c: the version of this cell in force today. Before `0049`
+    // every row was the answer; a superseded one is now closed and stays
+    // readable without being drawn. See `lib/timetable-history.ts`.
+    liveTimetableEntries(),
   ];
 
   if (filters.gradeIds !== undefined) {
@@ -687,6 +708,10 @@ export async function listTeacherSections(
         eq(timetableEntries.teacherId, teacherId),
         eq(timetableEntries.academicYearId, academicYearId),
         eq(timetableEntries.isActive, true),
+        // Sprint 33c: the version of this cell in force today. Before `0049`
+        // every row was the answer; a superseded one is now closed and stays
+        // readable without being drawn. See `lib/timetable-history.ts`.
+        liveTimetableEntries(),
       ),
     )
     .orderBy(asc(grades.name), asc(sections.name));
@@ -721,6 +746,10 @@ export async function teacherTeachesSection(
         eq(timetableEntries.sectionId, sectionId),
         eq(timetableEntries.academicYearId, academicYearId),
         eq(timetableEntries.isActive, true),
+        // Sprint 33c: the version of this cell in force today. Before `0049`
+        // every row was the answer; a superseded one is now closed and stays
+        // readable without being drawn. See `lib/timetable-history.ts`.
+        liveTimetableEntries(),
       ),
     )
     .limit(1);

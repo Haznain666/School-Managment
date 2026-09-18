@@ -45,6 +45,7 @@ import {
 import { permissionsForRole } from './permission-queries';
 import type { Permission } from './permissions';
 import { getPrincipalModel } from './principal-resolver';
+import { liveTimetableEntries } from './timetable-history';
 
 /**
  * `lib/kpi-access.ts` — Sprint 32. Who may define, rate and see which KPIs.
@@ -282,7 +283,12 @@ export async function resolveTeacherPrincipals(
       .innerJoin(sections, eq(sections.id, timetableEntries.sectionId))
       .innerJoin(grades, eq(grades.id, sections.gradeId))
       .where(
-        and(eq(timetableEntries.locationId, locationId), eq(timetableEntries.isActive, true)),
+        and(
+          eq(timetableEntries.locationId, locationId),
+          eq(timetableEntries.isActive, true),
+          // Sprint 33c: the version in force today. `lib/timetable-history.ts`.
+          liveTimetableEntries(),
+        ),
       )
       .groupBy(timetableEntries.teacherId, sections.gradeId, grades.branchId),
     db

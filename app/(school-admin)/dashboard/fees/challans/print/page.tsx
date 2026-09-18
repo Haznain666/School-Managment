@@ -10,7 +10,7 @@ import { getChallanDetail, getLateFeeRule } from '@/lib/fee-queries';
 import { requireSchoolPermission } from '@/lib/school-guard';
 import { getSchoolBranding } from '@/lib/school-tenant';
 import { isUuid } from '@/lib/validation';
-import { buildVoucherPrintData } from '@/lib/voucher-print-data';
+import { buildReceiptPrintData, buildVoucherPrintData } from '@/lib/voucher-print-data';
 
 export const metadata: Metadata = {
   title: 'Print vouchers',
@@ -52,14 +52,24 @@ function parseIds(raw: string | undefined): string[] {
 export default async function BulkChallanPrintPage({
   searchParams,
 }: {
-  searchParams: Promise<{ ids?: string }>;
+  searchParams: Promise<{ ids?: string; document?: string }>;
 }) {
   // Same permission as viewing one. Printing discloses nothing a reader of the
   // challan list cannot already see.
   const { locationId } = await requireSchoolPermission('fees.read');
-  const { ids: rawIds } = await searchParams;
+  const { ids: rawIds, document: rawDocument } = await searchParams;
 
   const ids = parseIds(rawIds);
+
+  /*
+   * Sprint 33c. One run prints one kind of document.
+   *
+   * Anything other than the literal `receipt` is a voucher run, which is what
+   * every existing link produces and what a hand-edited URL falls back to. A
+   * mixed stack — some demands, some receipts — is a stack whose every sheet
+   * has to be read before it can be handed out.
+   */
+  const wantsReceipts = rawDocument === 'receipt';
 
   if (ids.length === 0) {
     return (
@@ -105,9 +115,14 @@ export default async function BulkChallanPrintPage({
    * payment instrument, and at a bank counter a printed one is indistinguishable
    * from a live slip.
    */
-  const printable = found.filter(
-    (challan) => challan.status === 'unpaid' || challan.status === 'partial',
-  );
+  const printable = wantsReceipts
+    ? // A receipt exists for anything money has been taken against —
+      // `buildReceiptPrintData` is the one that decides, and it says no to a
+      // voucher with no payments on it.
+      found.filter((challan) => challan.status === 'paid' || challan.status === 'partial')
+    : found.filter(
+        (challan) => challan.status === 'unpaid' || challan.status === 'partial',
+      );
   const closed = found.length - printable.length;
 
   if (printable.length === 0) {
@@ -115,25 +130,42 @@ export default async function BulkChallanPrintPage({
       <Message title="Nothing to print">
         {found.length === 0
           ? 'None of those vouchers could be found in this school.'
-          : 'Every one of those vouchers is settled, cancelled or waived. A closed voucher is not a payment instrument, so there is nothing to print.'}
+          : wantsReceipts
+            ? 'None of those vouchers has taken any money, so there is nothing to receipt.'
+            : 'Every one of those vouchers is settled, cancelled or waived. A closed voucher is not a payment instrument, so there is nothing to print.'}
       </Message>
     );
   }
 
   /*
-   * One assembled document per voucher, built by the same server helper the
-   * detail page uses. Sequential rather than `Promise.all`: each one reads the
+   * One assembled document per voucher, built by the same server helpers the
+   * detail page uses. Sequential rather than `Promise.all`: a voucher reads the
    * bank accounts for its own campus, and two hundred of those at once against
-   * one pooled connection is how a bulk run times out.
+   * one pooled connection is how a bulk run times out. (A **receipt** reads
+   * nothing at all — it prints no bank block — so the receipt run is a loop
+   * over data already in hand.)
    */
   const documents = [];
   for (const challan of printable) {
-    documents.push(
-      await buildVoucherPrintData(challan, {
-        locationId,
-        lateFeeRule,
-        logoUrl: branding?.logoUrl ?? null,
-      }),
+    const document = wantsReceipts
+      ? buildReceiptPrintData(challan, { logoUrl: branding?.logoUrl ?? null })
+      : await buildVoucherPrintData(challan, {
+          locationId,
+          lateFeeRule,
+          logoUrl: branding?.logoUrl ?? null,
+        });
+
+    // Null only on the receipt path, for a voucher whose status said `partial`
+    // but which holds no payment rows. Dropped rather than printed blank.
+    if (document !== null) documents.push(document);
+  }
+
+  if (documents.length === 0) {
+    return (
+      <Message title="Nothing to print">
+        None of those vouchers has a payment recorded against it, so there is
+        nothing to receipt.
+      </Message>
     );
   }
 
@@ -142,16 +174,22 @@ export default async function BulkChallanPrintPage({
       <Card className="print:hidden">
         <CardTitle title="Ready to print" />
         <p className="mt-2 text-sm">
-          {printable.length} voucher{printable.length === 1 ? '' : 's'}, one per
-          sheet, two copies each — student and school.
+          {documents.length} {wantsReceipts ? 'receipt' : 'voucher'}
+          {documents.length === 1 ? '' : 's'}, one per sheet, two copies each —
+          student and school.
           {found.length === ids.length ? null : (
             <> {ids.length - found.length} could not be found and were skipped.</>
           )}
           {closed === 0 ? null : (
             <>
               {' '}
-              {closed} {closed === 1 ? 'was' : 'were'} settled, cancelled or
-              waived and {closed === 1 ? 'is' : 'are'} not printable.
+              {closed} {closed === 1 ? 'was' : 'were'}{' '}
+              {wantsReceipts
+                ? 'unpaid, cancelled or waived and had nothing to receipt'
+                : 'settled, cancelled or waived and ' +
+                  (closed === 1 ? 'is' : 'are') +
+                  ' not printable'}
+              .
             </>
           )}
         </p>

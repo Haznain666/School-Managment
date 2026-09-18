@@ -149,7 +149,7 @@ async function mustRun(label: string, run: () => Promise<unknown>): Promise<void
  * `42703` — a different SQLSTATE is a different defect, and treating it as the
  * predicted one is how a real fault hides behind an expected failure.
  */
-function afterMigration(applied: boolean) {
+function afterMigration(applied: boolean, migration = '0046') {
   return async (label: string, run: () => Promise<unknown>): Promise<void> => {
     if (applied) {
       await mustRun(label, run);
@@ -158,14 +158,17 @@ function afterMigration(applied: boolean) {
 
     try {
       await run();
-      fail(label, 'it executed although 0046 is not applied — the prediction is wrong');
+      fail(label, `it executed although ${migration} is not applied — the prediction is wrong`);
     } catch (error) {
       const state = sqlState(error);
       if (state === UNDEFINED_COLUMN) {
-        pass(label, `predicted ${UNDEFINED_COLUMN} — waiting on 0046`);
+        pass(label, `predicted ${UNDEFINED_COLUMN} — waiting on ${migration}`);
         return;
       }
-      fail(label, `expected ${UNDEFINED_COLUMN} before 0046, got ${state ?? '?'} ${reason(error)}`);
+      fail(
+        label,
+        `expected ${UNDEFINED_COLUMN} before ${migration}, got ${state ?? '?'} ${reason(error)}`,
+      );
     }
   };
 }
@@ -485,15 +488,36 @@ async function main(): Promise<void> {
     listSignalsSince(TENANT, NOBODY, new Date('2026-01-01T00:00:00Z')),
   );
 
-  await mustRun('listTeacherBusySlots — entries ⋈ slots ⋈ sections ⋈ grades', () =>
+  /*
+   * ⚠ Sprint 33c widened these three, and they now name `effective_from`.
+   *
+   * A1's statements were unconditional here because nothing they touched was
+   * pending. `0049` gave `timetable_entries` two dates and every read filters
+   * on them, so between the code deploy and that migration these three fail
+   * with exactly `42703` — the same predicted state `0046`'s own block above
+   * describes. Detected rather than assumed, so one command works on both
+   * sides of it, and **any other SQLSTATE is still a failure**.
+   */
+  const timetableDates = (await db.execute(sql`
+    select column_name
+      from information_schema.columns
+     where table_schema = 'public'
+       and table_name = 'timetable_entries'
+       and column_name in ('effective_from', 'effective_to')`)) as unknown as Array<{
+    column_name: string;
+  }>;
+
+  const afterSprint33c = afterMigration(timetableDates.length === 2, '0049');
+
+  await afterSprint33c('listTeacherBusySlots — entries ⋈ slots ⋈ sections ⋈ grades', () =>
     listTeacherBusySlots(TENANT, NOBODY, NOBODY),
   );
 
-  await mustRun('listTeacherOverlaps — the report, school-wide', () =>
+  await afterSprint33c('listTeacherOverlaps — the report, school-wide', () =>
     listTeacherOverlaps(TENANT, NOBODY),
   );
 
-  await mustRun('listTeacherOverlaps — narrowed to a visible grade', () =>
+  await afterSprint33c('listTeacherOverlaps — narrowed to a visible grade', () =>
     listTeacherOverlaps(TENANT, NOBODY, { gradeIds: [NOBODY] }),
   );
 

@@ -41,6 +41,7 @@ import {
 } from '@/db/schema/chat-school-settings';
 import { chatSettings } from '@/db/schema/chat-settings';
 import { chatSignals } from '@/db/schema/chat-signals';
+import { branches } from '@/db/schema/branches';
 import { grades } from '@/db/schema/grades';
 import { schoolUsers } from '@/db/schema/school-users';
 import { sections } from '@/db/schema/sections';
@@ -62,6 +63,7 @@ import {
 import { desksWithAnswerers } from './chat-desks';
 import { markChatNotificationsRead, notifyChatRecipients } from './chat-notifications';
 import { batch, db } from './drizzle';
+import { liveTimetableEntries } from './timetable-history';
 
 /**
  * The database half of the chat permission model.
@@ -251,6 +253,22 @@ export interface ReachableTarget {
   name: string;
   /** What they are to this actor: "Maths teacher", "Accounts Office". */
   detail: string;
+  /**
+   * The role chips group by this. Sprint 33c, C3.
+   *
+   * **Null for a desk**, and the type says so rather than inventing one. The
+   * Accounts Office is not a role and is not held by one — `desksWithAnswerers`
+   * resolves who actually answers it, and at a small school that is the school
+   * administrator. Labelling it `accountant` would be a guess printed as a
+   * fact, on a chip somebody then filters by.
+   */
+  role: UserRole | null;
+  /**
+   * The campus, where the target has one. Null is not "unknown": on
+   * `school_users` it has meant *the whole school* since Sprint 19a, and a desk
+   * that serves every campus carries it for the same reason.
+   */
+  branchName: string | null;
 }
 
 const STAFF_ROLES: readonly UserRole[] = [
@@ -335,8 +353,17 @@ export async function branchOfParent(
  * more: a section whose class teacher is an administrator is a real
  * arrangement at a small school, and the parent's route to them is still the
  * office desk.
+ *
+ * ⚠ **Exported only so that `scripts/check-sprint33c.ts` can execute it.**
+ * `resolveReachable` is the caller and should remain the only one. This and
+ * `teachersOfStudent`, `studentContextFor` and `childrenOfParents` are all
+ * unreachable from `resolveReachable` on a tenant that owns no row — there is
+ * no active year and there are no ids, so it returns before it gets here — and
+ * CLAUDE.md is explicit that a statement which has been read and not run is
+ * evidence about spelling and nothing else. Exporting them is what turns that
+ * gate from a claim into a fact.
  */
-async function teachersOfChildren(
+export async function teachersOfChildren(
   locationId: string,
   parentSchoolUserId: string,
   academicYearId: string,
@@ -362,6 +389,8 @@ async function teachersOfChildren(
         eq(timetableEntries.sectionId, sections.id),
         eq(timetableEntries.academicYearId, academicYearId),
         eq(timetableEntries.isActive, true),
+        // Sprint 33c: the version in force today. `lib/timetable-history.ts`.
+        liveTimetableEntries(),
       ),
     )
     .innerJoin(schoolUsers, eq(schoolUsers.id, timetableEntries.teacherId))
@@ -413,6 +442,10 @@ async function teachersOfChildren(
       kind: 'person',
       id: row.schoolUserId,
       name: row.name,
+      // Sprint 33c. Both halves of this list are already filtered to
+      // `role = 'teacher'`, so the chip is a fact rather than an assumption.
+      role: 'teacher',
+      branchName: null,
       detail: `Teaches ${row.gradeName} ${row.sectionName}`,
     });
   }
@@ -423,15 +456,55 @@ async function teachersOfChildren(
       kind: 'person',
       id: row.schoolUserId,
       name: row.name,
+      role: 'teacher',
+      branchName: null,
       detail: `Class teacher, ${row.gradeName} ${row.sectionName}`,
     });
   }
 
-  return [...byId.values()].sort((left, right) => left.name.localeCompare(right.name));
+  return withBranchNames(
+    locationId,
+    [...byId.values()].sort((left, right) => left.name.localeCompare(right.name)),
+  );
+}
+
+/**
+ * The campus each of these people belongs to, filled in on a resolved list.
+ *
+ * Sprint 33c. A separate read rather than a `leftJoin` added to the four
+ * reachability statements above, and that is deliberate: three of them are
+ * `selectDistinct` over five and six joined tables, and the way to break one is
+ * to add a column to its DISTINCT. This is a single indexed read keyed on ids
+ * already in hand, and it cannot change what the list contains — only what each
+ * row says about itself.
+ *
+ * Null stays null and means *the whole school*, which is what `branch_id` has
+ * meant on `school_users` since Sprint 19a.
+ */
+async function withBranchNames(
+  locationId: string,
+  targets: ReachableTarget[],
+): Promise<ReachableTarget[]> {
+  const ids = targets.filter((row) => row.kind === 'person').map((row) => row.id);
+  if (ids.length === 0) return targets;
+
+  const rows = await db
+    .select({ id: schoolUsers.id, branchName: branches.name })
+    .from(schoolUsers)
+    .leftJoin(branches, eq(branches.id, schoolUsers.branchId))
+    .where(and(eq(schoolUsers.locationId, locationId), inArray(schoolUsers.id, ids)));
+
+  const byId = new Map(rows.map((row) => [row.id, row.branchName]));
+
+  return targets.map((target) =>
+    target.kind === 'person'
+      ? { ...target, branchName: byId.get(target.id) ?? null }
+      : target,
+  );
 }
 
 /** The teachers who actually teach this pupil, this year. */
-async function teachersOfStudent(
+export async function teachersOfStudent(
   locationId: string,
   studentSchoolUserId: string,
   academicYearId: string,
@@ -440,6 +513,7 @@ async function teachersOfStudent(
     .selectDistinct({
       schoolUserId: schoolUsers.id,
       name: schoolUsers.name,
+      role: schoolUsers.role,
     })
     .from(studentProfiles)
     .innerJoin(
@@ -452,6 +526,8 @@ async function teachersOfStudent(
         eq(timetableEntries.sectionId, studentEnrollments.sectionId),
         eq(timetableEntries.academicYearId, academicYearId),
         eq(timetableEntries.isActive, true),
+        // Sprint 33c: the version in force today. `lib/timetable-history.ts`.
+        liveTimetableEntries(),
       ),
     )
     .innerJoin(schoolUsers, eq(schoolUsers.id, timetableEntries.teacherId))
@@ -467,12 +543,164 @@ async function teachersOfStudent(
     )
     .orderBy(asc(schoolUsers.name));
 
-  return rows.map((row) => ({
-    kind: 'person' as const,
-    id: row.schoolUserId,
-    name: row.name,
-    detail: 'Your teacher',
-  }));
+  /*
+   * ⚠ This half does **not** filter on `role = 'teacher'`, and it never has —
+   * only the parent's two halves do (Sprint 30). Changing that here would
+   * quietly take away a pupil's route to somebody they are timetabled with, so
+   * the chip reports what the row actually is rather than asserting `teacher`
+   * the way the parent's list can.
+   */
+  return withBranchNames(
+    locationId,
+    rows.map((row) => ({
+      kind: 'person' as const,
+      id: row.schoolUserId,
+      name: row.name,
+      role: row.role as UserRole,
+      branchName: null,
+      detail: 'Your teacher',
+    })),
+  );
+}
+
+/**
+ * *Parent's name · Class with section*, for each pupil account. Sprint 33c.
+ *
+ * Two reads rather than one statement with an aggregate, and that is the safer
+ * trade here: an ordered aggregate over `student_guardians.name` inside a
+ * statement that also joins `school_users.name` is precisely the shape
+ * CLAUDE.md records taking the all-students screen down with a 42702, twice.
+ * Both of these are small, indexed and folded in JavaScript.
+ *
+ * The **primary** contact is preferred and the first guardian is the fallback,
+ * because `is_primary_contact` is a flag a school may never have set. A pupil
+ * with no guardian on file gets the class alone; a pupil with neither falls
+ * back to the word "student", which is what this column said before.
+ */
+export async function studentContextFor(
+  locationId: string,
+  studentUserIds: readonly string[],
+): Promise<Map<string, string>> {
+  if (studentUserIds.length === 0) return new Map();
+
+  const ids = [...studentUserIds];
+
+  const [classes, guardians] = await Promise.all([
+    db
+      .select({
+        studentUserId: studentProfiles.schoolUserId,
+        gradeName: grades.name,
+        sectionName: sections.name,
+      })
+      .from(studentProfiles)
+      .innerJoin(
+        studentEnrollments,
+        eq(studentEnrollments.studentProfileId, studentProfiles.id),
+      )
+      .innerJoin(sections, eq(sections.id, studentEnrollments.sectionId))
+      .innerJoin(grades, eq(grades.id, sections.gradeId))
+      .where(
+        and(
+          eq(studentProfiles.locationId, locationId),
+          inArray(studentProfiles.schoolUserId, ids),
+          eq(studentEnrollments.locationId, locationId),
+          eq(studentEnrollments.status, 'active'),
+        ),
+      ),
+    db
+      .select({
+        studentUserId: studentProfiles.schoolUserId,
+        guardianName: studentGuardians.name,
+        isPrimaryContact: studentGuardians.isPrimaryContact,
+      })
+      .from(studentGuardians)
+      .innerJoin(studentProfiles, eq(studentProfiles.id, studentGuardians.studentProfileId))
+      .where(
+        and(
+          eq(studentGuardians.locationId, locationId),
+          inArray(studentProfiles.schoolUserId, ids),
+        ),
+      ),
+  ]);
+
+  const classBy = new Map<string, string>();
+  for (const row of classes) {
+    if (row.studentUserId === null) continue;
+    classBy.set(row.studentUserId, `${row.gradeName} ${row.sectionName}`);
+  }
+
+  const guardianBy = new Map<string, { name: string; primary: boolean }>();
+  for (const row of guardians) {
+    if (row.studentUserId === null) continue;
+    const held = guardianBy.get(row.studentUserId);
+    if (held === undefined || (row.isPrimaryContact && !held.primary)) {
+      guardianBy.set(row.studentUserId, {
+        name: row.guardianName,
+        primary: row.isPrimaryContact,
+      });
+    }
+  }
+
+  const answers = new Map<string, string>();
+  for (const id of ids) {
+    const parts = [guardianBy.get(id)?.name ?? null, classBy.get(id) ?? null].filter(
+      (part): part is string => part !== null && part.trim() !== '',
+    );
+    if (parts.length > 0) answers.set(id, parts.join(' · '));
+  }
+
+  return answers;
+}
+
+/**
+ * *Their children's names*, for each parent account. Sprint 33c.
+ *
+ * The student's name lives on `school_users`, not on `student_profiles` — the
+ * profile carries the record and the account carries the name — so this joins
+ * it once for the **child**, while the parent's id is read straight off
+ * `student_guardians.school_user_id` and needs no join at all. One occurrence
+ * of `school_users` in the statement, which is what keeps it free of the
+ * ambiguous reference the docblock above is about.
+ */
+export async function childrenOfParents(
+  locationId: string,
+  parentUserIds: readonly string[],
+): Promise<Map<string, string>> {
+  if (parentUserIds.length === 0) return new Map();
+
+  const rows = await db
+    .select({
+      parentUserId: studentGuardians.schoolUserId,
+      childName: schoolUsers.name,
+    })
+    .from(studentGuardians)
+    .innerJoin(studentProfiles, eq(studentProfiles.id, studentGuardians.studentProfileId))
+    .innerJoin(schoolUsers, eq(schoolUsers.id, studentProfiles.schoolUserId))
+    .where(
+      and(
+        eq(studentGuardians.locationId, locationId),
+        inArray(studentGuardians.schoolUserId, [...parentUserIds]),
+      ),
+    )
+    .orderBy(asc(schoolUsers.name));
+
+  const byParent = new Map<string, string[]>();
+  for (const row of rows) {
+    if (row.parentUserId === null) continue;
+    const held = byParent.get(row.parentUserId) ?? [];
+    if (!held.includes(row.childName)) held.push(row.childName);
+    byParent.set(row.parentUserId, held);
+  }
+
+  return new Map(
+    [...byParent.entries()].map(([parentUserId, names]) => [
+      parentUserId,
+      // Three is where a line stops being a label and starts being a list.
+      names.length > 3
+        ? `${names.slice(0, 3).join(', ')} and ${String(names.length - 3)} more`
+        : names.join(', '),
+    ]),
+  );
 }
 
 /**
@@ -531,6 +759,16 @@ export async function resolveReachable(
       kind: 'inbox' as const,
       id: inbox.key,
       name: inbox.label,
+      /*
+       * A desk has **no role**, and the type says so rather than inventing one.
+       * `desksWithAnswerers` has just resolved who actually answers each of
+       * these, and at a small school that is the school administrator for all
+       * four — so labelling the Accounts Office `accountant` would put a guess
+       * on a chip that somebody then filters by. The picker groups them under
+       * "School offices" instead, which is what they are.
+       */
+      role: null,
+      branchName: null,
       detail: 'The school will answer',
     }));
 
@@ -543,8 +781,14 @@ export async function resolveReachable(
   // school's own directory and a member of staff already has it on the users
   // screen; chat is not what makes it visible.
   const rows = await db
-    .select({ id: schoolUsers.id, name: schoolUsers.name, role: schoolUsers.role })
+    .select({
+      id: schoolUsers.id,
+      name: schoolUsers.name,
+      role: schoolUsers.role,
+      branchName: branches.name,
+    })
     .from(schoolUsers)
+    .leftJoin(branches, eq(branches.id, schoolUsers.branchId))
     .where(
       and(
         eq(schoolUsers.locationId, locationId),
@@ -554,11 +798,40 @@ export async function resolveReachable(
     )
     .orderBy(asc(schoolUsers.name));
 
+  /*
+   * Sprint 33c, C3. What a pupil and a parent actually are, on a staff list.
+   *
+   * `role.replace(/_/g, ' ')` is what this line said for four sprints, and on a
+   * school's directory of six hundred accounts it produced two hundred rows
+   * reading "student" and three hundred reading "parent" — which is not a
+   * disambiguation, it is the same word repeated until the picker is useless.
+   * A teacher looking for a child's father is looking for *the father of
+   * Ayesha in 5 A*, and that is the sentence this now prints.
+   *
+   * Two supplementary reads, both keyed on ids already in hand and both skipped
+   * when the list holds none of that kind — a school with no pupil accounts
+   * pays nothing for this.
+   */
+  const studentIds = rows.filter((row) => row.role === 'student').map((row) => row.id);
+  const parentIds = rows.filter((row) => row.role === 'parent').map((row) => row.id);
+
+  const [studentContext, parentContext] = await Promise.all([
+    studentContextFor(locationId, studentIds),
+    childrenOfParents(locationId, parentIds),
+  ]);
+
   return rows.map((row) => ({
     kind: 'person' as const,
     id: row.id,
     name: row.name,
-    detail: row.role.replace(/_/g, ' '),
+    role: row.role as UserRole,
+    branchName: row.branchName,
+    detail:
+      (row.role === 'student'
+        ? (studentContext.get(row.id) ?? null)
+        : row.role === 'parent'
+          ? (parentContext.get(row.id) ?? null)
+          : null) ?? row.role.replace(/_/g, ' '),
   }));
 }
 

@@ -19,6 +19,7 @@ import {
 import { db } from './drizzle';
 import { expandHolidays } from './holiday-calendar';
 import { listHolidays } from './holiday-queries';
+import { liveTimetableEntries } from './timetable-history';
 import { minutesFromTime } from '@/db/schema/timetable-slots';
 
 /**
@@ -248,6 +249,8 @@ export async function getTeacherCalendar(
         eq(timetableEntries.teacherId, teacherId),
         eq(timetableEntries.academicYearId, academicYearId),
         eq(timetableEntries.isActive, true),
+        // Sprint 33c: the version in force today. `lib/timetable-history.ts`.
+        liveTimetableEntries(),
         eq(timetableSlots.isActive, true),
       ),
     )

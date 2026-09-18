@@ -9,25 +9,23 @@ import { schoolErrorMessage, schoolFetch } from '@/lib/school-client';
 /**
  * The actions available on one challan.
  *
- * Print is a browser call rather than a server round trip — the print view is
- * already rendered into the page and `@media print` reveals it, so there is no
- * document to fetch and no PDF to generate.
- *
  * Cancel and waive both destroy a school's ability to collect on a bill, so
  * both sit behind a confirmation. Cancel is refused server-side once money has
  * been taken; the button says so rather than letting the user find out.
  *
- * ── Print appears only on an open voucher — Sprint 20, item 3a ───────────
- * It used to render unconditionally. A voucher that is `paid`, `cancelled` or
- * `waived` is not a payment instrument any more, and printing one hands a
- * parent a demand for money the school is not owed — which at a bank counter is
- * indistinguishable from a live slip, because nothing on the paper says
- * otherwise.
+ * ── Printing moved out of here — Sprint 33c ──────────────────────────────
+ * Sprint 20 had already made the Print button conditional on an open voucher,
+ * because a `paid`, `cancelled` or `waived` slip is not a payment instrument
+ * and printing one hands a parent a demand for money the school is not owed.
+ * That decision stands. What it left open was stated in this docblock at the
+ * time: *"a paid voucher does still need a document: a receipt"*.
  *
- * A **paid** voucher does still need a document: a receipt. That is a different
- * thing this sprint does not build, and repurposing the voucher print for it
- * would print the word "payable" over a settled bill. Leaving the button there
- * in the meantime would be the same mistake with an extra click in it.
+ * It has one now, and the moment a page can hold two `PrintSheet`s the choice
+ * of which one reaches the paper has to live where the sheets are — a button
+ * here calling `window.print()` would print whatever was mounted, which with
+ * two documents on the page is both. So both buttons and both documents are
+ * `components/fees/ChallanPrintChoice.tsx`, and this component is the
+ * money-changing actions and nothing else.
  */
 
 export interface ChallanActionsProps {
@@ -106,17 +104,6 @@ export function ChallanActions({
   return (
     <div className="space-y-3">
       <div className="flex flex-wrap gap-3">
-        {isOpen ? (
-          <Button
-            variant="secondary"
-            onClick={() => {
-              window.print();
-            }}
-          >
-            Print voucher
-          </Button>
-        ) : null}
-
         {canWrite && isOpen ? (
           <Button
             onClick={() => {

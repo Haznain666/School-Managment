@@ -4,7 +4,11 @@ import { notFound } from 'next/navigation';
 
 import { SiblingCard } from '@/components/admissions/SiblingCard';
 import { ChallanActions } from '@/components/fees/ChallanActions';
-import { ChallanPrintView } from '@/components/fees/ChallanPrintView';
+import {
+  ChallanPrintButtons,
+  ChallanPrintProvider,
+  ChallanPrintSheet,
+} from '@/components/fees/ChallanPrintChoice';
 import { Badge, type BadgeVariant } from '@/components/ui/Badge';
 import { Card, CardTitle } from '@/components/ui/Card';
 import {
@@ -34,7 +38,7 @@ import { requireSchoolPermission } from '@/lib/school-guard';
 import { getSchoolBranding } from '@/lib/school-tenant';
 import { listSiblings } from '@/lib/siblings';
 import { isUuid } from '@/lib/validation';
-import { buildVoucherPrintData } from '@/lib/voucher-print-data';
+import { buildReceiptPrintData, buildVoucherPrintData } from '@/lib/voucher-print-data';
 
 export const metadata: Metadata = {
   title: 'Voucher',
@@ -104,13 +108,23 @@ export default async function ChallanDetailPage({
    * Built only for an **open** voucher: it costs two queries, and a closed
    * voucher has nothing to print.
    */
+  const logoUrl = (await getSchoolBranding(locationId))?.logoUrl ?? null;
+
   const printData = isOpen
-    ? await buildVoucherPrintData(challan, {
-        locationId,
-        lateFeeRule,
-        logoUrl: (await getSchoolBranding(locationId))?.logoUrl ?? null,
-      })
+    ? await buildVoucherPrintData(challan, { locationId, lateFeeRule, logoUrl })
     : null;
+
+  /*
+   * Sprint 33c, C2. The school gets Print Receipt too.
+   *
+   * A counter clerk is who a parent asks for one — they are standing at the
+   * window having just handed over the money — so withholding it here would
+   * mean the school's own copy of the product could not produce the document
+   * its own cashier had just created the need for. It is the same helper the
+   * parent portal calls, so the two cannot drift; `buildReceiptPrintData`
+   * returns null for anything that has taken no money.
+   */
+  const receiptData = buildReceiptPrintData(challan, { logoUrl });
 
   const period =
     challan.billingMonth === null || challan.billingYear === null
@@ -118,7 +132,7 @@ export default async function ChallanDetailPage({
       : `${MONTH_NAMES[challan.billingMonth - 1] ?? challan.billingMonth} ${challan.billingYear}`;
 
   return (
-    <>
+    <ChallanPrintProvider voucher={printData} receipt={receiptData}>
       <div className="space-y-6 print:hidden">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
@@ -154,6 +168,14 @@ export default async function ChallanDetailPage({
             </p>
           </div>
         </div>
+
+        {/*
+          The print buttons sit with the other actions, where they always have.
+          The sheet they choose between is at the bottom of this file, outside
+          the `print:hidden` wrapper — see `ChallanPrintChoice`, which explains
+          why the two halves cannot be one element.
+        */}
+        <ChallanPrintButtons />
 
         <ChallanActions
           challanId={challan.id}
@@ -363,12 +385,13 @@ export default async function ChallanDetailPage({
         the print view is not rendered at all rather than rendered and hidden:
         the sheet is `display: none` on screen and revealed by `@media print`,
         so leaving it in the tree would still put a demand for settled money on
-        the paper of anybody who pressed Ctrl+P. The button is gone from
-        `ChallanActions` for the same reason; this is the half that Ctrl+P
-        cannot get round.
+        the paper of anybody who pressed Ctrl+P. That reasoning is exactly why
+        Sprint 33c's receipt is mounted through `ChallanPrintChoice` rather than
+        beside the voucher: two sheets on one page are two documents on the
+        paper, and Ctrl+P is not a button anybody can gate.
       */}
-      {printData === null ? null : <ChallanPrintView data={printData} />}
-    </>
+      <ChallanPrintSheet />
+    </ChallanPrintProvider>
   );
 }
 

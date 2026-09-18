@@ -344,6 +344,13 @@
       "when": 1789732800000,
       "tag": "0048_sprint33b_one_head_per_campus",
       "breakpoints": true
+    },
+    {
+      "idx": 49,
+      "version": "7",
+      "when": 1789819200000,
+      "tag": "0049_sprint33c_portal_work",
+      "breakpoints": true
     }
   ]
 }

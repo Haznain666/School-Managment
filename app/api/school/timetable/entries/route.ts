@@ -1,4 +1,4 @@
-import { and, eq } from 'drizzle-orm';
+import { and, eq, isNull } from 'drizzle-orm';
 
 import {
   gradeLabel,
@@ -21,7 +21,12 @@ import {
   listSlotsForSection,
   resolveStructureForSection,
 } from '@/lib/academics-queries';
-import { db } from '@/lib/drizzle';
+import { batch, db } from '@/lib/drizzle';
+import {
+  liveTimetableEntries,
+  supersededOn,
+  timetableToday,
+} from '@/lib/timetable-history';
 import { isUuid, readOptionalString } from '@/lib/validation';
 
 /**
@@ -41,6 +46,31 @@ import { isUuid, readOptionalString } from '@/lib/validation';
  * assigned it. That is `listSlotsForSection`, and the same resolution guards
  * the write — a slot from the senior school's schedule is refused for a junior
  * section rather than quietly written into a grid that will never draw it.
+ *
+ * ── Sprint 33c: the upsert became a supersede ────────────────────────────
+ * It was one `INSERT … ON CONFLICT DO UPDATE`, and that single statement is
+ * what rewrote history: putting one teacher into another's Tuesday period
+ * changed who had taken it every Tuesday since September, on every screen, with
+ * nothing anywhere recording that it had ever been otherwise. The product owner
+ * asked for that to stop, and decision 9 says there is to be no history *view*
+ * — so nothing new is shown and the past simply stops being edited.
+ *
+ * A save is therefore one of three things, decided by reading the version in
+ * force today:
+ *
+ *   · no live row              insert one, effective from today;
+ *   · same teacher, same       update it in place — a room or a typo is a
+ *     subject                  correction to one lesson, not a new one;
+ *   · a different teacher or   **close** the live row (`effective_to` =
+ *     a different subject      yesterday) and **open** a new one from today,
+ *                              in one transaction. Nothing is updated in
+ *                              place and nothing is deleted.
+ *
+ * The one exception is a version that has not yet survived a day —
+ * `effective_from >= today`, which is the clerk who placed the wrong teacher
+ * ten minutes ago. That is updated in place too: superseding it would record a
+ * version that was never in force for a single school day, and a history made
+ * of ten-minute versions is a history nobody can read.
  */
 
 export const runtime = 'nodejs';
@@ -284,42 +314,151 @@ export const POST = withSchoolAuth(
         );
       }
 
-      const saved = await db
-        .insert(timetableEntries)
-        .values({
-          // Tenant comes from the verified session, never from the body.
-          locationId: auth.locationId,
-          academicYearId,
-          sectionId,
-          subjectId,
-          teacherId,
-          slotId,
-          dayOfWeek,
-          room,
+      /*
+       * Sprint 33c. Which version of this cell is in force, if any.
+       *
+       * Read before the write rather than folded into an `ON CONFLICT`: the
+       * three outcomes in the docblock are not one statement — closing one row
+       * and opening another cannot be expressed as an upsert — and choosing
+       * between them needs the standing row's teacher, subject and start date.
+       */
+      const today = timetableToday();
+
+      const standingRows = await db
+        .select({
+          id: timetableEntries.id,
+          teacherId: timetableEntries.teacherId,
+          subjectId: timetableEntries.subjectId,
+          effectiveFrom: timetableEntries.effectiveFrom,
         })
-        .onConflictDoUpdate({
-          target: [
-            timetableEntries.locationId,
-            timetableEntries.sectionId,
-            timetableEntries.slotId,
-            timetableEntries.dayOfWeek,
-          ],
-          set: {
+        .from(timetableEntries)
+        .where(
+          and(
+            eq(timetableEntries.locationId, auth.locationId),
+            eq(timetableEntries.sectionId, sectionId),
+            eq(timetableEntries.slotId, slotId),
+            eq(timetableEntries.dayOfWeek, dayOfWeek),
+            eq(timetableEntries.isActive, true),
+            liveTimetableEntries(today),
+          ),
+        )
+        .limit(1);
+
+      const standing = standingRows[0] ?? null;
+      const now = new Date();
+
+      const values = {
+        // Tenant comes from the verified session, never from the body.
+        locationId: auth.locationId,
+        academicYearId,
+        sectionId,
+        subjectId,
+        teacherId,
+        slotId,
+        dayOfWeek,
+        room,
+        effectiveFrom: today,
+      };
+
+      /*
+       * A change of who takes the period, or of what is taught in it. Both are
+       * facts about what happened in that room last Tuesday and neither may be
+       * rewritten. A **room** is not: it is where the same lesson sat, and
+       * correcting it is a correction.
+       */
+      const supersede =
+        standing !== null &&
+        standing.effectiveFrom < today &&
+        (standing.teacherId !== teacherId || standing.subjectId !== subjectId);
+
+      let entryId: string | undefined;
+
+      if (standing !== null && supersede) {
+        /*
+         * Close, then open, in one transaction and in that order — the closing
+         * `UPDATE` is what takes the old row out of the partial unique index
+         * and makes room for the new one. Every statement is built on `tx`: a
+         * builder made from `db` runs outside the transaction even when it is
+         * awaited inside one.
+         */
+        const [, opened] = await batch(db, (tx) => [
+          tx
+            .update(timetableEntries)
+            .set({ effectiveTo: supersededOn(today), updatedAt: now })
+            .where(
+              and(
+                eq(timetableEntries.locationId, auth.locationId),
+                eq(timetableEntries.id, standing.id),
+              ),
+            ),
+          tx.insert(timetableEntries).values(values).returning({ id: timetableEntries.id }),
+        ]);
+
+        entryId = opened[0]?.id;
+      } else if (standing !== null) {
+        const updated = await db
+          .update(timetableEntries)
+          .set({
             subjectId,
             teacherId,
             academicYearId,
             room,
             isActive: true,
-            updatedAt: new Date(),
-          },
-        })
-        .returning({ id: timetableEntries.id });
+            updatedAt: now,
+          })
+          .where(
+            and(
+              eq(timetableEntries.locationId, auth.locationId),
+              eq(timetableEntries.id, standing.id),
+            ),
+          )
+          .returning({ id: timetableEntries.id });
 
-      if (saved[0] === undefined) {
+        entryId = updated[0]?.id;
+      } else {
+        /*
+         * The race, and why the insert still carries an `ON CONFLICT`.
+         *
+         * Two clerks on the same cell both read "no live row" and both insert,
+         * and the partial unique index turns the second into a `23505` — a 500
+         * on a form that has never failed. `targetWhere` is that index's own
+         * predicate, which Postgres **requires** in order to infer a *partial*
+         * index: without it this statement does not merely lose the fallback,
+         * it fails outright, and it fails only on the path nothing tests.
+         */
+        const saved = await db
+          .insert(timetableEntries)
+          .values(values)
+          .onConflictDoUpdate({
+            target: [
+              timetableEntries.locationId,
+              timetableEntries.sectionId,
+              timetableEntries.slotId,
+              timetableEntries.dayOfWeek,
+            ],
+            targetWhere: and(
+              isNull(timetableEntries.effectiveTo),
+              eq(timetableEntries.isActive, true),
+            ),
+            set: {
+              subjectId,
+              teacherId,
+              academicYearId,
+              room,
+              isActive: true,
+              updatedAt: now,
+            },
+          })
+          .returning({ id: timetableEntries.id });
+
+        entryId = saved[0]?.id;
+      }
+
+      if (entryId === undefined) {
         return apiFailure('write_failed', 'Could not save the lesson.', 500);
       }
 
-      return apiSuccess({ entryId: saved[0].id });
+      return apiSuccess({ entryId });
     } catch (error) {
       return handleApiError(error);
     }

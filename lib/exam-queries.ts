@@ -53,6 +53,7 @@ import {
 import { academicYearBounds } from './academics-queries';
 import { sharedOrOwnedBy } from './branch-scope';
 import { db, type Database, type Tx } from './drizzle';
+import { liveTimetableEntries } from './timetable-history';
 import {
   assignPositions,
   overallPercentage,
@@ -1634,6 +1635,8 @@ export async function listTeacherPapers(
         eq(timetableEntries.teacherId, teacherId),
         eq(timetableEntries.academicYearId, academicYearId),
         eq(timetableEntries.isActive, true),
+        // Sprint 33c: the version in force today. `lib/timetable-history.ts`.
+        liveTimetableEntries(),
       ),
     )
     .where(
@@ -1672,6 +1675,8 @@ export async function teacherOwnsPaper(
         eq(timetableEntries.teacherId, teacherId),
         eq(timetableEntries.academicYearId, examTerms.academicYearId),
         eq(timetableEntries.isActive, true),
+        // Sprint 33c: the version in force today. `lib/timetable-history.ts`.
+        liveTimetableEntries(),
       ),
     )
     .where(
@@ -2928,6 +2933,8 @@ export async function listTeacherScheduleRows(
         eq(timetableEntries.subjectId, subjects.id),
         eq(timetableEntries.teacherId, teacherId),
         eq(timetableEntries.locationId, locationId),
+        // Sprint 33c: the version in force today. `lib/timetable-history.ts`.
+        liveTimetableEntries(),
       ),
     )
     .leftJoin(

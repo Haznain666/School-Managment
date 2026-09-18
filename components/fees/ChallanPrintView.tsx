@@ -39,6 +39,23 @@ import { amountInWords, formatAmount, toPaise } from '@/lib/money';
  *   `ChallanPrintView`  one voucher, its own sheet. Used by the detail pages.
  *   `ChallanCopies`     the copies alone, for callers printing many vouchers
  *                       into a single sheet and print job.
+ *
+ * ── Sprint 33c: the same component prints the receipt ────────────────────
+ * `kind` is a discriminator on the **data**, not a second component. A paid
+ * voucher needed a document — the school takes the money at a counter and the
+ * parent leaves with nothing — and the obvious way to build one was to copy
+ * this file and delete the bank block. That is exactly what Sprint 20 spent an
+ * afternoon undoing: three call sites each spreading `ChallanDetail` in by
+ * hand, and a parent holding a slip with no bank details while the school's own
+ * copy had them. A fork would be that defect again with a second document's
+ * worth of surface.
+ *
+ * So the receipt is this layout with four differences, each of them one
+ * conditional below: it is headed RECEIPT, it lists the payments, it prints no
+ * bank block and no *valid upto*, and its totals are what was taken rather than
+ * what is owed. Everything a reader recognises — the letterhead, the student
+ * block, the particulars, the amount in words, the two copies and the cut line
+ * — is the same document, because to the person holding it, it is.
  */
 
 export interface ChallanPrintItem {
@@ -69,7 +86,28 @@ export interface VoucherBankAccount {
   instructions: string | null;
 }
 
+/** One payment, as the receipt prints it. */
+export interface ChallanPrintPayment {
+  id: string;
+  /** `YYYY-MM-DD`. */
+  paymentDate: string;
+  amount: string;
+  /** Already in the school's words — "Cash", "Bank transfer". */
+  method: string;
+  referenceNumber: string | null;
+}
+
 export interface ChallanPrintData {
+  /**
+   * Which document this is.
+   *
+   * Absent means `voucher`, so every caller written before Sprint 33c compiles
+   * and prints exactly what it printed before. A receipt is the same layout
+   * with the four differences the docblock lists, never a second component.
+   */
+  kind?: 'voucher' | 'receipt';
+  /** Printed on a receipt, ignored on a voucher. */
+  payments?: readonly ChallanPrintPayment[];
   challanNumber: string;
   schoolName: string;
   schoolAddress: string | null;
@@ -213,16 +251,35 @@ function ChallanCopy({
   data: ChallanPrintData;
   copyLabel: string;
 }) {
+  const isReceipt = data.kind === 'receipt';
+  const payments = data.payments ?? [];
+
   const balancePaise = toPaise(data.totalAmount) - toPaise(data.paidAmount);
   const creditPaise = toPaise(data.creditApplied ?? '0');
   const discountPaise = toPaise(data.concessionAmount);
 
   const afterDueTotal =
-    data.lateFeeAfterDueDate === null || data.lateFeeAfterDueDate === undefined
+    isReceipt ||
+    data.lateFeeAfterDueDate === null ||
+    data.lateFeeAfterDueDate === undefined
       ? null
       : (toPaise(data.totalAmount) + toPaise(data.lateFeeAfterDueDate)) / 100;
 
-  const banks = data.banks ?? [];
+  // No bank block on a receipt. The money has already been taken, and account
+  // numbers under the word RECEIPT read as a second request for it.
+  const banks = isReceipt ? [] : (data.banks ?? []);
+
+  /*
+   * The figure the document is *about*: what is still owed on a voucher, what
+   * was taken on a receipt. It is computed once and used by the totals row and
+   * by the amount in words, because a slip whose figure and whose words
+   * disagree is a slip a cashier refuses.
+   */
+  const headline = isReceipt
+    ? data.paidAmount
+    : toPaise(data.paidAmount) === 0
+      ? data.totalAmount
+      : String(balancePaise / 100);
 
   return (
     <div className="text-[10px] leading-tight text-black">
@@ -250,16 +307,30 @@ function ChallanCopy({
               <p className="text-[9px] uppercase tracking-wide">{data.branchName}</p>
             )}
             <p className="text-[9px] font-semibold uppercase tracking-wide">
-              Fee Voucher
+              {isReceipt ? 'Fee Receipt' : 'Fee Voucher'}
             </p>
           </div>
         </div>
 
         <div className="text-right">
           <p className="inline-block border border-black px-2 py-0.5 text-[9px] font-bold tracking-wide">
-            {copyLabel}
+            {isReceipt ? `RECEIPT · ${copyLabel}` : copyLabel}
           </p>
-          <p className="mt-1 text-[9px]">{billingPeriod(data)}</p>
+          {/*
+            The month, labelled, on **both** documents — Sprint 33c, C2.
+
+            It was already computed and already printed here, and it was a bare
+            "September 2026" under the copy chip, which reads as a date the slip
+            was produced. A parent holding three months of receipts needs to
+            know which month each one settles, and a school looking at a paid
+            slip needs the same.
+          */}
+          <p className="mt-1 text-[9px]">
+            <span className="font-semibold">
+              {isReceipt ? 'Payment for' : 'Fee for'}:{' '}
+            </span>
+            {billingPeriod(data)}
+          </p>
           {/* Printed only when the school has one. A blank `NTN #` is a
               question a parent asks at the counter. */}
           {data.schoolNtn === null || data.schoolNtn === undefined || data.schoolNtn === '' ? null : (
@@ -287,14 +358,27 @@ function ChallanCopy({
       <div className="grid grid-cols-4 border-y border-[rgb(var(--brand-primary))] py-1">
         <Stamp label="Issue date" value={formatDateOnly(data.issueDate)} />
         <Stamp label="Due date" value={formatDateOnly(data.dueDate)} />
-        <Stamp
-          label="Valid upto"
-          value={formatDateOnly(
-            data.validUpto === null || data.validUpto === undefined
-              ? data.dueDate
-              : data.validUpto,
-          )}
-        />
+        {/*
+          A receipt carries **no "valid upto"**. That line is the last day the
+          figure on the left is what the parent owes; on a settled bill there is
+          no such day, and printing one invites a teller to treat a receipt as a
+          live slip. In its place, the day the money was taken.
+        */}
+        {isReceipt ? (
+          <Stamp
+            label="Paid on"
+            value={formatDateOnly(payments[payments.length - 1]?.paymentDate ?? null)}
+          />
+        ) : (
+          <Stamp
+            label="Valid upto"
+            value={formatDateOnly(
+              data.validUpto === null || data.validUpto === undefined
+                ? data.dueDate
+                : data.validUpto,
+            )}
+          />
+        )}
         {/* No versioning exists. See `VOUCHER_VERSION`. */}
         <Stamp label="Version" value={VOUCHER_VERSION} />
       </div>
@@ -397,7 +481,10 @@ function ChallanCopy({
             </tr>
           )}
 
-          {toPaise(data.paidAmount) === 0 ? null : (
+          {/* Suppressed on a receipt: the payments are listed in full below,
+              and a single "already paid" line above them is the same money
+              stated twice in two different shapes. */}
+          {isReceipt || toPaise(data.paidAmount) === 0 ? null : (
             <tr className="border-b border-dotted border-black">
               <td className="py-0.5 pl-1">Already paid</td>
               <td className="py-0.5 pr-1 text-right tabular-nums">
@@ -410,14 +497,34 @@ function ChallanCopy({
         <tfoot>
           <tr className="border-y-2 border-[rgb(var(--brand-primary))] bg-[rgb(var(--brand-primary)/0.12)]">
             <th scope="row" className="py-1 pl-1 text-left text-[10px] font-bold uppercase">
-              Total amount payable within due date
+              {isReceipt ? 'Total received' : 'Total amount payable within due date'}
             </th>
             <td className="py-1 pr-1 text-right text-[12px] font-bold tabular-nums">
-              {formatAmount(
-                toPaise(data.paidAmount) === 0 ? data.totalAmount : balancePaise / 100,
-              )}
+              {formatAmount(headline)}
             </td>
           </tr>
+
+          {/*
+            Outstanding, printed as a literal zero and only on a receipt.
+
+            The spec asks for status **Paid** and outstanding **0**, and the
+            zero is the point: this is the line a parent is looking for and the
+            line a counter clerk is asked about. It is deliberately not computed
+            from `total − paid` — `buildReceiptPrintData` refuses to build a
+            receipt for a voucher that is not settled, so there is no arithmetic
+            here that could put a number other than zero on a document headed
+            RECEIPT.
+          */}
+          {!isReceipt ? null : (
+            <tr className="border-b border-black">
+              <th scope="row" className="py-1 pl-1 text-left text-[10px] font-bold uppercase">
+                Outstanding
+              </th>
+              <td className="py-1 pr-1 text-right text-[11px] font-bold tabular-nums">
+                {formatAmount('0')}
+              </td>
+            </tr>
+          )}
 
           {/*
             Omitted entirely when the school has no late fee configured.
@@ -439,17 +546,61 @@ function ChallanCopy({
         </tfoot>
       </table>
 
+      {/*
+        Every payment, with its date, amount, mode and reference — Sprint 33c.
+
+        This is the whole reason a receipt exists rather than a stamp on the
+        voucher: a partially-paid bill settled in three visits is three facts,
+        and "PKR 15,000 paid" is not any of them. The reference is what a parent
+        quotes when a transfer has to be traced, so it is printed even when it
+        is empty, as a dash — a missing column reads as the school not having
+        recorded one.
+      */}
+      {!isReceipt || payments.length === 0 ? null : (
+        <table className="mt-1.5 w-full border-collapse text-[9px]">
+          <thead>
+            <tr className="border-y border-black bg-[rgb(var(--brand-primary)/0.12)]">
+              <th scope="col" className="py-0.5 pl-1 text-left font-bold">
+                Received on
+              </th>
+              <th scope="col" className="py-0.5 text-left font-bold">
+                Mode
+              </th>
+              <th scope="col" className="py-0.5 text-left font-bold">
+                Reference
+              </th>
+              <th scope="col" className="py-0.5 pr-1 text-right font-bold">
+                Amount (PKR)
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            {payments.map((payment) => (
+              <tr key={payment.id} className="border-b border-dotted border-black">
+                <td className="py-0.5 pl-1">{formatDateOnly(payment.paymentDate)}</td>
+                <td className="py-0.5">{payment.method}</td>
+                <td className="py-0.5 font-mono">
+                  {blankToDash(payment.referenceNumber)}
+                </td>
+                <td className="py-0.5 pr-1 text-right tabular-nums">
+                  {formatAmount(payment.amount)}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+
       {/* The figure in words is what stops a 1,000 becoming a 10,000 between
           the school gate and the cashier's window. The reference omits it; that
           is not a reason to drop it. */}
       <p className="mt-1 border border-black px-1.5 py-1 text-[9px]">
         <span className="font-bold">Amount in words: </span>
-        {amountInWords(
-          toPaise(data.paidAmount) === 0 ? data.totalAmount : balancePaise / 100,
-        )}
+        {amountInWords(headline)}
       </p>
 
-      {/* 5 — Payment methods. */}
+      {/* 5 — Payment methods. Never on a receipt: the money is in. */}
+      {isReceipt ? null : (
       <section className="mt-1.5">
         <h3 className="border-b border-[rgb(var(--brand-primary))] pb-0.5 text-[9px] font-bold uppercase tracking-wide text-[rgb(var(--brand-primary))]">
           How to pay
@@ -497,10 +648,13 @@ function ChallanCopy({
           </ul>
         )}
       </section>
+      )}
 
       {/* 6 — Notes. Printed only when there is somewhere to send the proof:
-          an instruction to email nobody is worse than no instruction. */}
-      {data.schoolFinanceEmail === null ||
+          an instruction to email nobody is worse than no instruction. And never
+          on a receipt — the proof is the sheet in their hand. */}
+      {isReceipt ||
+      data.schoolFinanceEmail === null ||
       data.schoolFinanceEmail === undefined ||
       data.schoolFinanceEmail === '' ? null : (
         <p className="mt-1.5 border border-dashed border-black px-1.5 py-1 text-[8px]">
@@ -528,7 +682,9 @@ function ChallanCopy({
           </p>
         </div>
         <p className="w-28 shrink-0 border-t border-black pt-0.5 text-center">
-          Authorised signature
+          {/* A receipt is signed by whoever took the money, not by whoever
+              authorised the bill. */}
+          {isReceipt ? 'Received by' : 'Authorised signature'}
         </p>
       </footer>
     </div>

@@ -45,6 +45,8 @@
 
 import { readFileSync } from 'node:fs';
 
+import { sql } from 'drizzle-orm';
+
 import {
   buildCalendarMonth,
   daysInMonth,
@@ -546,10 +548,75 @@ async function main(): Promise<void> {
   loadDatabaseUrl();
 
   const { getDb } = await import('../lib/drizzle');
+
+  /*
+   * ⚠ Sprint 33c's `0049` is allowed to be pending, and only in one shape.
+   *
+   * Four of the reads below draw a timetable, and since Sprint 33c every
+   * timetable read filters on `timetable_entries.effective_from` /
+   * `effective_to` — the two dates that stopped a teacher change from
+   * rewriting last Tuesday. Between the code deploy and that migration they
+   * fail with exactly `42703` naming one of those columns, which is a state
+   * this gate can recognise rather than a defect it should report.
+   *
+   * It is read from the catalogue, never assumed, so the same command works on
+   * both sides of the migration. **Any other failure is still a failure**, and
+   * so is a `42703` naming any other column — which is the whole point of
+   * matching the name and not just the SQLSTATE.
+   */
+  const timetableDates = (await getDb().execute(sql`
+    select column_name
+      from information_schema.columns
+     where table_schema = 'public'
+       and table_name = 'timetable_entries'
+       and column_name in ('effective_from', 'effective_to')`)) as unknown as Array<{
+    column_name: string;
+  }>;
+
+  const sprint33cApplied = timetableDates.length === 2;
+
+  /** The SQLSTATE lives on the error's `cause` chain, not on the error. */
+  const sqlState = (error: unknown): string | null => {
+    let current: unknown = error;
+    for (let depth = 0; depth < 6 && current != null; depth += 1) {
+      const code = (current as { code?: unknown }).code;
+      if (typeof code === 'string' && /^[0-9A-Z]{5}$/.test(code)) return code;
+      current = (current as { cause?: unknown }).cause;
+    }
+    return null;
+  };
+
+  /*
+   * ⚠ The reason is on the `cause`, not on the error — the same trap the
+   * SQLSTATE is behind. postgres-js wraps the driver's error in one whose
+   * message is "Failed query: …" plus the SQL, and the *column* it is
+   * complaining about is only in the inner one. Matching the outer message
+   * matches the statement text, which contains `"effective_from"` quoted and
+   * would therefore match a query that failed for some other reason entirely.
+   */
+  const causeChain = (error: unknown): string => {
+    const parts: string[] = [];
+    let current: unknown = error;
+    for (let depth = 0; depth < 6 && current != null; depth += 1) {
+      const message = (current as { message?: unknown }).message;
+      if (typeof message === 'string' && !message.startsWith('Failed query')) {
+        parts.push(message);
+      }
+      current = (current as { cause?: unknown }).cause;
+    }
+    return parts.join(' | ');
+  };
+
+  const isPending33c = (error: unknown): boolean =>
+    !sprint33cApplied &&
+    sqlState(error) === '42703' &&
+    /timetable_entries\.effective_(from|to)/.test(causeChain(error));
+
   const issuedSoFar = countStatements(getDb());
 
   let queryFailures = 0;
   let notExercised = 0;
+  let pending = 0;
   let before = issuedSoFar().length;
 
   for (const [name, run, reaches] of CHECKS) {
@@ -593,10 +660,28 @@ async function main(): Promise<void> {
       );
     } catch (caught) {
       before = issuedSoFar().length;
+
+      if (isPending33c(caught)) {
+        pending += 1;
+        console.log(
+          `  --   ${name.padEnd(28)}        PREDICTED 42703 — waiting on 0049 (Sprint 33c)`,
+        );
+        continue;
+      }
+
       queryFailures += 1;
       console.log(`  FAIL ${name}`);
       console.log(`       ${caught instanceof Error ? caught.message : String(caught)}`);
     }
+  }
+
+  if (pending > 0) {
+    console.log(
+      `\n  ${String(pending)} of ${CHECKS.length} timetable reads are waiting on migration 0049, which adds\n` +
+        `  timetable_entries.effective_from / effective_to. They fail with exactly 42703 naming one\n` +
+        `  of those two columns and with nothing else, which is the only shape this gate accepts.\n` +
+        `  Apply 0049 and they execute.`,
+    );
   }
 
   const exercised = CHECKS.length - queryFailures - notExercised;

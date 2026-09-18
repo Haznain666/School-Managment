@@ -20,6 +20,7 @@ import {
 } from '@/db/schema';
 
 import { db } from './drizzle';
+import { liveTimetableEntries } from './timetable-history';
 import {
   headIdentity,
   kpisFor,
@@ -390,6 +391,8 @@ export async function teacherProfile(
           eq(timetableEntries.locationId, locationId),
           eq(timetableEntries.teacherId, target.userId),
           eq(timetableEntries.isActive, true),
+          // Sprint 33c: the version in force today. `lib/timetable-history.ts`.
+          liveTimetableEntries(),
         ),
       )
       .groupBy(sections.name, grades.name, grades.displayName, subjects.name),

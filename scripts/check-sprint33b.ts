@@ -57,7 +57,7 @@
  * worktree has no env of its own.
  */
 
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 
 import { sql } from 'drizzle-orm';
 
@@ -315,9 +315,38 @@ async function main(): Promise<void> {
     );
   }
 
-  const missing = PERMISSIONS.filter((key) => !migration.includes(`'${key}'`));
+  /*
+   * ⚠ The permission list is checked against the **newest** migration that
+   * defines the constraint, not against `0047`.
+   *
+   * This is the third time the same repair has been needed and the docblock
+   * for it is already in this file: `check-sprint32` and `check-branch-scope`
+   * both once named `0045` by filename and both reported keys as missing from
+   * a file that no longer enforced anything. `0047` was the authority when
+   * this assertion was written; Sprint 33c's `0049` rewrote the same CHECK to
+   * admit `timetable.substitute`, so `0047` stopped being the authority the
+   * moment that file landed.
+   *
+   * The roles below are still read from `0047`, and correctly: nothing since
+   * has touched `school_users_role_check`.
+   */
+  const permissionCheckFile =
+    readdirSync('db/migrations')
+      .filter((name) => name.endsWith('.sql'))
+      .sort()
+      .reverse()
+      .find((name) =>
+        source(`db/migrations/${name}`).includes(
+          'ADD CONSTRAINT "role_permissions_permission_check"',
+        ),
+      ) ?? '(none)';
+
+  const permissionCheck =
+    permissionCheckFile === '(none)' ? '' : source(`db/migrations/${permissionCheckFile}`);
+
+  const missing = PERMISSIONS.filter((key) => !permissionCheck.includes(`'${key}'`));
   assert(
-    'every permission key is admitted by the new CHECK',
+    `every permission key is admitted by the newest CHECK (${permissionCheckFile})`,
     missing.length === 0,
     `${missing.join(', ')} would be a 23514 the first time a school overrides it`,
   );
