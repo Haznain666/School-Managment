@@ -4,7 +4,14 @@
 resume without re-deriving context. Updated at the end of every development
 step, before the session ends.
 
-**Last updated:** 2026-09-15 (**Sprint 32 — staff KPIs and performance —
+**Last updated:** 2026-09-18 (**Sprint 33 Part C — the portal work — shipped:
+merged `44a4ad50` (PR #102), migration `0049` applied and proved (50/0), live
+build `44a4ad50668d`. §5ci.** The round is complete: A §5cg, B §5ch, C §5ci.
+**Read §5ci's deploy record before touching `timetable_entries` — the migration
+header's "the old code behaves identically" is false and §5ci says why.**
+**Next sprint: the stale-list fix.**)
+
+**Earlier:** 2026-09-15 (**Sprint 32 — staff KPIs and performance —
 shipped: merged (PR #88, `e7692ab`), migration `0045` applied and proved, QA'd in
 a browser. §5cc.** Spec §5ca. Film screens and Askari demo data — §5cb. **KPI
 demo data and the film's KPI scene — §5cd.** **Next sprint: the stale-list fix.
@@ -42,14 +49,39 @@ F1–F5 are fixed and re-proved; round 2 found three more — N1, a campus-bound
 HR manager able to **read** another campus's staff calendar, and two screen
 faults — and all three are fixed.
 
-📋 **Part C is built and not yet merged, migrated or QA'd — §5ci.** The parent
-timetable and the end of history being rewritten, the receipt, the recipient
-picker and the substitutes panel, on
-`feature/sprint-33c-portal-work`. Migration **`0049`**, **not applied**.
-**`0050` is the next free migration number.** Every gate was run and is green,
-including a new `check-sprint33c` — **93 passed, 0 failed** — which executes
-every widened statement against the real schema and predicts the exact
-SQLSTATE each one fails with while `0049` is pending. **No browser QA.**
+✅ **Part C is shipped and live — §5ci.** The parent timetable and the end of
+history being rewritten, the receipt, the recipient picker and the substitutes
+panel. Merged as **`44a4ad50`** (PR #102) and deployed; live build
+**`44a4ad50668d`**, started 09:10:45 UTC on 2026-09-18, CDN purged and the
+smoke test green. **`0050` is the next free migration number.**
+
+**`0049` is applied and proved — 50 assertions, 0 failed**, through
+`scripts/verify-0049.mjs`, which applies and proves in one pass and reads
+whether the migration is applied rather than being told. `relfilenode`
+unchanged at `21105`, `attmissingval = {2026-09-18}`, and **1027 of 1027**
+lessons came out live. Every gate is green against the migrated schema:
+`check-sprint33c` **95 passed** (93 before the migration, two more now
+executing), `check-sprint33a` 53, `check-sprint33b` 145, `check-branch-scope`
+1,774, and `check-portals`' four timetable reads now **execute** instead of
+predicting `42703`.
+
+🔴 **The migration header's claim that the old code "behaves identically"
+against the new schema is FALSE, and it is a real window.** It is true of every
+read and false of the one write: `main`'s deployed
+`POST /api/school/timetable/entries` sent a bare `ON CONFLICT`, and Postgres
+cannot infer a **partial** index unless the statement repeats its predicate.
+Both forms were attempted against the migrated database — the new route's
+accepted, the old route's **`42P10`**.
+
+So **there is no ordering that avoids a window.** While the index is whole the
+old code works and the new code's supersede is a `23505`; once it is partial
+the new code works and the old code is `42P10`. The swap is atomic and the two
+versions want opposite indexes. Migration-first is the cheap side: saving a
+timetable cell fails on one administrative screen for the minutes until the
+deploy lands, where code-first fails **every timetable read** across four
+portals and seven query modules. Hostinger auto-deploys from a push to `main`,
+so **code-first is the default unless the migration is applied before the
+merge**. It was.
 
 ⚠ **`0049` has no ordering trap, and that is worth stating because Part B's
 did.** Apply `0049`, then deploy the code. Nothing in it depends on data,
@@ -12794,10 +12826,11 @@ days, per person, with the date in hand.
 
 ## 5ci. Sprint 33 **Part C** built — the portal work — 2026-09-18
 
-Built on `feature/sprint-33c-portal-work`, off `main` at `8c0bc0c`. The spec is
+Built on `feature/sprint-33c-portal-work`, off `main` at `8c0bc0c`, transferred
+to `claude/kind-boyd-496a06` and merged as **`44a4ad50`** (PR #102). The spec is
 `SPRINT-33-SPEC.md` Part C; §5cf is the round's handover entry, §5cg is Part A
-and §5ch is Part B, both of which are live. Migration **`0049`**, **not
-applied**.
+and §5ch is Part B, both of which are live. Migration **`0049`**, **applied and
+proved on 2026-09-18** — the deploy record is at the end of this section.
 
 ⚠ **The migration number is `0049`, not the `0048` the spec names.** `0047` and
 `0048` are Part B's and both are applied. This is settled and is not to be
@@ -12961,6 +12994,107 @@ drift:
   obvious next steps and neither was in Part C.
 - **`components/fees/PrintButton.tsx` was deleted** — its only caller was the
   parent fees page, which now uses `ChallanPrintButtons`.
+
+### The deploy, 2026-09-18 — and the claim in the migration header that was wrong
+
+Order: **`0049` applied first, then merged, then deployed.** Merge `44a4ad50`
+(PR #102), Hostinger build `01a0b3c5` created 09:07:58 UTC and completed
+09:10:52, live build id **`44a4ad50668d`** read back from
+`/api/internal/build` in a browser after the CDN purge. `smoke-test-live`
+reports DEPLOYMENT HEALTHY.
+
+🔴 **`0049`'s own header says the old code "behaves identically" against the new
+schema. That is false, and the next person to read it should not believe it.**
+It holds for every *read* — none of them name the new columns. It fails for the
+one *write*: the previously deployed `POST /api/school/timetable/entries` sent
+
+```ts
+.onConflictDoUpdate({ target: [locationId, sectionId, slotId, dayOfWeek], set: {…} })
+```
+
+with no `targetWhere`, and **Postgres cannot infer a partial index unless the
+statement repeats the index's predicate**. `verify-0049.mjs` attempts both
+forms against the migrated database: the new route's is accepted, the old
+route's fails with exactly **`42P10`**.
+
+**There is no ordering that avoids a window**, and that is worth recording so
+nobody spends an afternoon looking for one. While the index is whole, the old
+code works and the new code's supersede is a `23505`. Once it is partial, the
+new code works and the old code is `42P10`. The swap is atomic and the two code
+versions want opposite indexes. What you choose is which failure you take:
+
+| Order | What breaks, and how wide |
+| --- | --- |
+| **Migration first** — what was done | *Saving* a timetable cell, on one administrative screen, for the ~3 minutes until the deploy lands |
+| Code first | **Every timetable read**, four portals, seven query modules |
+
+Hostinger auto-deploys from a push to `main`, so **code-first is what happens
+by default** unless the migration is applied before the merge.
+
+⚠ **Do not apply this file by pasting its statements into the SQL editor one at
+a time.** drizzle-orm's migrator wraps every pending file *and* the bookkeeping
+insert in one `session.transaction`, so `0049`'s `DROP INDEX` and its partial
+`CREATE` commit together and no concurrent transaction ever sees the cell
+unguarded. Pasted statement-by-statement, they do not — and that version has a
+window in which uniqueness is not enforced at all. It is also why
+`CONCURRENTLY` would be *wrong* here: it cannot run inside a transaction block.
+
+### `scripts/verify-0049.mjs` — 50 assertions, 0 failed
+
+One script, not two: it applies and proves in one pass (`--apply`), and with no
+flag it inspects and writes nothing, so it stays usable as a verifier. It reads
+whether `0049` is applied **from the catalogue**, never from the journal.
+
+Pre-flight first, because three things abort the whole file and all three are
+silent until they do: the index being a *constraint* rather than an index
+(`2BP01` on the DROP), a cell already holding two rows (`23505` on the partial
+CREATE), and a permission key held in `role_permissions` that the new list does
+not name (`23514` on the ADD CONSTRAINT). All three read clean — 1027 rows,
+0 duplicate cells, 7 distinct keys in use, exactly one migration pending.
+
+What it proved, none of which a row count can show:
+
+- `relfilenode` unchanged at **`21105`** and `attmissingval = {2026-09-18}` —
+  the `ADD COLUMN … NOT NULL DEFAULT` was metadata-only and **no row was
+  rewritten**, which is the whole of the compatibility claim;
+- **1027 of 1027** lessons came out live (`effective_to` null, `effective_from`
+  ≤ today), so `liveTimetableEntries()` matches exactly the set the old reads
+  matched and nothing looked different on the morning it shipped;
+- the re-created index **carries its predicate** —
+  `WHERE ((effective_to IS NULL) AND is_active)`, read back out of
+  `pg_get_indexdef`. An index re-created *without* one has the same name, the
+  same columns and `indisunique` true, and would refuse the first teacher change
+  at every school. That is the failure that looks exactly like success;
+- the supersede **driven** against a real lesson: closed, replaced, accepted;
+  a second *open* row for that cell refused `23505`; two *closed* ones accepted;
+- the substitution guards by attempt — a free period's null original teacher
+  accepted, `day_of_week` 5 refused, a second cover for one cell on one date
+  refused, and the lesson deleted out from under a cover leaving it with a null
+  `entry_id` rather than deleting it;
+- all **61** permission keys accepted and a key outside the list refused `23514`.
+
+Every attempt ran inside a transaction that was always rolled back, and the
+census was read a third time to show the proofs wrote nothing.
+
+⚠ **Two assertions in that script were wrong on first run and both were the
+script, not the schema.** It expected **five** foreign keys on
+`timetable_substitutions`; there are **eight**, because `school_users` is
+referenced three times over — the teacher who was down to take the period, the
+one covering, and whoever arranged it. Counting the tables rather than the
+columns is how it read as five. And "exactly one migration is pending" cannot
+hold once the migration is applied, so it was reporting FAIL on precisely the
+state the other fifty assertions prove is correct; it now reports
+not-exercised. **Both were found by running it, which is the point.**
+
+### Rollback, and the day it stops being possible
+
+Steps 1, 3 and 4 reverse mechanically. **Step 2 does not.** Restoring the
+whole-table unique index fails with `23505` as soon as **one** teacher change
+has been saved on the new code, because the cell then holds two rows — so
+rolling back means deleting exactly the history this sprint exists to create.
+Before the first supersede, rollback is clean and total. After it, roll forward.
+The `drizzle.__drizzle_migrations` row must be deleted too, or the migrator
+considers `0049` applied and never re-runs it.
 
 ## 5ch. Sprint 33 **Part B** built — the Section Head, the chain of command and HR leave — 2026-09-16
 
