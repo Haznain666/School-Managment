@@ -196,11 +196,48 @@ if (sample === undefined) {
       bad(`expected 23505 for a duplicate live cell, got ${sqlstate(error)}`);
     }
   }
+
+  /*
+   * The third attempt, and the one nothing else in the repository can reach.
+   *
+   * `POST /api/school/timetable/entries` still carries an `ON CONFLICT` for the
+   * race where two clerks save the same empty cell. Postgres can only infer a
+   * **partial** index if the statement repeats its predicate, and the route
+   * writes `is_active = true` where the index writes a bare `is_active`. If the
+   * prover does not accept the two as equivalent the statement does not lose
+   * its fallback — it throws `42P10` outright, on the one path no test takes
+   * and no check script can execute.
+   */
+  try {
+    await client.begin(async (tx) => {
+      await tx`
+        insert into timetable_entries
+          (location_id, academic_year_id, section_id, subject_id, teacher_id,
+           slot_id, day_of_week, effective_from)
+        values (${sample.location_id}, ${sample.academic_year_id}, ${sample.section_id},
+                ${sample.subject_id}, ${sample.teacher_id}, ${sample.slot_id},
+                ${sample.day_of_week}, current_date)
+        on conflict (location_id, section_id, slot_id, day_of_week)
+          where effective_to is null and is_active = true
+          do update set updated_at = now()`;
+      ok('ON CONFLICT infers the partial index — the race path does not throw 42P10');
+      throw new Error('__rollback__');
+    });
+  } catch (error) {
+    if (sqlstate(error) === '42P10') {
+      bad(
+        'ON CONFLICT cannot infer the partial index (42P10) — the timetable save ' +
+          'throws a 500 whenever two clerks touch one cell',
+      );
+    } else if (error.message !== '__rollback__') {
+      bad(`the ON CONFLICT probe failed with ${sqlstate(error)} — ${error.message}`);
+    }
+  }
 }
 
 const [count] = await client`select count(*)::int as n from timetable_entries`;
 if (count.n !== before.rows) bad(`row count moved to ${count.n} — a rollback did not roll back`);
-else ok(`${count.n} rows after both attempts — every transaction rolled back`);
+else ok(`${count.n} rows after every attempt — each transaction rolled back`);
 
 console.log('\nStep 3 — timetable_substitutions:');
 if (after.substitutions === null) {
