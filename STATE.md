@@ -12882,7 +12882,7 @@ academics-timetable / accountant   -> none       ✓
 attendance          / parent        -> own       ✓
 ```
 
-4 pillars · 39 features · 12 role profiles · 21 roadmap items · 57 glossary
+4 pillars · 39 features · 12 role profiles · 22 roadmap items · 57 glossary
 terms.
 
 ### ⚠ Five module switches have no screen behind them
@@ -12989,6 +12989,36 @@ migration rows: 50 | effective_from present: true
 `drizzle.__drizzle_migrations` holds 50 rows against 50 journal entries, and
 the two newest hashes are byte-identical to `0048` and `0049` on disk. The
 header is corrected above.
+
+### ⚠ A hydration mismatch on every Super Admin page, and it is not this sprint's
+
+Found while QA'ing this sprint and **reproduced on `/super-admin/modules`,
+which this sprint never touched** — so it is pre-existing. React error #418,
+one per page, in shared chunk `70089-*`:
+
+| Route | Errors |
+| --- | --- |
+| `/super-admin/modules` (untouched) | 1 |
+| `/super-admin/features` | 1 |
+| `/super-admin/roadmap` | 1 |
+
+Sprint 34 adds **no additional** mismatch, which is why it was not fixed here.
+It matters more than it looks: a hydration failure makes React discard the
+server-rendered tree and re-render on the client, which turns an SSR page into
+a client-rendered one — the same slow first paint the loader rules exist to
+prevent, and invisible in development where everything is fast.
+
+Not diagnosed, because #418 is minified in a production build and says nothing.
+**Run `npm run dev` and open any `/super-admin/*` route** — React then names the
+mismatched text and the component. Suspects are all in the shell rather than any
+page: `SuperAdminShell`, `SuperAdminSidebar`, `RouteProgress` (which patches
+`window.fetch` from the **root** layout) and `components/pwa/`. Grepping those
+for `toLocale*`, `new Date()`, `Date.now()`, `Math.random` and `typeof window`
+found nothing.
+
+**Check the school portals too.** If the cause is in the root layout rather than
+the Super Admin one, every portal has it and this is considerably more
+important than one operator screen.
 
 ### Deployment
 

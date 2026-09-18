@@ -1743,6 +1743,29 @@ export const ROADMAP_ITEMS: readonly RoadmapEntry[] = [
     forWhom: 'HR and accounts, and the member of staff who asks eleven months later.',
   },
   {
+    /*
+     * Held back from the first draft of this file because it was not obvious
+     * whether any of it was already built — staff attendance has fed
+     * loss-of-pay since the payroll sprint, which is the half that exists.
+     * Established rather than assumed: `COMPONENT_CALCULATIONS` in
+     * `db/schema/salary-components.ts` is exactly `['fixed',
+     * 'percent_of_basic']`, and nothing in `lib/payroll-calculator.ts` mentions
+     * a lecture, a period or an hour. So the per-lecture half is genuinely
+     * absent and belongs here.
+     */
+    key: 'lecture-wise-salary',
+    pillar: 'people_ops',
+    name: 'Lecture-wise pay & absence deduction rules',
+    summary:
+      'Pay computed per lecture taught rather than as a monthly figure, and ' +
+      'deduction rules a school can write for itself. Today a salary component ' +
+      'is either fixed or a percentage of basic, and the only automatic ' +
+      'reduction is loss of pay from the staff register.',
+    forWhom:
+      'Schools paying visiting or part-time teachers by the period, and any ' +
+      'school whose deduction policy is not simply "a day absent is a day unpaid".',
+  },
+  {
     key: 'reminder-sequences',
     pillar: 'finance',
     name: 'Automated fee reminder sequences',
