@@ -731,11 +731,26 @@ async function main(): Promise<void> {
 
   console.log('\nStatements over tables that already exist:');
 
-  await mustRun('listSubstituteSections — sections ⋈ grades, campus-scoped', () =>
+  await mustRun('listSubstituteSections — sections ⋈ grades ⋈ branches', () =>
     substitutes.listSubstituteSections(TENANT, NOBODY, null),
   );
   await mustRun('listSubstituteSections — narrowed to a head’s grades', () =>
     substitutes.listSubstituteSections(TENANT, NOBODY, [NOBODY]),
+  );
+  /*
+   * QA round 1, F3 and F4. The statement gained a `branches` LEFT JOIN and an
+   * `ownedBy(grades.branch_id, …)` predicate, and it now joins four tables —
+   * which is the count CLAUDE.md says to read the generated SQL at. Both
+   * branch-scope shapes are executed, because `ownedBy` emits a *different*
+   * statement for each: `undefined` (no predicate) for null, `false` for the
+   * empty list, and an `IN` otherwise. The empty case is the one that would
+   * silently widen rather than narrow if it were ever wrong.
+   */
+  await mustRun('listSubstituteSections — narrowed to one campus (ownedBy → IN)', () =>
+    substitutes.listSubstituteSections(TENANT, NOBODY, null, [NOBODY]),
+  );
+  await mustRun('listSubstituteSections — a scope reaching no campus (ownedBy → false)', () =>
+    substitutes.listSubstituteSections(TENANT, NOBODY, null, []),
   );
   await mustRun('reachableTeachers — listFileableStaff ⋈ the chain index', () =>
     substitutes.reachableTeachers(TENANT, { schoolUserId: NOBODY, role: 'coordinator' }, null),
@@ -793,6 +808,25 @@ async function main(): Promise<void> {
   );
   await newColumn('getSetupProgress — timetableCoverage counts sections with a grid', () =>
     dashboard.getSetupProgress(TENANT),
+  );
+  /*
+   * QA round 1, F1. `/parent/timetable` called `getStudentPlacement` — whose
+   * second parameter is a `school_users.id` — with a `student_profiles.id`.
+   * Both are `string`, so it compiled, returned 200, logged nothing, and
+   * resolved to null for **every child at every school**. `check-sprint33c`
+   * executed the statement and still could not see it, because executing the
+   * *wrong function* proves only that the wrong function runs.
+   *
+   * So both are executed here, adjacent and named for the column each filters
+   * on. That does not catch a swap either — nothing mechanical can — but it
+   * puts the distinction in front of whoever edits this file next, which is
+   * the only defence a pair of same-typed ids has.
+   */
+  await newColumn('getStudentPlacement — filters student_profiles.SCHOOL_USER_ID', () =>
+    academics.getStudentPlacement(TENANT, NOBODY, NOBODY),
+  );
+  await newColumn('getPlacementForStudentProfile — filters student_profiles.ID', () =>
+    academics.getPlacementForStudentProfile(TENANT, NOBODY, NOBODY),
   );
 
   console.log('\nStatements 0049’s new table is for:');

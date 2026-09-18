@@ -811,6 +811,66 @@ export async function getStudentPlacement(
   };
 }
 
+/**
+ * Where a student sits in one year, addressed by their **student profile**.
+ *
+ * ── Why this exists beside `getStudentPlacement` ─────────────────────────
+ * That one takes a `school_users.id`, because the student portal resolves
+ * everything from the uid in the session and has no id in its URL. A parent
+ * has no such route: `listChildrenForGuardian` hands back `student_profiles.id`
+ * for each child, and that is what the `?child=` parameter carries.
+ *
+ * The two ids are both `string`, so passing one where the other belongs
+ * compiles, returns 200, logs nothing, and resolves to **null for every child
+ * at every school** — which is exactly what shipped in Sprint 33c and what
+ * `/parent/timetable` rendered as "no class placement is recorded". A
+ * separately named function is the fix rather than a comment, because the
+ * type system cannot tell these two apart and the next caller will not either.
+ *
+ * `student_profiles.id` is still filtered on the tenant, so a profile id from
+ * another school resolves to nothing rather than to somebody else's class.
+ */
+export async function getPlacementForStudentProfile(
+  locationId: string,
+  studentProfileId: string,
+  academicYearId: string,
+): Promise<StudentPlacement | null> {
+  const rows = await db
+    .select({
+      studentProfileId: studentProfiles.id,
+      sectionId: sections.id,
+      sectionName: sections.name,
+      gradeName: grades.name,
+      gradeDisplayName: grades.displayName,
+    })
+    .from(studentProfiles)
+    .innerJoin(
+      studentEnrollments,
+      eq(studentEnrollments.studentProfileId, studentProfiles.id),
+    )
+    .innerJoin(sections, eq(sections.id, studentEnrollments.sectionId))
+    .innerJoin(grades, eq(grades.id, sections.gradeId))
+    .where(
+      and(
+        eq(studentProfiles.locationId, locationId),
+        eq(studentProfiles.id, studentProfileId),
+        eq(studentEnrollments.academicYearId, academicYearId),
+        eq(studentEnrollments.status, 'active'),
+      ),
+    )
+    .limit(1);
+
+  const row = rows[0];
+  if (row === undefined) return null;
+
+  return {
+    studentProfileId: row.studentProfileId,
+    sectionId: row.sectionId,
+    sectionName: row.sectionName,
+    gradeName: gradeLabel({ name: row.gradeName, displayName: row.gradeDisplayName }),
+  };
+}
+
 export interface TeacherOption {
   id: string;
   name: string;

@@ -4,8 +4,10 @@
 **Part C of three, and the last.** Part A (the three defects, the campus gap
 and the two notification faults) and Part B (the Section Head, the chain of
 command and HR leave) are already live.
-**Migration:** `0049`, one file. **Apply it before the code deploy** — see
+**Migration:** `0049`, one file. **Apply it before the code deploy** — there is
+an unavoidable window either way and this is the cheap side of it; see
 **Deployment**.
+**Status:** applied, merged as `44a4ad50`, live as build `44a4ad50668d`.
 
 ## New
 
@@ -112,15 +114,57 @@ school runs chat.
 
 ## Deployment
 
-**Apply `0049`, then deploy the code.** Unlike Part B this has no data step and
-no four-stage order, and the migration is safe to apply while the current code
-is running: it adds two dated columns that default to "in force from today", a
-new table nothing reads yet, and one widened CHECK. The old code simply never
-selects the new columns.
+**Apply `0049`, then deploy the code.** Unlike Part B there is no data step and
+no four-stage order.
 
-The one thing that must not be reversed is the pair: deploying the code first
-would leave every timetable screen erroring until the migration caught up.
+`0049` **replaces** the timetable's unique index with a partial one over the
+lessons still in force. That is what lets a superseded lesson sit beside its
+replacement; without it the first teacher change would be refused.
 
-`0049` also **replaces** the timetable's unique index with a partial one over
-the lessons still in force. That is what allows a superseded lesson to sit
-beside its replacement; without it the first teacher change would be refused.
+### There is a window, it is unavoidable, and this is what it costs
+
+An earlier draft of this section said the migration was safe to apply while the
+old code was running, because "the old code simply never selects the new
+columns". That is true of every **read** and false of the one **write**: the
+previous `POST /api/school/timetable/entries` sent a bare `ON CONFLICT`, and
+Postgres cannot infer a *partial* index unless the statement repeats the
+index's predicate. Both forms were attempted against the migrated database —
+the new route's is accepted, the old route's fails `42P10` — so this is
+measured rather than argued.
+
+There is therefore **no ordering that avoids a window**, and it is worth saying
+why so nobody goes looking for one: while the index is whole the old code works
+and the new code's supersede is refused; once it is partial the new code works
+and the old code fails. The swap is atomic and the two versions want opposite
+indexes.
+
+| Order | What breaks, and for how long |
+| --- | --- |
+| **Migration first** ← the one to use | *Saving* a timetable cell fails, on one administrative screen, until the deploy lands |
+| Code first | **Every timetable read** fails, across four portals and seven query modules |
+
+Because the host auto-deploys from a push to `main`, code-first is what happens
+by default unless the migration is applied **before** the merge. Apply it
+outside school hours.
+
+### What was actually done, 18 September 2026
+
+`0049` applied first, then merged as `44a4ad50` and deployed; live build
+`44a4ad50668d`. `scripts/verify-0049.mjs` — which applies and proves in one
+pass, and reads whether the migration is applied rather than being told —
+reported **50 assertions, 0 failed**:
+
+- `relfilenode` unchanged at `21105` and `attmissingval = {2026-09-18}`, so the
+  column was metadata-only and **no row was rewritten**;
+- **1027 of 1027** existing lessons came out live, which is the whole of the
+  claim that nothing looks different on the morning this ships;
+- the re-created index carries its predicate — read back out of
+  `pg_get_indexdef`, because an index re-created *without* one has the same
+  name, the same columns and the same uniqueness flag, and would refuse the
+  first teacher change at every school;
+- the supersede driven against a real lesson: closed, replaced, and a second
+  *open* row for that cell still refused — while two *closed* ones are accepted;
+- all 61 permission keys accepted and a key outside the list still refused.
+
+Every attempt ran inside a transaction that was rolled back, and the row counts
+were read back afterwards to show the proofs wrote nothing.

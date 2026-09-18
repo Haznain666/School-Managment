@@ -447,13 +447,23 @@ one, add it to the other.
 Plus whichever of the other `check-*` scripts covers the area you touched —
 `check-reports`, `check-dashboard`, `check-portals`, `check-provisioning`,
 `check-smtp`, and the per-sprint executors `check-sprint20` through
-`check-sprint30`. **If you touch `listInbox` or the desks, run
+`check-sprint30`, plus `check-sprint32`, `check-sprint33a`, `check-sprint33b`
+and `check-sprint33c`. **If you touch `listInbox` or the desks, run
 `check-sprint30`**: that statement now joins `school_users` twice and aggregates
 its `name`, so it is one alias away from the 42702 below. **If you touch
 `listStudents`, run `check-sprint28`**: it is the
 query that has been taken down twice by an ambiguous column reference and it now
 carries four derived aggregates whose aliases are the only thing standing between
 the all-students screen and a 500 at every school.
+
+**If you touch anything that reads `timetable_entries`, run
+`check-sprint33c`.** Since `0049` a lesson is a *version*: the table holds
+closed rows as well as live ones, and every read has to carry the "live today"
+predicate from `lib/timetable-history.ts`. A read that forgets it does not
+throw and does not look wrong — it quietly returns **both** versions of every
+superseded cell, so a grid draws the period twice and a count is overstated.
+`check-sprint33c` executes all seventeen of those statements against the real
+schema. There is nothing else that would catch it.
 
 ### And if your sprint adds or widens a query, execute it
 

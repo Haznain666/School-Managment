@@ -53,6 +53,35 @@ import { isIsoDate, isUuid, readOptionalString } from '@/lib/validation';
  * leave.
  */
 
+/**
+ * The campuses a cover teacher for this class may come from.
+ *
+ * ── QA F2: the caller's scope is the wrong question ──────────────────────
+ * The pool used to be narrowed by `effectiveBranchIds(branchScope)` alone —
+ * the **caller's** reach, which for a school-wide account is every campus. So
+ * arranging cover for a 07:45 period at Askari Main Campus offered, and
+ * accepted, a teacher at Askari Junior Campus, and neither the bell
+ * notification nor the chat message names a campus, so nothing downstream
+ * corrected it.
+ *
+ * Who may be asked is decided by **where the lesson is**, intersected with
+ * where the caller may act. A class with no campus of its own — a
+ * single-campus school, where `grades.branch_id` is null on every row — keeps
+ * the caller's scope untouched, so nothing changes at the schools that never
+ * think about campuses.
+ */
+function branchIdsForCover(
+  callerBranchIds: string[] | null,
+  sectionBranchId: string | null,
+): string[] | null {
+  if (sectionBranchId === null) return callerBranchIds;
+  if (callerBranchIds === null) return [sectionBranchId];
+  // An intersection, so a caller who cannot reach the lesson's campus gets an
+  // empty list — which `ownedBy` and `listFileableStaff` read as "nobody",
+  // never as "no filter".
+  return callerBranchIds.includes(sectionBranchId) ? [sectionBranchId] : [];
+}
+
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
@@ -100,6 +129,7 @@ export const GET = withSchoolAuth(
         auth.locationId,
         activeYear.id,
         visible.gradeIds,
+        effectiveBranchIds(branchScope),
       );
 
       if (sectionId === null) {
@@ -132,7 +162,10 @@ export const GET = withSchoolAuth(
       const candidates = await reachableTeachers(
         auth.locationId,
         { schoolUserId: me?.id ?? null, role: auth.role },
-        effectiveBranchIds(branchScope),
+        branchIdsForCover(
+          effectiveBranchIds(branchScope),
+          sections.find((row) => row.id === sectionId)?.branchId ?? null,
+        ),
       );
 
       const availability = await listFreeTeachers(auth.locationId, {
@@ -223,6 +256,7 @@ export const POST = withSchoolAuth(
         auth.locationId,
         activeYear.id,
         visible.gradeIds,
+        effectiveBranchIds(branchScope),
       );
       if (!sections.some((row) => row.id === sectionId)) {
         return apiFailure('not_found', 'That class is not one you can see.', 404);
@@ -231,7 +265,10 @@ export const POST = withSchoolAuth(
       const candidates = await reachableTeachers(
         auth.locationId,
         { schoolUserId: me?.id ?? null, role: auth.role },
-        effectiveBranchIds(branchScope),
+        branchIdsForCover(
+          effectiveBranchIds(branchScope),
+          sections.find((row) => row.id === sectionId)?.branchId ?? null,
+        ),
       );
 
       const availability = await listFreeTeachers(auth.locationId, {
