@@ -4,7 +4,12 @@
 resume without re-deriving context. Updated at the end of every development
 step, before the session ends.
 
-**Last updated:** 2026-09-15 (**Sprint 32 — staff KPIs and performance —
+**Last updated:** 2026-09-19 (**Sprint 34 — Features and Roadmap in Super
+Admin — built, gated, PR #105, browser-QA'd. No migration. §5cj.** Sprint 33
+Part C is still unmerged, but its migration `0049` **is** applied — §5ci and
+the header block below.)
+
+Previously: 2026-09-15 (**Sprint 32 — staff KPIs and performance —
 shipped: merged (PR #88, `e7692ab`), migration `0045` applied and proved, QA'd in
 a browser. §5cc.** Spec §5ca. Film screens and Askari demo data — §5cb. **KPI
 demo data and the film's KPI scene — §5cd.** **Next sprint: the stale-list fix.
@@ -42,10 +47,32 @@ F1–F5 are fixed and re-proved; round 2 found three more — N1, a campus-bound
 HR manager able to **read** another campus's staff calendar, and two screen
 faults — and all three are fixed.
 
-📋 **Part C is built and not yet merged, migrated or QA'd — §5ci.** The parent
+✅ **Sprint 34 — Features and Roadmap in Super Admin — is built, gated, PR'd and
+browser-QA'd — §5cj.** Two reference tabs after Feedback, from one static
+content module (`lib/product-catalogue.ts`) and one shared component. **No
+migration; `0050` is still the next free number.** PR #105, CI green. The
+role-access matrix is **derived from `DEFAULT_ROLE_PERMISSIONS` at render
+time**, and `ROLE_PROFILES` is `USER_ROLES.map(...)`, so a new role is a
+`typecheck` failure rather than a tab that quietly lists eleven of twelve.
+Proved mechanically: **105 routes claimed, 0 unresolved; 0 bad permission
+keys.** QA round 1 found two — literal backticks reaching the screen on both
+tabs, and two docblocks claiming to be prerendered when the group layout is
+`force-dynamic` — both fixed.
+
+⚠ **`lms`, `event_mgmt`, `transport`, `library` and `hostel` are switches with
+no screen behind them.** All five are in `PLATFORM_MODULES` and in the Super
+Admin toggle grid; none is built. They are on **Roadmap**, not Features. And
+the reverse: **`SPRINTS.md` still plans chat, web push, the campus calendar and
+discount repricing, all four of which have shipped** — its sprint numbers have
+diverged from what exists. Read `app/` and `db/schema/`, not the plan.
+
+📋 **Part C is built and not yet merged or QA'd — §5ci.** The parent
 timetable and the end of history being rewritten, the receipt, the recipient
 picker and the substitutes panel, on
-`feature/sprint-33c-portal-work`. Migration **`0049`**, **not applied**.
+`feature/sprint-33c-portal-work`. Migration **`0049`** — **applied to the live
+database**, confirmed 2026-09-19: `drizzle.__drizzle_migrations` holds 50 rows
+against 50 journal entries and `timetable_entries.effective_from` exists. This
+line said "not applied" for a day after it had been.
 **`0050` is the next free migration number.** Every gate was run and is green,
 including a new `check-sprint33c` — **93 passed, 0 failed** — which executes
 every widened statement against the real schema and predicts the exact
@@ -12789,6 +12816,190 @@ days, per person, with the date in hand.
    `lib/payroll-approval.ts` now has and the register does not call.
 5. **The bell's `href` is a fixed map of four routes.** A fifth portal would
    need a line in `noticeHrefFor`.
+
+---
+
+## 5cj. Sprint 34 — Features and Roadmap in Super Admin — 2026-09-19
+
+Built on `claude/super-admin-features-roadmap-716d0f`, off `main` at `44a4ad5`.
+Spec is `SPRINT-34-SPEC.md`. **No migration — `0050` is still the next free
+number.** PR #105. Release notes:
+`release-notes/RELEASE-NOTES-SPRINT-34.md`. Test cases:
+`test-cases/TEST-CASES-SPRINT-34.md`.
+
+Two reference tabs in the Super Admin side menu, after Feedback:
+**Dashboard → Schools → Modules → Feedback → Features → Roadmap.**
+
+### "Pillar" did not exist, and that was worth stopping for
+
+The requirement was written in terms of "the three pillars". The word appears
+**nowhere** in this repository — not in a `.ts`, a `.tsx` or a `.md`. The only
+three-way grouping that did exist was `PLATFORM_MODULES.phase`, which is a
+delivery wave and not a product story.
+
+So the grouping was a decision, and the product owner took it rather than
+having one inferred:
+
+| Pillar | Modules |
+| --- | --- |
+| **Academics & Learning** | `academics`, `lms`, exams & results, `event_mgmt` |
+| **Finance** | `admissions`, `fee_management`, `accounts` |
+| **People & Operations** | `hr_payroll`, `staff_kpis`, `chat`, `transport`, `library`, `hostel` |
+
+A fourth section, **Platform**, holds the operator's own surface. It is
+labelled operator-only and is deliberately not sold as a pillar.
+
+### 🔴 The role matrix is derived, never written down
+
+This is the whole of why the tabs are code and not a document, and it is the
+only thing that will keep them true.
+
+Each `FeatureEntry` names the **permission keys** it is gated on.
+`roleAccessDetail` resolves the roles out of `DEFAULT_ROLE_PERMISSIONS` when
+the page renders. Change what a Coordinator holds by default and the Features
+tab changes in the same commit, with nothing to remember and nothing to
+re-check.
+
+`ROLE_PROFILES` is `USER_ROLES.map(...)`, so the label, the description, the
+home route, the branch requirement and invitability all come from
+`types/school-auth.ts`. **Adding a thirteenth role without describing it is a
+`typecheck` failure**, not a tab that quietly lists twelve.
+
+Three load-time assertions in `lib/product-catalogue.ts`: every `module` is a
+real `PlatformModuleKey`, every permission is a real `Permission`, every
+glossary reference resolves, and no two entries share an anchor id.
+
+**Proved mechanically rather than by reading**, which is the standing rule in
+this file applied to content instead of SQL:
+
+```
+routes claimed: 105   unresolved: 0
+bad permission keys: 0
+exams-datesheets    / branch_admin -> partial    ✓
+marks-gradebook     / teacher      -> partial    ✓
+academics-timetable / teacher      -> read-only  ✓
+academics-timetable / accountant   -> none       ✓
+attendance          / parent        -> own       ✓
+```
+
+4 pillars · 39 features · 12 role profiles · 21 roadmap items · 57 glossary
+terms.
+
+### ⚠ Five module switches have no screen behind them
+
+`lms`, `event_mgmt`, `transport`, `library` and `hostel` are all in
+`PLATFORM_MODULES` and all appear in the Super Admin toggle grid. **None of
+them is built.** `school-nav.ts` pushes LMS and Events with
+`placeholder: true`; the other three have no nav entry and no route at all —
+verified, no directory exists under `app/(school-admin)/dashboard/` for any of
+the five.
+
+All five are therefore on **Roadmap**, not Features. A Features tab that lists
+Library as shipped is one that loses a deal in the room.
+
+The reverse correction was also needed, and it is the more interesting one:
+**chat, web push, the campus calendar and discount repricing are on Features**,
+because all four have shipped — even though `SPRINTS.md` still plans them.
+`SPRINTS.md`'s sprint numbers have diverged from what actually shipped and are
+not a reliable statement of what exists. `app/` and `db/schema/` are.
+
+### ⚠ Both pages are dynamic, and the first docblocks said otherwise
+
+`app/(super-admin)/layout.tsx` carries `export const dynamic = 'force-dynamic'`
+— it reads the operator's session and the unread count — and **a
+`force-dynamic` layout makes every route beneath it dynamic**.
+`.next/prerender-manifest.json` lists exactly one prerendered route in the
+whole group: `/super-admin/login`.
+
+The pages were first written claiming to be prerendered. They are not, and the
+docblocks now say so. What is still true is that their own server render does
+no work: no `await`, no `searchParams`, no `cookies()`, no query. The cost is
+the layout's read, which every Super Admin page already pays.
+
+**Do not "fix" this by adding a `loading.tsx`.** `check-loaders` reads the
+*page* file, which has no `await` and no `dynamic` export, so a loader there
+fails the check's second direction. The click-to-render gap is `RouteProgress`.
+
+### Filters live in the URL fragment
+
+Search, pillar and role filters are encoded in the hash, read in an effect
+after mount, and written with `replaceState` so Back does not walk somebody out
+of a search one character at a time. The hash is never sent to the server, so
+it adds no per-request input to a screen that has none, and a filtered view is
+still a link that can be pasted into a message.
+
+**The quick-nav scrolls rather than setting the hash.** An `<a href="#fees">`
+would overwrite the filter hash, and the `hashchange` listener would then read
+it as an empty filter set and clear every filter the moment somebody used the
+index. Every section still carries its `id`, and the hash writer leaves a
+non-filter hash alone, so a hand-typed deep link still lands.
+
+### QA round 1 — two defects, both fixed
+
+Driven in a browser against a standalone build on `localhost:3100`, signed in
+with a **locally minted** `SUPER_ADMIN_PASSWORD_HASH` in a gitignored
+`.env.qa.local`. The real operator password was never read.
+
+1. 🔴 **Literal backticks reached the screen** — 28 on Features, 24 on Roadmap,
+   including every glossary definition. The catalogue marks real identifiers
+   (`results.publish`, `school_modules`) the way the rest of this repository
+   does, and nothing here renders markdown. On a tab that has to survive being
+   walked through with a customer, that reads as a bug in the product.
+
+   Fixed with a `Prose` component that renders them as inline `<code>` rather
+   than stripping them — stripping would flatten an identifier into prose, and
+   `results.enter` and `results.publish` in one sentence would read as two
+   English phrases rather than the two keys the sentence is about. It is
+   deliberately not a markdown parser: one delimiter, no nesting, and an
+   unbalanced backtick leaves the trailing fragment as plain text rather than
+   swallowing the rest of the sentence. Wired into all nine render sites.
+   Re-verified at **0 literal backticks on both tabs**.
+
+2. **The two "prerendered" docblocks**, above.
+
+Also checked: search (hash `#q=`), both filters, the glossary rail and sheet,
+deep links, the empty state, 375 px (`scrollWidth === clientWidth`, no
+horizontal scroll), **zero console errors and zero `/api/…` calls** from either
+page.
+
+### ⚠ `check-loaders` asserts every route file is committed
+
+Worth knowing, because it cost a confusing failure. The developer agent
+reported the check passing in its own worktree, where its files were committed.
+Transferred into this one and not yet staged, the same check **failed**:
+
+```
+✗ 2 route file(s) exist on disk but are not in git, so the build that runs in
+  production will not contain them
+```
+
+That is the check working. `git add` fixed it. A check that passes in one
+worktree and fails in another is not flaky — read what it actually asserts.
+
+### ⚠ `0049` IS applied to the live database
+
+The header of this file said "Migration `0049`, **not applied**" for a day
+after it had been. Confirmed twice on 2026-09-19, once by the DevOps agent and
+once directly:
+
+```
+migration rows: 50 | effective_from present: true
+```
+
+`drizzle.__drizzle_migrations` holds 50 rows against 50 journal entries, and
+the two newest hashes are byte-identical to `0048` and `0049` on disk. The
+header is corrected above.
+
+### Deployment
+
+Nothing to apply. No migration, no environment variable, no module key, no
+permission key, no data step — the DevOps agent traced the full transitive
+import closure of both pages and found **zero** `process.env` references.
+Merging deploys it, and rollback is one revert plus a rebuild with nothing to
+reconcile.
+
+First load 146 kB against `/super-admin/feedback`'s 173 kB. The two tabs share
+their chunks, so the second costs ~0.1 kB after the first.
 
 ---
 
