@@ -24,7 +24,9 @@ export const metadata: Metadata = {
  * whole of what exists: there is no screen behind any of them. Those entries
  * say so on the card rather than letting the toggle imply a product.
  *
- * Prerendered, so no `loading.tsx` — see the Features page for the reasoning.
+ * No data of its own, so no `loading.tsx` — and served dynamically anyway,
+ * because the group layout is `force-dynamic`. See the Features page for the
+ * whole of that reasoning.
  */
 export default function PlatformRoadmapPage() {
   return (

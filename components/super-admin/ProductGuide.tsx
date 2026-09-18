@@ -51,9 +51,12 @@ import { ROLE_LABELS, USER_ROLES, type UserRole } from '@/types/school-auth';
  * ── Filter state lives in the URL hash, never in `searchParams` ───────────
  * Reading one search parameter opts a page out of prerendering and costs it
  * roughly a second per request against the live origin — `CLAUDE.md`'s second
- * rule, with `super-admin/login/page.tsx` as the worked example. The hash is
- * never sent to the server, so both pages stay static HTML and a filtered view
- * is still a link somebody can paste into a message.
+ * rule, with `super-admin/login/page.tsx` as the worked example. Both host
+ * pages are dynamic today regardless, because the Super Admin group layout is
+ * `force-dynamic`; the hash is still the right home for this state, because it
+ * is never sent to the server at all, it adds no per-request input to a screen
+ * that has none, and a filtered view remains a link somebody can paste into a
+ * message.
  *
  * ── The quick-nav scrolls rather than setting the hash ───────────────────
  * An `<a href="#accounting">` would overwrite the filter hash, and the
@@ -552,7 +555,7 @@ function PillarSection({ pillar, registerSection, children }: PillarSectionProps
             <Badge variant="neutral">Operator-only</Badge>
           ) : null}
         </div>
-        <p className="mt-1 max-w-prose text-sm text-ink-muted">{pillar.blurb}</p>
+        <p className="mt-1 max-w-prose text-sm text-ink-muted"><Prose>{pillar.blurb}</Prose></p>
       </div>
 
       <div className="space-y-3">{children}</div>
@@ -588,8 +591,8 @@ function FeatureCard({ feature, focusRole, onTerm, registerSection }: FeatureCar
           )}
         </div>
 
-        <p className="mt-1.5 text-pretty text-sm text-ink">{feature.salesLine}</p>
-        <p className="mt-1 text-pretty text-sm text-ink-muted">{feature.summary}</p>
+        <p className="mt-1.5 text-pretty text-sm text-ink"><Prose>{feature.salesLine}</Prose></p>
+        <p className="mt-1 text-pretty text-sm text-ink-muted"><Prose>{feature.summary}</Prose></p>
       </div>
 
       <div className="space-y-4 px-4 py-4 sm:px-5">
@@ -599,7 +602,7 @@ function FeatureCard({ feature, focusRole, onTerm, registerSection }: FeatureCar
             {feature.capabilities.map((capability) => (
               <li key={capability} className="flex gap-2 text-sm text-ink-muted">
                 <span aria-hidden className="mt-2 h-1 w-1 shrink-0 rounded-pill bg-ink-faint" />
-                <span className="text-pretty">{capability}</span>
+                <span className="text-pretty"><Prose>{capability}</Prose></span>
               </li>
             ))}
           </ul>
@@ -765,11 +768,11 @@ function RoadmapCard({ item, registerSection }: RoadmapCardProps) {
         )}
       </div>
 
-      <p className="mt-1.5 text-pretty text-sm text-ink-muted">{item.summary}</p>
+      <p className="mt-1.5 text-pretty text-sm text-ink-muted"><Prose>{item.summary}</Prose></p>
 
       <p className="mt-2 text-sm text-ink">
         <span className="font-medium">Who it is for: </span>
-        <span className="text-ink-muted">{item.forWhom}</span>
+        <span className="text-ink-muted"><Prose>{item.forWhom}</Prose></span>
       </p>
     </article>
   );
@@ -816,7 +819,7 @@ function RolesSection({ roles, registerSection }: RolesSectionProps) {
               {profile.invitable ? null : <Badge variant="warning">Not invitable</Badge>}
             </div>
 
-            <p className="mt-1.5 text-sm text-ink-muted">{profile.description}</p>
+            <p className="mt-1.5 text-sm text-ink-muted"><Prose>{profile.description}</Prose></p>
 
             <p className="mt-2 font-mono text-xs text-ink-muted">{profile.homeRoute}</p>
 
@@ -836,7 +839,7 @@ function RolesSection({ roles, registerSection }: RolesSectionProps) {
                       aria-hidden
                       className="mt-2 h-1 w-1 shrink-0 rounded-pill bg-ink-faint"
                     />
-                    <span className="text-pretty">{limitation}</span>
+                    <span className="text-pretty"><Prose>{limitation}</Prose></span>
                   </li>
                 ))}
               </ul>
@@ -853,6 +856,51 @@ function SubHeading({ children }: { children: ReactNode }) {
     <h4 className="text-2xs font-semibold uppercase tracking-wide text-ink-muted">
       {children}
     </h4>
+  );
+}
+
+/**
+ * Renders a catalogue sentence, turning `like this` into inline code.
+ *
+ * ── Why this exists rather than the backticks being stripped ─────────────
+ * The catalogue names real things — `results.publish`, `school_modules`,
+ * `fees.admission` — and naming them is the point: this tab is read by an
+ * operator answering "which key is that" as often as by a prospect. Stripping
+ * the marks would flatten an identifier into prose, where `results.enter` and
+ * `results.publish` in the same sentence read as two English phrases rather
+ * than as the two keys the sentence is about.
+ *
+ * Leaving them in was the defect QA found: a backtick is markdown, and nothing
+ * here renders markdown, so a literal ` reached the screen — which on a tab
+ * that has to survive being walked through with a customer reads as a bug in
+ * the product rather than a typo in the copy.
+ *
+ * Deliberately not a markdown parser. One delimiter, no nesting, no escapes:
+ * an odd number of backticks leaves the trailing fragment as plain text rather
+ * than swallowing the rest of the sentence.
+ */
+function Prose({ children }: { children: string }) {
+  const parts = children.split('`');
+
+  if (parts.length === 1) return <>{children}</>;
+
+  return (
+    <>
+      {parts.map((part, index) =>
+        // Odd indices sit between a pair of backticks. The last fragment of an
+        // unbalanced string lands on an even index, so it stays prose.
+        index % 2 === 1 ? (
+          <code
+            key={`${index}-${part}`}
+            className="rounded-control bg-surface-sunken px-1 py-0.5 font-mono text-[0.9em] text-ink"
+          >
+            {part}
+          </code>
+        ) : (
+          <span key={`${index}-${part}`}>{part}</span>
+        ),
+      )}
+    </>
   );
 }
 
@@ -982,7 +1030,7 @@ function GlossaryList({
                 >
                   <dt className="text-sm font-medium text-ink">{term.term}</dt>
                   <dd className="mt-0.5 text-pretty text-xs text-ink-muted">
-                    {term.definition}
+                    <Prose>{term.definition}</Prose>
                   </dd>
                 </div>
               ))}
