@@ -324,13 +324,23 @@ check(
 const journal = JSON.parse(readFileSync(JOURNAL, 'utf8')).entries;
 const pending = journal.filter((e) => Number(e.when) > Number(before.newest));
 const onlyOurs = pending.length === 1 && pending[0].tag === TAG;
-check(
-  'exactly one migration is pending, and it is 0049',
-  onlyOurs,
-  pending.length === 0
-    ? 'none pending — the bookkeeping already records it'
-    : pending.map((e) => e.tag).join(', '),
-);
+if (wasApplied && pending.length === 0) {
+  /*
+   * Already applied, so there is nothing left to be pending and this gate has
+   * no opinion. Reporting it as a failure would make the script red on exactly
+   * the database it is meant to certify — which is the state it spends the
+   * rest of its run proving is correct.
+   */
+  skip('exactly one migration is pending', '0049 is already applied — the bookkeeping records it');
+} else {
+  check(
+    'exactly one migration is pending, and it is 0049',
+    onlyOurs,
+    pending.length === 0
+      ? 'none pending — the bookkeeping already records it'
+      : pending.map((e) => e.tag).join(', '),
+  );
+}
 if (APPLY && !onlyOurs && !wasApplied) {
   console.error(
     '\nREFUSING TO APPLY — the pending set is not exactly 0049. Fix the bookkeeping first (STATE.md §5cg).',
@@ -579,8 +589,19 @@ if (state.subs === true) {
       from pg_constraint
      where conrelid = 'public.timetable_substitutions'::regclass
      order by contype, conname`;
+  /*
+   * Eight, not five: `school_users` is referenced three times over — the
+   * teacher who was down to take it, the one covering, and whoever arranged
+   * it — and those three are the whole point of the row. Counting the *tables*
+   * rather than the columns is how this first read as five.
+   */
   const fks = cons.filter((c) => c.contype === 'f');
-  prove('five foreign keys', fks.length === 5, fks.map((f) => `${f.refs}:${f.confdeltype}`).join(' '));
+  prove('eight foreign keys', fks.length === 8, fks.map((f) => `${f.refs}:${f.confdeltype}`).join(' '));
+  prove(
+    'the two teacher columns are NO ACTION — a cover is not deleted with a person',
+    fks.filter((f) => f.refs === 'school_users' && f.confdeltype === 'a').length === 2,
+    fks.filter((f) => f.refs === 'school_users').map((f) => f.confdeltype).join(','),
+  );
   prove(
     'entry_id is ON DELETE SET NULL',
     fks.some((f) => f.refs === 'timetable_entries' && f.confdeltype === 'n'),
