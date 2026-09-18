@@ -9,9 +9,11 @@ and QA'd: merged `44a4ad50` (PR #102), migration `0049` applied and proved
 (50/0), QA round 1 fixes merged `364994e5` (PR #103). §5ci.** The round is
 complete: A §5cg, B §5ch, C §5ci. **Read §5ci's deploy record before touching
 `timetable_entries` — the migration header's "the old code behaves identically"
-is false and §5ci says why.** ⚠ **The supersede has still never run** — every
-row's `effective_from` is the day `0049` was applied, so the first teacher
-change took the in-place branch; **re-test on or after 2026-09-19**.
+is false and §5ci says why.** ✅ **The supersede has now run against real data** (2026-09-19) — close-and-open
+through the real API, the partial index holding two rows for one cell, and the
+tenant restored afterwards. §5ci. ⚠ It did **not** open at Pakistani midnight:
+`timetableToday()` is UTC and a school here is UTC+5, so "today" lags by five
+hours each night.
 **Next sprint: the stale-list fix.**)
 
 **Earlier:** 2026-09-15 (**Sprint 32 — staff KPIs and performance —
@@ -13173,20 +13175,58 @@ teacher and the clash. So the request reached the availability check and the
 attempt, with placeholder uuids, could not distinguish (it returned 400
 `invalid_body` before reaching anything).
 
+### ✅ The supersede has now run against real data — 2026-09-19
+
+QA left this as the one path that could only fail in production, and it is now
+proved through the **real API**, not in a rolled-back transaction.
+
+| Row | Window | Teacher | State |
+| --- | --- | --- | --- |
+| `43194881` | 2026-09-17 → 2026-09-17 | Bushra Latif | **closed** |
+| `2d0c455f` | 2026-09-18 → — | Danish Iqbal | **live** |
+
+One `POST /api/school/timetable/entries` changing the teacher returned a **new
+row id**, the section went 40 → **41** rows, and the live grid still returned
+**40** and drew the cell **exactly once**. That is the close-and-open
+transaction, `liveTimetableEntries()` filtering the closed version, and **the
+partial unique index holding two rows for one `(location, section, slot, day)`**
+— which is precisely the `23505` the old whole-table index would have thrown.
+The boundary convention holds with no overlap: the old row closes on
+`effective_from_of_new − 1`.
+
+Restored afterwards: the superseding row removed, the original reopened, and the
+teacher put back to **Tooba Ansari** — one live version, 40 entries, as it began.
+`scripts/qa-sprint33c-supersede.mjs` does all three (`backdate` / `inspect` /
+`restore`) and prints the cell's whole version history each time.
+
+⚠ **Why it did not simply become reachable "the next day", which is the part
+worth keeping.** `0049` gives every pre-existing row
+`effective_from = CURRENT_DATE` and the route supersedes only when
+`standing.effectiveFrom < today`, so the day the migration is applied every
+change takes the in-place branch — QA proved that rather than assuming it. The
+expectation was that 2026-09-19 would open the branch. **It did not**, because
+`timetableToday()` is **UTC** and a Pakistani school is **UTC+5**:
+
+```
+Pakistan local  Sat Sep 19 2026 02:33 GMT+0500
+UTC             2026-09-18T21:33Z
+```
+
+At half past two in the morning in Karachi it is still *yesterday* in UTC, so
+`effectiveFrom === today` and the route correctly declines. **The branch opens
+at UTC midnight, not at Pakistani midnight** — a five-hour window each night in
+which the product's "today" is the previous day. `lib/timetable-history.ts`
+already documents the UTC choice and makes the close/open boundary a whole day
+wide to absorb it, and the database's own `CURRENT_DATE` is UTC too, so the two
+agree with each other. It is a documented decision, not a defect — but anyone
+testing a date-sensitive path from Pakistan late at night will otherwise
+conclude the feature is broken, which is exactly what nearly happened here.
+
+**Waiting is not testing.** The proof above was obtained by backdating that one
+cell by a day — exactly the state it reaches at UTC midnight — and letting the
+real route run against it.
+
 ### What QA could **not** exercise — named, not passed
-
-⚠ **The supersede itself has never run.** `0049` gives every pre-existing row
-`effective_from = CURRENT_DATE`, and the route supersedes only when
-`standing.effectiveFrom < today` — so on the day it was applied, every teacher
-change took the **in-place** branch. QA proved this rather than assuming it: the
-change returned the *same* row id and left the count at 40.
-
-So the close-and-open transaction, **the partial unique index holding a real
-second row**, and the `ON CONFLICT … targetWhere` race fallback have not run
-against real data. They become reachable on **2026-09-19**. `verify-0049.mjs`
-drove all three inside rolled-back transactions and they behave correctly, but
-that is the schema, not the route. **Re-test a teacher change on or after
-2026-09-19** — it is the one path that can only fail in production.
 
 Also not exercised: a parent with **no enrolled child** (no such fixture at
 Askari); **Section Head scoping**, because no coordinators are linked to any
@@ -13198,13 +13238,31 @@ all-zero UUID; and dark mode.
 
 ### QA side effects left on the Askari tenant
 
-Year 3 — A (Main) Monday Period 1 teacher is now **Amna Zaheer** (was Tooba
-Ansari); Monday Period 2 room is **"Lab B (QA 33c)"**; one chat thread from
-Aftab Awan to the School Office reading "QA Sprint 33c — please ignore"; and
-substitution `90f26c75-c838-40e6-ac6e-464be9a4d9da` (Hina Aslam covering Year
-3 — A Period 1 on 2026-09-18), which was **F2's evidence** and can now be
-removed. The permissions override granted during the CHECK-by-attempt test was
-reverted — `overrides: []`.
+**Cleaned up on 2026-09-19:**
+
+- ✅ Substitution `90f26c75-c838-40e6-ac6e-464be9a4d9da` — Hina Aslam of Askari
+  **Junior** Campus rostered onto Year 3 — A at **Main** for a 07:45 period,
+  which was F2's evidence — is **deleted**. `timetable_substitutions` is back to
+  **0 rows**. `scripts/qa-sprint33c-cleanup.mjs` reads the row back and refuses
+  unless the cover teacher and the class are at *different* campuses, so it
+  cannot remove a real cover somebody arranged. There is no cancel in the
+  product yet, which is why this needed a script at all.
+- ✅ Year 3 — A (Main) Monday Period 1 is back to **Tooba Ansari**, one live
+  version, row `43194881`, 40 entries — the supersede test above restored it.
+- ⏸ Monday Period 2 room is still **"Lab B (QA 33c)"**. Left alone deliberately:
+  a room change is an in-place correction, so no earlier version survives to
+  read the original off, and guessing a room is worse than an obviously-tagged
+  QA string.
+- ✅ The permissions override from the CHECK-by-attempt test was reverted —
+  `overrides: []`.
+- ⏸ One chat thread from Aftab Awan to the School Office, "QA Sprint 33c —
+  please ignore". Harmless, and deleting a school's record of what was sent is
+  not something a cleanup script should do.
+
+⚠ **The bell notification and chat message telling Hina Aslam to cover that
+class were deliberately left in place.** She was told; deleting the record of
+the telling does not untell her, and a school's outbox is not something to
+rewrite quietly. If she asks, the answer is that the cover was withdrawn.
 
 ### Rollback, and the day it stops being possible
 
