@@ -4,6 +4,15 @@
 resume without re-deriving context. Updated at the end of every development
 step, before the session ends.
 
+📌 **`PENDING.md` is the open register, and it is the short answer to "is
+anything outstanding?"** This file is the narrative — what happened, in what
+order and why. That one is the list: every open defect, every question blocked
+on the product owner, everything waiting on the user, each with an owner and a
+definition of done. **Anything you leave open goes in there in the same session
+you find it**, not only into a sprint's "What is still open" — three of those
+lists in this file had a false first line by the time the sprint deployed, and
+nobody noticed, because they sit 13,000 lines down.
+
 **Last updated:** 2026-09-19 (**Sprint 34 — Features and Roadmap in Super
 Admin — built, gated, PR #105, browser-QA'd across three rounds; eight defects
 found and fixed. **Merged `d72aa45` and live on build `d72aa45868f0`.** No migration; a new **fourteenth** gate,

@@ -1,8 +1,26 @@
 # CLAUDE.md — standing rules for this repository
 
 Read `STATE.md` first; it is the handover file and says where the work is.
+Then read `PENDING.md`; it is the open register and says what is still
+outstanding, with an owner and a definition of done for each item.
 This file is different: it holds the rules that apply to **every** change,
 including ones nobody has thought of yet.
+
+---
+
+## RULE: anything you leave open goes in `PENDING.md`, in the same session
+
+**If you find a defect you are not fixing, a question you cannot answer, or a
+limit somebody will trip over, add it to `PENDING.md` before the session ends.**
+A sprint's own "What is still open" list is not enough: §5cg, §5ch and §5ci each
+carry one whose first bullet was already false by the time the sprint deployed,
+and nothing caught it, because those lists are thirteen thousand lines into
+`STATE.md` and nobody reads down that far to decide what to do next.
+
+Ids are stable and never reused. Every entry names an owner and a *done*.
+Closing one means moving it to `PENDING.md`'s §Closed with the evidence — a
+commit, a build id, a check script's real output — never deleting the line,
+because a list that quietly drops things is a list somebody is asked for twice.
 
 ---
 
