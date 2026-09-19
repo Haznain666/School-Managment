@@ -6,7 +6,7 @@ step, before the session ends.
 
 **Last updated:** 2026-09-19 (**Sprint 34 — Features and Roadmap in Super
 Admin — built, gated, PR #105, browser-QA'd across three rounds; eight defects
-found and fixed. No migration; a new **fourteenth** gate,
+found and fixed. **Merged `d72aa45` and live on build `d72aa45868f0`.** No migration; a new **fourteenth** gate,
 `check-product-catalogue`. §5cj.**
 
 **Also 2026-09-19:** **Sprint 33 Part C — the portal work — shipped
@@ -13117,6 +13117,36 @@ found nothing.
 **Check the school portals too.** If the cause is in the root layout rather than
 the Super Admin one, every portal has it and this is considerably more
 important than one operator screen.
+
+### Deployed and confirmed — live build `d72aa45868f0`
+
+Merged as **`d72aa45`** (PR #105) and auto-deployed. Confirmed two ways, which
+matters because the workflow could not confirm it:
+
+| Evidence | Result |
+| --- | --- |
+| `GET /api/internal/build` (`force-dynamic`, `no-store`) | `{"buildId":"d72aa45868f0"}` |
+| The served `/super-admin/login` HTML — the one **prerendered**, CDN-cached route in the group | carries `d72aa45868f0` |
+
+The second is the one that proves the cache is not stale: a prerendered page
+still serving an old build id is exactly the failure a purge exists to fix.
+
+⚠ **"Verify the live deployment" failed, and the deploy is fine.** The
+GitHub runner got **HTTP 403** on `/super-admin/login`, so the commit-confirm
+step read an empty body and the smoke test reported four failures. That is
+Hostinger's CDN bot challenge answering an Azure-hosted runner — the same
+`curl`, from this machine, returned the right build id and the full HTML. **A
+403 from CI against this host is not evidence of a bad deploy.** Confirm from a
+machine the CDN trusts, or read the build state from the Hostinger API, before
+believing the workflow.
+
+⚠ **The authenticated pages were not opened on production**, and should be
+when somebody has the operator's password to hand. Both routes answer `307` to
+`/super-admin/login?next=…` signed out — which proves the middleware guard
+and **not** that the route exists, because a path that does not exist redirects
+identically. What is proved is that the running build **is** the commit
+containing them, and both tabs were driven exhaustively in a browser against a
+standalone production build of that same commit.
 
 ### Deployment
 
