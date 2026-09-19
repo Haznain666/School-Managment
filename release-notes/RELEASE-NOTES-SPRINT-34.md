@@ -89,6 +89,35 @@ The reverse correction was also needed. Chat, web push, the campus calendar and
 discount repricing are on **Features** — all four have shipped, even though the
 sprint plan still lists them as planned work.
 
+## What it deliberately does not claim, part two
+
+One entry says less than it could, and the reason is worth knowing.
+
+**Lesson plans** is listed as a teacher's own screen and nothing more. The
+product stores whether a plan is shared, and there is a built endpoint that
+would return every shared plan at the school — but no screen calls it, so no
+head can read one today. An earlier draft of this tab said otherwise, because
+the entry was gated on a permission seven office roles hold, and the tab
+believed them.
+
+It has been corrected rather than quietly kept, because the cost of the two
+mistakes is not symmetrical: an absent claim loses nothing, and a claim that
+fails in the room loses the room.
+
+## What stops it going stale
+
+`npm run check-product-catalogue` now runs on every push, alongside the other
+thirteen checks. It asserts the three things about these tabs that cannot be
+derived from the code and therefore could drift from it:
+
+- every route an entry names **resolves to a real screen**
+- every role's stated first-day sidebar **matches the sidebar the code builds**
+- a feature reachable only from one portal **cannot claim office access**
+
+That last one is the lesson-plans defect turned into a rule. All three were
+found stale in review before this shipped, which is why they are assertions
+rather than good intentions.
+
 ## Deployment
 
 Nothing to do. No migration, no environment variable, no module key, no

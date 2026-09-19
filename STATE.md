@@ -5,7 +5,7 @@ resume without re-deriving context. Updated at the end of every development
 step, before the session ends.
 
 **Last updated:** 2026-09-19 (**Sprint 34 — Features and Roadmap in Super
-Admin — built, gated, PR #105, browser-QA'd. No migration. §5cj.** Sprint 33
+Admin — built, gated, PR #105, browser-QA'd across three rounds, eight defects found and fixed. **No migration; a new fourteenth gate, `check-product-catalogue`.** §5cj.** Sprint 33
 Part C is still unmerged, but its migration `0049` **is** applied — §5ci and
 the header block below.)
 
@@ -50,14 +50,17 @@ faults — and all three are fixed.
 ✅ **Sprint 34 — Features and Roadmap in Super Admin — is built, gated, PR'd and
 browser-QA'd — §5cj.** Two reference tabs after Feedback, from one static
 content module (`lib/product-catalogue.ts`) and one shared component. **No
-migration; `0050` is still the next free number.** PR #105, CI green. The
+migration; `0050` is still the next free number.** PR #105, CI green.
+⚠ **The green-build list is now fourteen, not thirteen** —
+`check-product-catalogue` is in `CLAUDE.md` and in CI, added to both together. The
 role-access matrix is **derived from `DEFAULT_ROLE_PERMISSIONS` at render
 time**, and `ROLE_PROFILES` is `USER_ROLES.map(...)`, so a new role is a
 `typecheck` failure rather than a tab that quietly lists eleven of twelve.
-Proved mechanically: **105 routes claimed, 0 unresolved; 0 bad permission
-keys.** QA round 1 found two — literal backticks reaching the screen on both
-tabs, and two docblocks claiming to be prerendered when the group layout is
-`force-dynamic` — both fixed.
+Proved mechanically and now permanently: **118 routes, 0 unresolved; 0 bad
+permission keys; all nine admin sidebars diffed against an executed `schoolNav`.** QA found **eight** across three rounds — the worst being a feature sold to
+seven roles that only a teacher can open. All fixed, and the four that were
+stale copies of what the code already knows are now assertions in
+`npm run check-product-catalogue`.
 
 ⚠ **`lms`, `event_mgmt`, `transport`, `library` and `hostel` are switches with
 no screen behind them.** All five are in `PLATFORM_MODULES` and in the Super
@@ -12989,6 +12992,62 @@ migration rows: 50 | effective_from present: true
 `drizzle.__drizzle_migrations` holds 50 rows against 50 journal entries, and
 the two newest hashes are byte-identical to `0048` and `0049` on disk. The
 header is corrected above.
+
+### QA round 3 — the agent found six, and four were the same shape
+
+The sprint-qa agent's pass, and the reason this sprint gained a check script.
+
+1. 🔴 **`lesson-plans` sold a capability that does not exist.** Gated on
+   `academics.read`, which derived **Full** for seven administrative roles —
+   above one route, `/teacher/lesson-plans`, behind
+   `requireSchoolRole(['teacher'])`. None of the seven can open it, and
+   `buildSchoolNav` has no lesson-plans entry at all. The school-wide read the
+   sales line promised is **built and unreachable**:
+   `GET /api/school/lesson-plans?scope=school` exists, is guarded, and
+   **nothing in the repository calls it** — `LessonPlanBoard` fetches the route
+   with no parameter. That is Sprint 27's orphaned endpoint, found from the
+   other end.
+2. **Three routes were 404s** — `/dashboard/payroll/runs`,
+   `/dashboard/payroll/payslips`, `/dashboard/performance/staff`. Only the
+   `[runId]` / `[payslipId]` / `[userId]` children exist.
+3. **Two default views were wrong** — the Accountant's omitted Payroll and
+   Staff performance, Marketing's omitted Staff performance.
+4. **Marketing read None on Staff KPIs** while reaching their own scorecard.
+5. **The glossary sheet closed only by its X** — no Escape, no backdrop, no
+   `aria-modal`.
+6. **Two route lists contradicted their own matrix** — marks and timetable.
+
+All six fixed. **Four of them are one defect**: the catalogue holding a second
+copy of something the code already knows, and the copy being wrong.
+
+### 🔴 The fourteenth gate — `npm run check-product-catalogue`
+
+`CLAUDE.md` gained a rule and `.github/workflows/ci.yml` gained a step, added
+together as that file requires. **Thirteen is now fourteen; ten in CI is now
+eleven.**
+
+Most of `lib/product-catalogue.ts` is derived and therefore already defended by
+`typecheck` — the matrix resolves from `DEFAULT_ROLE_PERMISSIONS`, and
+`ROLE_PROFILES` is `USER_ROLES.map(...)`. **Three things cannot be derived**:
+the routes a feature names, the sidebar a role gets on day one, and who reaches
+a feature through their own portal rather than through a permission. All four
+content defects above were in those three.
+
+So they are assertions: every route resolved against the filesystem (route
+groups and one dynamic hop per segment, so `/dashboard` in its `(home)` group
+and `/dashboard/reports/outstanding-aging` as a `[reportKey]` both resolve),
+every role's `defaultView` diffed against an **executed** `schoolNav` with only
+the built modules on, and — the one that catches finding 1's shape — **a
+feature with no `/dashboard` route may name no permissions at all.**
+
+⚠ **Proved by attempt, the way this file requires of a constraint.** An
+invented route and a drifted sidebar entry were each injected, each failed the
+check by name, and the check passes clean when restored. A gate nobody has seen
+fail is a gate nobody knows works.
+
+⚠ **`esbuild` does not typecheck.** The check ran green while `tsc` failed on
+it — `noUncheckedIndexedAccess` types a destructured array head as possibly
+undefined. Run `typecheck` after writing a check script, not only the script.
 
 ### ⚠ A hydration mismatch on every Super Admin page, and it is not this sprint's
 
