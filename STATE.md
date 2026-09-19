@@ -16229,6 +16229,34 @@ permission rule predicts, and **the first school to override one of those keys
 gets a `23514` on the permission matrix**. It needs a migration and is its own
 task.
 
+### Deployed, and re-proved against the live origin
+
+Merged as **`3db84b4`** (PR #109). Hostinger picked the commit up on its own
+and the Node build completed at **09:32:35 UTC on 2026-09-19**; the CDN cache
+was purged after it. `GET /api/internal/build` reports **`3db84b49dc9a`**,
+which is that merge.
+
+The reported repro was then driven once more, on the live origin, as the person
+who reported it:
+
+| | |
+| --- | --- |
+| Origin | `https://askari-school-system.schoolhub.codexmill.com` |
+| Build | `3db84b49dc9a` |
+| Session | Imran Qureshi — **Principal, Askari Main Campus** (the chip in the shell says so) |
+| `/dashboard/fees/challans/181de701-…` | **404** — and `document.textContent` contains neither "Shahmir" nor "Askari Junior" |
+| `GET /api/school/fees/challans/181de701-…` | **404** `not_found` |
+| The register | **686** — Main only |
+
+⚠ **The emergency link needs the tenant's own subdomain.** On the live estate
+a school is resolved from the host, not from `?school=`, so
+`schoolhub.codexmill.com/api/school/emergency-login/…` answers **"School not
+found"** — and does so *before* spending the token, which `used_at` being still
+null confirmed. `scripts/qa-emergency-link.mjs` prints a `localhost:3000` URL,
+so whoever uses it against production has to swap the host for
+`<slug>.schoolhub.codexmill.com` themselves. Worth knowing before re-minting a
+link that was never actually used.
+
 ### For whoever is next
 
 `check-voucher-scope` is named in CLAUDE.md's per-area list: **if you touch
