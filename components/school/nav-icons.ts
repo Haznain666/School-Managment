@@ -17,12 +17,14 @@ import {
   Megaphone,
   MessageSquare,
   MessageSquareText,
+  Milestone,
   MoveUpRight,
   Receipt,
   Scale,
   ScrollText,
   Settings,
   Sliders,
+  Sparkles,
   TrendingUp,
   UserPlus,
   Users,
@@ -119,6 +121,18 @@ export const NAV_ICONS = {
 
   // Sprint 32. Staff KPIs and performance.
   performance: TrendingUp,
+
+  /*
+   * Sprint 34 — the two Super Admin reference tabs.
+   *
+   * `features` is what the product *is* and `roadmap` is what it is not yet,
+   * and the glyphs have to carry that difference at 16px beside two words that
+   * both begin with a consonant and end in a flourish. A milestone is a marker
+   * on a road with no distance written on it, which is exactly what this
+   * roadmap is: there are no dates on it, and the icon must not imply one.
+   */
+  features: Sparkles,
+  roadmap: Milestone,
 } as const satisfies Record<string, LucideIcon>;
 
 export type NavIconName = keyof typeof NAV_ICONS;

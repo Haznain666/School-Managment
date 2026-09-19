@@ -76,6 +76,18 @@ jobs:
         if: '!cancelled()'
         run: npm run check-import-sample
 
+      # The Features and Roadmap tabs say only what the code does. Most of
+      # `lib/product-catalogue.ts` is derived — the role matrix resolves from
+      # `DEFAULT_ROLE_PERMISSIONS`, so `typecheck` already catches a renamed
+      # role. Three things cannot be derived: the routes a feature lists, the
+      # sidebar a role gets on day one, and who reaches a feature through
+      # their own portal. Each is a second copy of what the code knows, and
+      # Sprint 34's QA found four stale ones in a single pass — including a
+      # feature sold to seven roles that only a teacher can open.
+      - name: Product catalogue — the tabs still describe the product
+        if: '!cancelled()'
+        run: npm run check-product-catalogue
+
       - name: Forms
         if: '!cancelled()'
         run: npm run check-forms

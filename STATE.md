@@ -4,7 +4,12 @@
 resume without re-deriving context. Updated at the end of every development
 step, before the session ends.
 
-**Last updated:** 2026-09-18 (**Sprint 33 Part C — the portal work — shipped
+**Last updated:** 2026-09-19 (**Sprint 34 — Features and Roadmap in Super
+Admin — built, gated, PR #105, browser-QA'd across three rounds; eight defects
+found and fixed. No migration; a new **fourteenth** gate,
+`check-product-catalogue`. §5cj.**
+
+**Also 2026-09-19:** **Sprint 33 Part C — the portal work — shipped
 and QA'd: merged `44a4ad50` (PR #102), migration `0049` applied and proved
 (50/0), QA round 1 fixes merged `364994e5` (PR #103). §5ci.** The round is
 complete: A §5cg, B §5ch, C §5ci. **Read §5ci's deploy record before touching
@@ -17,6 +22,7 @@ hours each night.
 **Next sprint: the stale-list fix.**)
 
 **Earlier:** 2026-09-15 (**Sprint 32 — staff KPIs and performance —
+
 shipped: merged (PR #88, `e7692ab`), migration `0045` applied and proved, QA'd in
 a browser. §5cc.** Spec §5ca. Film screens and Askari demo data — §5cb. **KPI
 demo data and the film's KPI scene — §5cd.** **Next sprint: the stale-list fix.
@@ -54,6 +60,28 @@ F1–F5 are fixed and re-proved; round 2 found three more — N1, a campus-bound
 HR manager able to **read** another campus's staff calendar, and two screen
 faults — and all three are fixed.
 
+✅ **Sprint 34 — Features and Roadmap in Super Admin — is built, gated, PR'd and
+browser-QA'd — §5cj.** Two reference tabs after Feedback, from one static
+content module (`lib/product-catalogue.ts`) and one shared component. **No
+migration; `0050` is still the next free number.** PR #105, CI green.
+⚠ **The green-build list is now fourteen, not thirteen** —
+`check-product-catalogue` is in `CLAUDE.md` and in CI, added to both together. The
+role-access matrix is **derived from `DEFAULT_ROLE_PERMISSIONS` at render
+time**, and `ROLE_PROFILES` is `USER_ROLES.map(...)`, so a new role is a
+`typecheck` failure rather than a tab that quietly lists eleven of twelve.
+Proved mechanically and now permanently: **118 routes, 0 unresolved; 0 bad
+permission keys; all nine admin sidebars diffed against an executed `schoolNav`.** QA found **eight** across three rounds — the worst being a feature sold to
+seven roles that only a teacher can open. All fixed, and the four that were
+stale copies of what the code already knows are now assertions in
+`npm run check-product-catalogue`.
+
+⚠ **`lms`, `event_mgmt`, `transport`, `library` and `hostel` are switches with
+no screen behind them.** All five are in `PLATFORM_MODULES` and in the Super
+Admin toggle grid; none is built. They are on **Roadmap**, not Features. And
+the reverse: **`SPRINTS.md` still plans chat, web push, the campus calendar and
+discount repricing, all four of which have shipped** — its sprint numbers have
+diverged from what exists. Read `app/` and `db/schema/`, not the plan.
+
 ✅ **Part C is shipped and live — §5ci.** The parent timetable and the end of
 history being rewritten, the receipt, the recipient picker and the substitutes
 panel. Merged as **`44a4ad50`** (PR #102) and deployed; live build
@@ -88,11 +116,15 @@ portals and seven query modules. Hostinger auto-deploys from a push to `main`,
 so **code-first is the default unless the migration is applied before the
 merge**. It was.
 
-⚠ **`0049` has no ordering trap, and that is worth stating because Part B's
-did.** Apply `0049`, then deploy the code. Nothing in it depends on data,
-nothing in it narrows anything, and the old code running against the new schema
-behaves identically — it simply never selects the new columns. The preference
-for migration-first is only that the new code's reads name `effective_from`.
+🔴 **~~`0049` has no ordering trap~~ — this was wrong, and the corrected
+record is in the Part C block above.** It was written before the migration was
+applied and it survived the merge, so it is struck through here rather than
+deleted: the claim that the old code "behaves identically" against the new
+schema is true of every read and **false of the one write**. `main`'s deployed
+`POST /api/school/timetable/entries` sent a bare `ON CONFLICT`, and Postgres
+cannot infer a **partial** index unless the statement repeats its predicate —
+`42P10`, proved by attempt. **There is no ordering that avoids a window.**
+Migration-first is the cheap side, and it is what was done.
 
 ⚠ **The deploy order mattered and is worth keeping**: `0047` → code →
 `scripts/apply-sprint33b-data.mjs --apply` → `0048`. The role CHECK has to widen
@@ -12826,6 +12858,276 @@ days, per person, with the date in hand.
    `lib/payroll-approval.ts` now has and the register does not call.
 5. **The bell's `href` is a fixed map of four routes.** A fifth portal would
    need a line in `noticeHrefFor`.
+
+---
+
+## 5cj. Sprint 34 — Features and Roadmap in Super Admin — 2026-09-19
+
+Built on `claude/super-admin-features-roadmap-716d0f`, off `main` at `44a4ad5`.
+Spec is `SPRINT-34-SPEC.md`. **No migration — `0050` is still the next free
+number.** PR #105. Release notes:
+`release-notes/RELEASE-NOTES-SPRINT-34.md`. Test cases:
+`test-cases/TEST-CASES-SPRINT-34.md`.
+
+Two reference tabs in the Super Admin side menu, after Feedback:
+**Dashboard → Schools → Modules → Feedback → Features → Roadmap.**
+
+### "Pillar" did not exist, and that was worth stopping for
+
+The requirement was written in terms of "the three pillars". The word appears
+**nowhere** in this repository — not in a `.ts`, a `.tsx` or a `.md`. The only
+three-way grouping that did exist was `PLATFORM_MODULES.phase`, which is a
+delivery wave and not a product story.
+
+So the grouping was a decision, and the product owner took it rather than
+having one inferred:
+
+| Pillar | Modules |
+| --- | --- |
+| **Academics & Learning** | `academics`, `lms`, exams & results, `event_mgmt` |
+| **Finance** | `admissions`, `fee_management`, `accounts` |
+| **People & Operations** | `hr_payroll`, `staff_kpis`, `chat`, `transport`, `library`, `hostel` |
+
+A fourth section, **Platform**, holds the operator's own surface. It is
+labelled operator-only and is deliberately not sold as a pillar.
+
+### 🔴 The role matrix is derived, never written down
+
+This is the whole of why the tabs are code and not a document, and it is the
+only thing that will keep them true.
+
+Each `FeatureEntry` names the **permission keys** it is gated on.
+`roleAccessDetail` resolves the roles out of `DEFAULT_ROLE_PERMISSIONS` when
+the page renders. Change what a Coordinator holds by default and the Features
+tab changes in the same commit, with nothing to remember and nothing to
+re-check.
+
+`ROLE_PROFILES` is `USER_ROLES.map(...)`, so the label, the description, the
+home route, the branch requirement and invitability all come from
+`types/school-auth.ts`. **Adding a thirteenth role without describing it is a
+`typecheck` failure**, not a tab that quietly lists twelve.
+
+Three load-time assertions in `lib/product-catalogue.ts`: every `module` is a
+real `PlatformModuleKey`, every permission is a real `Permission`, every
+glossary reference resolves, and no two entries share an anchor id.
+
+**Proved mechanically rather than by reading**, which is the standing rule in
+this file applied to content instead of SQL:
+
+```
+routes claimed: 105   unresolved: 0
+bad permission keys: 0
+exams-datesheets    / branch_admin -> partial    ✓
+marks-gradebook     / teacher      -> partial    ✓
+academics-timetable / teacher      -> read-only  ✓
+academics-timetable / accountant   -> none       ✓
+attendance          / parent        -> own       ✓
+```
+
+4 pillars · 39 features · 12 role profiles · 22 roadmap items · 57 glossary
+terms.
+
+### ⚠ Five module switches have no screen behind them
+
+`lms`, `event_mgmt`, `transport`, `library` and `hostel` are all in
+`PLATFORM_MODULES` and all appear in the Super Admin toggle grid. **None of
+them is built.** `school-nav.ts` pushes LMS and Events with
+`placeholder: true`; the other three have no nav entry and no route at all —
+verified, no directory exists under `app/(school-admin)/dashboard/` for any of
+the five.
+
+All five are therefore on **Roadmap**, not Features. A Features tab that lists
+Library as shipped is one that loses a deal in the room.
+
+The reverse correction was also needed, and it is the more interesting one:
+**chat, web push, the campus calendar and discount repricing are on Features**,
+because all four have shipped — even though `SPRINTS.md` still plans them.
+`SPRINTS.md`'s sprint numbers have diverged from what actually shipped and are
+not a reliable statement of what exists. `app/` and `db/schema/` are.
+
+### ⚠ Both pages are dynamic, and the first docblocks said otherwise
+
+`app/(super-admin)/layout.tsx` carries `export const dynamic = 'force-dynamic'`
+— it reads the operator's session and the unread count — and **a
+`force-dynamic` layout makes every route beneath it dynamic**.
+`.next/prerender-manifest.json` lists exactly one prerendered route in the
+whole group: `/super-admin/login`.
+
+The pages were first written claiming to be prerendered. They are not, and the
+docblocks now say so. What is still true is that their own server render does
+no work: no `await`, no `searchParams`, no `cookies()`, no query. The cost is
+the layout's read, which every Super Admin page already pays.
+
+**Do not "fix" this by adding a `loading.tsx`.** `check-loaders` reads the
+*page* file, which has no `await` and no `dynamic` export, so a loader there
+fails the check's second direction. The click-to-render gap is `RouteProgress`.
+
+### Filters live in the URL fragment
+
+Search, pillar and role filters are encoded in the hash, read in an effect
+after mount, and written with `replaceState` so Back does not walk somebody out
+of a search one character at a time. The hash is never sent to the server, so
+it adds no per-request input to a screen that has none, and a filtered view is
+still a link that can be pasted into a message.
+
+**The quick-nav scrolls rather than setting the hash.** An `<a href="#fees">`
+would overwrite the filter hash, and the `hashchange` listener would then read
+it as an empty filter set and clear every filter the moment somebody used the
+index. Every section still carries its `id`, and the hash writer leaves a
+non-filter hash alone, so a hand-typed deep link still lands.
+
+### QA round 1 — two defects, both fixed
+
+Driven in a browser against a standalone build on `localhost:3100`, signed in
+with a **locally minted** `SUPER_ADMIN_PASSWORD_HASH` in a gitignored
+`.env.qa.local`. The real operator password was never read.
+
+1. 🔴 **Literal backticks reached the screen** — 28 on Features, 24 on Roadmap,
+   including every glossary definition. The catalogue marks real identifiers
+   (`results.publish`, `school_modules`) the way the rest of this repository
+   does, and nothing here renders markdown. On a tab that has to survive being
+   walked through with a customer, that reads as a bug in the product.
+
+   Fixed with a `Prose` component that renders them as inline `<code>` rather
+   than stripping them — stripping would flatten an identifier into prose, and
+   `results.enter` and `results.publish` in one sentence would read as two
+   English phrases rather than the two keys the sentence is about. It is
+   deliberately not a markdown parser: one delimiter, no nesting, and an
+   unbalanced backtick leaves the trailing fragment as plain text rather than
+   swallowing the rest of the sentence. Wired into all nine render sites.
+   Re-verified at **0 literal backticks on both tabs**.
+
+2. **The two "prerendered" docblocks**, above.
+
+Also checked: search (hash `#q=`), both filters, the glossary rail and sheet,
+deep links, the empty state, 375 px (`scrollWidth === clientWidth`, no
+horizontal scroll), **zero console errors and zero `/api/…` calls** from either
+page.
+
+### ⚠ `check-loaders` asserts every route file is committed
+
+Worth knowing, because it cost a confusing failure. The developer agent
+reported the check passing in its own worktree, where its files were committed.
+Transferred into this one and not yet staged, the same check **failed**:
+
+```
+✗ 2 route file(s) exist on disk but are not in git, so the build that runs in
+  production will not contain them
+```
+
+That is the check working. `git add` fixed it. A check that passes in one
+worktree and fails in another is not flaky — read what it actually asserts.
+
+### ⚠ `0049` IS applied to the live database
+
+The header of this file said "Migration `0049`, **not applied**" for a day
+after it had been. Confirmed twice on 2026-09-19, once by the DevOps agent and
+once directly:
+
+```
+migration rows: 50 | effective_from present: true
+```
+
+`drizzle.__drizzle_migrations` holds 50 rows against 50 journal entries, and
+the two newest hashes are byte-identical to `0048` and `0049` on disk. The
+header is corrected above.
+
+### QA round 3 — the agent found six, and four were the same shape
+
+The sprint-qa agent's pass, and the reason this sprint gained a check script.
+
+1. 🔴 **`lesson-plans` sold a capability that does not exist.** Gated on
+   `academics.read`, which derived **Full** for seven administrative roles —
+   above one route, `/teacher/lesson-plans`, behind
+   `requireSchoolRole(['teacher'])`. None of the seven can open it, and
+   `buildSchoolNav` has no lesson-plans entry at all. The school-wide read the
+   sales line promised is **built and unreachable**:
+   `GET /api/school/lesson-plans?scope=school` exists, is guarded, and
+   **nothing in the repository calls it** — `LessonPlanBoard` fetches the route
+   with no parameter. That is Sprint 27's orphaned endpoint, found from the
+   other end.
+2. **Three routes were 404s** — `/dashboard/payroll/runs`,
+   `/dashboard/payroll/payslips`, `/dashboard/performance/staff`. Only the
+   `[runId]` / `[payslipId]` / `[userId]` children exist.
+3. **Two default views were wrong** — the Accountant's omitted Payroll and
+   Staff performance, Marketing's omitted Staff performance.
+4. **Marketing read None on Staff KPIs** while reaching their own scorecard.
+5. **The glossary sheet closed only by its X** — no Escape, no backdrop, no
+   `aria-modal`.
+6. **Two route lists contradicted their own matrix** — marks and timetable.
+
+All six fixed. **Four of them are one defect**: the catalogue holding a second
+copy of something the code already knows, and the copy being wrong.
+
+### 🔴 The fourteenth gate — `npm run check-product-catalogue`
+
+`CLAUDE.md` gained a rule and `.github/workflows/ci.yml` gained a step, added
+together as that file requires. **Thirteen is now fourteen; ten in CI is now
+eleven.**
+
+Most of `lib/product-catalogue.ts` is derived and therefore already defended by
+`typecheck` — the matrix resolves from `DEFAULT_ROLE_PERMISSIONS`, and
+`ROLE_PROFILES` is `USER_ROLES.map(...)`. **Three things cannot be derived**:
+the routes a feature names, the sidebar a role gets on day one, and who reaches
+a feature through their own portal rather than through a permission. All four
+content defects above were in those three.
+
+So they are assertions: every route resolved against the filesystem (route
+groups and one dynamic hop per segment, so `/dashboard` in its `(home)` group
+and `/dashboard/reports/outstanding-aging` as a `[reportKey]` both resolve),
+every role's `defaultView` diffed against an **executed** `schoolNav` with only
+the built modules on, and — the one that catches finding 1's shape — **a
+feature with no `/dashboard` route may name no permissions at all.**
+
+⚠ **Proved by attempt, the way this file requires of a constraint.** An
+invented route and a drifted sidebar entry were each injected, each failed the
+check by name, and the check passes clean when restored. A gate nobody has seen
+fail is a gate nobody knows works.
+
+⚠ **`esbuild` does not typecheck.** The check ran green while `tsc` failed on
+it — `noUncheckedIndexedAccess` types a destructured array head as possibly
+undefined. Run `typecheck` after writing a check script, not only the script.
+
+### ⚠ A hydration mismatch on every Super Admin page, and it is not this sprint's
+
+Found while QA'ing this sprint and **reproduced on `/super-admin/modules`,
+which this sprint never touched** — so it is pre-existing. React error #418,
+one per page, in shared chunk `70089-*`:
+
+| Route | Errors |
+| --- | --- |
+| `/super-admin/modules` (untouched) | 1 |
+| `/super-admin/features` | 1 |
+| `/super-admin/roadmap` | 1 |
+
+Sprint 34 adds **no additional** mismatch, which is why it was not fixed here.
+It matters more than it looks: a hydration failure makes React discard the
+server-rendered tree and re-render on the client, which turns an SSR page into
+a client-rendered one — the same slow first paint the loader rules exist to
+prevent, and invisible in development where everything is fast.
+
+Not diagnosed, because #418 is minified in a production build and says nothing.
+**Run `npm run dev` and open any `/super-admin/*` route** — React then names the
+mismatched text and the component. Suspects are all in the shell rather than any
+page: `SuperAdminShell`, `SuperAdminSidebar`, `RouteProgress` (which patches
+`window.fetch` from the **root** layout) and `components/pwa/`. Grepping those
+for `toLocale*`, `new Date()`, `Date.now()`, `Math.random` and `typeof window`
+found nothing.
+
+**Check the school portals too.** If the cause is in the root layout rather than
+the Super Admin one, every portal has it and this is considerably more
+important than one operator screen.
+
+### Deployment
+
+Nothing to apply. No migration, no environment variable, no module key, no
+permission key, no data step — the DevOps agent traced the full transitive
+import closure of both pages and found **zero** `process.env` references.
+Merging deploys it, and rollback is one revert plus a rebuild with nothing to
+reconcile.
+
+First load 146 kB against `/super-admin/feedback`'s 173 kB. The two tabs share
+their chunks, so the second costs ~0.1 kB after the first.
 
 ---
 
