@@ -3,6 +3,7 @@ import { and, eq } from 'drizzle-orm';
 import { feeChallans } from '@/db/schema';
 import { withSchoolAuth } from '@/lib/api-auth';
 import { apiFailure, apiSuccess, handleApiError, readJsonBody } from '@/lib/api-response';
+import { effectiveBranchIds, resolveBranchScope } from '@/lib/branch-scope';
 import { db } from '@/lib/drizzle';
 import { settleEnrolmentIfFeePaid } from '@/lib/enrolment-fee-gate';
 import { calculateLateFee, challanStatusFor } from '@/lib/fee-calculator';
@@ -19,6 +20,19 @@ import { isUuid, readOptionalString } from '@/lib/validation';
  * There is no DELETE. A challan that has been printed and handed to a parent
  * has left the building; it is cancelled, which is a status a human can explain
  * to the parent standing at the counter, not a row that quietly vanishes.
+ *
+ * ── Both verbs are campus-scoped — QA F5 ──────────────────────────────────
+ * `fees.read` and `fees.write` say this person may read and change vouchers;
+ * neither says *whose*. The campus comes from `resolveBranchScope`, the same
+ * resolver the register and the detail page use, and it is passed into
+ * `getChallanDetail`, which is the only way in here. A voucher outside the
+ * caller's campuses is **404**, identical to one belonging to another tenant:
+ * a 403 would confirm that a voucher with that id exists at this school.
+ *
+ * The PATCH needs it as much as the GET and arguably more. Its `UPDATE` is
+ * keyed on `id` and `location_id` alone, so without the scoped read above it a
+ * campus-bound clerk could cancel, waive, re-date or late-fee another campus's
+ * bill — and the only trace would be on a screen they cannot open.
  */
 
 export const runtime = 'nodejs';
@@ -39,7 +53,13 @@ export const GET = withSchoolAuth<RouteContext>(
       const { challanId } = await context.params;
       if (!isUuid(challanId)) return apiFailure('not_found', 'Voucher not found.', 404);
 
-      const challan = await getChallanDetail(auth.locationId, challanId);
+      const branchScope = await resolveBranchScope(auth.locationId, auth);
+
+      const challan = await getChallanDetail(
+        auth.locationId,
+        challanId,
+        effectiveBranchIds(branchScope),
+      );
       if (challan === null) return apiFailure('not_found', 'Voucher not found.', 404);
 
       return apiSuccess({ challan });
@@ -65,7 +85,16 @@ export const PATCH = withSchoolAuth<RouteContext>(
       const { challanId } = await context.params;
       if (!isUuid(challanId)) return apiFailure('not_found', 'Voucher not found.', 404);
 
-      const existing = await getChallanDetail(auth.locationId, challanId);
+      /*
+       * The campus, resolved once and used for both reads below.
+       *
+       * The scoped read is the write guard: everything after it acts on
+       * `existing`, and the `UPDATE` cannot be reached without one.
+       */
+      const branchScope = await resolveBranchScope(auth.locationId, auth);
+      const reachable = effectiveBranchIds(branchScope);
+
+      const existing = await getChallanDetail(auth.locationId, challanId, reachable);
       if (existing === null) return apiFailure('not_found', 'Voucher not found.', 404);
 
       const body = await readJsonBody<UpdateChallanBody>(request);
@@ -200,7 +229,7 @@ export const PATCH = withSchoolAuth<RouteContext>(
       });
 
       return apiSuccess({
-        challan: await getChallanDetail(auth.locationId, challanId),
+        challan: await getChallanDetail(auth.locationId, challanId, reachable),
         enrolment: { justCleared: gate.cleared },
       });
     } catch (error) {

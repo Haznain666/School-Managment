@@ -6,6 +6,7 @@ import { schoolUserIdForUid } from '@/lib/accounting-queries';
 import { campusForStudent } from '@/lib/admissions-queries';
 import { withSchoolAuth } from '@/lib/api-auth';
 import { apiFailure, apiSuccess, handleApiError, readJsonBody } from '@/lib/api-response';
+import { effectiveBranchIds, resolveBranchScope } from '@/lib/branch-scope';
 import { db, type Tx } from '@/lib/drizzle';
 import {
   cashAccountForStaff,
@@ -69,6 +70,14 @@ import { isUuid, readOptionalString } from '@/lib/validation';
  * parent's money at the counter. That case posts nothing, says so in the
  * response, and leaves `ledger_transaction_id` null.
  *
+ * ── And a fifth, which is where the money is allowed to come from ────────
+ * Both verbs resolve the caller's campuses and hand them to
+ * `getChallanDetail`, so a voucher at a campus this person cannot open is
+ * **404** here exactly as it is on the page — QA F5. The POST needs it most:
+ * every write below hangs off that one read, so without it a campus-bound
+ * clerk could take cash against another campus's bill, post it to this
+ * school's books, and settle an admission at a campus they have never seen.
+ *
  * ── The fourth thing, added with the admission fee gate ──────────────────
  * A payment can be the one that confirms an admission. `settleEnrolmentIfFeePaid`
  * is awaited, unlike the emailed confirmation above, and the difference is
@@ -96,7 +105,13 @@ export const GET = withSchoolAuth<RouteContext>(
       const { challanId } = await context.params;
       if (!isUuid(challanId)) return apiFailure('not_found', 'Voucher not found.', 404);
 
-      const challan = await getChallanDetail(auth.locationId, challanId);
+      const branchScope = await resolveBranchScope(auth.locationId, auth);
+
+      const challan = await getChallanDetail(
+        auth.locationId,
+        challanId,
+        effectiveBranchIds(branchScope),
+      );
       if (challan === null) return apiFailure('not_found', 'Voucher not found.', 404);
 
       return apiSuccess({
@@ -174,7 +189,15 @@ export const POST = withSchoolAuth<RouteContext>(
       const { challanId } = await context.params;
       if (!isUuid(challanId)) return apiFailure('not_found', 'Voucher not found.', 404);
 
-      const challan = await getChallanDetail(auth.locationId, challanId);
+      // The campus, before anything is read off the voucher and long before
+      // anything is written against it.
+      const branchScope = await resolveBranchScope(auth.locationId, auth);
+
+      const challan = await getChallanDetail(
+        auth.locationId,
+        challanId,
+        effectiveBranchIds(branchScope),
+      );
       if (challan === null) return apiFailure('not_found', 'Voucher not found.', 404);
 
       if (challan.status === 'cancelled' || challan.status === 'waived') {

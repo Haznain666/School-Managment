@@ -132,10 +132,20 @@ export default async function ParentFeesPage({
     listStudentChallans(locationId, selected.studentProfileId),
   ]);
 
+  /*
+   * `null` for the campus scope, and it is an answer rather than an omission.
+   *
+   * A parent belongs to no campus, so there is no `BranchScope` to resolve for
+   * them — what bounds this read is the line above it: the id has to be one of
+   * *this child's* own vouchers, and the child has already been matched
+   * against the signed-in guardian. Narrowing by campus on top of that could
+   * only ever hide a parent's own bill from them, which is the one voucher
+   * they are entitled to.
+   */
   const openChallan =
     isUuid(requestedChallan) &&
     challans.some((row) => row.id === requestedChallan)
-      ? await getChallanDetail(locationId, requestedChallan)
+      ? await getChallanDetail(locationId, requestedChallan, null)
       : null;
 
   /*

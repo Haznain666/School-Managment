@@ -446,7 +446,8 @@ one, add it to the other.
 
 Plus whichever of the other `check-*` scripts covers the area you touched —
 `check-reports`, `check-dashboard`, `check-portals`, `check-provisioning`,
-`check-smtp`, and the per-sprint executors `check-sprint20` through
+`check-smtp`, `check-voucher-scope`, and the per-sprint executors
+`check-sprint20` through
 `check-sprint30`, plus `check-sprint32`, `check-sprint33a`, `check-sprint33b`
 and `check-sprint33c`. **If you touch `listInbox` or the desks, run
 `check-sprint30`**: that statement now joins `school_users` twice and aggregates
@@ -464,6 +465,20 @@ throw and does not look wrong — it quietly returns **both** versions of every
 superseded cell, so a grid draws the period twice and a count is overstated.
 `check-sprint33c` executes all seventeen of those statements against the real
 schema. There is nothing else that would catch it.
+
+**If you touch anything that reads a fee voucher, run
+`check-voucher-scope`.** `fee_challans` has no `branch_id`: a voucher's campus
+is *derived*, through `student_enrollments → sections → grades`, and
+`grades.branch_id` is what finally names it. So a voucher read is campus-scoped
+only if somebody remembered to scope it, and for eight sprints nobody had —
+Sprint 33c's QA found a Principal bound to Askari Main opening a Junior Campus
+voucher by id, print sheet, address and bank details included (F5). The guard
+now lives in `getChallanDetail`'s **required** third parameter, and
+`check-voucher-scope` is the only thing that proves it: parts one and two read
+the rule and plan the statements, and **part three attempts the leak against
+real rows** — one voucher per campus at a two-campus tenant, refused in both
+directions, still open to a school-wide reader. Remove the predicate and it
+goes red on exactly those three lines.
 
 ### And if your sprint adds or widens a query, execute it
 

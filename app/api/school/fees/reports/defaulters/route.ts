@@ -1,5 +1,6 @@
 import { withSchoolAuth } from '@/lib/api-auth';
 import { apiSuccess, handleApiError } from '@/lib/api-response';
+import { effectiveBranchIds, resolveBranchScope } from '@/lib/branch-scope';
 import { listOutstandingChallans } from '@/lib/fee-queries';
 import { visibleScopeFor } from '@/lib/principal-visibility';
 import { maskDisplayPhone } from '@/lib/phone-formats';
@@ -40,8 +41,19 @@ export const GET = withSchoolAuth(
       // list as the outstanding report it shares a query with.
       const visible = await visibleScopeFor(auth);
 
+      /*
+       * The campus — QA F5, and it is a *second* narrowing rather than a
+       * replacement for the one above. `visibleScopeFor` short-circuits to
+       * UNSCOPED for every role except `principal`, so on its own it left a
+       * campus-bound Accountant or branch `school_admin` reading the whole
+       * group. Every row here names a `challanId`, so an unscoped list is
+       * also where the ids the detail page now refuses would have come from.
+       */
+      const branchScope = await resolveBranchScope(auth.locationId, auth);
+
       const rows = await listOutstandingChallans(auth.locationId, {
         scopeGradeIds: visible.gradeIds,
+        scopeBranchIds: effectiveBranchIds(branchScope),
         minDaysOverdue,
         gradeId: url.searchParams.get('gradeId') ?? undefined,
         sectionId: url.searchParams.get('sectionId') ?? undefined,

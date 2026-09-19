@@ -5,6 +5,7 @@ import { RecordPaymentForm } from '@/components/fees/RecordPaymentForm';
 import { Card } from '@/components/ui/Card';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { CHALLAN_STATUS_LABELS } from '@/db/schema/fee-challans';
+import { effectiveBranchIds, resolveBranchScope } from '@/lib/branch-scope';
 import { remainingBalance } from '@/lib/fee-calculator';
 import { getChallanDetail } from '@/lib/fee-queries';
 import { requireSchoolPermission } from '@/lib/school-guard';
@@ -22,12 +23,21 @@ export default async function RecordPaymentPage({
 }: {
   params: Promise<{ challanId: string }>;
 }) {
-  const { locationId } = await requireSchoolPermission('fees.write');
+  const { claims, locationId } = await requireSchoolPermission('fees.write');
   const { challanId } = await params;
 
   if (!isUuid(challanId)) notFound();
 
-  const challan = await getChallanDetail(locationId, challanId);
+  // The campus boundary — QA F5, the same guard the voucher page carries and
+  // for the stronger reason: this screen does not only read another campus's
+  // billing, it is the form that takes money against it.
+  const branchScope = await resolveBranchScope(locationId, claims);
+
+  const challan = await getChallanDetail(
+    locationId,
+    challanId,
+    effectiveBranchIds(branchScope),
+  );
   if (challan === null) notFound();
 
   const balance = remainingBalance(challan.totalAmount, challan.paidAmount);

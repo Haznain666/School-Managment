@@ -50,7 +50,7 @@ import {
   type PaymentMethod,
 } from '@/db/schema';
 
-import { sharedOrOwnedBy } from './branch-scope';
+import { ownedBy, sharedOrOwnedBy } from './branch-scope';
 import { db, type Database, type Tx } from './drizzle';
 import { daysOverdue, remainingBalance } from './fee-calculator';
 import { toPaise } from './money';
@@ -579,6 +579,50 @@ export interface ChallanListRow {
 }
 
 /**
+ * The campus predicate for a voucher, and the one thing every voucher read
+ * must carry.
+ *
+ * ── A voucher has no `branch_id`, so its campus is a derivation ──────
+ * `fee_challans` names a student and a year and nothing else about where the
+ * child sits. The campus is reached through the placement for that year —
+ * `student_enrollments → sections → grades` — and it is `grades.branch_id`,
+ * which is `NOT NULL`, that finally names it. So this is `ownedBy` and
+ * emphatically not `sharedOrOwnedBy`: on `grades` a null is a row that
+ * predates the column, never a row every campus shares, and the two helpers
+ * give opposite answers on exactly that value. See `lib/branch-scope.ts`.
+ *
+ * ── The one null this has to answer for, and why it is admitted ──────
+ * The grade reaches every voucher query through a **left** join, so a null
+ * arrives here from *the join* and not from the column: it means the student
+ * has no placement in this voucher's own year. `isNull(grades.id)` says that
+ * outright — `grades.branch_id` cannot be null, so a null `grades.id` is the
+ * only way the campus can be unresolved, and separating the two is what stops
+ * this reading as `sharedOrOwnedBy` by another spelling.
+ *
+ * Such a voucher is admitted, and the argument is about what is on it rather
+ * than about kindness: with no campus resolved, `getChallanDetail` returns a
+ * null `branchId`, `branchName` and `branchAddress`, so
+ * `buildVoucherPrintData` falls back to the *school's* address and reads the
+ * school-wide bank accounts. **A voucher that names no campus carries no
+ * campus's details**, so admitting it discloses nothing — while excluding it
+ * would drop the row out of the register *and* 404 the detail page, leaving a
+ * bill nobody at the school could open.
+ *
+ * Measured before it was written: across both live tenants, 957 of 957
+ * vouchers resolve to a campus and none to null. `check-voucher-scope`
+ * re-counts that every run, so if the case ever becomes real somebody reads
+ * this paragraph instead of discovering it.
+ *
+ * `undefined` — no condition at all — when the caller reaches every campus,
+ * so a school-wide reader's statement keeps exactly the shape it had before.
+ */
+function voucherCampusIn(branchIds: string[] | null): SQL | undefined {
+  const owned = ownedBy(grades.branchId, branchIds);
+  if (owned === undefined) return undefined;
+  return or(isNull(grades.id), owned);
+}
+
+/**
  * The columns the challan register may be ordered by.
  *
  * `balance` is billed minus paid, computed in the order-by rather than read
@@ -625,6 +669,23 @@ export interface ListChallansFilters {
    * "yours" means.
    */
   scopeGradeIds?: string[] | null | undefined;
+  /**
+   * The campuses this caller may read — `effectiveBranchIds(scope)`.
+   *
+   * ── Separate from `scopeGradeIds`, and both are needed ──────────────
+   * `scopeGradeIds` comes from `visibleScopeFor`, which short-circuits to
+   * UNSCOPED for **every role except `principal`** — so on its own it left a
+   * campus-bound Accountant, Vice Principal or branch `school_admin` reading
+   * the whole group's billing, and handing out the voucher ids with it. That
+   * is the same "two scope mechanisms in one handler" shape Sprint 33c's QA
+   * found at F2 and F3, which is why the register and `getChallanDetail` now
+   * take the campus from one place.
+   *
+   * `undefined` and `null` both mean every campus. An **empty array** reaches
+   * no campus and matches no row — `ownedBy`'s contract, and the dangerous
+   * direction is always the one where an empty list widens instead.
+   */
+  scopeBranchIds?: string[] | null | undefined;
 }
 
 export interface ListChallansResult {
@@ -694,6 +755,12 @@ export async function listChallans(
   if (filters.scopeGradeIds != null) {
     conditions.push(inArray(sections.gradeId, filters.scopeGradeIds));
   }
+  // The campus, in the statement for the same reason the grades are — and it
+  // has to be here rather than only on the detail page, or the register goes on
+  // printing another campus's voucher numbers and totals over ids that then
+  // 404 when they are clicked.
+  const registerCampus = voucherCampusIn(filters.scopeBranchIds ?? null);
+  if (registerCampus !== undefined) conditions.push(registerCampus);
   // An unrecognised status is dropped rather than rejected: it arrives from a
   // query string, and a stale bookmark should show everything, not 400.
   if (isChallanStatus(filters.status)) {
@@ -955,10 +1022,36 @@ export interface ChallanDetail extends ChallanListRow {
  * Deliberately one function rather than three: the print view has to render
  * from a single consistent read, and a slip that showed items from one moment
  * and a paid total from another would be worse than no slip at all.
+ *
+ * ── `branchIds` is required, and that is the point ─────────────────────
+ * The campus boundary shipped on the student *list* and never on this record,
+ * so a campus-bound head holding a voucher id could open another campus's
+ * billing in full — student, class, and the print sheet carrying that
+ * campus's own address and bank details. Sprint 33c's QA recorded it as **F5**,
+ * and `git show 8c0bc0c:` proves the guard was byte-identical for as long as
+ * the page had existed.
+ *
+ * So the parameter is **not optional and has no default**. An optional one is
+ * how this went unnoticed: every call site compiles, every screen works, and
+ * nothing anywhere says which of them are scoped. Now a new caller cannot be
+ * written without answering the question, and there are exactly two answers —
+ * `effectiveBranchIds(await resolveBranchScope(…))` for anything a member of
+ * staff opens, and `null` for the parent portal, which is bounded by
+ * `guardianOwnsStudent` and has no campus of its own to be bound to.
+ *
+ * ── Applied in the `WHERE`, not over the result ────────────────────────
+ * A voucher outside the caller's campuses comes back **null**, exactly as an
+ * id belonging to another tenant does — so every caller's existing
+ * `if (challan === null) notFound()` becomes the campus guard too, and no
+ * handler grows a second refusal path that could fall out of step with the
+ * first. 404 and not 403, deliberately: "you may not see this voucher"
+ * confirms that a voucher with that id exists at this school, which is the one
+ * fact the boundary is there to withhold.
  */
 export async function getChallanDetail(
   locationId: string,
   challanId: string,
+  branchIds: string[] | null,
 ): Promise<ChallanDetail | null> {
   const headerRows = await db
     .select({
@@ -1015,7 +1108,15 @@ export async function getChallanDetail(
     .leftJoin(sections, eq(sections.id, studentEnrollments.sectionId))
     .leftJoin(grades, eq(grades.id, sections.gradeId))
     .leftJoin(branches, eq(branches.id, grades.branchId))
-    .where(and(eq(feeChallans.locationId, locationId), eq(feeChallans.id, challanId)))
+    .where(
+      and(
+        eq(feeChallans.locationId, locationId),
+        eq(feeChallans.id, challanId),
+        // The campus, on the record and not only on the list — QA F5. See
+        // `voucherCampusIn` for why a voucher with no placement is admitted.
+        voucherCampusIn(branchIds),
+      ),
+    )
     .limit(1);
 
   const header = headerRows[0];
@@ -1110,6 +1211,82 @@ export async function getChallanDetail(
     payments,
     guardian: guardians[0] ?? null,
   };
+}
+
+/** One voucher, as the reminder sender needs it. */
+export interface ReminderChallanRow {
+  id: string;
+  challanNumber: string;
+  studentProfileId: string;
+  studentName: string;
+  dueDate: string;
+  totalAmount: string;
+  paidAmount: string;
+  status: ChallanStatus;
+  schoolName: string;
+}
+
+/**
+ * The vouchers a reminder run may actually chase.
+ *
+ * ── Why this is a function here and not a statement in the route ────────
+ * `POST /api/school/fees/reminders` took its ids from the request body and
+ * read them back filtered on `location_id` alone, so a clerk bound to one
+ * campus could email another campus's parents about another campus's bills and
+ * leave a `fee_reminders` row behind saying the school had chased them — QA
+ * F5's last door, and the only one where the ids do not come off a URL.
+ *
+ * Moving the read in here is what lets it carry `voucherCampusIn`, the same
+ * predicate `getChallanDetail` and the register use, rather than a second
+ * spelling of the same rule maintained one directory away. It is also what
+ * lets `check-voucher-scope` *execute* it: a statement that lives inside a
+ * `withSchoolAuth` handler cannot be called from a script, and a script that
+ * re-types the statement proves only that its own copy runs.
+ *
+ * Unfound ids are simply absent from the result, which is what the caller
+ * already does with a cancelled or settled voucher.
+ */
+export async function listChallansForReminder(
+  locationId: string,
+  challanIds: readonly string[],
+  branchIds: string[] | null,
+): Promise<ReminderChallanRow[]> {
+  if (challanIds.length === 0) return [];
+
+  return db
+    .select({
+      id: feeChallans.id,
+      challanNumber: feeChallans.challanNumber,
+      studentProfileId: feeChallans.studentProfileId,
+      studentName: schoolUsers.name,
+      dueDate: feeChallans.dueDate,
+      totalAmount: feeChallans.totalAmount,
+      paidAmount: feeChallans.paidAmount,
+      status: feeChallans.status,
+      schoolName: schools.name,
+    })
+    .from(feeChallans)
+    .innerJoin(studentProfiles, eq(studentProfiles.id, feeChallans.studentProfileId))
+    .innerJoin(schoolUsers, eq(schoolUsers.id, studentProfiles.schoolUserId))
+    .innerJoin(schools, eq(schools.locationId, feeChallans.locationId))
+    // Left, exactly as `getChallanDetail` joins them: a voucher whose student
+    // has no placement in its own year still has to be chaseable.
+    .leftJoin(
+      studentEnrollments,
+      and(
+        eq(studentEnrollments.studentProfileId, feeChallans.studentProfileId),
+        eq(studentEnrollments.academicYearId, feeChallans.academicYearId),
+      ),
+    )
+    .leftJoin(sections, eq(sections.id, studentEnrollments.sectionId))
+    .leftJoin(grades, eq(grades.id, sections.gradeId))
+    .where(
+      and(
+        eq(feeChallans.locationId, locationId),
+        inArray(feeChallans.id, [...challanIds]),
+        voucherCampusIn(branchIds),
+      ),
+    );
 }
 
 /** The primary guardian's contact details for a set of students. */
@@ -1304,6 +1481,14 @@ export interface OutstandingFilters {
    * narrows both and the two cannot come to disagree about a head's classes.
    */
   scopeGradeIds?: string[] | null | undefined;
+  /**
+   * The campuses this caller may read — `effectiveBranchIds(scope)`.
+   *
+   * The same reason `ListChallansFilters` carries one: these two reports name
+   * a `challanId` on every row, so an unscoped chase list is where a
+   * campus-bound reader would get the other campus's voucher ids from.
+   */
+  scopeBranchIds?: string[] | null | undefined;
 }
 
 /**
@@ -1342,6 +1527,9 @@ export async function listOutstandingChallans(
   if (filters.scopeGradeIds != null) {
     conditions.push(inArray(sections.gradeId, filters.scopeGradeIds));
   }
+  // The campus, before the `limit` for exactly the same reason.
+  const chaseCampus = voucherCampusIn(filters.scopeBranchIds ?? null);
+  if (chaseCampus !== undefined) conditions.push(chaseCampus);
 
   const minDays = filters.minDaysOverdue ?? 0;
   if (minDays > 0) {
