@@ -13088,35 +13088,91 @@ fail is a gate nobody knows works.
 it — `noUncheckedIndexedAccess` types a destructured array head as possibly
 undefined. Run `typecheck` after writing a check script, not only the script.
 
-### ⚠ A hydration mismatch on every Super Admin page, and it is not this sprint's
+### ⚠ ~~A hydration mismatch on every Super Admin page~~ — investigated 2026-09-19, does not reproduce
 
-Found while QA'ing this sprint and **reproduced on `/super-admin/modules`,
-which this sprint never touched** — so it is pre-existing. React error #418,
-one per page, in shared chunk `70089-*`:
+This entry claimed React #418 on every Super Admin page, one per page, in
+shared chunk `70089-*`, on `/super-admin/modules`, `/super-admin/features` and
+`/super-admin/roadmap`. **It was chased for a session and nothing reproduces
+it.** The claim is left standing above the correction rather than deleted,
+because the next person to see a #418 here needs to know what has already been
+ruled out and by what method.
 
-| Route | Errors |
-| --- | --- |
-| `/super-admin/modules` (untouched) | 1 |
-| `/super-admin/features` | 1 |
-| `/super-admin/roadmap` | 1 |
+#### What was run
 
-Sprint 34 adds **no additional** mismatch, which is why it was not fixed here.
-It matters more than it looks: a hydration failure makes React discard the
-server-rendered tree and re-render on the client, which turns an SSR page into
-a client-rendered one — the same slow first paint the loader rules exist to
-prevent, and invisible in development where everything is fast.
+Against `5906985` — *this sprint's own head commit*, the exact code QA tested —
+built with `npm run build` and served as the standalone artifact on
+`http://localhost:3100`, signed in as the operator:
 
-Not diagnosed, because #418 is minified in a production build and says nothing.
-**Run `npm run dev` and open any `/super-admin/*` route** — React then names the
-mismatched text and the component. Suspects are all in the shell rather than any
-page: `SuperAdminShell`, `SuperAdminSidebar`, `RouteProgress` (which patches
-`window.fetch` from the **root** layout) and `components/pwa/`. Grepping those
-for `toLocale*`, `new Date()`, `Date.now()`, `Math.random` and `typeof window`
-found nothing.
+| Harness | Loads | #418 |
+| --- | --- | --- |
+| Playwright, a **pristine** browser context per run (no cache, no SW, no extensions) | 3 each of `/modules`, `/features`, `/roadmap` | 0 |
+| The Claude Browser pane — QA's own harness | 6 across the same three routes | 0 |
+| The same three routes on `c0f45f9` (main **before** this sprint) | 6 + 3 | 0 |
+| `npm run dev`, which is what this entry told the next session to run | 4 routes | 0 |
 
-**Check the school portals too.** If the cause is in the root layout rather than
-the Super Admin one, every portal has it and this is considerably more
-important than one operator screen.
+**And hydration really happened** — that is the check that makes a clean
+console mean anything, because a page whose chunks 404 also reports nothing.
+On `/super-admin/features`: `__reactFiber$…` attached to DOM nodes, 17 chunks
+fetched under `/_next/static/chunks/`, **zero** responses ≥ 400, and typing
+into the guide's filter changed the rendered text. A server-rendered tree that
+React had discarded would not have been there to type into.
+
+#### The reasoning that made it look pre-existing was unsound
+
+`/super-admin/modules` was used as the control — "this sprint never touched
+it". **Sprint 34 touches the shell that page renders inside:**
+`components/super-admin/SuperAdminSidebar.tsx` (+12, the two new nav entries)
+and `components/school/nav-icons.ts` (+14, `Sparkles` and `Milestone`). Every
+Super Admin page renders both. So an untouched *page* was never a control for
+a defect in the *shell*, and "it appears on an untouched page, therefore it
+predates the sprint" does not follow. It happens not to matter here — neither
+commit reproduces — but the shape of the inference is the part to remember.
+
+#### What the school portals do (they were checked)
+
+Signed in with `scripts/qa-emergency-link.mjs`: school admin over `/dashboard`,
+`/dashboard/students`, `/dashboard/fees`, `/dashboard/timetable`; parent over
+`/parent`, `/parent/results`, `/parent/fees`. **Zero #418 on all seven**, with
+the service worker registered and controlling the origin on the parent seat.
+So the root layout — `RouteProgress` and its `window.fetch` patch — is clear,
+which was the part of this entry that would have mattered most.
+
+#### What *did* reproduce, and is worth keeping
+
+**Starving `requestAnimationFrame` hangs every streamed route on its
+skeleton.** With `requestAnimationFrame` replaced by a queue that never drains
+— which is what a pane the compositor is not driving does — `/super-admin`,
+`/super-admin/schools` and `/super-admin/modules` all sat on the `loading.tsx`
+skeleton indefinitely, `<div hidden id="S:0">` still in the body, rAF callbacks
+queued and never run. **No #418, and no error of any kind.** That is §5by's
+Fizz batching (`$RC` waits on a frame) seen directly, and it is the mechanism
+behind the `browser-pane-hidden` memory. It is a *stuck skeleton*, not a
+hydration mismatch — so if a screen looks hung, this is the first thing to
+check, and it is not this entry.
+
+#### If it is seen again
+
+Do not re-run `npm run dev` expecting React to name it; that was this entry's
+advice and it produced nothing. Capture it where it happened instead:
+
+1. Record the **build id** (`GET /api/internal/build`) and the exact URL. A
+   #418 that cannot be tied to a build cannot be tied to a commit.
+2. Diff the **server HTML** against the **hydrated DOM** — `page.request.get`
+   the URL with the session cookie, then dump `documentElement.outerHTML`
+   after hydration. React re-renders the whole tree on #418, so the second is
+   the client render and the first divergence is the culprit. §8903 did exactly
+   this on the create-mode forms and found them byte-identical, which is how
+   that one was shown not to be stable render output either.
+3. Note whether anything **outside the app** is in the page — an extension that
+   touches the header's one `<input>` (`GlobalSearch`, on every shell) before
+   hydration produces exactly this signature: one mismatch, every page, only in
+   a real browser.
+
+⚠ **`components/pwa/` was never on this path.** `ServiceWorkerRegistrar` is
+mounted in the parent, student and teacher layouts only — not in the root
+layout and not in `(super-admin)`. It could not have caused a Super Admin
+mismatch, and listing it as a suspect sent the investigation at a file that is
+not loaded on the route.
 
 ### Deployed and confirmed — live build `d72aa45868f0`
 
