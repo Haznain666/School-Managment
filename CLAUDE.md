@@ -416,17 +416,63 @@ through — and requires a **bijection**: every field matched to its own column,
 every example row valid. It also asserts the screen links to the route, because
 a generated file nothing offers is Sprint 27's orphaned endpoint again.
 
+## RULE: the Features tab may only say what the code does
+
+**If you add a feature to `lib/product-catalogue.ts`, the routes it names must
+exist, and the roles its matrix reaches must be able to open them.**
+
+Enforced by `npm run check-product-catalogue`, which runs in CI on every push.
+
+| You are | Also do |
+| --- | --- |
+| adding a feature entry | name only routes that resolve, and gate it only on permissions whose holders can open one of them |
+| adding a screen to a role's sidebar | update that role's `defaultView` — the check executes `schoolNav` and diffs it |
+| giving a role portal-only reach | say so in `portalAccess`, not by leaving the matrix to derive **None** |
+
+### Most of the tab is derived, and the derived half is not the problem
+
+The role-access matrix resolves from `DEFAULT_ROLE_PERMISSIONS` when the page
+renders, and `ROLE_PROFILES` is `USER_ROLES.map(...)`. A renamed role or module
+key is already a `typecheck` failure. **Three things cannot be derived** — the
+routes a feature lists, the sidebar a role sees on day one, and who reaches a
+feature through their own portal rather than through a permission — and each is
+a second copy of something the code already knows.
+
+### Why this is a rule and not a review note
+
+Sprint 34's QA found **four** stale copies in one pass, on a tab that had never
+been shown to anybody. The worst was `lesson-plans`: gated on `academics.read`,
+which derived **Full** for seven administrative roles, above a single route
+(`/teacher/lesson-plans`) behind `requireSchoolRole(['teacher'])` that not one
+of the seven can open. Three more routes were plain 404s — only their
+`[runId]`-style children exist — and two roles' default views omitted sections
+their real sidebar shows.
+
+Every one of those is a sentence somebody reads aloud in a sales meeting, and
+not one is visible to `typecheck`, to `lint` or to a build. A wrong Features tab
+is worse than an absent one: it is a promise the product cannot keep on the day
+somebody tries.
+
+**A feature with no `/dashboard` route may name no permissions at all.** That is
+the assertion that catches the `lesson-plans` shape, and it is why that entry's
+`permissions` array is deliberately empty with the reach stated through
+`portalAccess`. When the head-facing screen gets built, put the permission back
+and the matrix fills itself in.
+
+---
+
 ---
 
 ## Green build
 
-All thirteen must pass before anything is merged:
+All fourteen must pass before anything is merged:
 
 ```
 npm run typecheck
 npm run lint
 npm run check-loaders
 npm run check-import-sample
+npm run check-product-catalogue
 npm run check-forms
 npm run check-address-phone
 npm run check-cnic
@@ -505,8 +551,9 @@ hides behind an early return.
 
 Copy the script, rename it, and point it at your sprint's statements.
 
-`.github/workflows/ci.yml` runs the ten that need no database —
-`check-loaders`, `check-import-sample`, `check-forms`, `check-address-phone`,
+`.github/workflows/ci.yml` runs the eleven that need no database —
+`check-loaders`, `check-import-sample`, `check-product-catalogue`,
+`check-forms`, `check-address-phone`,
 `check-cnic`, `check-currency`, `check-theme`, `check-sprint-periods`,
 `check-accounting` and `check-branch-scope` —
 on every push and pull request, so the loader, CNIC, currency and double-entry

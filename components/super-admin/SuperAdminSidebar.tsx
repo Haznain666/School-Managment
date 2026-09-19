@@ -40,6 +40,18 @@ const NAV: readonly NavEntry[] = [
   // Sprint 16. Cross-school, like Modules: the queue is one queue, and reading
   // it per tenant would be reading it in four places and answering none of them.
   { label: 'Feedback', href: '/super-admin/feedback', icon: 'feedback' },
+  /*
+   * Sprint 34. Reference rather than operation, which is why they sit last:
+   * nothing above them is optional on any given day, and these two are opened
+   * when somebody is answering a question rather than doing the work.
+   *
+   * Features before Roadmap because that is the order they are read in — what
+   * the product does, and then what it does not do yet. Both are static pages
+   * built from `lib/product-catalogue.ts`; neither reads the database, so
+   * neither costs a query to open.
+   */
+  { label: 'Features', href: '/super-admin/features', icon: 'features' },
+  { label: 'Roadmap', href: '/super-admin/roadmap', icon: 'roadmap' },
 ];
 
 function isActive(pathname: string, href: string): boolean {

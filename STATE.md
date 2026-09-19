@@ -4,18 +4,26 @@
 resume without re-deriving context. Updated at the end of every development
 step, before the session ends.
 
-**Last updated:** 2026-09-19 (**Sprint 33 Part C — the portal work — shipped
+**Last updated:** 2026-09-19 (**Sprint 34 — Features and Roadmap in Super
+Admin — built, gated, PR #105, browser-QA'd across three rounds; eight defects
+found and fixed. **Merged `d72aa45` and live on build `d72aa45868f0`.** No migration; a new **fourteenth** gate,
+`check-product-catalogue`. §5cj.**
+
+**Also 2026-09-19:** **Sprint 33 Part C — the portal work — shipped
 and QA'd: merged `44a4ad50` (PR #102), migration `0049` applied and proved
 (50/0), QA round 1 fixes merged `364994e5` (PR #103). §5ci.** The round is
 complete: A §5cg, B §5ch, C §5ci. **Read §5ci's deploy record before touching
 `timetable_entries` — the migration header's "the old code behaves identically"
-is false and §5ci says why.** ⚠ **The supersede has still never run** — every
-row's `effective_from` is the day `0049` was applied, so the first teacher
-change took the in-place branch; **re-test on or after 2026-09-19**.
+is false and §5ci says why.** ✅ **The supersede has now run against real data** (2026-09-19) — close-and-open
+through the real API, the partial index holding two rows for one cell, and the
+tenant restored afterwards. §5ci. ⚠ It did **not** open at Pakistani midnight:
+`timetableToday()` is UTC and a school here is UTC+5, so "today" lags by five
+hours each night.
 **Sprint 33c QA round 1's F5 — the fee-voucher campus leak — is fixed and proved,
-§5cj.** **Next sprint: the stale-list fix.**)
+§5ck.** **Next sprint: the stale-list fix.**)
 
 **Earlier:** 2026-09-15 (**Sprint 32 — staff KPIs and performance —
+
 shipped: merged (PR #88, `e7692ab`), migration `0045` applied and proved, QA'd in
 a browser. §5cc.** Spec §5ca. Film screens and Askari demo data — §5cb. **KPI
 demo data and the film's KPI scene — §5cd.** **Next sprint: the stale-list fix.
@@ -53,6 +61,28 @@ F1–F5 are fixed and re-proved; round 2 found three more — N1, a campus-bound
 HR manager able to **read** another campus's staff calendar, and two screen
 faults — and all three are fixed.
 
+✅ **Sprint 34 — Features and Roadmap in Super Admin — is built, gated, PR'd and
+browser-QA'd — §5cj.** Two reference tabs after Feedback, from one static
+content module (`lib/product-catalogue.ts`) and one shared component. **No
+migration; `0050` is still the next free number.** PR #105, CI green.
+⚠ **The green-build list is now fourteen, not thirteen** —
+`check-product-catalogue` is in `CLAUDE.md` and in CI, added to both together. The
+role-access matrix is **derived from `DEFAULT_ROLE_PERMISSIONS` at render
+time**, and `ROLE_PROFILES` is `USER_ROLES.map(...)`, so a new role is a
+`typecheck` failure rather than a tab that quietly lists eleven of twelve.
+Proved mechanically and now permanently: **118 routes, 0 unresolved; 0 bad
+permission keys; all nine admin sidebars diffed against an executed `schoolNav`.** QA found **eight** across three rounds — the worst being a feature sold to
+seven roles that only a teacher can open. All fixed, and the four that were
+stale copies of what the code already knows are now assertions in
+`npm run check-product-catalogue`.
+
+⚠ **`lms`, `event_mgmt`, `transport`, `library` and `hostel` are switches with
+no screen behind them.** All five are in `PLATFORM_MODULES` and in the Super
+Admin toggle grid; none is built. They are on **Roadmap**, not Features. And
+the reverse: **`SPRINTS.md` still plans chat, web push, the campus calendar and
+discount repricing, all four of which have shipped** — its sprint numbers have
+diverged from what exists. Read `app/` and `db/schema/`, not the plan.
+
 ✅ **Part C is shipped and live — §5ci.** The parent timetable and the end of
 history being rewritten, the receipt, the recipient picker and the substitutes
 panel. Merged as **`44a4ad50`** (PR #102) and deployed; live build
@@ -87,11 +117,15 @@ portals and seven query modules. Hostinger auto-deploys from a push to `main`,
 so **code-first is the default unless the migration is applied before the
 merge**. It was.
 
-⚠ **`0049` has no ordering trap, and that is worth stating because Part B's
-did.** Apply `0049`, then deploy the code. Nothing in it depends on data,
-nothing in it narrows anything, and the old code running against the new schema
-behaves identically — it simply never selects the new columns. The preference
-for migration-first is only that the new code's reads name `effective_from`.
+🔴 **~~`0049` has no ordering trap~~ — this was wrong, and the corrected
+record is in the Part C block above.** It was written before the migration was
+applied and it survived the merge, so it is struck through here rather than
+deleted: the claim that the old code "behaves identically" against the new
+schema is true of every read and **false of the one write**. `main`'s deployed
+`POST /api/school/timetable/entries` sent a bare `ON CONFLICT`, and Postgres
+cannot infer a **partial** index unless the statement repeats its predicate —
+`42P10`, proved by attempt. **There is no ordering that avoids a window.**
+Migration-first is the cheap side, and it is what was done.
 
 ⚠ **The deploy order mattered and is worth keeping**: `0047` → code →
 `scripts/apply-sprint33b-data.mjs --apply` → `0048`. The role CHECK has to widen
@@ -12828,6 +12862,362 @@ days, per person, with the date in hand.
 
 ---
 
+## 5cj. Sprint 34 — Features and Roadmap in Super Admin — 2026-09-19
+
+Built on `claude/super-admin-features-roadmap-716d0f`, off `main` at `44a4ad5`.
+Spec is `SPRINT-34-SPEC.md`. **No migration — `0050` is still the next free
+number.** PR #105. Release notes:
+`release-notes/RELEASE-NOTES-SPRINT-34.md`. Test cases:
+`test-cases/TEST-CASES-SPRINT-34.md`.
+
+Two reference tabs in the Super Admin side menu, after Feedback:
+**Dashboard → Schools → Modules → Feedback → Features → Roadmap.**
+
+### "Pillar" did not exist, and that was worth stopping for
+
+The requirement was written in terms of "the three pillars". The word appears
+**nowhere** in this repository — not in a `.ts`, a `.tsx` or a `.md`. The only
+three-way grouping that did exist was `PLATFORM_MODULES.phase`, which is a
+delivery wave and not a product story.
+
+So the grouping was a decision, and the product owner took it rather than
+having one inferred:
+
+| Pillar | Modules |
+| --- | --- |
+| **Academics & Learning** | `academics`, `lms`, exams & results, `event_mgmt` |
+| **Finance** | `admissions`, `fee_management`, `accounts` |
+| **People & Operations** | `hr_payroll`, `staff_kpis`, `chat`, `transport`, `library`, `hostel` |
+
+A fourth section, **Platform**, holds the operator's own surface. It is
+labelled operator-only and is deliberately not sold as a pillar.
+
+### 🔴 The role matrix is derived, never written down
+
+This is the whole of why the tabs are code and not a document, and it is the
+only thing that will keep them true.
+
+Each `FeatureEntry` names the **permission keys** it is gated on.
+`roleAccessDetail` resolves the roles out of `DEFAULT_ROLE_PERMISSIONS` when
+the page renders. Change what a Coordinator holds by default and the Features
+tab changes in the same commit, with nothing to remember and nothing to
+re-check.
+
+`ROLE_PROFILES` is `USER_ROLES.map(...)`, so the label, the description, the
+home route, the branch requirement and invitability all come from
+`types/school-auth.ts`. **Adding a thirteenth role without describing it is a
+`typecheck` failure**, not a tab that quietly lists twelve.
+
+Three load-time assertions in `lib/product-catalogue.ts`: every `module` is a
+real `PlatformModuleKey`, every permission is a real `Permission`, every
+glossary reference resolves, and no two entries share an anchor id.
+
+**Proved mechanically rather than by reading**, which is the standing rule in
+this file applied to content instead of SQL:
+
+```
+routes claimed: 105   unresolved: 0
+bad permission keys: 0
+exams-datesheets    / branch_admin -> partial    ✓
+marks-gradebook     / teacher      -> partial    ✓
+academics-timetable / teacher      -> read-only  ✓
+academics-timetable / accountant   -> none       ✓
+attendance          / parent        -> own       ✓
+```
+
+4 pillars · 39 features · 12 role profiles · 22 roadmap items · 57 glossary
+terms.
+
+### ⚠ Five module switches have no screen behind them
+
+`lms`, `event_mgmt`, `transport`, `library` and `hostel` are all in
+`PLATFORM_MODULES` and all appear in the Super Admin toggle grid. **None of
+them is built.** `school-nav.ts` pushes LMS and Events with
+`placeholder: true`; the other three have no nav entry and no route at all —
+verified, no directory exists under `app/(school-admin)/dashboard/` for any of
+the five.
+
+All five are therefore on **Roadmap**, not Features. A Features tab that lists
+Library as shipped is one that loses a deal in the room.
+
+The reverse correction was also needed, and it is the more interesting one:
+**chat, web push, the campus calendar and discount repricing are on Features**,
+because all four have shipped — even though `SPRINTS.md` still plans them.
+`SPRINTS.md`'s sprint numbers have diverged from what actually shipped and are
+not a reliable statement of what exists. `app/` and `db/schema/` are.
+
+### ⚠ Both pages are dynamic, and the first docblocks said otherwise
+
+`app/(super-admin)/layout.tsx` carries `export const dynamic = 'force-dynamic'`
+— it reads the operator's session and the unread count — and **a
+`force-dynamic` layout makes every route beneath it dynamic**.
+`.next/prerender-manifest.json` lists exactly one prerendered route in the
+whole group: `/super-admin/login`.
+
+The pages were first written claiming to be prerendered. They are not, and the
+docblocks now say so. What is still true is that their own server render does
+no work: no `await`, no `searchParams`, no `cookies()`, no query. The cost is
+the layout's read, which every Super Admin page already pays.
+
+**Do not "fix" this by adding a `loading.tsx`.** `check-loaders` reads the
+*page* file, which has no `await` and no `dynamic` export, so a loader there
+fails the check's second direction. The click-to-render gap is `RouteProgress`.
+
+### Filters live in the URL fragment
+
+Search, pillar and role filters are encoded in the hash, read in an effect
+after mount, and written with `replaceState` so Back does not walk somebody out
+of a search one character at a time. The hash is never sent to the server, so
+it adds no per-request input to a screen that has none, and a filtered view is
+still a link that can be pasted into a message.
+
+**The quick-nav scrolls rather than setting the hash.** An `<a href="#fees">`
+would overwrite the filter hash, and the `hashchange` listener would then read
+it as an empty filter set and clear every filter the moment somebody used the
+index. Every section still carries its `id`, and the hash writer leaves a
+non-filter hash alone, so a hand-typed deep link still lands.
+
+### QA round 1 — two defects, both fixed
+
+Driven in a browser against a standalone build on `localhost:3100`, signed in
+with a **locally minted** `SUPER_ADMIN_PASSWORD_HASH` in a gitignored
+`.env.qa.local`. The real operator password was never read.
+
+1. 🔴 **Literal backticks reached the screen** — 28 on Features, 24 on Roadmap,
+   including every glossary definition. The catalogue marks real identifiers
+   (`results.publish`, `school_modules`) the way the rest of this repository
+   does, and nothing here renders markdown. On a tab that has to survive being
+   walked through with a customer, that reads as a bug in the product.
+
+   Fixed with a `Prose` component that renders them as inline `<code>` rather
+   than stripping them — stripping would flatten an identifier into prose, and
+   `results.enter` and `results.publish` in one sentence would read as two
+   English phrases rather than the two keys the sentence is about. It is
+   deliberately not a markdown parser: one delimiter, no nesting, and an
+   unbalanced backtick leaves the trailing fragment as plain text rather than
+   swallowing the rest of the sentence. Wired into all nine render sites.
+   Re-verified at **0 literal backticks on both tabs**.
+
+2. **The two "prerendered" docblocks**, above.
+
+Also checked: search (hash `#q=`), both filters, the glossary rail and sheet,
+deep links, the empty state, 375 px (`scrollWidth === clientWidth`, no
+horizontal scroll), **zero console errors and zero `/api/…` calls** from either
+page.
+
+### ⚠ `check-loaders` asserts every route file is committed
+
+Worth knowing, because it cost a confusing failure. The developer agent
+reported the check passing in its own worktree, where its files were committed.
+Transferred into this one and not yet staged, the same check **failed**:
+
+```
+✗ 2 route file(s) exist on disk but are not in git, so the build that runs in
+  production will not contain them
+```
+
+That is the check working. `git add` fixed it. A check that passes in one
+worktree and fails in another is not flaky — read what it actually asserts.
+
+### ⚠ `0049` IS applied to the live database
+
+The header of this file said "Migration `0049`, **not applied**" for a day
+after it had been. Confirmed twice on 2026-09-19, once by the DevOps agent and
+once directly:
+
+```
+migration rows: 50 | effective_from present: true
+```
+
+`drizzle.__drizzle_migrations` holds 50 rows against 50 journal entries, and
+the two newest hashes are byte-identical to `0048` and `0049` on disk. The
+header is corrected above.
+
+### QA round 3 — the agent found six, and four were the same shape
+
+The sprint-qa agent's pass, and the reason this sprint gained a check script.
+
+1. 🔴 **`lesson-plans` sold a capability that does not exist.** Gated on
+   `academics.read`, which derived **Full** for seven administrative roles —
+   above one route, `/teacher/lesson-plans`, behind
+   `requireSchoolRole(['teacher'])`. None of the seven can open it, and
+   `buildSchoolNav` has no lesson-plans entry at all. The school-wide read the
+   sales line promised is **built and unreachable**:
+   `GET /api/school/lesson-plans?scope=school` exists, is guarded, and
+   **nothing in the repository calls it** — `LessonPlanBoard` fetches the route
+   with no parameter. That is Sprint 27's orphaned endpoint, found from the
+   other end.
+2. **Three routes were 404s** — `/dashboard/payroll/runs`,
+   `/dashboard/payroll/payslips`, `/dashboard/performance/staff`. Only the
+   `[runId]` / `[payslipId]` / `[userId]` children exist.
+3. **Two default views were wrong** — the Accountant's omitted Payroll and
+   Staff performance, Marketing's omitted Staff performance.
+4. **Marketing read None on Staff KPIs** while reaching their own scorecard.
+5. **The glossary sheet closed only by its X** — no Escape, no backdrop, no
+   `aria-modal`.
+6. **Two route lists contradicted their own matrix** — marks and timetable.
+
+All six fixed. **Four of them are one defect**: the catalogue holding a second
+copy of something the code already knows, and the copy being wrong.
+
+### 🔴 The fourteenth gate — `npm run check-product-catalogue`
+
+`CLAUDE.md` gained a rule and `.github/workflows/ci.yml` gained a step, added
+together as that file requires. **Thirteen is now fourteen; ten in CI is now
+eleven.**
+
+Most of `lib/product-catalogue.ts` is derived and therefore already defended by
+`typecheck` — the matrix resolves from `DEFAULT_ROLE_PERMISSIONS`, and
+`ROLE_PROFILES` is `USER_ROLES.map(...)`. **Three things cannot be derived**:
+the routes a feature names, the sidebar a role gets on day one, and who reaches
+a feature through their own portal rather than through a permission. All four
+content defects above were in those three.
+
+So they are assertions: every route resolved against the filesystem (route
+groups and one dynamic hop per segment, so `/dashboard` in its `(home)` group
+and `/dashboard/reports/outstanding-aging` as a `[reportKey]` both resolve),
+every role's `defaultView` diffed against an **executed** `schoolNav` with only
+the built modules on, and — the one that catches finding 1's shape — **a
+feature with no `/dashboard` route may name no permissions at all.**
+
+⚠ **Proved by attempt, the way this file requires of a constraint.** An
+invented route and a drifted sidebar entry were each injected, each failed the
+check by name, and the check passes clean when restored. A gate nobody has seen
+fail is a gate nobody knows works.
+
+⚠ **`esbuild` does not typecheck.** The check ran green while `tsc` failed on
+it — `noUncheckedIndexedAccess` types a destructured array head as possibly
+undefined. Run `typecheck` after writing a check script, not only the script.
+
+### ⚠ ~~A hydration mismatch on every Super Admin page~~ — investigated 2026-09-19, does not reproduce
+
+This entry claimed React #418 on every Super Admin page, one per page, in
+shared chunk `70089-*`, on `/super-admin/modules`, `/super-admin/features` and
+`/super-admin/roadmap`. **It was chased for a session and nothing reproduces
+it.** The claim is left standing above the correction rather than deleted,
+because the next person to see a #418 here needs to know what has already been
+ruled out and by what method.
+
+#### What was run
+
+Against `5906985` — *this sprint's own head commit*, the exact code QA tested —
+built with `npm run build` and served as the standalone artifact on
+`http://localhost:3100`, signed in as the operator:
+
+| Harness | Loads | #418 |
+| --- | --- | --- |
+| Playwright, a **pristine** browser context per run (no cache, no SW, no extensions) | 3 each of `/modules`, `/features`, `/roadmap` | 0 |
+| The Claude Browser pane — QA's own harness | 6 across the same three routes | 0 |
+| The same three routes on `c0f45f9` (main **before** this sprint) | 6 + 3 | 0 |
+| `npm run dev`, which is what this entry told the next session to run | 4 routes | 0 |
+
+**And hydration really happened** — that is the check that makes a clean
+console mean anything, because a page whose chunks 404 also reports nothing.
+On `/super-admin/features`: `__reactFiber$…` attached to DOM nodes, 17 chunks
+fetched under `/_next/static/chunks/`, **zero** responses ≥ 400, and typing
+into the guide's filter changed the rendered text. A server-rendered tree that
+React had discarded would not have been there to type into.
+
+#### The reasoning that made it look pre-existing was unsound
+
+`/super-admin/modules` was used as the control — "this sprint never touched
+it". **Sprint 34 touches the shell that page renders inside:**
+`components/super-admin/SuperAdminSidebar.tsx` (+12, the two new nav entries)
+and `components/school/nav-icons.ts` (+14, `Sparkles` and `Milestone`). Every
+Super Admin page renders both. So an untouched *page* was never a control for
+a defect in the *shell*, and "it appears on an untouched page, therefore it
+predates the sprint" does not follow. It happens not to matter here — neither
+commit reproduces — but the shape of the inference is the part to remember.
+
+#### What the school portals do (they were checked)
+
+Signed in with `scripts/qa-emergency-link.mjs`: school admin over `/dashboard`,
+`/dashboard/students`, `/dashboard/fees`, `/dashboard/timetable`; parent over
+`/parent`, `/parent/results`, `/parent/fees`. **Zero #418 on all seven**, with
+the service worker registered and controlling the origin on the parent seat.
+So the root layout — `RouteProgress` and its `window.fetch` patch — is clear,
+which was the part of this entry that would have mattered most.
+
+#### What *did* reproduce, and is worth keeping
+
+**Starving `requestAnimationFrame` hangs every streamed route on its
+skeleton.** With `requestAnimationFrame` replaced by a queue that never drains
+— which is what a pane the compositor is not driving does — `/super-admin`,
+`/super-admin/schools` and `/super-admin/modules` all sat on the `loading.tsx`
+skeleton indefinitely, `<div hidden id="S:0">` still in the body, rAF callbacks
+queued and never run. **No #418, and no error of any kind.** That is §5by's
+Fizz batching (`$RC` waits on a frame) seen directly, and it is the mechanism
+behind the `browser-pane-hidden` memory. It is a *stuck skeleton*, not a
+hydration mismatch — so if a screen looks hung, this is the first thing to
+check, and it is not this entry.
+
+#### If it is seen again
+
+Do not re-run `npm run dev` expecting React to name it; that was this entry's
+advice and it produced nothing. Capture it where it happened instead:
+
+1. Record the **build id** (`GET /api/internal/build`) and the exact URL. A
+   #418 that cannot be tied to a build cannot be tied to a commit.
+2. Diff the **server HTML** against the **hydrated DOM** — `page.request.get`
+   the URL with the session cookie, then dump `documentElement.outerHTML`
+   after hydration. React re-renders the whole tree on #418, so the second is
+   the client render and the first divergence is the culprit. §8903 did exactly
+   this on the create-mode forms and found them byte-identical, which is how
+   that one was shown not to be stable render output either.
+3. Note whether anything **outside the app** is in the page — an extension that
+   touches the header's one `<input>` (`GlobalSearch`, on every shell) before
+   hydration produces exactly this signature: one mismatch, every page, only in
+   a real browser.
+
+⚠ **`components/pwa/` was never on this path.** `ServiceWorkerRegistrar` is
+mounted in the parent, student and teacher layouts only — not in the root
+layout and not in `(super-admin)`. It could not have caused a Super Admin
+mismatch, and listing it as a suspect sent the investigation at a file that is
+not loaded on the route.
+
+### Deployed and confirmed — live build `d72aa45868f0`
+
+Merged as **`d72aa45`** (PR #105) and auto-deployed. Confirmed two ways, which
+matters because the workflow could not confirm it:
+
+| Evidence | Result |
+| --- | --- |
+| `GET /api/internal/build` (`force-dynamic`, `no-store`) | `{"buildId":"d72aa45868f0"}` |
+| The served `/super-admin/login` HTML — the one **prerendered**, CDN-cached route in the group | carries `d72aa45868f0` |
+
+The second is the one that proves the cache is not stale: a prerendered page
+still serving an old build id is exactly the failure a purge exists to fix.
+
+⚠ **"Verify the live deployment" failed, and the deploy is fine.** The
+GitHub runner got **HTTP 403** on `/super-admin/login`, so the commit-confirm
+step read an empty body and the smoke test reported four failures. That is
+Hostinger's CDN bot challenge answering an Azure-hosted runner — the same
+`curl`, from this machine, returned the right build id and the full HTML. **A
+403 from CI against this host is not evidence of a bad deploy.** Confirm from a
+machine the CDN trusts, or read the build state from the Hostinger API, before
+believing the workflow.
+
+⚠ **The authenticated pages were not opened on production**, and should be
+when somebody has the operator's password to hand. Both routes answer `307` to
+`/super-admin/login?next=…` signed out — which proves the middleware guard
+and **not** that the route exists, because a path that does not exist redirects
+identically. What is proved is that the running build **is** the commit
+containing them, and both tabs were driven exhaustively in a browser against a
+standalone production build of that same commit.
+
+### Deployment
+
+Nothing to apply. No migration, no environment variable, no module key, no
+permission key, no data step — the DevOps agent traced the full transitive
+import closure of both pages and found **zero** `process.env` references.
+Merging deploys it, and rollback is one revert plus a rebuild with nothing to
+reconcile.
+
+First load 146 kB against `/super-admin/feedback`'s 173 kB. The two tabs share
+their chunks, so the second costs ~0.1 kB after the first.
+
+---
+
 ## 5ci. Sprint 33 **Part C** built — the portal work — 2026-09-18
 
 Built on `feature/sprint-33c-portal-work`, off `main` at `8c0bc0c`, transferred
@@ -13107,7 +13497,7 @@ pre-existing and has its own task; the sixth is cosmetic and fixed with them.
 | **F2** 🟠 | the substitute panel offered *and accepted* a teacher at another campus | fixed |
 | **F3** 🟠 | a campus-bound Coordinator / VP / Section Head read the other campus's timetable | fixed |
 | **F4** 🟡 | the class picker could not tell two campuses apart — six identical pairs | fixed |
-| **F5** 🟡 | a campus-bound Principal can open another campus's **fee voucher** | fixed — its own task, §5cj |
+| **F5** 🟡 | a campus-bound Principal can open another campus's **fee voucher** | fixed — its own task, §5ck |
 | **F6** 🔵 | on a gazetted holiday, 26 of 42 teachers read "Teaching Year 4 — A" | fixed |
 
 🔴 **F1 is the one to learn from, because every gate passed over it.** The page
@@ -13140,7 +13530,7 @@ either the bell notification or the chat message. Who may be asked is decided by
 **where the lesson is**, intersected with where the caller may act. This is the
 same shape as Part B round 2's N1, which is twice now.
 
-✅ **F5 was not Part C's, and is now fixed in §5cj.** A campus-bound Principal
+✅ **F5 was not Part C's, and is now fixed in §5ck.** A campus-bound Principal
 could open another campus's fee voucher — including the print sheet with that
 campus's address and bank details. `git show 8c0bc0c:` proves the guard was
 **byte-identical** before and after this sprint: Part C reworked that page's
@@ -13174,20 +13564,58 @@ teacher and the clash. So the request reached the availability check and the
 attempt, with placeholder uuids, could not distinguish (it returned 400
 `invalid_body` before reaching anything).
 
+### ✅ The supersede has now run against real data — 2026-09-19
+
+QA left this as the one path that could only fail in production, and it is now
+proved through the **real API**, not in a rolled-back transaction.
+
+| Row | Window | Teacher | State |
+| --- | --- | --- | --- |
+| `43194881` | 2026-09-17 → 2026-09-17 | Bushra Latif | **closed** |
+| `2d0c455f` | 2026-09-18 → — | Danish Iqbal | **live** |
+
+One `POST /api/school/timetable/entries` changing the teacher returned a **new
+row id**, the section went 40 → **41** rows, and the live grid still returned
+**40** and drew the cell **exactly once**. That is the close-and-open
+transaction, `liveTimetableEntries()` filtering the closed version, and **the
+partial unique index holding two rows for one `(location, section, slot, day)`**
+— which is precisely the `23505` the old whole-table index would have thrown.
+The boundary convention holds with no overlap: the old row closes on
+`effective_from_of_new − 1`.
+
+Restored afterwards: the superseding row removed, the original reopened, and the
+teacher put back to **Tooba Ansari** — one live version, 40 entries, as it began.
+`scripts/qa-sprint33c-supersede.mjs` does all three (`backdate` / `inspect` /
+`restore`) and prints the cell's whole version history each time.
+
+⚠ **Why it did not simply become reachable "the next day", which is the part
+worth keeping.** `0049` gives every pre-existing row
+`effective_from = CURRENT_DATE` and the route supersedes only when
+`standing.effectiveFrom < today`, so the day the migration is applied every
+change takes the in-place branch — QA proved that rather than assuming it. The
+expectation was that 2026-09-19 would open the branch. **It did not**, because
+`timetableToday()` is **UTC** and a Pakistani school is **UTC+5**:
+
+```
+Pakistan local  Sat Sep 19 2026 02:33 GMT+0500
+UTC             2026-09-18T21:33Z
+```
+
+At half past two in the morning in Karachi it is still *yesterday* in UTC, so
+`effectiveFrom === today` and the route correctly declines. **The branch opens
+at UTC midnight, not at Pakistani midnight** — a five-hour window each night in
+which the product's "today" is the previous day. `lib/timetable-history.ts`
+already documents the UTC choice and makes the close/open boundary a whole day
+wide to absorb it, and the database's own `CURRENT_DATE` is UTC too, so the two
+agree with each other. It is a documented decision, not a defect — but anyone
+testing a date-sensitive path from Pakistan late at night will otherwise
+conclude the feature is broken, which is exactly what nearly happened here.
+
+**Waiting is not testing.** The proof above was obtained by backdating that one
+cell by a day — exactly the state it reaches at UTC midnight — and letting the
+real route run against it.
+
 ### What QA could **not** exercise — named, not passed
-
-⚠ **The supersede itself has never run.** `0049` gives every pre-existing row
-`effective_from = CURRENT_DATE`, and the route supersedes only when
-`standing.effectiveFrom < today` — so on the day it was applied, every teacher
-change took the **in-place** branch. QA proved this rather than assuming it: the
-change returned the *same* row id and left the count at 40.
-
-So the close-and-open transaction, **the partial unique index holding a real
-second row**, and the `ON CONFLICT … targetWhere` race fallback have not run
-against real data. They become reachable on **2026-09-19**. `verify-0049.mjs`
-drove all three inside rolled-back transactions and they behave correctly, but
-that is the schema, not the route. **Re-test a teacher change on or after
-2026-09-19** — it is the one path that can only fail in production.
 
 Also not exercised: a parent with **no enrolled child** (no such fixture at
 Askari); **Section Head scoping**, because no coordinators are linked to any
@@ -13199,13 +13627,31 @@ all-zero UUID; and dark mode.
 
 ### QA side effects left on the Askari tenant
 
-Year 3 — A (Main) Monday Period 1 teacher is now **Amna Zaheer** (was Tooba
-Ansari); Monday Period 2 room is **"Lab B (QA 33c)"**; one chat thread from
-Aftab Awan to the School Office reading "QA Sprint 33c — please ignore"; and
-substitution `90f26c75-c838-40e6-ac6e-464be9a4d9da` (Hina Aslam covering Year
-3 — A Period 1 on 2026-09-18), which was **F2's evidence** and can now be
-removed. The permissions override granted during the CHECK-by-attempt test was
-reverted — `overrides: []`.
+**Cleaned up on 2026-09-19:**
+
+- ✅ Substitution `90f26c75-c838-40e6-ac6e-464be9a4d9da` — Hina Aslam of Askari
+  **Junior** Campus rostered onto Year 3 — A at **Main** for a 07:45 period,
+  which was F2's evidence — is **deleted**. `timetable_substitutions` is back to
+  **0 rows**. `scripts/qa-sprint33c-cleanup.mjs` reads the row back and refuses
+  unless the cover teacher and the class are at *different* campuses, so it
+  cannot remove a real cover somebody arranged. There is no cancel in the
+  product yet, which is why this needed a script at all.
+- ✅ Year 3 — A (Main) Monday Period 1 is back to **Tooba Ansari**, one live
+  version, row `43194881`, 40 entries — the supersede test above restored it.
+- ⏸ Monday Period 2 room is still **"Lab B (QA 33c)"**. Left alone deliberately:
+  a room change is an in-place correction, so no earlier version survives to
+  read the original off, and guessing a room is worse than an obviously-tagged
+  QA string.
+- ✅ The permissions override from the CHECK-by-attempt test was reverted —
+  `overrides: []`.
+- ⏸ One chat thread from Aftab Awan to the School Office, "QA Sprint 33c —
+  please ignore". Harmless, and deleting a school's record of what was sent is
+  not something a cleanup script should do.
+
+⚠ **The bell notification and chat message telling Hina Aslam to cover that
+class were deliberately left in place.** She was told; deleting the record of
+the telling does not untell her, and a school's outbox is not something to
+rewrite quietly. If she asks, the answer is that the cover was withdrawn.
 
 ### Rollback, and the day it stops being possible
 
@@ -15614,7 +16060,7 @@ would have *stored* a divergent spelling, not merely shown one.
 
 ---
 
-## 5cj. The fee voucher's campus boundary — QA F5 — 2026-09-19
+## 5ck. The fee voucher's campus boundary — QA F5 — 2026-09-19
 
 **Sprint 33c QA round 1 finding F5, fixed on its own branch.** Not part of any
 sprint: the guard it adds had been missing since the voucher page was written,
