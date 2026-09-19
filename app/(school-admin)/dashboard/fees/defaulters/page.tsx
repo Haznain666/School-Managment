@@ -5,6 +5,7 @@ import { AgedDebtTable } from '@/components/fees/AgedDebtTable';
 import { Card, CardTitle } from '@/components/ui/Card';
 import { PrincipalScopeNote } from '@/components/school/PrincipalScopeNote';
 import { PageHeader } from '@/components/ui/PageHeader';
+import { effectiveBranchIds, resolveBranchScope } from '@/lib/branch-scope';
 import { AGING_BUCKETS, BUCKET_LABELS, listDefaulters } from '@/lib/defaulters';
 import { formatPkr } from '@/lib/money';
 import { visibleScopeFor } from '@/lib/principal-visibility';
@@ -47,9 +48,15 @@ export default async function DefaultersPage() {
   const { claims, locationId, permissions } =
     await requireSchoolPermission('fees.read');
 
-  // A branch-scoped admin sees their own campus and cannot widen it. This is
-  // the one narrowing that stays on the server: it is an authorisation
-  // boundary, not a filter, and a control the reader may not clear.
+  /*
+   * The campus, through the resolver rather than off `claims.branchId` — QA
+   * F5's second half. This stays on the server: it is an authorisation
+   * boundary, not a filter, and a control the reader may not clear. Resolving
+   * it is what lets somebody granted two campuses see both; the raw claim
+   * answers for exactly one of them and always the same one.
+   */
+  const branchScope = await resolveBranchScope(locationId, claims);
+
   /*
    * BR4 — Sprint 23, item 3. A head's aged debt is their own classes', and the
    * bucket totals above the table are folded from exactly these rows: a head
@@ -63,7 +70,7 @@ export default async function DefaultersPage() {
   });
 
   const { rows, summary } = await listDefaulters(locationId, {
-    branchId: claims.branchId ?? undefined,
+    scopeBranchIds: effectiveBranchIds(branchScope),
     scopeGradeIds: visible.gradeIds,
   });
 

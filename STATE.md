@@ -19,7 +19,8 @@ through the real API, the partial index holding two rows for one cell, and the
 tenant restored afterwards. §5ci. ⚠ It did **not** open at Pakistani midnight:
 `timetableToday()` is UTC and a school here is UTC+5, so "today" lags by five
 hours each night.
-**Next sprint: the stale-list fix.**)
+**Sprint 33c QA round 1's F5 — the fee-voucher campus leak — is fixed and proved,
+§5ck.** **Next sprint: the stale-list fix.**)
 
 **Earlier:** 2026-09-15 (**Sprint 32 — staff KPIs and performance —
 
@@ -13496,7 +13497,7 @@ pre-existing and has its own task; the sixth is cosmetic and fixed with them.
 | **F2** 🟠 | the substitute panel offered *and accepted* a teacher at another campus | fixed |
 | **F3** 🟠 | a campus-bound Coordinator / VP / Section Head read the other campus's timetable | fixed |
 | **F4** 🟡 | the class picker could not tell two campuses apart — six identical pairs | fixed |
-| **F5** 🟡 | a campus-bound Principal can open another campus's **fee voucher** | **not fixed — pre-existing, own task** |
+| **F5** 🟡 | a campus-bound Principal can open another campus's **fee voucher** | fixed — its own task, §5ck |
 | **F6** 🔵 | on a gazetted holiday, 26 of 42 teachers read "Teaching Year 4 — A" | fixed |
 
 🔴 **F1 is the one to learn from, because every gate passed over it.** The page
@@ -13529,12 +13530,12 @@ either the bell notification or the chat message. Who may be asked is decided by
 **where the lesson is**, intersected with where the caller may act. This is the
 same shape as Part B round 2's N1, which is twice now.
 
-⏸ **F5 is not Part C's.** A campus-bound Principal can open another campus's
-fee voucher — including the print sheet with that campus's address and bank
-details. `git show 8c0bc0c:` proves the guard is **byte-identical** before and
-after this sprint: Part C reworked that page's print controls and not its access
-check. It is a pre-existing leak in the fee module and has its own task rather
-than riding along with the Part C fixes.
+✅ **F5 was not Part C's, and is now fixed in §5ck.** A campus-bound Principal
+could open another campus's fee voucher — including the print sheet with that
+campus's address and bank details. `git show 8c0bc0c:` proves the guard was
+**byte-identical** before and after this sprint: Part C reworked that page's
+print controls and not its access check. It was a pre-existing leak in the fee
+module and got its own change rather than riding along with the Part C fixes.
 
 ### The five fixes, re-proved in a browser against live `364994e5e3a5`
 
@@ -16055,3 +16056,194 @@ would have *stored* a divergent spelling, not merely shown one.
    Raised by QA as case 4 and deliberately kept — it is the child the sprint
    exists to bill. Any future test that needs a `not_billed` student must enroll
    one.
+
+
+---
+
+## 5ck. The fee voucher's campus boundary — QA F5 — 2026-09-19
+
+**Sprint 33c QA round 1 finding F5, fixed on its own branch.** Not part of any
+sprint: the guard it adds had been missing since the voucher page was written,
+and §5ci deferred it precisely so it would not ride along with Part C's fixes.
+
+### What was wrong
+
+Signed in as **Imran Qureshi, Principal of Askari Main Campus**:
+`GET /api/school/students` returned **343** students, every one of them Main,
+and `ASST-2026-0006` was not among them. Yet
+`/dashboard/fees/challans/181de701-f43c-44fb-8377-184d89acf2e0` rendered in
+full — *Shahmir Awan, Pre-Nursery B, **Askari Junior Campus*** — including the
+printable sheet headed "Askari Junior Campus", carrying that campus's address
+and **bank details**.
+
+The guard was on the student **list** and never on the voucher **record**:
+
+```ts
+if (!isUuid(challanId)) notFound();
+… getChallanDetail(locationId, challanId)
+if (challan === null) notFound();
+```
+
+`locationId` scopes the **tenant**. Nothing scoped the **campus**.
+
+### Why it was invisible
+
+**`fee_challans` has no `branch_id`.** A voucher's campus is *derived*, through
+`student_enrollments → sections → grades`, and `grades.branch_id` is what
+finally names it. So there was no column to forget to filter on and nothing in
+the schema to suggest one was missing — a voucher read is campus-scoped only if
+somebody remembered to scope it, and for eight sprints nobody had.
+
+### The fix, and the one thing it turns on
+
+`getChallanDetail`'s **required, undefaulted** third parameter. An optional one
+would have been the defect again: every call site compiles, every screen works,
+and nothing anywhere says which of them are scoped. Now a new caller cannot be
+written without answering the question, and there are exactly two answers —
+`effectiveBranchIds(await resolveBranchScope(…))` for anything a member of
+staff opens, and `null` for the parent portal, which belongs to no campus and
+is bounded by `guardianOwnsStudent` instead.
+
+`voucherCampusIn` in `lib/fee-queries.ts` is the predicate, built on
+**`ownedBy`** and never `sharedOrOwnedBy`: on `grades` a null `branch_id` is a
+row that predates the column, not a row every campus shares. The one null it
+*does* admit is `isNull(grades.id)` — the **absent left join**, meaning the
+student has no placement in the voucher's own year, which is a different fact
+from a null column and is named as such. Such a voucher is admitted because it
+carries no campus's details to leak: `branchName`, `branchAddress` and
+`branchId` all come back null and `buildVoucherPrintData` falls back to the
+school's own address and bank accounts. **957 of 957 vouchers on the estate
+resolve to a campus**, so the case does not occur today; the gate re-counts it
+every run.
+
+Refusal is **404**, never 403, and it reuses the existing `challan === null`
+path rather than growing a second one to keep in step. A 403 would confirm that
+a voucher with that id exists at this school, which is the one fact the
+boundary withholds.
+
+### It was never one page
+
+| Door | Was | Now |
+| --- | --- | --- |
+| voucher detail page | any campus | 404 |
+| record-payment page | any campus | 404 |
+| bulk print run (`?ids=`) | any campus, 400 at a time | dropped from the batch |
+| `GET`/`PATCH /api/school/fees/challans/[challanId]` | any campus | 404 |
+| `GET`/`POST …/[challanId]/payments` | any campus | 404 |
+| the register (`listChallans`) | **whole group** | the caller's campuses |
+| outstanding report, chase list | **whole group** | the caller's campuses |
+| aged debt (`listDefaulters`) | `claims.branchId` | `resolveBranchScope` |
+| `POST /api/school/fees/reminders` | **whole group**, by body id | the caller's campuses |
+
+Three of those matter as much as the page did. **The register is where a reader
+gets voucher ids from**, and it was narrowed only by `visibleScopeFor` — which
+short-circuits to `UNSCOPED` for **every role except `principal`**, so a
+campus-bound Accountant, Vice Principal or branch `school_admin` was reading
+the whole group's billing. That is Part C's F2/F3 shape, *"two scope mechanisms
+in one handler"*, for the third time.
+
+**The reminder sender took its ids from the request body**, so a clerk at one
+campus could email another campus's parents about another campus's bills and
+leave a `fee_reminders` row behind saying the school had chased them. Its read
+moved into `lib/fee-queries.ts` as `listChallansForReminder` — which is what
+lets it carry the same predicate, and what lets the gate execute the statement
+the route actually runs instead of a re-typed copy of it.
+
+**The aged-debt screen read `claims.branchId`**, the second mechanism
+`lib/branch-scope.ts` exists to abolish. Not a leak — it is too *narrow*:
+somebody granted a second campus through `school_user_branches` saw one campus
+with no way to widen it and nothing saying why.
+
+### Proved by attempt — `npm run check-voucher-scope`, 58 passed, 0 failed
+
+**A check that reads a guard proves nothing.** Parts one and two do the usual
+work — the rules as source assertions, then all twelve widened statements
+executed against the real schema with a tenant matching no row, SQLSTATE read
+off the error's `cause`. Part three is the one that counts: it finds a tenant
+with vouchers at two campuses, takes one voucher from each, and **attempts the
+leak**.
+
+```
+using ASST-2026-09-0180 (Askari Main Campus) and ASST-2026-08-0262 (Askari Junior Campus)
+  ok  a reader at Askari Main Campus still opens ASST-2026-09-0180
+  ok  [LEAK] a reader at Askari Main Campus is refused ASST-2026-08-0262
+  ok  [LEAK] a reader at Askari Junior Campus is refused ASST-2026-09-0180
+  ok  a school-wide reader opens either, unchanged
+  ok  an empty scope reaches nothing
+  ok  the register at Askari Main Campus offers no voucher the page would refuse
+  ok  [LEAK] a reminder run at Askari Main Campus cannot reach ASST-2026-08-0262
+  ok  every voucher in the database resolves to a campus — 957 of 957 placed
+```
+
+Both directions are asserted deliberately. **A guard that refuses everything
+passes any test that only checks the leak is closed**, and it would break every
+school in the product. The gate was verified by removing the predicate: it goes
+red on exactly those three `[LEAK]` lines and nothing else.
+
+The reminder door is proved by the read the route makes rather than by driving
+the route, because driving it against an open guard would put a real fee demand
+in a real parent's inbox.
+
+### And re-proved in a browser, against the real build
+
+Three real sessions through `scripts/qa-emergency-link.mjs`, on the reported
+voucher and the reported URL.
+
+| Who | Evidence |
+| --- | --- |
+| **Imran Qureshi** — Principal, Main | `/dashboard/fees/challans/181de701-…` is **404**. No "Shahmir", no "Junior", no bank block. The reported repro, closed |
+| **Nasreen Akhtar** — Accountant, Main | every voucher/payments read on the Junior id **404**; the same reads on a Main id **200**. Register **686** rows, the Junior voucher absent; chase list 200 rows, absent. Bulk print of both ids: *"1 voucher … 1 could not be found"*, and the hidden print sheet carries **only** `ASST-2026-09-0441` |
+| **Asad Mahmood** — school-wide `school_admin` | register **946**; opens **both** campuses' vouchers; the reported page renders Shahmir Awan in full. Unchanged |
+
+**686 + 260 = 946.** The register is *partitioned*, not truncated — the same
+form of evidence F2 was closed with.
+
+⚠ **The write paths needed a second session, and that is the point.** As the
+Principal, `POST …/payments` and `PATCH …` returned **403** — on `fees.write`,
+before the campus guard was ever reached. Reporting those as passes would have
+been a guard hiding behind an early return, which is the trap CLAUDE.md names.
+Re-run as the Accountant, who holds the key, each write probe carried a body
+the route rejects **after** the campus read — `{action:'cancel',
+applyLateFee:true}` and `{amount: 0}`. Cross-campus: **404**. Same campus:
+**400**. The 400s are what prove the 404s are the campus guard. Nothing was
+written, no money posted, no email sent.
+
+### Gates
+
+`typecheck` 0, `lint` 0, `build` green, and the ten CI checks unchanged —
+`check-loaders` 325, `check-import-sample` 25, `check-forms` 98,
+`check-address-phone` 50, `check-cnic` 36, `check-currency` 7, `check-theme` 7,
+`check-sprint-periods` 107, `check-accounting` 121, `check-branch-scope` 1,774.
+Area gates: `check-voucher-scope` **58/0** (new), `check-sprint20` 11/0,
+`check-sprint23` 33/0, `check-sprint33c` 99/0, `check-reports`,
+`check-portals` 18/22, `check-dashboard` 47.
+
+⚠ **`check-sprint28` fails, and it is not this change.** *"0049 names every
+key in PERMISSIONS — missing: `kpis.rate.teacher`, `kpis.rate.coordinator`,
+`kpis.rate.vice_principal`, `kpis.rate.hr_manager`, `kpis.rate.accountant`,
+`kpis.rate.marketing`, `kpis.rate.section_head`"*. Confirmed pre-existing by
+stashing this branch and re-running on the clean tree: **47 ok, 1 failed**,
+identically. It is Sprint 32's seven KPI rating keys never written into a
+`role_permissions_permission_check` rewrite — exactly the failure CLAUDE.md's
+permission rule predicts, and **the first school to override one of those keys
+gets a `23514` on the permission matrix**. It needs a migration and is its own
+task.
+
+### For whoever is next
+
+`check-voucher-scope` is named in CLAUDE.md's per-area list: **if you touch
+anything that reads a fee voucher, run it.** It needs the database, so like
+`check-sprint20` it stays off CI and on a machine holding the credentials.
+
+Two doors were looked at and deliberately **not** changed:
+
+1. **Family vouchers** (`/api/school/family-challans/**`) carry no campus
+   scope. A family voucher is assembled across siblings who may sit at
+   *different campuses* — the sibling card says so in as many words — so
+   narrowing it by campus is a product decision about what a family voucher
+   *is*, not a leak to patch quietly. Raise it as its own question.
+2. **`lib/principal-visibility.ts`'s docblock says `grades.branch_id` is
+   nullable.** It is `NOT NULL` (`db/schema/grades.ts`). Harmless there — the
+   code admits a null it will never see — but it is the opposite of what
+   `lib/admissions-queries.ts` says four files away, and the next person
+   choosing between `ownedBy` and `sharedOrOwnedBy` will read one of them.

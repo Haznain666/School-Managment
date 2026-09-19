@@ -5,6 +5,7 @@ import { ChallanCopies } from '@/components/fees/ChallanPrintView';
 import { PrintSheet } from '@/components/print/PrintSheet';
 import { PrintNow } from '@/components/print/PrintNow';
 import { Card, CardTitle } from '@/components/ui/Card';
+import { effectiveBranchIds, resolveBranchScope } from '@/lib/branch-scope';
 import { MAX_PRINTABLE_CHALLANS } from '@/lib/challan-print';
 import { getChallanDetail, getLateFeeRule } from '@/lib/fee-queries';
 import { requireSchoolPermission } from '@/lib/school-guard';
@@ -55,8 +56,10 @@ export default async function BulkChallanPrintPage({
   searchParams: Promise<{ ids?: string; document?: string }>;
 }) {
   // Same permission as viewing one. Printing discloses nothing a reader of the
-  // challan list cannot already see.
-  const { locationId } = await requireSchoolPermission('fees.read');
+  // challan list cannot already see — which is a claim about the *list*, so it
+  // only holds while this page is narrowed the same way the list is. See the
+  // campus scope below.
+  const { claims, locationId } = await requireSchoolPermission('fees.read');
   const { ids: rawIds, document: rawDocument } = await searchParams;
 
   const ids = parseIds(rawIds);
@@ -95,15 +98,28 @@ export default async function BulkChallanPrintPage({
     );
   }
 
+  /*
+   * The campus boundary, on every id in the batch — QA F5.
+   *
+   * This route takes its ids straight off the query string, and its own rule
+   * three paragraphs up is that "the client is not a gate". So the same scope
+   * the register is narrowed by has to be applied to each read, or the bulk
+   * printer is a way of reading by id everything the single-voucher page now
+   * refuses — four hundred at a time, with the bank block on every sheet.
+   */
+  const branchScope = await resolveBranchScope(locationId, claims);
+  const reachable = effectiveBranchIds(branchScope);
+
   const [branding, lateFeeRule, ...challans] = await Promise.all([
     getSchoolBranding(locationId),
     getLateFeeRule(locationId),
-    ...ids.map((id) => getChallanDetail(locationId, id)),
+    ...ids.map((id) => getChallanDetail(locationId, id, reachable)),
   ]);
 
-  // `getChallanDetail` is tenant-scoped, so an id belonging to another school
-  // comes back null rather than leaking. Dropping them silently is right: the
-  // user asked to print what they can see.
+  // `getChallanDetail` is tenant- and campus-scoped, so an id belonging to
+  // another school — or to a campus this person cannot open — comes back null
+  // rather than leaking. Dropping them silently is right: the user asked to
+  // print what they can see.
   const found = challans.filter((challan) => challan !== null);
 
   /*

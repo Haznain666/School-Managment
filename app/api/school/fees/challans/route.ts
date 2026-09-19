@@ -1,5 +1,6 @@
 import { withSchoolAuth } from '@/lib/api-auth';
 import { apiFailure, apiSuccess, handleApiError, readJsonBody } from '@/lib/api-response';
+import { effectiveBranchIds, resolveBranchScope } from '@/lib/branch-scope';
 import { db } from '@/lib/drizzle';
 import { ChallanGenerationError, generateChallan } from '@/lib/fee-challans';
 import { isChallanKindFilter, type ChallanKindFilter } from '@/db/schema';
@@ -58,8 +59,27 @@ export const GET = withSchoolAuth(
        */
       const visible = await visibleScopeFor(auth);
 
+      /*
+       * The campus — QA F5, and a *second* narrowing rather than a
+       * replacement for the one above.
+       *
+       * `visibleScopeFor` short-circuits to UNSCOPED for **every role except
+       * `principal`**, so on its own it left a campus-bound Accountant, Vice
+       * Principal or branch `school_admin` reading the whole group's billing.
+       * The two compose: a head bound to Karachi and assigned the O-Levels
+       * division gets O-Levels at Karachi, which is what `BranchScope` and
+       * `PrincipalScope` being separate types is for.
+       *
+       * It belongs here as well as on the detail page, not instead of it: this
+       * register is where a reader gets voucher ids from, and a list that
+       * offers ids the detail page then 404s on is a broken screen dressed as
+       * a security fix.
+       */
+      const branchScope = await resolveBranchScope(auth.locationId, auth);
+
       const result = await listChallans(auth.locationId, {
         scopeGradeIds: visible.gradeIds,
+        scopeBranchIds: effectiveBranchIds(branchScope),
         academicYearId: url.searchParams.get('academicYearId') ?? undefined,
         billingMonth: readIntParam(url.searchParams.get('billingMonth')),
         billingYear: readIntParam(url.searchParams.get('billingYear')),

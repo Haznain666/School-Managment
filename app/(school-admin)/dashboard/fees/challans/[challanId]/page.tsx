@@ -26,6 +26,7 @@ import {
   type ChallanStatus,
 } from '@/db/schema/fee-challans';
 import { PAYMENT_METHOD_LABELS } from '@/db/schema/fee-payments';
+import { effectiveBranchIds, resolveBranchScope } from '@/lib/branch-scope';
 import { formatDateOnly } from '@/lib/dates';
 import { daysOverdue } from '@/lib/fee-calculator';
 import {
@@ -67,13 +68,36 @@ export default async function ChallanDetailPage({
 }: {
   params: Promise<{ challanId: string }>;
 }) {
-  const { locationId, permissions } = await requireSchoolPermission('fees.read');
+  const { claims, locationId, permissions } =
+    await requireSchoolPermission('fees.read');
   const { challanId } = await params;
 
   if (!isUuid(challanId)) notFound();
 
+  /*
+   * The campus boundary, on the voucher itself — QA F5.
+   *
+   * `fees.read` says this person may read vouchers; it does not say *whose*.
+   * Until this was here the only campus guard in the fee module was on the
+   * student list, so a Principal bound to Askari Main whose own directory
+   * returns 343 Main students could still open a Junior Campus voucher by id
+   * — name, class, guardian, and a print sheet headed with Junior's address
+   * and Junior's bank accounts.
+   *
+   * Resolved rather than read off `claims.branchId`: somebody granted two
+   * campuses may read a voucher at either, and `claims.branchId` answers for
+   * exactly one of them. `effectiveBranchIds` is null for a school-wide
+   * reader, which is no filter at all and leaves their statement unchanged.
+   *
+   * The refusal is `notFound()` and not a 403, which is why it needs no branch
+   * of its own: an out-of-campus voucher comes back null from
+   * `getChallanDetail` exactly as another tenant's id does, and the
+   * `challan === null` line below was already the right answer for both.
+   */
+  const branchScope = await resolveBranchScope(locationId, claims);
+
   const [challan, lateFeeRule] = await Promise.all([
-    getChallanDetail(locationId, challanId),
+    getChallanDetail(locationId, challanId, effectiveBranchIds(branchScope)),
     getLateFeeRule(locationId),
   ]);
 

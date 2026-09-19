@@ -262,7 +262,9 @@ async function main(): Promise<void> {
    */
   await mustRunAfterMigration('getChallanDetail — the voucher detail, eight tables', migrated, async () => {
     const { getChallanDetail } = await import('../lib/fee-queries');
-    return getChallanDetail(NOBODY, NOBODY);
+    // `null` — every campus, the parent portal's answer. The campus-scoped
+    // form is a different statement and is executed by `check-voucher-scope`.
+    return getChallanDetail(NOBODY, NOBODY, null);
   });
 
   await mustRunAfterMigration('listBankAccounts', migrated, async () => {

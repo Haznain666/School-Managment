@@ -15,6 +15,7 @@ import {
 } from '@/db/schema';
 
 import { AGING_BUCKETS, type AgingBucket } from './aging-buckets';
+import { ownedBy } from './branch-scope';
 import { db } from './drizzle';
 import { remindersForStudents, type ReminderChip } from './fee-reminders';
 import { maskDisplayPhone } from './phone-formats';
@@ -100,6 +101,22 @@ export interface DefaulterFilters {
    * whole school's receivable would be reading a number that is not theirs.
    */
   scopeGradeIds?: string[] | null | undefined;
+  /**
+   * The campuses this caller may read — `effectiveBranchIds(scope)`.
+   *
+   * ── It replaces a `claims.branchId` read, and that is the point ────
+   * This screen used to be narrowed by `branchId: claims.branchId` — one
+   * campus, off the membership row. That is the second scope mechanism
+   * `lib/branch-scope.ts` exists to abolish: it is *too narrow* for somebody
+   * granted a second campus through `school_user_branches`, who would be shown
+   * one campus's aged debt with no way to widen it and nothing saying why, and
+   * it answers a different question from the one the register beside it asks.
+   *
+   * `ownedBy`, never `sharedOrOwnedBy`: the join to `grades` is inner and
+   * `grades.branch_id` is `NOT NULL`, so there is no shared row to admit here
+   * and admitting a null would only ever be a fault.
+   */
+  scopeBranchIds?: string[] | null | undefined;
 }
 
 export interface DefaulterSummary {
@@ -147,6 +164,11 @@ export async function listDefaulters(
   if (filters.branchId !== undefined && filters.branchId !== '') {
     conditions.push(eq(grades.branchId, filters.branchId));
   }
+  // The caller's own campuses, applied in addition to whatever they filtered
+  // on — so somebody who asks for a campus outside their reach gets nothing
+  // rather than that campus.
+  const campus = ownedBy(grades.branchId, filters.scopeBranchIds ?? null);
+  if (campus !== undefined) conditions.push(campus);
   if (filters.gradeId !== undefined && filters.gradeId !== '') {
     conditions.push(eq(grades.id, filters.gradeId));
   }

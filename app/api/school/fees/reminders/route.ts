@@ -1,10 +1,8 @@
-import { and, eq, inArray } from 'drizzle-orm';
-
-import { feeChallans, schoolUsers, schools, studentProfiles } from '@/db/schema';
 import { withSchoolAuth } from '@/lib/api-auth';
 import { apiFailure, apiSuccess, handleApiError, readJsonBody } from '@/lib/api-response';
+import { effectiveBranchIds, resolveBranchScope } from '@/lib/branch-scope';
 import { db } from '@/lib/drizzle';
-import { primaryGuardiansFor } from '@/lib/fee-queries';
+import { listChallansForReminder, primaryGuardiansFor } from '@/lib/fee-queries';
 import { canReachGuardian, sendFeeReminder } from '@/lib/fee-notices';
 import { recordReminder } from '@/lib/fee-reminders';
 import { toPaise } from '@/lib/money';
@@ -61,30 +59,30 @@ export const POST = withSchoolAuth(
         );
       }
 
-      // Scoped to this school, so a challan id belonging to another tenant
-      // simply is not found rather than being messaged about.
-      const rows = await db
-        .select({
-          id: feeChallans.id,
-          challanNumber: feeChallans.challanNumber,
-          studentProfileId: feeChallans.studentProfileId,
-          studentName: schoolUsers.name,
-          dueDate: feeChallans.dueDate,
-          totalAmount: feeChallans.totalAmount,
-          paidAmount: feeChallans.paidAmount,
-          status: feeChallans.status,
-          schoolName: schools.name,
-        })
-        .from(feeChallans)
-        .innerJoin(studentProfiles, eq(studentProfiles.id, feeChallans.studentProfileId))
-        .innerJoin(schoolUsers, eq(schoolUsers.id, studentProfiles.schoolUserId))
-        .innerJoin(schools, eq(schools.locationId, feeChallans.locationId))
-        .where(
-          and(
-            eq(feeChallans.locationId, auth.locationId),
-            inArray(feeChallans.id, challanIds),
-          ),
-        );
+      /*
+       * Scoped to this school **and to this person's campuses**, so a voucher
+       * id belonging to another tenant — or to a campus they cannot open —
+       * simply is not found rather than being messaged about.
+       *
+       * QA F5's last door, and the only one where the ids do not come off a
+       * URL — which changes nothing. Without the campus here, a clerk bound to
+       * one campus could email another campus's parents about another campus's
+       * bills and leave a `fee_reminders` row behind saying the school had
+       * chased them.
+       *
+       * The read itself is `listChallansForReminder`, in `lib/fee-queries.ts`
+       * beside every other voucher read, so it carries that module's own
+       * campus predicate rather than a second spelling of it — and so
+       * `check-voucher-scope` can execute the statement this route actually
+       * runs instead of a copy of it.
+       */
+      const branchScope = await resolveBranchScope(auth.locationId, auth);
+
+      const rows = await listChallansForReminder(
+        auth.locationId,
+        challanIds,
+        effectiveBranchIds(branchScope),
+      );
 
       const owing = rows.filter(
         (row) =>
