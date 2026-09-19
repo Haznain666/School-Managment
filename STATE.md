@@ -5,11 +5,24 @@ resume without re-deriving context. Updated at the end of every development
 step, before the session ends.
 
 **Last updated:** 2026-09-19 (**Sprint 34 — Features and Roadmap in Super
-Admin — built, gated, PR #105, browser-QA'd across three rounds, eight defects found and fixed. **No migration; a new fourteenth gate, `check-product-catalogue`.** §5cj.** Sprint 33
-Part C is still unmerged, but its migration `0049` **is** applied — §5ci and
-the header block below.)
+Admin — built, gated, PR #105, browser-QA'd across three rounds; eight defects
+found and fixed. No migration; a new **fourteenth** gate,
+`check-product-catalogue`. §5cj.**
 
-Previously: 2026-09-15 (**Sprint 32 — staff KPIs and performance —
+**Also 2026-09-19:** **Sprint 33 Part C — the portal work — shipped
+and QA'd: merged `44a4ad50` (PR #102), migration `0049` applied and proved
+(50/0), QA round 1 fixes merged `364994e5` (PR #103). §5ci.** The round is
+complete: A §5cg, B §5ch, C §5ci. **Read §5ci's deploy record before touching
+`timetable_entries` — the migration header's "the old code behaves identically"
+is false and §5ci says why.** ✅ **The supersede has now run against real data** (2026-09-19) — close-and-open
+through the real API, the partial index holding two rows for one cell, and the
+tenant restored afterwards. §5ci. ⚠ It did **not** open at Pakistani midnight:
+`timetableToday()` is UTC and a school here is UTC+5, so "today" lags by five
+hours each night.
+**Next sprint: the stale-list fix.**)
+
+**Earlier:** 2026-09-15 (**Sprint 32 — staff KPIs and performance —
+
 shipped: merged (PR #88, `e7692ab`), migration `0045` applied and proved, QA'd in
 a browser. §5cc.** Spec §5ca. Film screens and Askari demo data — §5cb. **KPI
 demo data and the film's KPI scene — §5cd.** **Next sprint: the stale-list fix.
@@ -69,23 +82,49 @@ the reverse: **`SPRINTS.md` still plans chat, web push, the campus calendar and
 discount repricing, all four of which have shipped** — its sprint numbers have
 diverged from what exists. Read `app/` and `db/schema/`, not the plan.
 
-📋 **Part C is built and not yet merged or QA'd — §5ci.** The parent
-timetable and the end of history being rewritten, the receipt, the recipient
-picker and the substitutes panel, on
-`feature/sprint-33c-portal-work`. Migration **`0049`** — **applied to the live
-database**, confirmed 2026-09-19: `drizzle.__drizzle_migrations` holds 50 rows
-against 50 journal entries and `timetable_entries.effective_from` exists. This
-line said "not applied" for a day after it had been.
-**`0050` is the next free migration number.** Every gate was run and is green,
-including a new `check-sprint33c` — **93 passed, 0 failed** — which executes
-every widened statement against the real schema and predicts the exact
-SQLSTATE each one fails with while `0049` is pending. **No browser QA.**
+✅ **Part C is shipped and live — §5ci.** The parent timetable and the end of
+history being rewritten, the receipt, the recipient picker and the substitutes
+panel. Merged as **`44a4ad50`** (PR #102) and deployed; live build
+**`44a4ad50668d`**, started 09:10:45 UTC on 2026-09-18, CDN purged and the
+smoke test green. **`0050` is the next free migration number.**
 
-⚠ **`0049` has no ordering trap, and that is worth stating because Part B's
-did.** Apply `0049`, then deploy the code. Nothing in it depends on data,
-nothing in it narrows anything, and the old code running against the new schema
-behaves identically — it simply never selects the new columns. The preference
-for migration-first is only that the new code's reads name `effective_from`.
+**`0049` is applied and proved — 50 assertions, 0 failed**, through
+`scripts/verify-0049.mjs`, which applies and proves in one pass and reads
+whether the migration is applied rather than being told. `relfilenode`
+unchanged at `21105`, `attmissingval = {2026-09-18}`, and **1027 of 1027**
+lessons came out live. Every gate is green against the migrated schema:
+`check-sprint33c` **95 passed** (93 before the migration, two more now
+executing), `check-sprint33a` 53, `check-sprint33b` 145, `check-branch-scope`
+1,774, and `check-portals`' four timetable reads now **execute** instead of
+predicting `42703`.
+
+🔴 **The migration header's claim that the old code "behaves identically"
+against the new schema is FALSE, and it is a real window.** It is true of every
+read and false of the one write: `main`'s deployed
+`POST /api/school/timetable/entries` sent a bare `ON CONFLICT`, and Postgres
+cannot infer a **partial** index unless the statement repeats its predicate.
+Both forms were attempted against the migrated database — the new route's
+accepted, the old route's **`42P10`**.
+
+So **there is no ordering that avoids a window.** While the index is whole the
+old code works and the new code's supersede is a `23505`; once it is partial
+the new code works and the old code is `42P10`. The swap is atomic and the two
+versions want opposite indexes. Migration-first is the cheap side: saving a
+timetable cell fails on one administrative screen for the minutes until the
+deploy lands, where code-first fails **every timetable read** across four
+portals and seven query modules. Hostinger auto-deploys from a push to `main`,
+so **code-first is the default unless the migration is applied before the
+merge**. It was.
+
+🔴 **~~`0049` has no ordering trap~~ — this was wrong, and the corrected
+record is in the Part C block above.** It was written before the migration was
+applied and it survived the merge, so it is struck through here rather than
+deleted: the claim that the old code "behaves identically" against the new
+schema is true of every read and **false of the one write**. `main`'s deployed
+`POST /api/school/timetable/entries` sent a bare `ON CONFLICT`, and Postgres
+cannot infer a **partial** index unless the statement repeats its predicate —
+`42P10`, proved by attempt. **There is no ordering that avoids a window.**
+Migration-first is the cheap side, and it is what was done.
 
 ⚠ **The deploy order mattered and is worth keeping**: `0047` → code →
 `scripts/apply-sprint33b-data.mjs --apply` → `0048`. The role CHECK has to widen
@@ -13094,10 +13133,11 @@ their chunks, so the second costs ~0.1 kB after the first.
 
 ## 5ci. Sprint 33 **Part C** built — the portal work — 2026-09-18
 
-Built on `feature/sprint-33c-portal-work`, off `main` at `8c0bc0c`. The spec is
+Built on `feature/sprint-33c-portal-work`, off `main` at `8c0bc0c`, transferred
+to `claude/kind-boyd-496a06` and merged as **`44a4ad50`** (PR #102). The spec is
 `SPRINT-33-SPEC.md` Part C; §5cf is the round's handover entry, §5cg is Part A
-and §5ch is Part B, both of which are live. Migration **`0049`**, **not
-applied**.
+and §5ch is Part B, both of which are live. Migration **`0049`**, **applied and
+proved on 2026-09-18** — the deploy record is at the end of this section.
 
 ⚠ **The migration number is `0049`, not the `0048` the spec names.** `0047` and
 `0048` are Part B's and both are applied. This is settled and is not to be
@@ -13261,6 +13301,280 @@ drift:
   obvious next steps and neither was in Part C.
 - **`components/fees/PrintButton.tsx` was deleted** — its only caller was the
   parent fees page, which now uses `ChallanPrintButtons`.
+
+### The deploy, 2026-09-18 — and the claim in the migration header that was wrong
+
+Order: **`0049` applied first, then merged, then deployed.** Merge `44a4ad50`
+(PR #102), Hostinger build `01a0b3c5` created 09:07:58 UTC and completed
+09:10:52, live build id **`44a4ad50668d`** read back from
+`/api/internal/build` in a browser after the CDN purge. `smoke-test-live`
+reports DEPLOYMENT HEALTHY.
+
+🔴 **`0049`'s own header says the old code "behaves identically" against the new
+schema. That is false, and the next person to read it should not believe it.**
+It holds for every *read* — none of them name the new columns. It fails for the
+one *write*: the previously deployed `POST /api/school/timetable/entries` sent
+
+```ts
+.onConflictDoUpdate({ target: [locationId, sectionId, slotId, dayOfWeek], set: {…} })
+```
+
+with no `targetWhere`, and **Postgres cannot infer a partial index unless the
+statement repeats the index's predicate**. `verify-0049.mjs` attempts both
+forms against the migrated database: the new route's is accepted, the old
+route's fails with exactly **`42P10`**.
+
+**There is no ordering that avoids a window**, and that is worth recording so
+nobody spends an afternoon looking for one. While the index is whole, the old
+code works and the new code's supersede is a `23505`. Once it is partial, the
+new code works and the old code is `42P10`. The swap is atomic and the two code
+versions want opposite indexes. What you choose is which failure you take:
+
+| Order | What breaks, and how wide |
+| --- | --- |
+| **Migration first** — what was done | *Saving* a timetable cell, on one administrative screen, for the ~3 minutes until the deploy lands |
+| Code first | **Every timetable read**, four portals, seven query modules |
+
+Hostinger auto-deploys from a push to `main`, so **code-first is what happens
+by default** unless the migration is applied before the merge.
+
+⚠ **Do not apply this file by pasting its statements into the SQL editor one at
+a time.** drizzle-orm's migrator wraps every pending file *and* the bookkeeping
+insert in one `session.transaction`, so `0049`'s `DROP INDEX` and its partial
+`CREATE` commit together and no concurrent transaction ever sees the cell
+unguarded. Pasted statement-by-statement, they do not — and that version has a
+window in which uniqueness is not enforced at all. It is also why
+`CONCURRENTLY` would be *wrong* here: it cannot run inside a transaction block.
+
+### `scripts/verify-0049.mjs` — 50 assertions, 0 failed
+
+One script, not two: it applies and proves in one pass (`--apply`), and with no
+flag it inspects and writes nothing, so it stays usable as a verifier. It reads
+whether `0049` is applied **from the catalogue**, never from the journal.
+
+Pre-flight first, because three things abort the whole file and all three are
+silent until they do: the index being a *constraint* rather than an index
+(`2BP01` on the DROP), a cell already holding two rows (`23505` on the partial
+CREATE), and a permission key held in `role_permissions` that the new list does
+not name (`23514` on the ADD CONSTRAINT). All three read clean — 1027 rows,
+0 duplicate cells, 7 distinct keys in use, exactly one migration pending.
+
+What it proved, none of which a row count can show:
+
+- `relfilenode` unchanged at **`21105`** and `attmissingval = {2026-09-18}` —
+  the `ADD COLUMN … NOT NULL DEFAULT` was metadata-only and **no row was
+  rewritten**, which is the whole of the compatibility claim;
+- **1027 of 1027** lessons came out live (`effective_to` null, `effective_from`
+  ≤ today), so `liveTimetableEntries()` matches exactly the set the old reads
+  matched and nothing looked different on the morning it shipped;
+- the re-created index **carries its predicate** —
+  `WHERE ((effective_to IS NULL) AND is_active)`, read back out of
+  `pg_get_indexdef`. An index re-created *without* one has the same name, the
+  same columns and `indisunique` true, and would refuse the first teacher change
+  at every school. That is the failure that looks exactly like success;
+- the supersede **driven** against a real lesson: closed, replaced, accepted;
+  a second *open* row for that cell refused `23505`; two *closed* ones accepted;
+- the substitution guards by attempt — a free period's null original teacher
+  accepted, `day_of_week` 5 refused, a second cover for one cell on one date
+  refused, and the lesson deleted out from under a cover leaving it with a null
+  `entry_id` rather than deleting it;
+- all **61** permission keys accepted and a key outside the list refused `23514`.
+
+Every attempt ran inside a transaction that was always rolled back, and the
+census was read a third time to show the proofs wrote nothing.
+
+⚠ **Two assertions in that script were wrong on first run and both were the
+script, not the schema.** It expected **five** foreign keys on
+`timetable_substitutions`; there are **eight**, because `school_users` is
+referenced three times over — the teacher who was down to take the period, the
+one covering, and whoever arranged it. Counting the tables rather than the
+columns is how it read as five. And "exactly one migration is pending" cannot
+hold once the migration is applied, so it was reporting FAIL on precisely the
+state the other fifty assertions prove is correct; it now reports
+not-exercised. **Both were found by running it, which is the point.**
+
+### QA round 1 — browser, against the live build — verdict was *do not ship*
+
+Driven against live build `44a4ad50668d` on the Askari tenant
+(`askari-school-system.schoolhub.codexmill.com`), nine emergency-link sessions,
+every one a real member — **not** the operator seat, which has no `school_users`
+row and cannot exercise most of this. Test cases:
+`test-cases/TEST-CASES-SPRINT-33C.md`, 302 lines.
+
+Six findings. Four fixed in `59eaa82` and merged as **`364994e5`**; one is
+pre-existing and has its own task; the sixth is cosmetic and fixed with them.
+
+| # | Finding | State |
+| --- | --- | --- |
+| **F1** 🔴 | `/parent/timetable` rendered no grid, **for any child at any school** | fixed |
+| **F2** 🟠 | the substitute panel offered *and accepted* a teacher at another campus | fixed |
+| **F3** 🟠 | a campus-bound Coordinator / VP / Section Head read the other campus's timetable | fixed |
+| **F4** 🟡 | the class picker could not tell two campuses apart — six identical pairs | fixed |
+| **F5** 🟡 | a campus-bound Principal can open another campus's **fee voucher** | **not fixed — pre-existing, own task** |
+| **F6** 🔵 | on a gazetted holiday, 26 of 42 teachers read "Teaching Year 4 — A" | fixed |
+
+🔴 **F1 is the one to learn from, because every gate passed over it.** The page
+called `getStudentPlacement(locationId, selected.studentProfileId, …)`, and that
+function's second parameter is a **`school_users.id`** — it filters
+`eq(studentProfiles.schoolUserId, …)`. A `student_profiles.id` can never equal a
+`student_profiles.school_user_id`, so it resolved to null for every child
+everywhere and C1's first acceptance criterion never worked at all.
+
+Both ids are `string`. It compiled, the route returned 200, the console was
+clean, and **`check-sprint33c` executed the statement and passed** — because
+executing the *wrong function* proves only that the wrong function runs. The
+fix is `getPlacementForStudentProfile`, a separately named sibling filtering
+`student_profiles.id`; a named function rather than a comment, because the type
+system cannot tell the two ids apart and the next caller will not either. Both
+are now executed by the gate, adjacent and labelled with the column each
+filters on. **That catches no future swap** — nothing mechanical can — and the
+honest lesson is that a same-typed id pair is caught by opening the screen, not
+by a check script.
+
+**F2 and F3 are one mistake wearing two faces: two scope mechanisms in one
+handler.** The teacher pool went through `resolveBranchScope`; the class list
+went only through `visibleScopeFor`, which short-circuits to `UNSCOPED` for
+**every role except `principal`**. Askari has 21 Main sections and 8 Junior —
+the Principal got 21, the Vice Principal, Section Head and Coordinator each got
+29. And the pool was scoped to the *caller's* campus rather than the *lesson's*,
+so a school-wide account arranging cover for a 07:45 period at Main was offered
+a Junior Campus teacher and the write was accepted, with no campus named in
+either the bell notification or the chat message. Who may be asked is decided by
+**where the lesson is**, intersected with where the caller may act. This is the
+same shape as Part B round 2's N1, which is twice now.
+
+⏸ **F5 is not Part C's.** A campus-bound Principal can open another campus's
+fee voucher — including the print sheet with that campus's address and bank
+details. `git show 8c0bc0c:` proves the guard is **byte-identical** before and
+after this sprint: Part C reworked that page's print controls and not its access
+check. It is a pre-existing leak in the fee module and has its own task rather
+than riding along with the Part C fixes.
+
+### The five fixes, re-proved in a browser against live `364994e5e3a5`
+
+Not "the tests pass" — each one driven against the live origin on the Askari
+tenant, through real member sessions, after the fix deployed.
+
+| Finding | Evidence |
+| --- | --- |
+| **F1** | `/parent/timetable` draws for **both** of Aftab Awan's children. Faizan: *Year 7 — A · 2026-2027*, **8 periods** from 07:45. Zainab: *Nursery — A · 2026-2027*, **5 periods** from 08:00 |
+| **F2** | Year 3 — A (Main): 12 free + 18 busy, **every one Main**. Nursery — A (Junior): 3 + 9, **every one Junior**. 30 + 12 = 42, QA's original total — the pool is *partitioned*, not truncated |
+| **F3** | Coordinator Bilal Hussain now sees **21** sections (was 29), Main only. The Junior section id gives **404** on GET with **zero lessons** in the body, and **404** on POST |
+| **F4** | Every label carries its campus; duplicate labels **0** (was six pairs) |
+| **F6** | Iqbal Day: every busy reason is `"Iqbal Day"`, **none** says "Teaching". An ordinary Monday still reports the real clash |
+
+⚠ **F1's second half is the stronger evidence and was not something QA asked
+for.** The two children's grids carry **different bell schedules** — eight
+periods from 07:45 against five from 08:00. That is `listSlotsForSection`
+resolving each child's own grade, which is exactly the "infant class laid out
+against the senior school's eight rows" failure CLAUDE.md's timetable rule
+exists to prevent. The fix restored the screen *and* the rule in one.
+
+**F3's POST was proved with a control, not on its own.** The same well-formed
+body against the caller's *own* section returns **409 `not_free`** naming the
+teacher and the clash. So the request reached the availability check and the
+404 on the other campus is the guard, not body validation — which the first
+attempt, with placeholder uuids, could not distinguish (it returned 400
+`invalid_body` before reaching anything).
+
+### ✅ The supersede has now run against real data — 2026-09-19
+
+QA left this as the one path that could only fail in production, and it is now
+proved through the **real API**, not in a rolled-back transaction.
+
+| Row | Window | Teacher | State |
+| --- | --- | --- | --- |
+| `43194881` | 2026-09-17 → 2026-09-17 | Bushra Latif | **closed** |
+| `2d0c455f` | 2026-09-18 → — | Danish Iqbal | **live** |
+
+One `POST /api/school/timetable/entries` changing the teacher returned a **new
+row id**, the section went 40 → **41** rows, and the live grid still returned
+**40** and drew the cell **exactly once**. That is the close-and-open
+transaction, `liveTimetableEntries()` filtering the closed version, and **the
+partial unique index holding two rows for one `(location, section, slot, day)`**
+— which is precisely the `23505` the old whole-table index would have thrown.
+The boundary convention holds with no overlap: the old row closes on
+`effective_from_of_new − 1`.
+
+Restored afterwards: the superseding row removed, the original reopened, and the
+teacher put back to **Tooba Ansari** — one live version, 40 entries, as it began.
+`scripts/qa-sprint33c-supersede.mjs` does all three (`backdate` / `inspect` /
+`restore`) and prints the cell's whole version history each time.
+
+⚠ **Why it did not simply become reachable "the next day", which is the part
+worth keeping.** `0049` gives every pre-existing row
+`effective_from = CURRENT_DATE` and the route supersedes only when
+`standing.effectiveFrom < today`, so the day the migration is applied every
+change takes the in-place branch — QA proved that rather than assuming it. The
+expectation was that 2026-09-19 would open the branch. **It did not**, because
+`timetableToday()` is **UTC** and a Pakistani school is **UTC+5**:
+
+```
+Pakistan local  Sat Sep 19 2026 02:33 GMT+0500
+UTC             2026-09-18T21:33Z
+```
+
+At half past two in the morning in Karachi it is still *yesterday* in UTC, so
+`effectiveFrom === today` and the route correctly declines. **The branch opens
+at UTC midnight, not at Pakistani midnight** — a five-hour window each night in
+which the product's "today" is the previous day. `lib/timetable-history.ts`
+already documents the UTC choice and makes the close/open boundary a whole day
+wide to absorb it, and the database's own `CURRENT_DATE` is UTC too, so the two
+agree with each other. It is a documented decision, not a defect — but anyone
+testing a date-sensitive path from Pakistan late at night will otherwise
+conclude the feature is broken, which is exactly what nearly happened here.
+
+**Waiting is not testing.** The proof above was obtained by backdating that one
+cell by a day — exactly the state it reaches at UTC midnight — and letting the
+real route run against it.
+
+### What QA could **not** exercise — named, not passed
+
+Also not exercised: a parent with **no enrolled child** (no such fixture at
+Askari); **Section Head scoping**, because no coordinators are linked to any
+Askari Section Head — the same data gap Part B's case 1.4 recorded; the
+Principal's dashboard panel, inferred from a 200 and the permission rather than
+seen; a real print dialog (`window.print()` was stubbed and layout measured
+structurally); cross-school tenancy with a *second school's real ids*, only an
+all-zero UUID; and dark mode.
+
+### QA side effects left on the Askari tenant
+
+**Cleaned up on 2026-09-19:**
+
+- ✅ Substitution `90f26c75-c838-40e6-ac6e-464be9a4d9da` — Hina Aslam of Askari
+  **Junior** Campus rostered onto Year 3 — A at **Main** for a 07:45 period,
+  which was F2's evidence — is **deleted**. `timetable_substitutions` is back to
+  **0 rows**. `scripts/qa-sprint33c-cleanup.mjs` reads the row back and refuses
+  unless the cover teacher and the class are at *different* campuses, so it
+  cannot remove a real cover somebody arranged. There is no cancel in the
+  product yet, which is why this needed a script at all.
+- ✅ Year 3 — A (Main) Monday Period 1 is back to **Tooba Ansari**, one live
+  version, row `43194881`, 40 entries — the supersede test above restored it.
+- ⏸ Monday Period 2 room is still **"Lab B (QA 33c)"**. Left alone deliberately:
+  a room change is an in-place correction, so no earlier version survives to
+  read the original off, and guessing a room is worse than an obviously-tagged
+  QA string.
+- ✅ The permissions override from the CHECK-by-attempt test was reverted —
+  `overrides: []`.
+- ⏸ One chat thread from Aftab Awan to the School Office, "QA Sprint 33c —
+  please ignore". Harmless, and deleting a school's record of what was sent is
+  not something a cleanup script should do.
+
+⚠ **The bell notification and chat message telling Hina Aslam to cover that
+class were deliberately left in place.** She was told; deleting the record of
+the telling does not untell her, and a school's outbox is not something to
+rewrite quietly. If she asks, the answer is that the cover was withdrawn.
+
+### Rollback, and the day it stops being possible
+
+Steps 1, 3 and 4 reverse mechanically. **Step 2 does not.** Restoring the
+whole-table unique index fails with `23505` as soon as **one** teacher change
+has been saved on the new code, because the cell then holds two rows — so
+rolling back means deleting exactly the history this sprint exists to create.
+Before the first supersede, rollback is clean and total. After it, roll forward.
+The `drizzle.__drizzle_migrations` row must be deleted too, or the migrator
+considers `0049` applied and never re-runs it.
 
 ## 5ch. Sprint 33 **Part B** built — the Section Head, the chain of command and HR leave — 2026-09-16
 

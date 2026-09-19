@@ -3,6 +3,7 @@ import 'server-only';
 import { and, asc, eq, inArray } from 'drizzle-orm';
 
 import {
+  branches,
   gradeLabel,
   grades,
   schoolUsers,
@@ -20,6 +21,7 @@ import {
   reachableStaffIds,
   type ChainDecider,
 } from './approval-chain';
+import { ownedBy } from './branch-scope';
 import { db } from './drizzle';
 import { isWorkingDay } from './holiday-calendar';
 import { saturdayOrdinalsByStaff } from './holiday-queries';
@@ -143,6 +145,8 @@ export interface SubstituteSectionOption {
   id: string;
   gradeId: string;
   branchId: string | null;
+  /** The campus that owns this class, or null at a school with one site. */
+  branchName: string | null;
   label: string;
 }
 
@@ -158,6 +162,7 @@ export async function listSubstituteSections(
   locationId: string,
   academicYearId: string,
   gradeIds: readonly string[] | null,
+  branchIds: string[] | null = null,
 ): Promise<SubstituteSectionOption[]> {
   if (gradeIds !== null && gradeIds.length === 0) return [];
 
@@ -166,27 +171,58 @@ export async function listSubstituteSections(
       id: sections.id,
       gradeId: sections.gradeId,
       branchId: grades.branchId,
+      branchName: branches.name,
       gradeName: grades.name,
       gradeDisplayName: grades.displayName,
       sectionName: sections.name,
     })
     .from(sections)
     .innerJoin(grades, eq(grades.id, sections.gradeId))
+    // Left, not inner: a school with one campus has `grades.branch_id` null on
+    // every row, and an inner join would empty this list at exactly the schools
+    // that never think about campuses at all.
+    .leftJoin(branches, eq(branches.id, grades.branchId))
     .where(
       and(
         eq(sections.locationId, locationId),
         eq(sections.academicYearId, academicYearId),
         eq(sections.isActive, true),
         ...(gradeIds === null ? [] : [inArray(sections.gradeId, [...gradeIds])]),
+        /*
+         * QA F3. Two different scope mechanisms used to meet in this handler:
+         * the teacher pool was branch-scoped through `resolveBranchScope` while
+         * the class list was scoped only by `visibleScopeFor`, which
+         * short-circuits to UNSCOPED for **every role except `principal`**. So
+         * a campus-bound Vice Principal, Section Head or Coordinator was handed
+         * all 29 of Askari's sections and could read the other campus's whole
+         * day. `ownedBy` and not `sharedOrOwnedBy`: on `grades` a null
+         * `branch_id` is a row that predates the column, not a shared row, and
+         * admitting it here would put another campus's classes back in the list.
+         */
+        ownedBy(grades.branchId, branchIds),
       ),
     )
-    .orderBy(asc(grades.name), asc(sections.name));
+    .orderBy(asc(branches.name), asc(grades.name), asc(sections.name));
 
   return rows.map((row) => ({
     id: row.id,
     gradeId: row.gradeId,
     branchId: row.branchId,
-    label: `${gradeLabel({ name: row.gradeName, displayName: row.gradeDisplayName })} — ${row.sectionName}`,
+    branchName: row.branchName,
+    /*
+     * QA F4. The campus belongs in the label, not only in the payload.
+     * Askari runs six pairs of grades whose names collide across its two
+     * campuses — Nursery A, Pre-Nursery A, Prep A, Year 1 A, Year 2 A,
+     * Year 2 B — and ordering by grade then section lands each pair adjacent.
+     * A school-wide head picked one of two identical options, saw a day of
+     * lessons and named a teacher, with no way of knowing which site they had
+     * just committed. Suffixed only where there is a campus to name, so a
+     * single-campus school's list is unchanged.
+     */
+    label:
+      row.branchName === null
+        ? `${gradeLabel({ name: row.gradeName, displayName: row.gradeDisplayName })} — ${row.sectionName}`
+        : `${gradeLabel({ name: row.gradeName, displayName: row.gradeDisplayName })} — ${row.sectionName} · ${row.branchName}`,
   }));
 }
 
@@ -439,14 +475,29 @@ export async function listFreeTeachers(
     const closed = closedByCampus.get(candidate.branchId ?? '') ?? new Set<string>();
     const ordinals = rosters.get(candidate.staffId) ?? [];
 
+    /*
+     * ── The order of these three is the answer, not a detail (QA F6) ──────
+     * A person who is not in at all is not "teaching Year 4 — A": the timetable
+     * says what they would be doing on an ordinary Monday, and Iqbal Day is not
+     * one. Asked first, the clash won, and on a gazetted holiday 26 of Askari's
+     * 42 teachers were reported as teaching a lesson on a day the school was
+     * shut. Nobody could be selected either way, so it produced no wrong cover
+     * — it printed a sentence that was untrue, on a panel whose entire job is
+     * telling a head where people are.
+     *
+     * So: **not in** beats **on leave** beats **already booked**. Each answers
+     * a strictly narrower question than the one before it.
+     */
+    const closure = !isWorkingDay(params.date, closed, ordinals)
+      ? (closureNameByCampus.get(candidate.branchId ?? '') ??
+        `Not a working day for them (${WEEKDAY_NAMES[dayOfWeek] ?? 'that day'})`)
+      : null;
+
     const reason =
-      clashing.get(candidate.schoolUserId) ??
+      closure ??
       (onLeave.has(candidate.staffId)
         ? `On ${onLeave.get(candidate.staffId) ?? 'leave'}`
-        : !isWorkingDay(params.date, closed, ordinals)
-          ? (closureNameByCampus.get(candidate.branchId ?? '') ??
-            `Not a working day for them (${WEEKDAY_NAMES[dayOfWeek] ?? 'that day'})`)
-          : null);
+        : (clashing.get(candidate.schoolUserId) ?? null));
 
     if (reason === null) free.push({ ...candidate, free: true, reason: null });
     else busy.push({ ...candidate, free: false, reason });

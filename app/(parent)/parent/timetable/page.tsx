@@ -6,7 +6,7 @@ import { ChildSelector } from '@/components/parent/ChildSelector';
 import { Card } from '@/components/ui/Card';
 import { PageHeader } from '@/components/ui/PageHeader';
 import {
-  getStudentPlacement,
+  getPlacementForStudentProfile,
   listSlotsForSection,
   listTimetableEntries,
 } from '@/lib/academics-queries';
@@ -109,7 +109,7 @@ export default async function ParentTimetablePage({
   const placement =
     activeYear === null
       ? null
-      : await getStudentPlacement(locationId, selected.studentProfileId, activeYear.id);
+      : await getPlacementForStudentProfile(locationId, selected.studentProfileId, activeYear.id);
 
   if (placement === null || activeYear === null) {
     return (
