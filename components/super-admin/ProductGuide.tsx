@@ -933,6 +933,30 @@ function GlossaryPanel({
     <GlossaryList terms={terms} activeTerm={activeTerm} registerTerm={registerTerm} />
   );
 
+  /*
+   * Escape closes the sheet.
+   *
+   * QA found it shipped with the close button as the *only* way out — no
+   * Escape, no backdrop, and no `aria-modal`, so a screen reader was never told
+   * the page behind it had stopped mattering. A panel that covers most of a
+   * phone screen and can only be dismissed by finding one small glyph is a
+   * trap, and `components/ui/Modal.tsx` has treated Escape as a required
+   * dismissal since it was written.
+   *
+   * Bound only while the sheet is open, so nothing listens on a desktop where
+   * the glossary is a docked rail that never closes.
+   */
+  useEffect(() => {
+    if (!open) return;
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') onClose();
+    };
+
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [open, onClose]);
+
   return (
     <>
       {/* The rail. Sticky so it survives a long page rather than scrolling away. */}
@@ -954,11 +978,28 @@ function GlossaryPanel({
       {/* The sheet, below `lg`. */}
       <div className="lg:hidden">
         {open ? (
-          <div
-            role="dialog"
-            aria-label="Glossary"
-            className="fixed inset-x-0 bottom-0 z-modal max-h-[70vh] overflow-y-auto rounded-t-card border-t border-line bg-surface-raised shadow-modal"
-          >
+          <>
+            {/*
+              * The backdrop, which QA found missing. It does two jobs: tapping
+              * outside closes the sheet, which is how every sheet on a phone
+              * behaves, and it dims the page so the sheet reads as being in
+              * front of it rather than welded to the bottom of it.
+              *
+              * `aria-hidden` because it is decoration — the dismissal it offers
+              * is already reachable by Escape and by the close button, and a
+              * screen reader announcing a nameless clickable region is noise.
+              */}
+            <div
+              aria-hidden
+              onClick={onClose}
+              className="fixed inset-0 z-modal bg-[rgb(2_6_23/0.55)]"
+            />
+            <div
+              role="dialog"
+              aria-modal="true"
+              aria-label="Glossary"
+              className="fixed inset-x-0 bottom-0 z-modal max-h-[70vh] overflow-y-auto rounded-t-card border-t border-line bg-surface-raised shadow-modal"
+            >
             <div className="sticky top-0 flex items-center justify-between gap-2 border-b border-line bg-surface-raised px-4 py-3">
               <div className="flex items-center gap-2">
                 <Icon as={BookMarked} size="sm" className="text-ink-muted" />
@@ -972,8 +1013,9 @@ function GlossaryPanel({
                 <Icon as={X} size="sm" label="Close the glossary" />
               </button>
             </div>
-            <div className="px-4 py-3">{body}</div>
-          </div>
+              <div className="px-4 py-3">{body}</div>
+            </div>
+          </>
         ) : (
           <button
             type="button"

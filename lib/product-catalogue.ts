@@ -256,6 +256,12 @@ export const PRODUCT_FEATURES: readonly FeatureEntry[] = [
       '/dashboard/academics/subjects',
       '/dashboard/academics/timetable',
       '/dashboard/academics/teacher-calendar',
+      // The three portal screens the matrix already promises: Teacher is
+      // Read-only and Student and Parent are Own records, and none of them can
+      // open a `/dashboard/*` route.
+      '/teacher/timetable',
+      '/student/timetable',
+      '/parent/timetable',
     ],
     glossary: ['period-structure', 'section', 'module'],
   },
@@ -350,6 +356,11 @@ export const PRODUCT_FEATURES: readonly FeatureEntry[] = [
       coordinator: 'Can key marks in for a teacher who is away. Cannot publish.',
     },
     routes: [
+      // The office screen where `results.publish` is actually exercised — the
+      // only page in the repository that references the key. Its absence made
+      // the matrix contradict itself: School Administrator read **Full** and
+      // Principal **Partial**, above four routes none of the three can open.
+      '/dashboard/exams',
       '/teacher/marks',
       '/teacher/gradebook',
       '/student/results',
@@ -415,25 +426,49 @@ export const PRODUCT_FEATURES: readonly FeatureEntry[] = [
     glossary: ['academic-year', 'section'],
   },
   {
+    /*
+     * ⚠ **This entry is deliberately narrower than the permission suggests, and
+     * that is the whole reason to read this comment before widening it.**
+     *
+     * The first draft gated this on `academics.read`, which derived School
+     * Administrator, Branch Administrator, Principal, Vice Principal, Section
+     * Head, Coordinator and HR Manager as **Full**. Not one of them can open
+     * it. `/teacher/lesson-plans` is the only route, and
+     * `app/(teacher)/layout.tsx` is `requireSchoolRole(['teacher'])`, so all
+     * seven are redirected; `buildSchoolNav` has no lesson-plans entry at all.
+     *
+     * The school-wide read the sales line promised is **built and unreachable**:
+     * `GET /api/school/lesson-plans?scope=school` exists and is guarded, and
+     * **nothing in the repository calls it** — `LessonPlanBoard` fetches the
+     * route with no parameter. That is Sprint 27's orphaned endpoint again, and
+     * a Features tab is exactly the wrong place to paper over it: a head being
+     * told in a sales meeting that they can read lesson plans is a promise the
+     * product cannot keep on the day they try.
+     *
+     * So `permissions` is empty and the reach is stated through `portalAccess`.
+     * **When somebody builds the head-facing screen, put `academics.read` back
+     * and the matrix will fill itself in** — that is what the derivation is
+     * for.
+     */
     key: 'lesson-plans',
     pillar: 'academics',
     name: 'Lesson plans',
     module: 'academics',
     summary:
-      'A teacher’s own weekly plan per section, optionally shared with colleagues ' +
-      'who hold `academics.read`.',
+      'A teacher’s own weekly plan per section, written in the teaching portal. ' +
+      'Sharing is stored, but there is no screen yet that reads a colleague’s plan.',
     salesLine:
-      'Weekly planning where the timetable already is, and a head who wants to ' +
-      'read them does not have to ask for them.',
+      'Weekly planning where the timetable already is, owned by the teacher who ' +
+      'wrote it.',
     capabilities: [
       'One plan per section per week, owned by the teacher who wrote it',
       'Only for sections the teacher is actually timetabled into',
-      'Shared plans readable across the school',
       'Ownership is the gate — no toggle for a school to get wrong',
+      'A plan can be marked shared; the screen that reads shared plans is not built yet',
     ],
-    permissions: ['academics.read'],
+    permissions: [],
     portalAccess: {
-      teacher: 'Writes and corrects their own plans.',
+      teacher: 'Writes and corrects their own plans, in the teaching portal.',
     },
     routes: ['/teacher/lesson-plans'],
     glossary: ['section'],
@@ -932,8 +967,11 @@ export const PRODUCT_FEATURES: readonly FeatureEntry[] = [
     },
     routes: [
       '/dashboard/payroll',
-      '/dashboard/payroll/runs',
-      '/dashboard/payroll/payslips',
+      // `/dashboard/payroll/approvals` is a page; `runs` and `payslips` are
+      // not — only `runs/[runId]` and `payslips/[payslipId]` exist, reached
+      // from the list on `/dashboard/payroll`. Naming the parent segments here
+      // would be naming two 404s.
+      '/dashboard/payroll/approvals',
       '/teacher/payslips',
     ],
     glossary: ['paise', 'print-sheet'],
@@ -982,6 +1020,15 @@ export const PRODUCT_FEATURES: readonly FeatureEntry[] = [
     permissions: ['kpis.read', 'kpis.create', 'kpis.delete', 'kpis.overall'],
     portalAccess: {
       teacher: 'Their own performance page.',
+      /*
+       * Marketing holds no `kpis.*` key, so the derivation alone renders them
+       * **None** — and that was wrong. `/dashboard/performance/me` is guarded
+       * by `requireSchoolRole(ADMIN_PORTAL_ROLES)`, which includes them, and
+       * `school-nav.ts` pushes "My performance" for every role except
+       * `school_admin`. They reach their own scorecard and nothing else, which
+       * is exactly what `portalAccess` is for.
+       */
+      marketing: 'Their own scorecard only — no KPI list, no other person’s scores.',
     },
     limitations: {
       branch_admin: 'Rates non-teaching staff and coordinators. Never teachers.',
@@ -992,7 +1039,8 @@ export const PRODUCT_FEATURES: readonly FeatureEntry[] = [
       '/dashboard/performance',
       '/dashboard/performance/kpis',
       '/dashboard/performance/setup',
-      '/dashboard/performance/staff',
+      // Not `/dashboard/performance/staff` — only `staff/[userId]` exists, and
+      // it is reached from the board on `/dashboard/performance`.
       '/dashboard/performance/me',
       '/teacher/performance',
     ],
@@ -1572,12 +1620,26 @@ const ROLE_PROFILE_BODIES: Record<UserRole, RoleProfileBody> = {
   },
   accountant: {
     portal: 'Administration',
+    /*
+     * `Payroll` and `Staff performance` are here because the sidebar really
+     * puts them there, which is not obvious from the role's description and
+     * was wrong in the first draft.
+     *
+     * Payroll: `school-nav.ts` gates the section on `payroll.read`, which the
+     * accountant holds — they reconcile the salary bill. Staff performance:
+     * the Overview is gated on `kpis.read || kpis.overall` and the accountant
+     * holds `kpis.overall`, and "My performance" is pushed for every role
+     * except `school_admin`. Both are reads, and both are the point of the
+     * keys they are gated on.
+     */
     defaultView: [
       'Dashboard',
       'Branches',
       'Admissions',
       'Fees',
       'Leave',
+      'Payroll',
+      'Staff performance',
       'Accounting',
       'Messages',
       'Reports',
@@ -1619,11 +1681,19 @@ const ROLE_PROFILE_BODIES: Record<UserRole, RoleProfileBody> = {
   },
   marketing: {
     portal: 'Administration',
+    /*
+     * `Staff performance` is here for one reason only, and it is not a KPI
+     * right: `school-nav.ts` pushes "My performance" for **every** role except
+     * `school_admin`, so the section appears with that single entry. Marketing
+     * holds no `kpis.*` key at all and sees no Overview and no KPIs — they see
+     * their own scorecard, which is what `/dashboard/performance/me` is for.
+     */
     defaultView: [
       'Dashboard',
       'Branches',
       'Admissions',
       'Leave',
+      'Staff performance',
       'Communications',
       'Messages',
       'Reports',
