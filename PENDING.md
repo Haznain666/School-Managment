@@ -108,43 +108,12 @@ choosing between `ownedBy` and `sharedOrOwnedBy` will read one of the two.
 **Done when:** the docblock matches the schema, or the schema changes and both
 say so.
 
-### D5 🔴 RLS is off on 118 of 119 public tables, and `anon` holds every privilege
+### ~~D5 RLS is off on 118 of 119 public tables, and `anon` holds every privilege~~
 
-**Owner:** this session. **Opened:** 2026-09-20, from a Supabase Advisor count
-of 123 issues.
-
-Not a lint warning. Measured against the live database, then **proved by
-attempt** with `scripts/apply-0050.mjs` in its read-only mode:
-
-```
-before: 1/119 public tables carry RLS
-FAIL  anon refused SELECT on student_profiles   — got 1     (a row came back)
-FAIL  anon refused SELECT on student_guardians  — got 1
-FAIL  anon refused SELECT on fee_challans       — got 1
-FAIL  anon refused SELECT on ledger_entries     — got 1
-FAIL  anon refused SELECT on chat_messages      — got 1
-FAIL  anon refused DELETE on student_profiles   — allowed
-FAIL  anon refused TRUNCATE on attendance_records — allowed
-```
-
-`anon` holds SELECT, INSERT, UPDATE, DELETE **and TRUNCATE** on all 119 tables
-and has `rolbypassrls = false`, so RLS was the only gate and it was open. The
-credential that assumes `anon` is `NEXT_PUBLIC_SUPABASE_ANON_KEY` — inlined
-into the browser bundle by name and by design, served to every visitor of every
-tenant, signed out included.
-
-The application cannot notice: it reads as `postgres` (`rolbypassrls = true`)
-and reaches PostgREST as `service_role`. There are **zero** `.from()` calls in
-`lib`, `components` and `app`, so nothing in this product has ever used the
-door that was open.
-
-`db/migrations/0050_rls_lockdown.sql` is written and `scripts/apply-0050.mjs`
-proves it both ways. **It is not applied** — the apply was refused by this
-session's production gate, so the hole is still open as of this line.
-
-**Done when:** `node scripts/apply-0050.mjs --apply` prints `PASS`, with the
-`anon refused …` lines green and the two `proved still working` lines green
-alongside them.
+✅ **Closed 2026-09-20** — `0050` applied to production, `scripts/apply-0050.mjs`
+prints **18 passed, 0 failed**, and the live tenant still reads. The evidence,
+including the eight refusals that were failures before it, is in §Closed below.
+The full account is `STATE.md` §5cl.
 
 ### D6 🔴 Seven schedulers × 60s are what is actually consuming the Supabase quota
 
@@ -188,8 +157,15 @@ it matches.
 racing timers, or their intervals reflect how often the work actually exists;
 and the connection churn is measured again after it.
 
-⚠ Not yet confirmed **which** Supabase quota was reported as exceeded — see
-`U8`. Everything above is measured; the attribution to egress is inference.
+✅ **The quota is egress** — confirmed by the user 2026-09-20, which closes
+`U8` and makes this the whole of the work. Egress is bytes leaving the
+database, so the 341M catalogue rows at the top of that table are not a
+curiosity: they are the bill. Nothing else on the account is near a limit, so
+there is no second thing to fix.
+
+⚠ **Do not start by deleting data.** Two test tenants are 606 rows of 23,172
+and cannot move an egress allowance by any amount. Sizing the connection churn
+is the first measurement worth taking.
 
 ---
 
@@ -373,36 +349,13 @@ origin.
 answer matters.** One measurement from a Pakistani connection is worth more than
 all of them.
 
-### U8 🔴 Which Supabase quota was exceeded, and do the two test schools still go?
+### ~~U8 Which Supabase quota was exceeded, and do the two test schools still go?~~
 
-**Opened:** 2026-09-20.
-
-Two questions, both asked because the session that would have acted on them
-found the stated reason did not hold.
-
-**Which quota.** The request was "the DB has exceeded the quota, remove the
-other two schools". Measured: database 35 MB of 500 MB, Storage 8.1 MB of 1 GB,
-602 auth users of 50,000. Removing both test tenants frees **606 rows of
-23,172** and **4.88 MB** of files — it cannot move any of those numbers, and
-the database would still read 35 MB afterwards because Postgres does not return
-freed pages to the filesystem without a `VACUUM FULL`. `D6` has what the
-traffic actually looks like. The number Supabase reported, and against which
-allowance, is still unknown here; the dashboard's Usage page answers it in one
-screen.
-
-**Do they still go.** `Lahore Grammar School` and `Beacon House School System`
-are test tenants and removing them is reasonable housekeeping on its own
-merits — but it is irreversible, this project has no point-in-time recovery on
-the free plan, and it was asked for on a premise that turns out to be false. So
-it is not being done on inference.
-
-`scripts/remove-school.mjs` is written, dry-run by default, and refuses
-`--apply` without `--i-have-a-backup`. Its dry run against both ids reports:
-606 rows across 69 tables, 11 GoTrue accounts (0 shared with Askari), 14 files
-/ 4.88 MB, and `cascade cover: 112 of 114`.
-
-**Done when:** the user says which quota, and either confirms the removal — at
-which point the script runs and prints its own proof — or says to keep them.
+✅ **Closed 2026-09-20** — the user answered both. The quota is **egress**, so
+`D6` is the work. The two test schools are **kept**: they are 606 rows and
+4.88 MB, they cannot move an egress allowance, and they are the only other
+tenants available for testing the isolation `0050` just changed.
+`scripts/remove-school.mjs` stays in the tree for whenever that changes.
 
 ---
 
@@ -445,9 +398,46 @@ state — but none of them has had a server behind it. §5cg, §5ci.
 
 ## ✅ Closed, with what closed it
 
-Nothing has closed since this file was opened on 2026-09-19. Closed items move
-here with their evidence — a commit, a build id, a check script's real output —
-and are never deleted.
+Closed items move here with their evidence — a commit, a build id, a check
+script's real output — and are never deleted.
+
+### ✅ D5 — RLS on every public table — closed 2026-09-20
+
+Applied to production with `node scripts/apply-0050.mjs --apply`, which is also
+what proves it. **18 passed, 0 failed**, and the ten lines that matter are the
+ones that had failed three hours earlier:
+
+```
+applying 238 statements…
+  PASS  RLS on every public table (119/119)
+  PASS  no grant left to anon/authenticated outside chat_signals (0 found)
+  PASS  anon refused SELECT on student_profiles
+  PASS  anon refused SELECT on student_guardians
+  PASS  anon refused SELECT on fee_challans
+  PASS  anon refused SELECT on ledger_entries
+  PASS  anon refused SELECT on school_users
+  PASS  anon refused SELECT on chat_messages
+  PASS  anon refused DELETE on student_profiles
+  PASS  anon refused TRUNCATE on attendance_records
+  PASS  postgres — the application's own role — still reads student_profiles (480 rows)
+  PASS  authenticated reads chat_signals without error
+```
+
+Verified live afterwards, because a lockdown that breaks the product is not a
+fix: `askari-school-system.schoolhub.codexmill.com/login` renders **"Askari
+School System"** — a real tenant read through the running app — with no console
+errors. §5cl.
+
+### ✅ U8 — both questions answered — closed 2026-09-20
+
+**Which quota:** egress, confirmed by the user. `D6` is the work, and it is now
+scoped rather than speculative.
+
+**The two schools:** **kept.** They cost 606 rows and 4.88 MB, they cannot move
+an egress allowance, and they are the only other tenants available for testing
+the multi-tenant isolation that `0050` just changed. `scripts/remove-school.mjs`
+stays in the tree, dry-run by default, for whenever they are genuinely not
+wanted.
 
 Everything that closed before this file existed is in `STATE.md` §6's own
 struck-through list, which is kept for the same reason.

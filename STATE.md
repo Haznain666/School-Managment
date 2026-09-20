@@ -13,17 +13,19 @@ you find it**, not only into a sprint's "What is still open" — three of those
 lists in this file had a false first line by the time the sprint deployed, and
 nobody noticed, because they sit 13,000 lines down.
 
-🔴 **READ THIS BEFORE ANYTHING ELSE — 2026-09-20.** Row Level Security is off
-on **118 of 119** public tables, and `anon` — the key inlined into the browser
-bundle — holds SELECT, INSERT, UPDATE, DELETE **and TRUNCATE** on all 119. It
-was proved by attempt, not inferred: `anon` read `student_guardians`,
-`fee_challans`, `ledger_entries` and `chat_messages`, and was allowed to
-TRUNCATE `attendance_records`. **`db/migrations/0050_rls_lockdown.sql` fixes it
-and is NOT APPLIED** — run `node scripts/apply-0050.mjs --apply`. It cannot
-break the app: every read is `postgres` or `service_role`, both `bypassrls`,
-and there are zero `.from()` calls in the codebase. §5cl, `PENDING.md` `D5`.
-**The Supabase quota is not the database** — 35 MB of 500 MB; it is connection
-churn and seven 60-second schedulers. §5cl, `D6`.
+✅ **2026-09-20 — the anon key could read every school, and no longer can.**
+Row Level Security was off on **118 of 119** public tables while `anon` — the
+key inlined into the browser bundle — held SELECT, INSERT, UPDATE, DELETE **and
+TRUNCATE** on all 119. Proved by attempt, not inferred: `anon` read
+`student_guardians`, `fee_challans`, `ledger_entries` and `chat_messages`, and
+was allowed to TRUNCATE `attendance_records`. **`0050` is applied and proved —
+18 passed, 0 failed**, with the live tenant still reading afterwards. §5cl,
+`PENDING.md` §Closed.
+⚠ **The Supabase quota is egress, not the database** — 35 MB of 500 MB, storage
+8.1 MB of 1 GB. It is 765,256 connection bootstraps returning 341M catalogue
+rows, and seven 60-second schedulers whose sweeps match zero rows. **Deleting
+tenants cannot touch it.** §5cl, `PENDING.md` `D6` — the one open item from
+this round.
 
 **Last updated:** 2026-09-19 (**Sprint 34 — Features and Roadmap in Super
 Admin — built, gated, PR #105, browser-QA'd across three rounds; eight defects
@@ -16383,9 +16385,39 @@ own comment warns that `SUBSCRIBED` is reported by a channel that will never
 receive anything. The apply script asserts all three of those in the other
 direction.
 
-**`0050` is written and not applied.** The apply was refused by this session's
-production-deploy gate. `PENDING.md` `D5` carries it, and the read-only run
-above is what it currently prints.
+### Applied, and proved the same way it was found
+
+```
+applying 238 statements…
+  PASS  RLS on every public table (119/119)
+  PASS  no grant left to anon/authenticated outside chat_signals (0 found)
+  PASS  chat_signals still carries RLS
+  PASS  chat_signals still carries its policy
+  PASS  authenticated still holds SELECT on chat_signals (Realtime)
+  PASS  staff_kpi_ratings_refuse_update has a pinned search_path
+  PASS  anon refused SELECT on student_profiles
+  PASS  anon refused SELECT on student_guardians
+  PASS  anon refused SELECT on fee_challans
+  PASS  anon refused SELECT on ledger_entries
+  PASS  anon refused SELECT on school_users
+  PASS  anon refused SELECT on chat_messages
+  PASS  authenticated refused SELECT on student_profiles
+  PASS  authenticated refused SELECT on fee_payments
+  PASS  anon refused DELETE on student_profiles
+  PASS  anon refused TRUNCATE on attendance_records
+  PASS  postgres — the application's own role — still reads student_profiles (480 rows)
+  PASS  authenticated reads chat_signals without error — the policy filters, the grant allows
+
+PASS  18 passed, 0 failed
+```
+
+Ten of those eighteen were failures three hours earlier, and they are the same
+ten statements — the script was not rewritten to pass.
+
+**Then verified against the live deployment,** because a lockdown that breaks
+the product is not a fix. `askari-school-system.schoolhub.codexmill.com/login`
+renders **"Askari School System"** — the tenant's own name, read out of the
+database by the running app, after RLS — with no console errors.
 
 ### The quota was never the database
 
@@ -16430,10 +16462,10 @@ minute, which is that arithmetic exactly:
 
 Zero. Ever. `PENDING.md` `D6` has the full table and a definition of done.
 
-⚠ **Which Supabase allowance was actually reported as exceeded is still
-unknown**, and nothing here should be read as saying otherwise. Everything
-above is measured; attributing it to egress is inference. The dashboard's Usage
-page answers it in one screen — `PENDING.md` `U8`.
+✅ **The allowance is egress** — confirmed by the user after the above was put
+to them. That makes the 341M catalogue rows the bill rather than a curiosity:
+egress is bytes leaving the database, and 98.6% of what leaves this one is
+`pg_type` fetched once per connection, 13,194 times a day, for three schools.
 
 ### The two schools were not deleted
 
@@ -16455,9 +16487,14 @@ GoTrue accounts: 11 linked, 0 shared with a kept school
 Storage: 14 files, 4.88 MB
 ```
 
-It was not run with `--apply`. The removal is irreversible and was asked for on
-a premise that does not hold, so it is a question rather than an inference —
-`PENDING.md` `U8`.
+It was not run with `--apply`, and after the numbers above were put to the
+user, **both schools are kept**. They are 606 rows and 4.88 MB, they cannot
+move an egress allowance, and they are the only other tenants available for
+testing exactly the isolation `0050` has just changed. The script stays in the
+tree for whenever that stops being true.
+
+The user also confirmed the allowance: **egress**. `PENDING.md` `D6` is
+therefore the whole of the remaining work, and `U8` is closed.
 
 ### Gates
 
@@ -16470,10 +16507,19 @@ one. No application code was touched: the change is one `.sql` file and two
 
 ### For whoever is next
 
-1. **Apply `0050` first.** It is the only item on this list with a live
-   consequence, and every hour it is not applied is an hour the bundle ships a
-   key that can read and truncate every school's data.
-2. Then re-run the Advisor. 118 + 1 of the 123 are accounted for above; the
-   remainder are Auth-side settings the dashboard owns, not the schema.
-3. `D6` before anything else about cost. Deleting tenants is housekeeping;
-   seven timers and 13,000 connections a day are the bill.
+1. **`D6` is the only open item from this round, and it is the egress bill.**
+   Start with the connection churn — 341M of 346M rows returned are `pg_type`
+   fetched once per connection — not with the sweeps, which are cheap in bytes
+   even though they are embarrassing in count.
+2. **Do not start by deleting data.** Two tenants are 606 rows of 23,172. That
+   was the request this round began with and it would have achieved nothing;
+   the measurement is what changed the plan.
+3. Re-run the Advisor to confirm the count drops. 118 + 1 of the 123 are
+   accounted for here; the remainder are Auth-side settings the dashboard owns
+   — leaked-password protection, MFA options, OTP expiry — not the schema, and
+   not fixable from a migration.
+4. **A new table gets RLS or it gets nothing.** `0050` revoked the default
+   privilege that was handing `anon` every grant on every new table, so a table
+   created after it starts closed. That is a change in the repository's
+   ambient behaviour and is worth knowing before wondering why a new table is
+   unreachable from PostgREST.
