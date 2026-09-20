@@ -18,6 +18,7 @@ import {
 
 import { getActiveAcademicYear } from './admissions-queries';
 import { describeError } from './describe-error';
+import { registerSweep } from './scheduler';
 import { db } from './drizzle';
 import { generateChallan, ChallanGenerationError } from './fee-challans';
 import { generateFamilyChallan, FamilyChallanError } from './family-challans';
@@ -68,11 +69,14 @@ import { normalizeCnic } from './national-id';
 /** The 25th — late enough that the month's changes are in, early enough to post. */
 export const DEFAULT_AUTO_GENERATE_DAY = 25;
 
-/** How often the sweep looks. A minute is well inside "the right day". */
-const SWEEP_SECONDS = 60;
-
-let sweepTimer: NodeJS.Timeout | null = null;
-let sweeping = false;
+/**
+ * Seconds between sweeps. Raised from 60 to 300 on 2026-09-20: this raises next
+ * month's vouchers on a configured day of the month, and it had been asking
+ * every minute in each of seven processes. Its own
+ * statement shows in `pg_stat_statements` with **zero rows returned, ever**;
+ * five minutes is still far finer than the thing it is waiting for.
+ */
+const SWEEP_SECONDS = 300;
 
 /** One school the sweep has taken ownership of for today. */
 interface Claim {
@@ -508,30 +512,22 @@ export async function sweepAutoGenerateVouchers(now: Date = new Date()): Promise
   return billed;
 }
 
-/** Starts the sweep. Idempotent, like the send sweeper beside it. */
-export function startVoucherAutoGenerate(): void {
-  if (sweepTimer !== null) return;
-
-  sweepTimer = setInterval(() => {
-    if (sweeping) return;
-    sweeping = true;
-
-    void sweepAutoGenerateVouchers()
-      .then((billed) => {
-        if (billed > 0) console.info(`[auto-generate] billed ${String(billed)} school(s)`);
-      })
-      .catch((caught: unknown) => {
-        console.error(`[auto-generate] sweep failed: ${describeError(caught)}`);
-      })
-      .finally(() => {
-        sweeping = false;
-      });
-  }, SWEEP_SECONDS * 1000);
-
-  // Never a reason to refuse to shut down.
-  sweepTimer.unref?.();
-
-  console.info(
-    `[auto-generate] voucher generation scheduler started (every ${String(SWEEP_SECONDS)}s)`,
-  );
+/**
+ * Registers the sweep with the shared scheduler.
+ *
+ * ── Why this is no longer a timer of its own ─────────────────────────────
+ * It used to be `setInterval` in every server process, and Hostinger runs
+ * seven. `lib/scheduler.ts` now owns the one timer this application has, and
+ * only the process holding the lease runs what is registered here. The claims
+ * inside the sweep are untouched and still decide who does what — the lease is
+ * a second guard, not a replacement.
+ *
+ * Re-entrancy, `unref()` and the never-throw guarantee all moved to the
+ * scheduler with it.
+ */
+export function registerVoucherAutoGenerateSweep(): void {
+  registerSweep('voucher-auto-generate', SWEEP_SECONDS, async () => {
+    const billed = await sweepAutoGenerateVouchers();
+    if (billed > 0) console.info(`[auto-generate] billed ${String(billed)} school(s)`);
+  });
 }

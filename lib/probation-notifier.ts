@@ -5,6 +5,7 @@ import { and, eq, isNotNull, isNull, lte, inArray } from 'drizzle-orm';
 import { schoolUsers, schools, staff, staffFullName } from '@/db/schema';
 
 import { describeError } from './describe-error';
+import { registerSweep } from './scheduler';
 import { db } from './drizzle';
 import { enqueueEmail } from './email-outbox';
 
@@ -38,9 +39,6 @@ import { enqueueEmail } from './email-outbox';
 
 /** How often the sweep looks. Probation ends on a date, not at a moment. */
 const SWEEP_SECONDS = 900;
-
-let sweepTimer: NodeJS.Timeout | null = null;
-let sweeping = false;
 
 /** One person the sweep has taken ownership of telling HR about. */
 export interface ProbationClaim {
@@ -230,29 +228,21 @@ export async function sweepProbations(now: Date = new Date()): Promise<number> {
 }
 
 /**
- * Starts the sweep. Called once per server process from `instrumentation.ts`.
+ * Registers the sweep with the shared scheduler.
  *
- * Never throws into the runtime and never holds the process open: the same bar
- * every other timer in that file meets.
+ * ── Why this is no longer a timer of its own ─────────────────────────────
+ * It used to be `setInterval` in every server process, and Hostinger runs
+ * seven. `lib/scheduler.ts` now owns the one timer this application has, and
+ * only the process holding the lease runs what is registered here. The claims
+ * inside the sweep are untouched and still decide who does what — the lease is
+ * a second guard, not a replacement.
+ *
+ * Re-entrancy, `unref()` and the never-throw guarantee all moved to the
+ * scheduler with it.
  */
-export function startProbationNotifier(): void {
-  if (sweepTimer !== null) return;
-
-  sweepTimer = setInterval(() => {
-    if (sweeping) return;
-    sweeping = true;
-
-    void sweepProbations()
-      .then((sent) => {
-        if (sent > 0) console.info(`[probation] told HR about ${String(sent)} person(s)`);
-      })
-      .catch((error: unknown) => {
-        console.error('[probation] sweep failed:', describeError(error));
-      })
-      .finally(() => {
-        sweeping = false;
-      });
-  }, SWEEP_SECONDS * 1000);
-
-  sweepTimer.unref?.();
+export function registerProbationSweep(): void {
+  registerSweep('probation', SWEEP_SECONDS, async () => {
+    const sent = await sweepProbations();
+    if (sent > 0) console.info(`[probation] told HR about ${String(sent)} person(s)`);
+  });
 }

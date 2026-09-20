@@ -9,7 +9,7 @@ and a definition of done. The two are read together. `STATE.md` says how a thing
 came to be; this file says whether it is finished.
 
 **Opened:** 2026-09-19, from a full read of `STATE.md` at `d05914d`.
-**Last reconciled:** 2026-09-19.
+**Last reconciled:** 2026-09-20 (D5 added, D6 opened and closed).
 
 ---
 
@@ -107,6 +107,37 @@ choosing between `ownedBy` and `sharedOrOwnedBy` will read one of the two.
 
 **Done when:** the docblock matches the schema, or the schema changes and both
 say so.
+
+### D5 🔴 Seven `kpis.rate.*` permission keys are missing from the CHECK
+
+**Owner:** whichever sprint next touches KPI permissions. One migration.
+**Source:** found 2026-09-20 by `npm run check-sprint28`, which fails on it.
+
+`PERMISSIONS` in `lib/permissions.ts` carries `kpis.rate.teacher`,
+`kpis.rate.coordinator`, `kpis.rate.vice_principal`, `kpis.rate.hr_manager`,
+`kpis.rate.accountant`, `kpis.rate.marketing` and `kpis.rate.section_head`.
+The newest migration defining `role_permissions_permission_check` — `0049` —
+names none of them.
+
+This is CLAUDE.md's own rule, "a new permission key needs a migration, not just
+a line in the list", unmet. `DEFAULT_ROLE_PERMISSIONS` lives in code, so every
+one of these **works** for the roles that hold it by default and every browser
+test passes. The constraint is reached only when a school *overrides* the
+default — granting one of these to another role, or taking it away — and that
+administrator gets a `23514` on a permission matrix that had never failed.
+
+Not fixed in the egress sprint that found it: widening that CHECK is a
+permissions migration with its own blast radius, and bundling it into a
+connection-pool change would have made both harder to reason about.
+
+**Done when:** a migration drops and re-adds `role_permissions_permission_check`
+with the full list, proved by attempt the way `scripts/apply-0042.mjs` does —
+a key outside the list refused with `23514`, each new key accepted, both inside
+transactions that roll back — and `npm run check-sprint28` is green.
+
+### D6 ✅ Supabase egress overage — connection churn and seven schedulers
+
+**Closed 2026-09-20.** See §Closed.
 
 ---
 
@@ -331,9 +362,86 @@ state — but none of them has had a server behind it. §5cg, §5ci.
 
 ## ✅ Closed, with what closed it
 
-Nothing has closed since this file was opened on 2026-09-19. Closed items move
-here with their evidence — a commit, a build id, a check script's real output —
-and are never deleted.
+Closed items move here with their evidence — a commit, a build id, a check
+script's real output — and are never deleted.
+
+### D6 ✅ Supabase egress overage — connection churn and seven schedulers
+
+**Closed 2026-09-20.** Full narrative in `STATE.md` §5cl. Release notes:
+`release-notes/RELEASE-NOTES-EGRESS.md`.
+
+**What it was.** `pg_stat_statements`, read 2026-09-20 over the 47.77 days
+since the stats reset of 2026-08-03:
+
+| | |
+| --- | --- |
+| rows returned, every statement | 346,350,353 |
+| rows returned by **one** statement | 341,509,822 — **98.60%** |
+| that statement | postgres-js's per-connection type bootstrap |
+| times it ran | 766,278 — **16,041 connections a day** |
+| rows per connection | 445.7 |
+
+None of it was application data. Three schools' actual data was the remaining
+1.4%, so **deleting tenant rows could never have moved the bill** — 606 rows of
+23,172, as the brief said.
+
+**The cause was arithmetic.** `idle_timeout: 20` in `lib/postgres.ts` was
+shorter than the shortest sweep interval (30s), and `instrumentation.ts`
+started eight sweeps in each of the seven server processes. Every tick of every
+sweep found the pool empty, opened a connection, paid 446 catalogue rows, did
+work that almost always found nothing, and let the connection lapse before the
+next tick. The pool never got to be a pool.
+
+**`fetch_types: false` was investigated and rejected, with evidence.** It skips
+the bootstrap entirely and it is a silent data-corruption bug: that query is
+exactly what registers postgres-js's array parsers, and this schema has six
+array columns. Run against the live database:
+
+```
+fetch_types=true    branches.class_levels -> ["PRE_SCHOOL","NURSERY",...]  string[]
+fetch_types=false   branches.class_levels -> "{PRE_SCHOOL,NURSERY,...}"    string
+fetch_types=false   writing one           -> throws: malformed array literal
+```
+
+The read side is the dangerous half — no error, a string where every caller
+expects an array. `check-scheduler`'s R2 now fails if anybody sets it.
+
+**What closed it.**
+
+1. `idle_timeout` 20 → **300** — longer than every tick, so a working process
+   keeps its connection instead of buying a new one ten times a minute.
+2. `lib/scheduler.ts` — a **claimed** lease (`INSERT … ON CONFLICT DO UPDATE …
+   WHERE … RETURNING`, migration `0050`). One process sweeps; the other six ask
+   once a minute and are told no. The per-item claims are untouched, because a
+   lease can expire mid-send and two leaders must not be able to double-send.
+3. Eight `setInterval`s deleted; every sweep registers with one timer.
+4. Intervals matched to how often the work exists: the outbox reclaim 30s →
+   **10 min** (367,329 calls, 0 rows, ever); voucher auto-send, auto-generate
+   and the holiday notice 60s → **5 min** (0 rows, ever). The outbox drain
+   stays at 30s and the announcement sweep at 60s — those two are the only
+   ones a person waits on.
+
+**Evidence.**
+
+- `node scripts/apply-0050.mjs --apply` — `0050` applied, and proved by
+  *attempt* rather than by row count: three contenders, exactly one wins;
+  the lease expired, exactly one takes over.
+- `npm run check-scheduler` — **11 ok, 0 failed, 0 not exercised**, against the
+  real schema. Before `0050` it failed with exactly `42P01` and nothing else.
+- The check was **sabotaged to prove it can fail**: `setWhere` replaced with
+  a literal `true` turned four assertions red (7 of 7 contenders winning), and was
+  restored.
+- Green build: all fourteen commands, plus `check-sprint33b`,
+  `check-sprint33c`, `check-voucher-scope` and `check-sprint30`.
+  `check-sprint28` fails on **D5**, which is unrelated and pre-existing — this
+  change touches neither `lib/permissions.ts` nor `0049`.
+- Before/after `pg_stat_statements` readings: `npm run measure-egress`, and the
+  numbers are in `STATE.md` §5cl.
+
+**What is still open and belongs to whoever is next:** the after-reading is a
+*rate*, taken over hours rather than the 47.8 days the before-reading covers.
+`scripts/measure-egress.mjs --reset` restarts the window; read it again after a
+full day before quoting a headline number.
 
 Everything that closed before this file existed is in `STATE.md` §6's own
 struck-through list, which is kept for the same reason.

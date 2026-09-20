@@ -481,9 +481,82 @@ and the matrix fills itself in.
 
 ---
 
+## RULE: one timer, one leader, and a pool that stays a pool
+
+**Nothing starts a `setInterval` of its own. A sweep registers with
+`lib/scheduler.ts`, and only the process holding the claimed lease runs it.**
+
+Enforced by `npm run check-scheduler`, part one of which runs in CI on every
+push.
+
+| You are | Do |
+| --- | --- |
+| adding background work | `registerSweep(name, seconds, run)`, then wire it into `instrumentation.ts` |
+| choosing its interval | match it to how often the work actually exists, not to how soon you would like to know |
+| tempted by `fetch_types: false` | don't — see below |
+| changing `idle_timeout` | keep it several times `TICK_SECONDS`, or the churn returns whole |
+
+### The number this rule is made of
+
+Read from `pg_stat_statements` on 2026-09-20, over the 47.77 days since the
+stats reset:
+
+| | |
+| --- | --- |
+| rows the database returned, all statements | 346,350,353 |
+| rows returned by **one** statement | 341,509,822 — **98.60%** |
+| that statement | postgres-js's per-connection type bootstrap |
+| times it ran | 766,278 — **16,041 connections a day** |
+
+None of it was application data. Three schools' real rows were the other 1.4%,
+which is why **no amount of deleting tenant data could ever have moved the
+bill**.
+
+The cause was arithmetic, not a leak. `idle_timeout` was 20s, the shortest
+sweep ran every 30s, and `instrumentation.ts` started eight sweeps in each of
+the seven server processes. Every tick found the pool empty, opened a
+connection, paid 446 catalogue rows, and did work that almost always found
+nothing — 367,329 outbox reclaims and 177,191 late-fee sweeps that between them
+returned **zero rows, ever**.
+
+### `fetch_types: false` is not the fix, and the failure is silent
+
+It skips that bootstrap entirely, which is why it is the first thing anybody
+reaches for. That query is also the only thing that registers postgres-js's
+array parsers, and six columns here are arrays. Against the live database:
+
+```
+fetch_types=true    branches.class_levels -> ["PRE_SCHOOL","NURSERY",…]  string[]
+fetch_types=false   branches.class_levels -> "{PRE_SCHOOL,NURSERY,…}"    string
+fetch_types=false   writing one           -> throws: malformed array literal
+```
+
+The write throws, so somebody would find it. The **read** does not: a `string`
+where every caller expects `string[]`, so `class_levels.includes('GRADE_1')`
+starts doing substring matching and a campus quietly claims a grade it does not
+teach. The driver's own `arrayParser` cannot be imported — `postgres` declares
+`exports` and blocks the subpath — so there is no safe way to re-register the
+types by hand either.
+
+### The lease does not replace the per-item claim
+
+"Background work is claimed, not checked" still holds, unchanged, for every
+row a sweep touches. The lease is a **second** guard: it can expire while its
+holder is mid-send, and two leaders for a few seconds must not be able to
+produce a double send. Remove a per-item claim because "only one process runs
+now" and the first slow SMTP call sends an invitation twice.
+
+And a lease that cannot be reached must **fail open**. `claimSchedulerLease`
+returns `true` on any error, which is the old seven-process behaviour: wasteful
+and correct. Failing closed would stop every sweep in every process with
+nothing on any screen saying so — which is exactly the shape of the scheduled
+announcement that had never once been released, from Sprint 11 to 2026-08-20.
+
+---
+
 ## Green build
 
-All fourteen must pass before anything is merged:
+All fifteen must pass before anything is merged:
 
 ```
 npm run typecheck
@@ -499,6 +572,7 @@ npm run check-theme
 npm run check-sprint-periods
 npm run check-accounting
 npm run check-branch-scope
+npm run check-scheduler
 npm run build
 ```
 
@@ -569,11 +643,13 @@ hides behind an early return.
 
 Copy the script, rename it, and point it at your sprint's statements.
 
-`.github/workflows/ci.yml` runs the eleven that need no database —
+`.github/workflows/ci.yml` runs the twelve that need no database —
 `check-loaders`, `check-import-sample`, `check-product-catalogue`,
 `check-forms`, `check-address-phone`,
 `check-cnic`, `check-currency`, `check-theme`, `check-sprint-periods`,
-`check-accounting` and `check-branch-scope` —
+`check-accounting`, `check-branch-scope` and `check-scheduler` (part one of
+which needs no database; parts two and three report themselves as *not
+exercised* without credentials) —
 on every push and pull request, so the loader, CNIC, currency and double-entry
 rules are enforced by the repository and not only by whoever remembers them. The rest execute against the real schema and stay on a
 machine that holds the credentials.

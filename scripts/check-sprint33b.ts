@@ -697,8 +697,12 @@ async function main(): Promise<void> {
     'a read-then-if sends seven emails — production runs seven schedulers',
   );
   assert(
-    'and it is started once per process',
-    source('instrumentation.ts').includes('startProbationNotifier'),
+    // Sprint 35 renamed this: the notifier no longer keeps a timer of its own,
+    // it registers with `lib/scheduler.ts` and the lease holder runs it. The
+    // assertion is unchanged in intent — it is still "boot wires this up".
+    'and boot wires it into the scheduler',
+    source('instrumentation.ts').includes('registerProbationSweep') &&
+      source('lib/probation-notifier.ts').includes("registerSweep('probation'"),
   );
 
   console.log('\nThe two findings Part A deferred here:');

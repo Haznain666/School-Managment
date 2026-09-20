@@ -351,6 +351,13 @@
       "when": 1789819200000,
       "tag": "0049_sprint33c_portal_work",
       "breakpoints": true
+    },
+    {
+      "idx": 50,
+      "version": "7",
+      "when": 1789905600000,
+      "tag": "0050_scheduler_lease",
+      "breakpoints": true
     }
   ]
 }

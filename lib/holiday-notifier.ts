@@ -6,6 +6,7 @@ import { announcements, holidayNotifications, holidays, schools } from '@/db/sch
 
 import { sendAnnouncement } from './announcement-queries';
 import { describeError } from './describe-error';
+import { registerSweep } from './scheduler';
 import { db } from './drizzle';
 import {
   addDays,
@@ -48,11 +49,14 @@ import {
  * matter, which is the failure mode of every notification system that has one.
  */
 
-/** How often the sweep looks. A minute is well inside "the day before". */
-const SWEEP_SECONDS = 60;
-
-let sweepTimer: NodeJS.Timeout | null = null;
-let sweeping = false;
+/**
+ * Seconds between sweeps. Raised from 60 to 300 on 2026-09-20: this fires one
+ * notice the day before a holiday, and it had been asking every minute in each
+ * of seven processes. Its own
+ * statement shows in `pg_stat_statements` with **zero rows returned, ever**;
+ * five minutes is still far finer than the thing it is waiting for.
+ */
+const SWEEP_SECONDS = 300;
 
 /** `2026-10-30` → `Friday 30 October`. */
 function formatLongDate(iso: string): string {
@@ -258,30 +262,22 @@ export async function sweepHolidayNotices(now: Date = new Date()): Promise<numbe
   return sent;
 }
 
-/** Starts the sweep. Idempotent, like every other timer in this codebase. */
-export function startHolidayNotifier(): void {
-  if (sweepTimer !== null) return;
-
-  sweepTimer = setInterval(() => {
-    if (sweeping) return;
-    sweeping = true;
-
-    void sweepHolidayNotices()
-      .then((sent) => {
-        if (sent > 0) console.info(`[holiday-notice] ${String(sent)} notice(s) sent`);
-      })
-      .catch((caught: unknown) => {
-        console.error(`[holiday-notice] sweep failed: ${describeError(caught)}`);
-      })
-      .finally(() => {
-        sweeping = false;
-      });
-  }, SWEEP_SECONDS * 1000);
-
-  // Never a reason to refuse to shut down.
-  sweepTimer.unref?.();
-
-  console.info(
-    `[holiday-notice] holiday scheduler started (every ${String(SWEEP_SECONDS)}s)`,
-  );
+/**
+ * Registers the sweep with the shared scheduler.
+ *
+ * ── Why this is no longer a timer of its own ─────────────────────────────
+ * It used to be `setInterval` in every server process, and Hostinger runs
+ * seven. `lib/scheduler.ts` now owns the one timer this application has, and
+ * only the process holding the lease runs what is registered here. The claims
+ * inside the sweep are untouched and still decide who does what — the lease is
+ * a second guard, not a replacement.
+ *
+ * Re-entrancy, `unref()` and the never-throw guarantee all moved to the
+ * scheduler with it.
+ */
+export function registerHolidayNoticeSweep(): void {
+  registerSweep('holiday-notice', SWEEP_SECONDS, async () => {
+    const sent = await sweepHolidayNotices();
+    if (sent > 0) console.info(`[holiday-notice] ${String(sent)} notice(s) sent`);
+  });
 }

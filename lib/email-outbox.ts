@@ -8,6 +8,7 @@ import { db } from './drizzle';
 import { describeError } from './describe-error';
 import { sendEmail, smtpConfigured } from './email-sender';
 import { getSql } from './postgres';
+import { registerSweep } from './scheduler';
 
 /**
  * The outbound email queue.
@@ -164,8 +165,36 @@ interface ClaimedRow {
  * Never throws. It is called from an unattended interval, where an unhandled
  * rejection takes the whole Node process down on Hostinger, and from a route
  * that reports rather than propagates.
+ *
+ * ── `reclaim` ────────────────────────────────────────────────────────────
+ * The reclaim looks for rows left `sending` by a process that died mid-send.
+ * It used to run on every drain, which meant every 30 seconds in each of seven
+ * processes: **367,329 statements over 47.8 days, and it has never once
+ * returned a row** (`pg_stat_statements`, 2026-09-20). It recovers from a
+ * crash, and a crash does not happen twice a minute, so the scheduler runs it
+ * on its own ten-minute cadence and the 30-second drain passes `false`.
+ *
+ * Both routes that call this leave it `true`: an operator pressing "Send now"
+ * is the one moment somebody is watching, and is exactly when a stuck row
+ * should be picked up.
  */
-export async function drainOutbox(limit = 20): Promise<DrainResult> {
+export async function reclaimAbandonedEmails(): Promise<number> {
+  try {
+    const reclaimed = await getSql()`
+      UPDATE email_outbox
+         SET status = 'queued'
+       WHERE status = 'sending'
+         AND scheduled_at < now() - (${RECLAIM_MINUTES} || ' minutes')::interval
+      RETURNING id
+    `;
+    return reclaimed.length;
+  } catch (error) {
+    console.warn('[email-outbox] could not reclaim abandoned rows:', error);
+    return 0;
+  }
+}
+
+export async function drainOutbox(limit = 20, reclaim = true): Promise<DrainResult> {
   const result: DrainResult = { claimed: 0, sent: 0, failed: 0, reclaimed: 0 };
 
   // Nothing is claimed when there is nowhere to send it. Claiming and failing
@@ -176,18 +205,7 @@ export async function drainOutbox(limit = 20): Promise<DrainResult> {
 
   const sql = getSql();
 
-  try {
-    const reclaimed = await sql`
-      UPDATE email_outbox
-         SET status = 'queued'
-       WHERE status = 'sending'
-         AND scheduled_at < now() - (${RECLAIM_MINUTES} || ' minutes')::interval
-      RETURNING id
-    `;
-    result.reclaimed = reclaimed.length;
-  } catch (error) {
-    console.warn('[email-outbox] could not reclaim abandoned rows:', error);
-  }
+  if (reclaim) result.reclaimed = await reclaimAbandonedEmails();
 
   let rows: ClaimedRow[];
 
@@ -271,53 +289,45 @@ function nextAttemptAt(attempts: number): Date {
   return new Date(Date.now() + minutes * 60 * 1000);
 }
 
-/** Seconds between in-process drains. */
+/**
+ * Seconds between drains. Unchanged at 30: this is the one sweep whose delay a
+ * person feels — it is the gap between an operator pressing "Invite Staff" and
+ * the invitation arriving.
+ */
 const DRAIN_INTERVAL_SECONDS = 30;
 
-let drainTimer: ReturnType<typeof setInterval> | null = null;
-let draining = false;
+/**
+ * Minutes between reclaims of rows abandoned mid-send. See `drainOutbox`: this
+ * recovers from a process that died holding a message, which is not a thing
+ * that happens twice a minute.
+ */
+const RECLAIM_INTERVAL_SECONDS = 10 * 60;
 
 /**
- * Starts the in-process drainer. Called once from `instrumentation.ts`.
+ * Registers the drain and the reclaim with the shared scheduler.
  *
- * ── Why an interval is enough ────────────────────────────────────────────
- * Hostinger runs this as one long-lived Node process — the same fact that
- * makes `output: 'standalone'` the right build target. There is no fleet to
- * coordinate and no cold start to lose a timer to, so the simplest thing that
- * could work is also the correct thing. If that ever stops being true, the
- * internal route already exists and a host cron drives the same function.
+ * ── Why this is no longer a timer of its own ─────────────────────────────
+ * It used to be `setInterval` in every server process, and Hostinger runs
+ * seven. `lib/scheduler.ts` now owns the one timer this application has, and
+ * only the process holding the lease runs what is registered here. The
+ * per-row claim below is untouched and still decides who sends what — this is
+ * a second guard, not a replacement.
  *
- * ── The guards ───────────────────────────────────────────────────────────
- * `drainTimer` makes a second call a no-op, because Next's dev server
- * re-evaluates modules and two timers would double the send rate for no
- * reason. `draining` means a slow drain never overlaps itself — with a
- * ~103-second transport, a 30-second interval otherwise stacks drainers until
- * the process falls over.
- *
- * `unref()` so the timer never holds the process open on its own; a queue is
- * not a reason to refuse to shut down.
+ * Re-entrancy, `unref()` and the never-throw guarantee all moved to the
+ * scheduler with it.
  */
-export function startOutboxDrainer(): void {
-  if (drainTimer !== null) return;
+export function registerOutboxSweeps(): void {
+  registerSweep('email-outbox', DRAIN_INTERVAL_SECONDS, async () => {
+    const result = await drainOutbox(20, false);
+    if (result.claimed > 0) {
+      console.info(
+        `[email-outbox] drained ${String(result.sent)}/${String(result.claimed)} (${String(result.failed)} abandoned)`,
+      );
+    }
+  });
 
-  drainTimer = setInterval(() => {
-    if (draining) return;
-    draining = true;
-
-    void drainOutbox()
-      .then((result) => {
-        if (result.claimed > 0) {
-          console.info(
-            `[email-outbox] drained ${result.sent}/${result.claimed} (${result.failed} abandoned)`,
-          );
-        }
-      })
-      .finally(() => {
-        draining = false;
-      });
-  }, DRAIN_INTERVAL_SECONDS * 1000);
-
-  drainTimer.unref?.();
-
-  console.info(`[email-outbox] drainer started (every ${DRAIN_INTERVAL_SECONDS}s)`);
+  registerSweep('email-outbox-reclaim', RECLAIM_INTERVAL_SECONDS, async () => {
+    const reclaimed = await reclaimAbandonedEmails();
+    if (reclaimed > 0) console.info(`[email-outbox] reclaimed ${String(reclaimed)} abandoned`);
+  });
 }
