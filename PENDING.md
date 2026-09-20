@@ -347,7 +347,14 @@ The bell notification and chat message telling Hina Aslam to cover a class were
 left in place for the same reason: she was told, and deleting the record of the
 telling does not untell her. §5ci.
 
-### H3 Several statements are covered by catalogue assertions rather than executed
+### H3 `STATE.md` §5ck sits at the bottom of the file, out of order
+
+Every other section is newest-first from line ~12,800; §5ck was appended after
+the last line instead, so the newest thing in the file before 2026-09-20 was
+16,000 lines below the second-newest. §5cl was inserted in the right place.
+Move §5ck up beside it the next time that file is opened.
+
+### H4 Several statements are covered by catalogue assertions rather than executed
 
 `resolveTeacherPrincipals` and `subjectAttendance` are not executed by
 `check-sprint33c` — the first writes, the second is private behind `runReport` —
