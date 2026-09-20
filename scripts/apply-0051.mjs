@@ -118,6 +118,48 @@ check(
   !columns.some((row) => row.column_name === 'location_id'),
 );
 
+/*
+ * -- RLS, because 0050 ran before this table existed ----------------------
+ * `0050_rls_lockdown` enumerated the 118 tables that were unprotected when it
+ * was written. This one is created afterwards, so without the two statements
+ * at the end of `0051` it is the ONE table in `public` with RLS off -- the
+ * single exception in a posture whose whole value is having none.
+ *
+ * Read back from the catalogue rather than assumed, and `anon`'s grants are
+ * counted rather than argued about. The last check is the one that matters
+ * next time: it asserts the property for the whole schema, so the next table
+ * somebody adds without RLS fails here too.
+ */
+const [rls] = await client`
+  select c.relrowsecurity as enabled
+    from pg_class c join pg_namespace ns on ns.oid = c.relnamespace
+   where ns.nspname = 'public' and c.relname = 'scheduler_leases'`;
+
+check('RLS is enabled on it, like every other public table', rls?.enabled === true);
+
+const exposed = await client`
+  select grantee, privilege_type
+    from information_schema.role_table_grants
+   where table_schema = 'public' and table_name = 'scheduler_leases'
+     and grantee in ('anon', 'authenticated')`;
+
+check(
+  'anon and authenticated hold no privilege on it',
+  exposed.length === 0,
+  exposed.map((r) => `${r.grantee}:${r.privilege_type}`).join(', '),
+);
+
+const [unprotected] = await client`
+  select count(*)::int as n
+    from pg_class c join pg_namespace ns on ns.oid = c.relnamespace
+   where ns.nspname = 'public' and c.relkind = 'r' and not c.relrowsecurity`;
+
+check(
+  'and no table in public is left without RLS',
+  unprotected.n === 0,
+  `${unprotected.n} table(s) still unprotected`,
+);
+
 /* -- The mechanism, attempted ------------------------------------------- */
 
 const LEASE = 'apply-0051:probe';

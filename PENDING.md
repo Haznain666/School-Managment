@@ -9,7 +9,7 @@ and a definition of done. The two are read together. `STATE.md` says how a thing
 came to be; this file says whether it is finished.
 
 **Opened:** 2026-09-19, from a full read of `STATE.md` at `d05914d`.
-**Last reconciled:** 2026-09-20 (D5 added, D6 opened and closed).
+**Last reconciled:** 2026-09-20 (D5 and D6 closed, D7 added).
 
 ---
 
@@ -108,7 +108,76 @@ choosing between `ownedBy` and `sharedOrOwnedBy` will read one of the two.
 **Done when:** the docblock matches the schema, or the schema changes and both
 say so.
 
-### D5 🔴 Seven `kpis.rate.*` permission keys are missing from the CHECK
+### ~~D5 RLS is off on 118 of 119 public tables, and `anon` holds every privilege~~
+
+✅ **Closed 2026-09-20** — `0050` applied to production, `scripts/apply-0050.mjs`
+prints **18 passed, 0 failed**, and the live tenant still reads. The evidence,
+including the eight refusals that were failures before it, is in §Closed below.
+The full account is `STATE.md` §5cl.
+
+### ~~D6 Seven schedulers × 60s are what is actually consuming the Supabase quota~~
+
+✅ **Closed 2026-09-20**, by the change recorded in `STATE.md` §5cm and
+`release-notes/RELEASE-NOTES-EGRESS.md`. The evidence is in §Closed below.
+The diagnosis in this entry was correct in every particular and is kept as
+written, because it is what the fix was built from.
+
+<details><summary>The diagnosis, as it was opened</summary>
+
+
+**Owner:** the next sprint allowed to touch `instrumentation.ts`.
+**Opened:** 2026-09-20.
+
+The quota is **not** disk. Measured 2026-09-20: database **35 MB** of a 500 MB
+allowance, Storage **8.1 MB** of 1 GB, 602 auth users of 50,000. Deleting a
+tenant frees 606 rows out of 23,172. Nothing on this list is close to a limit.
+
+What is large is traffic, and `pg_stat_statements` names it. Since the stats
+reset on 2026-07-24 — 58 days — the database has executed **4,542,424
+statements** and returned **345,848,182 rows**, serving three schools:
+
+| Statement | Calls | Rows returned |
+| --- | --- | --- |
+| postgres-js type bootstrap (`pg_type`, once per connection) | 765,256 | **341,022,328** |
+| `select id from academic_years where location_id = …` | 582,986 | 582,959 |
+| `UPDATE email_outbox SET status …` (claim) | 367,233 | 1,379 |
+| `UPDATE email_outbox SET status … WHERE scheduled_at < …` | 366,967 | **0** |
+| Realtime WAL poll | 292,333 | 292,333 |
+| announcements sweep | 141,257 | **2** |
+| `update late_fee_rules …` (two sweeps) | 176,831 | **0** |
+
+Two separate faults sit in that table.
+
+**Connection churn.** 341M of the 346M rows returned — 98.6% — are
+`pg_catalog.pg_type` rows that postgres-js fetches *once per new connection*.
+765,256 connections in 58 days is 13,194 a day; `pgbouncer.get_auth` confirms
+220,897 client authentications independently. That is the single largest thing
+leaving this database and not one row of it is application data.
+
+**Sweeps that never find anything.** 366,967 email-outbox expiry updates
+matched **zero** rows, ever. 176,831 late-fee updates matched **zero** rows,
+ever. 141,257 announcement sweeps found **two**. `instrumentation.ts` starts one
+scheduler per server process and production runs seven, each waking every 60
+seconds — 7.0 `academic_years` reads per minute is exactly that arithmetic, and
+it matches.
+
+**Done when:** the sweeps are driven by one claimed leader rather than seven
+racing timers, or their intervals reflect how often the work actually exists;
+and the connection churn is measured again after it. — **All three done.**
+
+✅ **The quota is egress** — confirmed by the user 2026-09-20, which closes
+`U8` and makes this the whole of the work. Egress is bytes leaving the
+database, so the 341M catalogue rows at the top of that table are not a
+curiosity: they are the bill. Nothing else on the account is near a limit, so
+there is no second thing to fix.
+
+⚠ **Do not start by deleting data.** Two test tenants are 606 rows of 23,172
+and cannot move an egress allowance by any amount. Sizing the connection churn
+is the first measurement worth taking.
+
+</details>
+
+### D7 🔴 Seven `kpis.rate.*` permission keys are missing from the CHECK
 
 **Owner:** whichever sprint next touches KPI permissions. One migration.
 **Source:** found 2026-09-20 by `npm run check-sprint28`, which fails on it.
@@ -135,9 +204,6 @@ with the full list, proved by attempt the way `scripts/apply-0042.mjs` does —
 a key outside the list refused with `23514`, each new key accepted, both inside
 transactions that roll back — and `npm run check-sprint28` is green.
 
-### D6 ✅ Supabase egress overage — connection churn and seven schedulers
-
-**Closed 2026-09-20.** See §Closed.
 
 ---
 
@@ -321,6 +387,14 @@ origin.
 answer matters.** One measurement from a Pakistani connection is worth more than
 all of them.
 
+### ~~U8 Which Supabase quota was exceeded, and do the two test schools still go?~~
+
+✅ **Closed 2026-09-20** — the user answered both. The quota is **egress**, so
+`D6` is the work. The two test schools are **kept**: they are 606 rows and
+4.88 MB, they cannot move an egress allowance, and they are the only other
+tenants available for testing the isolation `0050` just changed.
+`scripts/remove-school.mjs` stays in the tree for whenever that changes.
+
 ---
 
 ## H — Housekeeping
@@ -347,12 +421,15 @@ The bell notification and chat message telling Hina Aslam to cover a class were
 left in place for the same reason: she was told, and deleting the record of the
 telling does not untell her. §5ci.
 
-### H3 `STATE.md` §5ck sits at the bottom of the file, out of order
+### H3 `STATE.md` §5ck and §5cl sit at the bottom of the file, out of order
 
-Every other section is newest-first from line ~12,800; §5ck was appended after
-the last line instead, so the newest thing in the file before 2026-09-20 was
-16,000 lines below the second-newest. §5cl was inserted in the right place.
-Move §5ck up beside it the next time that file is opened.
+Every other section is newest-first from line ~12,900. §5ck (the voucher campus
+fix) and §5cl (the RLS lockdown) were each appended after the last line
+instead, so the two newest sections before 2026-09-20 sit 3,600 lines below the
+third-newest. §5cm was inserted in the right place. Move the other two up
+beside it the next time that file is opened — and note the shape of the
+mistake: appending is what a session does when it has not looked at where the
+file starts.
 
 ### H4 Several statements are covered by catalogue assertions rather than executed
 
@@ -372,9 +449,47 @@ state — but none of them has had a server behind it. §5cg, §5ci.
 Closed items move here with their evidence — a commit, a build id, a check
 script's real output — and are never deleted.
 
+### ✅ D5 — RLS on every public table — closed 2026-09-20
+
+Applied to production with `node scripts/apply-0050.mjs --apply`, which is also
+what proves it. **18 passed, 0 failed**, and the ten lines that matter are the
+ones that had failed three hours earlier:
+
+```
+applying 238 statements…
+  PASS  RLS on every public table (119/119)
+  PASS  no grant left to anon/authenticated outside chat_signals (0 found)
+  PASS  anon refused SELECT on student_profiles
+  PASS  anon refused SELECT on student_guardians
+  PASS  anon refused SELECT on fee_challans
+  PASS  anon refused SELECT on ledger_entries
+  PASS  anon refused SELECT on school_users
+  PASS  anon refused SELECT on chat_messages
+  PASS  anon refused DELETE on student_profiles
+  PASS  anon refused TRUNCATE on attendance_records
+  PASS  postgres — the application's own role — still reads student_profiles (480 rows)
+  PASS  authenticated reads chat_signals without error
+```
+
+Verified live afterwards, because a lockdown that breaks the product is not a
+fix: `askari-school-system.schoolhub.codexmill.com/login` renders **"Askari
+School System"** — a real tenant read through the running app — with no console
+errors. §5cl.
+
+### ✅ U8 — both questions answered — closed 2026-09-20
+
+**Which quota:** egress, confirmed by the user. `D6` is the work, and it is now
+scoped rather than speculative.
+
+**The two schools:** **kept.** They cost 606 rows and 4.88 MB, they cannot move
+an egress allowance, and they are the only other tenants available for testing
+the multi-tenant isolation that `0050` just changed. `scripts/remove-school.mjs`
+stays in the tree, dry-run by default, for whenever they are genuinely not
+wanted.
+
 ### D6 ✅ Supabase egress overage — connection churn and seven schedulers
 
-**Closed 2026-09-20.** Full narrative in `STATE.md` §5cl. Release notes:
+**Closed 2026-09-20.** Full narrative in `STATE.md` §5cm. Release notes:
 `release-notes/RELEASE-NOTES-EGRESS.md`.
 
 **What it was.** `pg_stat_statements`, read 2026-09-20 over the 47.77 days

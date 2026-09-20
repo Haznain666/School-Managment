@@ -132,6 +132,6 @@ either side of a deploy, and changes nothing while doing it.
 
 ## For the record
 
-Full technical account: `STATE.md` §5cl. Register entry: `PENDING.md` D6.
+Full technical account: `STATE.md` §5cm. Register entry: `PENDING.md` D6.
 New gate: `npm run check-scheduler`, the fifteenth, added to CLAUDE.md's
 green-build list and to CI in the same commit.

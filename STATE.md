@@ -13,23 +13,33 @@ you find it**, not only into a sprint's "What is still open" — three of those
 lists in this file had a false first line by the time the sprint deployed, and
 nobody noticed, because they sit 13,000 lines down.
 
-**Last updated:** 2026-09-20 (**The Supabase egress overage — fixed, and it was
-never about the amount of data.** 98.60% of everything the database returned in
-47.8 days was postgres-js's per-connection type bootstrap: 766,278 connections,
-16,041 a day, 446 catalogue rows each, none of it application data. The cause
-was `idle_timeout: 20` against sweeps that ran every 30-60 seconds in each of
-seven server processes — every tick opened a connection the pool had just
-thrown away. `idle_timeout` is now 300, migration `0051` adds a claimed
-scheduler lease so **one** process sweeps, eight `setInterval`s are gone and
-the sweeps that had returned zero rows in 47 days now run every 5-10 minutes.
+✅ **2026-09-20 — the anon key could read every school, and no longer can.**
+Row Level Security was off on **118 of 119** public tables while `anon` — the
+key inlined into the browser bundle — held SELECT, INSERT, UPDATE, DELETE **and
+TRUNCATE** on all 119. Proved by attempt, not inferred: `anon` read
+`student_guardians`, `fee_challans`, `ledger_entries` and `chat_messages`, and
+was allowed to TRUNCATE `attendance_records`. **`0050` is applied and proved —
+18 passed, 0 failed**, with the live tenant still reading afterwards. §5cl,
+`PENDING.md` §Closed.
+
+✅ **2026-09-20 — and the egress overage behind it is fixed. `PENDING.md` D6 is
+closed.** The quota is egress, not disk: 35 MB of 500 MB, storage 8.1 MB of
+1 GB. **98.60% of everything the database returned in 47.8 days was
+postgres-js's per-connection type bootstrap** — 766,278 connections, 16,041 a
+day, 446 catalogue rows each, and not one row of it application data. The cause
+was `idle_timeout: 20` against sweeps running every 30–60 seconds in each of
+**seven** server processes: every tick opened a connection the pool had just
+thrown away. `idle_timeout` is now **300**, migration **`0051`** adds a claimed
+scheduler lease so **one** process sweeps, eight `setInterval`s are gone, and
+the sweeps that had returned zero rows in 47 days now run every 5–10 minutes.
 **`fetch_types: false` was investigated and rejected** — it removes the
 bootstrap and silently turns every array column into a string on read, proved
 against the live database. New gate: **`check-scheduler`**, the **fifteenth**,
-in CLAUDE.md and `ci.yml` together. §5cl, `PENDING.md` D6.
-**Three schools' real data is 1.4% of that egress; deleting tenant rows could
-never have moved the bill.**)
+added to CLAUDE.md and `ci.yml` together. §5cm.
+**Three schools' real data is that other 1.4%; deleting tenants could never
+have moved the bill, and nothing was deleted.**
 
-**Earlier 2026-09-19:** (**Sprint 34 — Features and Roadmap in Super
+**Last updated:** 2026-09-19 (**Sprint 34 — Features and Roadmap in Super
 Admin — built, gated, PR #105, browser-QA'd across three rounds; eight defects
 found and fixed. **Merged `d72aa45` and live on build `d72aa45868f0`.** No migration; a new **fourteenth** gate,
 `check-product-catalogue`. §5cj.**
@@ -12887,7 +12897,7 @@ days, per person, with the date in hand.
 
 ---
 
-## 5cl. The Supabase egress overage — 98.6% of it was opening the door — 2026-09-20
+## 5cm. The Supabase egress overage — 98.6% of it was opening the door — 2026-09-20
 
 **`PENDING.md` D6, opened and closed the same day.** Not part of any sprint.
 Supabase billed an egress overage on an estate of **three schools**, and the
@@ -16543,3 +16553,228 @@ Two doors were looked at and deliberately **not** changed:
    code admits a null it will never see — but it is the opposite of what
    `lib/admissions-queries.ts` says four files away, and the next person
    choosing between `ownedBy` and `sharedOrOwnedBy` will read one of them.
+
+---
+
+## 5cl. The anon key could read every school — and the quota was never the database — 2026-09-20
+
+Asked for two things: remove the two schools that are not Askari, because the
+Supabase database has exceeded its quota, and fix the 123 issues the Advisor
+reports. Neither turned out to be what it looked like, so this entry is mostly
+about what was measured.
+
+### The 123 issues are one issue, 118 times, and it is not a lint warning
+
+The Advisor's cards say *"Table `public.x` is public, but RLS has not been
+enabled"*, which reads like tidiness. Read against the live catalogue it is not:
+
+```
+public tables                      119
+RLS enabled                          1     (chat_signals)
+anon holds SELECT/INSERT/UPDATE/
+  DELETE/TRUNCATE on                119
+anon  rolbypassrls               false
+authenticated rolbypassrls       false
+```
+
+Those five lines are the whole finding. RLS is the only gate standing between a
+role and a table it has been granted. With RLS off, the grant *is* the access
+decision — and the credential that assumes `anon` is
+`NEXT_PUBLIC_SUPABASE_ANON_KEY`, which `.env.example` describes in its own
+words as "read at BUILD time, so set it before building": it is inlined into
+the browser bundle and served to every visitor of every tenant, signed out
+included.
+
+### Proved by attempt, because the catalogue only reports the switch
+
+CLAUDE.md's rule about a CHECK that was dropped and never re-added applies
+exactly here, so `scripts/apply-0050.mjs` does not read `relrowsecurity` and
+call it a day. It does `SET LOCAL ROLE anon` and then actually tries, inside
+transactions that are always rolled back. Against production, before anything
+was changed:
+
+```
+before: 1/119 public tables carry RLS
+FAIL  anon refused SELECT on student_profiles     — got 1
+FAIL  anon refused SELECT on student_guardians    — got 1
+FAIL  anon refused SELECT on fee_challans         — got 1
+FAIL  anon refused SELECT on ledger_entries       — got 1
+FAIL  anon refused SELECT on school_users         — got 1
+FAIL  anon refused SELECT on chat_messages        — got 1
+FAIL  anon refused DELETE on student_profiles     — allowed
+FAIL  anon refused TRUNCATE on attendance_records — allowed
+```
+
+`got 1` means a row came back. Guardian CNICs, fee challans, the ledger and
+chat messages, for every school, to a key that is in the page source. The last
+two lines are worse than the reads: `anon` was permitted to empty the
+attendance table.
+
+### Why nothing in this repository could have caught it
+
+The application never uses that door. Every read is Drizzle over postgres-js as
+`postgres`, which has `rolbypassrls = true`; Storage and the middleware's
+tenant lookup reach PostgREST as `service_role`, also `bypassrls`. Grepped
+across `lib`, `components` and `app`, the count of `.from()` calls on a
+supabase-js client is **zero**.
+
+So the hole was invisible from both ends: no check script executes a grant, no
+screen behaves differently, and the one credential that could have walked
+through it is the one the product itself never uses. `chat_signals` had RLS
+only because Sprint 24 wrote a policy for it deliberately, and its own docblock
+is where the phrase "the only table a browser is ever allowed to read directly"
+comes from — which was true of the *intent* and false of the database.
+
+### `0050`, and the one thing it must not break
+
+`db/migrations/0050_rls_lockdown.sql` enables RLS on the 118, revokes the
+`anon`/`authenticated` grants on those same 118, revokes the default privilege
+that would hand them to the next table, and pins the `search_path` on
+`staff_kpi_ratings_refuse_update` — the one remaining non-RLS advisory.
+
+`chat_signals` is deliberately in neither list. It is the only table in the
+`supabase_realtime` publication, and `postgres_changes` needs both the policy
+*and* the `authenticated` SELECT grant. Revoke that and the chat socket stops
+delivering — silently, because `useChatStream` falls back to polling and its
+own comment warns that `SUBSCRIBED` is reported by a channel that will never
+receive anything. The apply script asserts all three of those in the other
+direction.
+
+### Applied, and proved the same way it was found
+
+```
+applying 238 statements…
+  PASS  RLS on every public table (119/119)
+  PASS  no grant left to anon/authenticated outside chat_signals (0 found)
+  PASS  chat_signals still carries RLS
+  PASS  chat_signals still carries its policy
+  PASS  authenticated still holds SELECT on chat_signals (Realtime)
+  PASS  staff_kpi_ratings_refuse_update has a pinned search_path
+  PASS  anon refused SELECT on student_profiles
+  PASS  anon refused SELECT on student_guardians
+  PASS  anon refused SELECT on fee_challans
+  PASS  anon refused SELECT on ledger_entries
+  PASS  anon refused SELECT on school_users
+  PASS  anon refused SELECT on chat_messages
+  PASS  authenticated refused SELECT on student_profiles
+  PASS  authenticated refused SELECT on fee_payments
+  PASS  anon refused DELETE on student_profiles
+  PASS  anon refused TRUNCATE on attendance_records
+  PASS  postgres — the application's own role — still reads student_profiles (480 rows)
+  PASS  authenticated reads chat_signals without error — the policy filters, the grant allows
+
+PASS  18 passed, 0 failed
+```
+
+Ten of those eighteen were failures three hours earlier, and they are the same
+ten statements — the script was not rewritten to pass.
+
+**Then verified against the live deployment,** because a lockdown that breaks
+the product is not a fix. `askari-school-system.schoolhub.codexmill.com/login`
+renders **"Askari School System"** — the tenant's own name, read out of the
+database by the running app, after RLS — with no console errors.
+
+### The quota was never the database
+
+This is the part that changed the other half of the request. Measured
+2026-09-20:
+
+| | Used | Free-plan allowance |
+| --- | --- | --- |
+| Database | **35 MB** | 500 MB |
+| Storage | **8.1 MB** | 1 GB |
+| Auth users | **602** | 50,000 |
+
+Removing both non-Askari tenants deletes **606 rows out of 23,172** and 4.88 MB
+of files. It cannot move any of those numbers, and the database would still
+read 35 MB afterwards, because Postgres does not hand freed pages back to the
+filesystem without a `VACUUM FULL`.
+
+What *is* large is traffic. `pg_stat_statements` has been accumulating since
+2026-07-24 — 58 days, three schools — and reports **4,542,424 statements** and
+**345,848,182 rows returned**. The top row of that table is not application
+data at all:
+
+```
+765,256 calls   341,022,328 rows   select b.oid, b.typarray from pg_catalog.pg_type …
+```
+
+That is postgres-js's type bootstrap, which runs **once per new connection**.
+341M of the 346M rows — 98.6% — are catalogue rows fetched 765,256 times, which
+is 13,194 new connections a day; `pgbouncer.get_auth` confirms 220,897 client
+authentications independently.
+
+Behind it sit seven schedulers that mostly find nothing. `instrumentation.ts`
+starts one per server process and production runs seven, each waking every 60
+seconds — and 582,986 `academic_years` reads over 83,520 minutes is 7.0 a
+minute, which is that arithmetic exactly:
+
+```
+366,967 calls  ->      0 rows   UPDATE email_outbox … WHERE scheduled_at < …
+176,831 calls  ->      0 rows   update late_fee_rules … (two sweeps)
+141,257 calls  ->      2 rows   announcements sweep
+```
+
+Zero. Ever. `PENDING.md` `D6` has the full table and a definition of done.
+
+✅ **The allowance is egress** — confirmed by the user after the above was put
+to them. That makes the 341M catalogue rows the bill rather than a curiosity:
+egress is bytes leaving the database, and 98.6% of what leaves this one is
+`pg_type` fetched once per connection, 13,194 times a day, for three schools.
+
+### The two schools were not deleted
+
+`scripts/remove-school.mjs` is written, dry-run by default, and refuses
+`--apply` without `--i-have-a-backup` because the free plan has no
+point-in-time recovery. It re-derives the cascade from `pg_constraint` every
+run rather than trusting a hardcoded list, and **fails** if it finds a
+`location_id` table that neither cascades nor is named in its two by-hand
+exceptions — a table added later with a different delete rule would otherwise
+leave rows behind in silence.
+
+Its dry run against both ids:
+
+```
+cascade cover: 112 of 114 location_id tables cascade from schools
+handled by hand: schools, email_outbox
+rows to delete: 606 across 69 tables
+GoTrue accounts: 11 linked, 0 shared with a kept school
+Storage: 14 files, 4.88 MB
+```
+
+It was not run with `--apply`, and after the numbers above were put to the
+user, **both schools are kept**. They are 606 rows and 4.88 MB, they cannot
+move an egress allowance, and they are the only other tenants available for
+testing exactly the isolation `0050` has just changed. The script stays in the
+tree for whenever that stops being true.
+
+The user also confirmed the allowance: **egress**. `PENDING.md` `D6` is
+therefore the whole of the remaining work, and `U8` is closed.
+
+### Gates
+
+`typecheck`, `lint`, and all eleven CI check scripts green: `check-loaders`,
+`check-import-sample`, `check-product-catalogue`, `check-forms`,
+`check-address-phone`, `check-cnic`, `check-currency`, `check-theme`,
+`check-sprint-periods`, `check-accounting`, `check-branch-scope` — PASS, every
+one. No application code was touched: the change is one `.sql` file and two
+`.mjs` scripts.
+
+### For whoever is next
+
+1. **`D6` is the only open item from this round, and it is the egress bill.**
+   Start with the connection churn — 341M of 346M rows returned are `pg_type`
+   fetched once per connection — not with the sweeps, which are cheap in bytes
+   even though they are embarrassing in count.
+2. **Do not start by deleting data.** Two tenants are 606 rows of 23,172. That
+   was the request this round began with and it would have achieved nothing;
+   the measurement is what changed the plan.
+3. Re-run the Advisor to confirm the count drops. 118 + 1 of the 123 are
+   accounted for here; the remainder are Auth-side settings the dashboard owns
+   — leaked-password protection, MFA options, OTP expiry — not the schema, and
+   not fixable from a migration.
+4. **A new table gets RLS or it gets nothing.** `0050` revoked the default
+   privilege that was handing `anon` every grant on every new table, so a table
+   created after it starts closed. That is a change in the repository's
+   ambient behaviour and is worth knowing before wondering why a new table is
+   unreachable from PostgREST.

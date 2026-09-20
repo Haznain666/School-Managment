@@ -1,5 +1,5 @@
 -- The scheduler lease — one of seven server processes runs the sweeps.
--- STATE.md §5cl, PENDING.md D6. Paired with `lib/scheduler.ts`.
+-- STATE.md §5cm, PENDING.md D6. Paired with `lib/scheduler.ts`.
 --
 -- ══ What this is for ════════════════════════════════════════════════════
 -- `instrumentation.ts` starts eight background sweeps once per server

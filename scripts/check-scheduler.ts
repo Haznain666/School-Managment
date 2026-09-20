@@ -4,7 +4,7 @@
  *     npm run check-scheduler
  *
  * ── The defect this exists about ─────────────────────────────────────────
- * `PENDING.md` D6 / `STATE.md` §5cl. Supabase billed an egress overage on a
+ * `PENDING.md` D6 / `STATE.md` §5cm. Supabase billed an egress overage on a
  * three-school estate, and `pg_stat_statements` said why. Measured 2026-09-20,
  * 47.8 days since the stats reset:
  *
