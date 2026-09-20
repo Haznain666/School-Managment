@@ -36,6 +36,11 @@ the sweeps that had returned zero rows in 47 days now run every 5–10 minutes.
 bootstrap and silently turns every array column into a string on read, proved
 against the live database. New gate: **`check-scheduler`**, the **fifteenth**,
 added to CLAUDE.md and `ci.yml` together. §5cm.
+**Measured after, the same way as before: connections 12.37/min → 0.00/min,
+rows returned 5,930/min → 153/min, the bootstrap's share 99.71% → 0.00%.** In
+five minutes of live production the application opened **no new connection at
+all**. Deployed as `463e44a`, and the `sweeps` lease — claimed 14:35:12Z, one
+owner, renewing every 30.0s — is the proof it is running.
 **Three schools' real data is that other 1.4%; deleting tenants could never
 have moved the bill, and nothing was deleted.**
 
@@ -13315,20 +13320,97 @@ failed. It is **`PENDING.md` D5**, with an owner and a definition of done.
 Widening that CHECK is a permissions migration with its own blast radius and
 had no business riding along inside a connection-pool change.
 
+### After, measured the same way
+
+Merged as `463e44a` (PR #113), built by Hostinger from `main` at 14:31:29Z, and
+the deploy announced itself in the one place this change can: **the `sweeps`
+lease was claimed at 14:35:12.927Z** by
+`us-phx-web1206.main-hosting.eu:576390:77e9ed80`. That row is the proof the new
+code is running, and it is worth more than a build id because nothing else
+could have written it.
+
+**The lease holder, observed for six minutes — eleven consecutive readings:**
+
+```
+14:38:12.930  expires 14:40:12.930  owner 576390:77e9ed80
+14:38:42.931  expires 14:40:42.931  owner 576390:77e9ed80  (+30.0s)
+14:39:12.932  expires 14:41:12.932  owner 576390:77e9ed80  (+30.0s)
+…  eight more, every one +30.0s, same owner …
+14:43:12.937  expires 14:45:12.937  owner 576390:77e9ed80  (+30.0s)
+```
+
+`+30.0s` every time, one owner throughout, `acquired_at` never moving. One
+process sweeps and six do not.
+
+**Connection rate, five-minute window, same measurement as the before:**
+
+| | Before | After |
+| --- | --- | --- |
+| connections | 12.37/min — 17,814/day | **0.00/min — 0/day** |
+| bootstrap rows | 5,913/min — 8,515,157/day | **0/min** |
+| all rows returned | 5,930/min | **153/min** |
+| bootstrap share of rows | **99.71%** | **0.00%** |
+
+**Zero.** Not "fewer" — in five minutes of a live production estate, the
+application opened **no new connection at all**, because the pool now keeps
+the ones it has. Total rows returned fell **5,930/min → 153/min**, a **97.4%**
+cut in the thing the bill is calculated from.
+
+**Statements, attributed rather than summed.** A five-minute `sum(calls)` delta
+is noisy — `pg_stat_statements` evicts and re-adds entries, so the total drifts.
+Taking the delta **per `queryid`** instead, over three minutes, gives the
+statements that are actually running:
+
+```
+   7.96/min  SELECT * FROM pgbouncer.get_auth($1)          (pooler, not ours)
+   2.98/min  INSERT INTO scheduler_leases … ON CONFLICT    (the lease itself)
+   1.33/min  UPDATE email_outbox … (the 30s drain)
+   0.99/min  holidays / push_subscriptions / notification_preferences
+   0.66/min  announcements sweep
+   0.33/min  each of: outbox reclaim, both late_fee sweeps, chat grants,
+             chat signal prune, push failure prune
+   ---------
+   19.9/min total, across 19 distinct statements
+```
+
+Against **47.09/min** before: a **58%** cut, and the shape has changed
+completely. The sweeps that used to run at 5.34, 2.06 and 1.61 per minute are
+now at 0.33–0.66, and the 2.98/min lease traffic is the whole standing cost of
+the design — one leader renewing twice a minute plus six followers asking once.
+
+⚠ **One measurement to read correctly.** A `--sample` taken in the first five
+minutes after the deploy reported **120.72 statements/min**, higher than before
+the change. That was seven processes restarting, prerendering and warming
+caches — transient deploy activity, not a regression. The per-`queryid`
+breakdown above, taken once things had settled, is the number to quote. Take
+this reading at least ten minutes after a deploy or it will describe the deploy
+rather than the application.
+
 ### For whoever is next
 
-**The after-reading is still owed.** The fix is merged and deployed, but the
-comparable number is the five-minute `--sample` rate taken against the *new*
-build, and it must be taken after the seven processes have restarted:
+**Do not `--reset` the statistics.** The 47.8-day window is the only
+long-baseline evidence this problem has and it cannot be recreated; every
+comparison above is a `--sample` rate taken *without* resetting, precisely so
+that baseline survives.
 
-```
-npm run measure-egress -- --sample 300
-```
+**Re-read it in a week.** `npm run measure-egress` gives the cumulative
+picture, and the bootstrap's share of it should fall steadily from 98.60% as
+47 days of old traffic ages out of the window. If it does not, the pool is
+churning again and `check-scheduler`'s R1 is the first thing to look at.
 
-Compare it to the block above, line for line. `connections/min` is the number
-that matters; `bootstrap share` is the one that tells the story. Do **not**
-`--reset` before taking it — the 47.8-day window is the only long-baseline
-evidence this problem has, and it cannot be recreated.
+**Two known gaps in the lease, neither urgent, both worth knowing.**
+
+1. `acquired_at` does not move on a **takeover**, only on a first insert —
+   `claimSchedulerLease` deliberately omits it from the `set` so a *renewal*
+   cannot move it, and a takeover takes the same path. So "how long has this
+   leader held it" is answerable only while no takeover has happened. This
+   cost a wrong conclusion once already during this session's own verification.
+   If it matters later, set `acquired_at` conditionally on
+   `scheduler_leases.owner <> excluded.owner`.
+2. Six followers asking once a minute is **2.98 statements/min** of standing
+   cost that did not exist before. It buys a failover of at most three minutes.
+   If that trade ever looks wrong, `FOLLOWER_PROBE_SECONDS` is the one number
+   to change, and the cost and the failover move together.
 
 ---
 

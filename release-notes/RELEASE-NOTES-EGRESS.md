@@ -4,7 +4,7 @@
 **Not a sprint.** A hosting bill, traced to its cause.
 **Migration:** `0051` — one new table, `scheduler_leases`. Empty, and it holds
 no school's data.
-**Status:** merged and deployed.
+**Status:** merged as `463e44a`, deployed, and measured afterwards.
 **Nothing a school can see has changed.** No screen, no permission, no record.
 
 ---
@@ -117,16 +117,28 @@ evidence attached.
 
 ## Measurement
 
-Before, taken over a live five-minute window on 20 September:
+Taken over a live five-minute window on 20 September, before and after:
 
-| | |
-| --- | --- |
-| connections opened | 12.37/min — **17,814 a day** |
-| rows spent describing data types | 5,913/min — **8.5 million a day** |
-| share of everything the database returned | **99.71%** |
+| | Before | After |
+| --- | --- | --- |
+| connections opened | 12.37/min — **17,814 a day** | **none at all** |
+| rows spent describing data types | 5,913/min — **8.5 million a day** | **none** |
+| everything the database returned | 5,930/min | **153/min** |
+| share of that spent on describing data types | **99.71%** | **0%** |
+
+In five minutes of live use the application opened **no new database connection
+at all** — it reused the ones it already had, which is what a connection pool is
+for and what it had never been allowed to do. The total amount of data leaving
+the database fell by **97%**.
+
+Background work fell with it: the database now runs **19.9 statements a minute**
+against 47.1 before, and the jobs that had never found anything have gone from
+running several times a minute to once every two or three.
 
 `npm run measure-egress -- --sample 300` takes the same reading at any time, on
-either side of a deploy, and changes nothing while doing it.
+either side of a deploy, and changes nothing while doing it. Take it at least
+ten minutes after a deploy — sooner than that it measures seven servers
+restarting rather than the product running.
 
 ---
 
