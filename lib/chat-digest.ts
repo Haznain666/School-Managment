@@ -13,6 +13,7 @@ import type { UserRole } from '@/types/school-auth';
 import { chatPortalBase } from './chat-notifications';
 import { inQuietHours } from './chat-permissions';
 import { describeError } from './describe-error';
+import { registerSweep } from './scheduler';
 import { db } from './drizzle';
 import { enqueueEmail } from './email-outbox';
 import { buildSchoolPortalUrl } from './invite-links';
@@ -86,9 +87,6 @@ export const DIGEST_MAX_REMINDERS = 5;
 
 /** How many people one sweep will mail. A blast-radius limit, not a page size. */
 const MAX_PER_SWEEP = 200;
-
-let sweepTimer: NodeJS.Timeout | null = null;
-let sweeping = false;
 
 export interface DigestCandidate {
   locationId: string;
@@ -481,45 +479,39 @@ export async function expireChatGrants(now: Date = new Date()): Promise<number> 
   return closed.length;
 }
 
-/** Starts the sweep. Idempotent, like the three timers beside it. */
-export function startChatDigest(): void {
-  if (sweepTimer !== null) return;
+/**
+ * Registers the sweep with the shared scheduler.
+ *
+ * ── Why this is no longer a timer of its own ─────────────────────────────
+ * It used to be `setInterval` in every server process, and Hostinger runs
+ * seven. `lib/scheduler.ts` now owns the one timer this application has, and
+ * only the process holding the lease runs what is registered here. The claims
+ * inside the sweep are untouched and still decide who does what — the lease is
+ * a second guard, not a replacement.
+ *
+ * Re-entrancy, `unref()` and the never-throw guarantee all moved to the
+ * scheduler with it.
+ */
+export function registerChatDigestSweep(): void {
+  registerSweep('chat-digest', SWEEP_SECONDS, async () => {
+    /*
+     * Push first, email second, and the order is the product decision.
+     *
+     * A push is immediate and an email is an hour's grace; somebody whose
+     * phone just buzzed does not also need an email about the same message
+     * ninety seconds later. Pushing first means the digest's own per-person
+     * claim is still unclaimed when it runs, so a person reachable by push
+     * still gets the email an hour later if they never opened it — which is
+     * the belt-and-braces the reach problem actually needs.
+     */
+    const pushed = await sweepPushNotifications();
+    const mailed = await sweepChatDigests();
+    const pruned = await pruneChatSignals();
+    const expired = await expireChatGrants();
 
-  sweepTimer = setInterval(() => {
-    if (sweeping) return;
-    sweeping = true;
-
-    void (async () => {
-      /*
-       * Push first, email second, and the order is the product decision.
-       *
-       * A push is immediate and an email is an hour's grace; somebody whose
-       * phone just buzzed does not also need an email about the same message
-       * ninety seconds later. Pushing first means the digest's own per-person
-       * claim is still unclaimed when it runs, so a person reachable by push
-       * still gets the email an hour later if they never opened it — which is
-       * the belt-and-braces the reach problem actually needs.
-       */
-      const pushed = await sweepPushNotifications();
-      const mailed = await sweepChatDigests();
-      const pruned = await pruneChatSignals();
-      const expired = await expireChatGrants();
-
-      if (pushed > 0) console.info(`[chat] pushed to ${String(pushed)} browsers`);
-      if (mailed > 0) console.info(`[chat] queued ${String(mailed)} digests`);
-      if (pruned > 0) console.info(`[chat] pruned ${String(pruned)} signals`);
-      if (expired > 0) console.info(`[chat] closed ${String(expired)} expired grants`);
-    })()
-      .catch((caught: unknown) => {
-        console.error(`[chat] digest sweep failed: ${describeError(caught)}`);
-      })
-      .finally(() => {
-        sweeping = false;
-      });
-  }, SWEEP_SECONDS * 1000);
-
-  // Never a reason to refuse to shut down.
-  sweepTimer.unref?.();
-
-  console.info(`[chat] digest sweep started (every ${String(SWEEP_SECONDS)}s)`);
+    if (pushed > 0) console.info(`[chat] pushed to ${String(pushed)} browsers`);
+    if (mailed > 0) console.info(`[chat] queued ${String(mailed)} digests`);
+    if (pruned > 0) console.info(`[chat] pruned ${String(pruned)} signals`);
+    if (expired > 0) console.info(`[chat] closed ${String(expired)} expired grants`);
+  });
 }

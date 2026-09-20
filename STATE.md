@@ -21,11 +21,23 @@ TRUNCATE** on all 119. Proved by attempt, not inferred: `anon` read
 was allowed to TRUNCATE `attendance_records`. **`0050` is applied and proved —
 18 passed, 0 failed**, with the live tenant still reading afterwards. §5cl,
 `PENDING.md` §Closed.
-⚠ **The Supabase quota is egress, not the database** — 35 MB of 500 MB, storage
-8.1 MB of 1 GB. It is 765,256 connection bootstraps returning 341M catalogue
-rows, and seven 60-second schedulers whose sweeps match zero rows. **Deleting
-tenants cannot touch it.** §5cl, `PENDING.md` `D6` — the one open item from
-this round.
+
+✅ **2026-09-20 — and the egress overage behind it is fixed. `PENDING.md` D6 is
+closed.** The quota is egress, not disk: 35 MB of 500 MB, storage 8.1 MB of
+1 GB. **98.60% of everything the database returned in 47.8 days was
+postgres-js's per-connection type bootstrap** — 766,278 connections, 16,041 a
+day, 446 catalogue rows each, and not one row of it application data. The cause
+was `idle_timeout: 20` against sweeps running every 30–60 seconds in each of
+**seven** server processes: every tick opened a connection the pool had just
+thrown away. `idle_timeout` is now **300**, migration **`0051`** adds a claimed
+scheduler lease so **one** process sweeps, eight `setInterval`s are gone, and
+the sweeps that had returned zero rows in 47 days now run every 5–10 minutes.
+**`fetch_types: false` was investigated and rejected** — it removes the
+bootstrap and silently turns every array column into a string on read, proved
+against the live database. New gate: **`check-scheduler`**, the **fifteenth**,
+added to CLAUDE.md and `ci.yml` together. §5cm.
+**Three schools' real data is that other 1.4%; deleting tenants could never
+have moved the bill, and nothing was deleted.**
 
 **Last updated:** 2026-09-19 (**Sprint 34 — Features and Roadmap in Super
 Admin — built, gated, PR #105, browser-QA'd across three rounds; eight defects
@@ -87,7 +99,7 @@ faults — and all three are fixed.
 ✅ **Sprint 34 — Features and Roadmap in Super Admin — is built, gated, PR'd and
 browser-QA'd — §5cj.** Two reference tabs after Feedback, from one static
 content module (`lib/product-catalogue.ts`) and one shared component. **No
-migration; `0050` is still the next free number.** PR #105, CI green.
+migration; `0051` is still the next free number.** PR #105, CI green.
 ⚠ **The green-build list is now fourteen, not thirteen** —
 `check-product-catalogue` is in `CLAUDE.md` and in CI, added to both together. The
 role-access matrix is **derived from `DEFAULT_ROLE_PERMISSIONS` at render
@@ -110,7 +122,7 @@ diverged from what exists. Read `app/` and `db/schema/`, not the plan.
 history being rewritten, the receipt, the recipient picker and the substitutes
 panel. Merged as **`44a4ad50`** (PR #102) and deployed; live build
 **`44a4ad50668d`**, started 09:10:45 UTC on 2026-09-18, CDN purged and the
-smoke test green. **`0050` is the next free migration number.**
+smoke test green. **`0051` is the next free migration number.**
 
 **`0049` is applied and proved — 50 assertions, 0 failed**, through
 `scripts/verify-0049.mjs`, which applies and proves in one pass and reads
@@ -12885,10 +12897,253 @@ days, per person, with the date in hand.
 
 ---
 
+## 5cm. The Supabase egress overage — 98.6% of it was opening the door — 2026-09-20
+
+**`PENDING.md` D6, opened and closed the same day.** Not part of any sprint.
+Supabase billed an egress overage on an estate of **three schools**, and the
+first instinct in the room was that there was too much data. There was not.
+
+### What `pg_stat_statements` said
+
+Read 2026-09-20, over the 47.77 days since the stats reset of 2026-08-03:
+
+| | |
+| --- | --- |
+| statements executed | 4,550,700 |
+| rows returned, every statement | 346,350,353 |
+| rows returned by **one** statement | 341,509,822 — **98.60%** |
+| times that statement ran | 766,278 |
+| rows per run | 445.7 |
+
+The statement:
+
+```sql
+select b.oid, b.typarray
+  from pg_catalog.pg_type a
+  left join pg_catalog.pg_type b on b.oid = a.typelem
+ where a.typcategory = $1
+```
+
+That is postgres-js's **type bootstrap**. It asks the catalogue for the oid of
+every array type, it returns 446 rows on a stock Supabase database, and it runs
+**once per new connection**, before a single byte of school data moves. So its
+`calls` column is not a query count. It is a **connection count**: 766,278
+connections in 47.8 days, **16,041 a day**.
+
+None of it is application data. The three schools' real rows — every student,
+every voucher, every message ever sent — are the remaining **1.4%**. Which
+settles the question that was asked first: **deleting tenant data could not
+have moved this bill.** 606 rows of 23,172 against 341 million is not a
+rounding error in the right direction, it is not in the picture at all.
+
+### The cause was arithmetic, not a leak
+
+`lib/postgres.ts` carried `idle_timeout: 20`, under a comment saying the
+application "opens and closes connections constantly". That comment was
+describing a consequence as though it were a cause. `idle_timeout: 20` is what
+*made* it true.
+
+`instrumentation.ts` started **eight** background sweeps, and it runs once per
+server process — Hostinger runs **seven**. The shortest sweep ran every 30
+seconds and most of the rest every 60. Against a 20-second idle timeout that
+produces one behaviour and only one: every tick of every sweep in every process
+found the pool empty, opened a connection, paid 446 catalogue rows to bootstrap
+it, did its work, and let the connection lapse before the next tick. **The pool
+never got to be a pool.**
+
+And the work it was doing, over the same 47.8 days:
+
+| Sweep | Calls | Rows it has ever returned |
+| --- | --- | --- |
+| `UPDATE email_outbox … WHERE status = 'sending' AND …` | 367,329 | **0** |
+| `update late_fee_rules …` (voucher auto-send) | 111,057 | **0** |
+| `update late_fee_rules …` (voucher auto-generate) | 66,134 | **0** |
+| `select id from academic_years …` | 584,786 | 584,759 |
+| announcements sweep | 141,437 | **2** |
+
+Roughly 1.6 million statements to find two announcements. The **work** was
+never duplicated — CLAUDE.md's "background work is claimed, not checked" was
+being followed, and every unit of it is claimed with a conditional
+`UPDATE … RETURNING`. What happened seven times was the **looking**, and the
+rule had nothing to say about that.
+
+### `fetch_types: false` is the obvious fix and it is a data-corruption bug
+
+postgres-js takes an option that skips that bootstrap entirely. It is the first
+thing anybody reaches for, it removes 98.6% of the egress in one line, and it
+must never be set here.
+
+That query is *precisely* what registers postgres-js's array parsers and
+serializers — `addArrayType` is called from its result and nowhere else. This
+schema has six array columns: `branches.class_levels`,
+`principal_assignments.grade_ids`, `staff.saturday_ordinals`,
+`saturday_duty_policies.ordinals`, and two on `staff_kpis`.
+
+Run against the live database rather than reasoned about:
+
+```
+fetch_types=true    branches.class_levels -> ["PRE_SCHOOL","NURSERY",…]  string[]
+fetch_types=false   branches.class_levels -> "{PRE_SCHOOL,NURSERY,…}"    string
+fetch_types=false   writing one           -> throws: malformed array literal
+```
+
+The write throws, so somebody would find it within a day. **The read does not.**
+It returns a `string` where every caller has been handed a `string[]` since the
+column existed, with no error anywhere — so `class_levels.includes('GRADE_1')`
+stops being an array membership test and starts being a substring match, and a
+campus quietly claims to teach a grade it does not. There is no safe way to
+re-register the types by hand either: `postgres` declares `exports` in its
+`package.json` and the subpath holding `arrayParser` is blocked.
+
+`check-scheduler`'s R2 now fails if anybody sets it, with that evidence in the
+failure message.
+
+### What was done instead
+
+**1. `idle_timeout` 20 → 300.** Longer than every tick by a wide margin, so a
+working process keeps its connection instead of buying a new one ten times a
+minute. Measured directly rather than assumed — `npm run measure-egress
+--probe-idle` sets a session GUC, waits 45 seconds, and reads it back:
+
+```
+idle_timeout=20    after 45s the marker is null     -> RECONNECTED, 446 rows paid again
+idle_timeout=300   after 45s the marker is 'alive'  -> SAME connection, no bootstrap
+```
+
+That is the whole fix, on two lines.
+
+**2. `lib/scheduler.ts` and migration `0051` — one leader.** A claimed lease,
+in the shape CLAUDE.md already required one level down:
+
+```sql
+INSERT INTO scheduler_leases (name, owner, …)
+VALUES ('sweeps', $me, …)
+ON CONFLICT (name) DO UPDATE SET owner = $me, …
+ WHERE scheduler_leases.owner = $me         -- renewal
+    OR scheduler_leases.expires_at < $now   -- takeover
+RETURNING owner
+```
+
+When neither branch holds, the `DO UPDATE` is skipped and **no row comes back**
+— so a process learns it is not the leader without ever reading the table, and
+Postgres decides it on one row under one lock. One process sweeps; the other
+six ask once a minute and are told no.
+
+`scheduler_leases` is the **only table in this schema with no `location_id`**,
+and that is deliberate: it is a lock between operating-system processes, which
+are not per-school. Giving it a tenant key would let seven processes each claim
+"their" school's lease and reinstate exactly what it removes.
+
+**3. Eight `setInterval`s deleted.** Every sweep now calls
+`registerSweep(name, seconds, run)`; `startScheduler()` owns the one timer this
+application has, and runs the registrations sequentially — eight fired at once
+would open eight connections, which is the thing being fixed.
+
+**4. Intervals matched to how often the work exists.**
+
+| Sweep | Was | Now | Why |
+| --- | --- | --- | --- |
+| outbox **drain** | 30s | 30s | the gap between pressing *Invite Staff* and the email arriving |
+| outbox **reclaim** | 30s | **10 min** | recovers from a process that died mid-send; 367,329 calls, 0 rows, ever |
+| announcements | 60s | 60s | a 09:00 announcement should go at 09:00 |
+| voucher auto-send | 60s | **5 min** | fires on one configured day a month |
+| voucher auto-generate | 60s | **5 min** | same |
+| holiday notice | 60s | **5 min** | one notice, the day before a holiday |
+| sibling discount | 15 min | 15 min | already right |
+| chat digest | 5 min | 5 min | already right |
+| probation | 15 min | 15 min | already right |
+
+### Three things that must not be undone
+
+**The per-item claims stay.** The lease is a *second* guard, not a replacement.
+It can expire while its holder is mid-send — a slow SMTP call, a paused process
+— and two leaders for a few seconds must not be able to send an invitation
+twice. Anyone who removes a per-item claim because "only one process runs now"
+reintroduces the double-send on the first slow transport.
+
+**The lease fails OPEN.** `claimSchedulerLease` returns `true` on any error, so
+an unreachable lease degrades to the old seven-process behaviour: wasteful and
+correct, with one loud line in the log. Failing closed would stop every sweep in
+every process, with nothing on any screen saying so — which is exactly the shape
+of the scheduled announcement that had never once been released at any school,
+from Sprint 11 until 2026-08-20.
+
+**`idle_timeout` must stay several times `TICK_SECONDS`.** `check-scheduler`'s
+R1 is the guard; without it, one edit puts all of the above back.
+
+### Before, measured as a rate
+
+The 47.8-day totals above are an average, and comparing an average to a reading
+taken an hour after a deploy proves nothing in either direction. So
+`measure-egress` gained `--sample <seconds>`, which reads the counters twice and
+reports the rate between them — the same measurement on both sides of a deploy,
+with no reset, so the long-window evidence survives.
+
+**Before, 2026-09-20, five-minute window, seven processes on the old code:**
+
+```
+  connections        12.37/min  =  17,814/day
+  bootstrap rows     5,913/min  =  8,515,157/day
+  statements         47.09/min
+  all rows returned  5,930/min
+  bootstrap share    99.71% of rows returned in this window
+```
+
+**99.71%.** In a live five-minute window on a production estate, all but three
+tenths of one percent of what the database returned was the cost of opening the
+door.
+
+### Evidence
+
+- `node scripts/apply-0051.mjs --apply` — `0051` applied, and proved by
+  **attempt**, because a row count cannot prove it: the table is empty before
+  and empty after, and would be empty if the file had created nothing. Three
+  contenders, exactly one wins; the lease expired, exactly one takes over.
+- `npm run check-scheduler` — **11 ok, 0 failed, 0 not exercised**, against the
+  real schema. Before `0051` it failed with exactly `42P01` and nothing else,
+  which is the only acceptable pre-migration failure.
+- **The check was sabotaged to prove it can fail.** Replacing `setWhere` with a
+  literal `true` turned four assertions red — 7 of 7 contenders winning the
+  lease, and the displaced holder renewing its way back in — and it was
+  restored. A check nobody has watched fail is a check nobody has tested.
+- Green build: all fifteen, plus `check-sprint33b`, `check-sprint33c`,
+  `check-voucher-scope` and `check-sprint30`.
+- `check-scheduler` went into **CLAUDE.md's list and `.github/workflows/ci.yml`
+  in the same commit**, which is the thing CLAUDE.md warns at length about
+  having got wrong with `check-theme` and `check-branch-scope`.
+
+### One thing found on the way, not fixed, and recorded
+
+`check-sprint28` fails, and it is **not** this change: seven `kpis.rate.*` keys
+are in `PERMISSIONS` and in none of the migrations defining
+`role_permissions_permission_check`. That is CLAUDE.md's own permission rule
+unmet — it works for every role holding it by default, and the first
+administrator who *overrides* one gets a `23514` on a form that had never
+failed. It is **`PENDING.md` D5**, with an owner and a definition of done.
+Widening that CHECK is a permissions migration with its own blast radius and
+had no business riding along inside a connection-pool change.
+
+### For whoever is next
+
+**The after-reading is still owed.** The fix is merged and deployed, but the
+comparable number is the five-minute `--sample` rate taken against the *new*
+build, and it must be taken after the seven processes have restarted:
+
+```
+npm run measure-egress -- --sample 300
+```
+
+Compare it to the block above, line for line. `connections/min` is the number
+that matters; `bootstrap share` is the one that tells the story. Do **not**
+`--reset` before taking it — the 47.8-day window is the only long-baseline
+evidence this problem has, and it cannot be recreated.
+
+---
+
 ## 5cj. Sprint 34 — Features and Roadmap in Super Admin — 2026-09-19
 
 Built on `claude/super-admin-features-roadmap-716d0f`, off `main` at `44a4ad5`.
-Spec is `SPRINT-34-SPEC.md`. **No migration — `0050` is still the next free
+Spec is `SPRINT-34-SPEC.md`. **No migration — `0051` is still the next free
 number.** PR #105. Release notes:
 `release-notes/RELEASE-NOTES-SPRINT-34.md`. Test cases:
 `test-cases/TEST-CASES-SPRINT-34.md`.

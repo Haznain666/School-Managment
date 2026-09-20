@@ -239,3 +239,8 @@ export * from './branch-leave-settings';
 // substitution is not a timetable change, and keeping the two apart in this
 // file is the cheapest reminder of that there is.
 export * from './timetable-substitutions';
+
+// Sprint 35 — which of the seven server processes runs the background sweeps.
+// The one table here with no `location_id`: it is a lock between processes,
+// not a school's data. See the file for why that is deliberate.
+export * from './scheduler-leases';

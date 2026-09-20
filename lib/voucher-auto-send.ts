@@ -13,6 +13,7 @@ import {
 
 import { formatMonthYear } from './dates';
 import { describeError } from './describe-error';
+import { registerSweep } from './scheduler';
 import { db } from './drizzle';
 import { sendFeeVouchers, type FeeVoucherNotice } from './fee-notices';
 import { toDateOnly } from './fee-queries';
@@ -49,11 +50,14 @@ import { toDateOnly } from './fee-queries';
 /** The 28th, so every month has the day. */
 export const DEFAULT_AUTO_SEND_DAY = 28;
 
-/** How often the sweep looks. A minute is well inside "the right day". */
-const SWEEP_SECONDS = 60;
-
-let sweepTimer: NodeJS.Timeout | null = null;
-let sweeping = false;
+/**
+ * Seconds between sweeps. Raised from 60 to 300 on 2026-09-20: this fires an
+ * email on a configured day of the month, and it had been asking every minute
+ * in each of seven processes. Its own
+ * statement shows in `pg_stat_statements` with **zero rows returned, ever**;
+ * five minutes is still far finer than the thing it is waiting for.
+ */
+const SWEEP_SECONDS = 300;
 
 /** One school the sweep has taken ownership of for today. */
 interface Claim {
@@ -218,28 +222,22 @@ export async function sweepAutoSendVouchers(now: Date = new Date()): Promise<num
   return sent;
 }
 
-/** Starts the sweep. Idempotent, like the outbox drainer beside it. */
-export function startVoucherAutoSend(): void {
-  if (sweepTimer !== null) return;
-
-  sweepTimer = setInterval(() => {
-    if (sweeping) return;
-    sweeping = true;
-
-    void sweepAutoSendVouchers()
-      .then((sent) => {
-        if (sent > 0) console.info(`[auto-send] sent for ${String(sent)} school(s)`);
-      })
-      .catch((caught: unknown) => {
-        console.error(`[auto-send] sweep failed: ${describeError(caught)}`);
-      })
-      .finally(() => {
-        sweeping = false;
-      });
-  }, SWEEP_SECONDS * 1000);
-
-  // Never a reason to refuse to shut down.
-  sweepTimer.unref?.();
-
-  console.info(`[auto-send] voucher scheduler started (every ${String(SWEEP_SECONDS)}s)`);
+/**
+ * Registers the sweep with the shared scheduler.
+ *
+ * ── Why this is no longer a timer of its own ─────────────────────────────
+ * It used to be `setInterval` in every server process, and Hostinger runs
+ * seven. `lib/scheduler.ts` now owns the one timer this application has, and
+ * only the process holding the lease runs what is registered here. The claims
+ * inside the sweep are untouched and still decide who does what — the lease is
+ * a second guard, not a replacement.
+ *
+ * Re-entrancy, `unref()` and the never-throw guarantee all moved to the
+ * scheduler with it.
+ */
+export function registerVoucherAutoSendSweep(): void {
+  registerSweep('voucher-auto-send', SWEEP_SECONDS, async () => {
+    const sent = await sweepAutoSendVouchers();
+    if (sent > 0) console.info(`[auto-send] sent for ${String(sent)} school(s)`);
+  });
 }

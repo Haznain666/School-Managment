@@ -2,6 +2,7 @@ import 'server-only';
 
 import { listDueAnnouncements, sendAnnouncement } from './announcement-queries';
 import { describeError } from './describe-error';
+import { registerSweep } from './scheduler';
 
 /**
  * Releases scheduled announcements when their time comes.
@@ -30,9 +31,6 @@ import { describeError } from './describe-error';
 /** How often the scheduler looks. A minute is well inside "the right hour". */
 const SWEEP_SECONDS = 60;
 
-let sweepTimer: NodeJS.Timeout | null = null;
-let sweeping = false;
-
 /**
  * Sends everything that is due. Returns how many went out.
  *
@@ -60,30 +58,22 @@ export async function sweepScheduledAnnouncements(now: Date = new Date()): Promi
   return sent;
 }
 
-/** Starts the sweep. Idempotent, like the outbox drainer beside it. */
-export function startAnnouncementScheduler(): void {
-  if (sweepTimer !== null) return;
-
-  sweepTimer = setInterval(() => {
-    if (sweeping) return;
-    sweeping = true;
-
-    void sweepScheduledAnnouncements()
-      .then((sent) => {
-        if (sent > 0) console.info(`[announcements] released ${sent} scheduled`);
-      })
-      .catch((caught: unknown) => {
-        console.error(
-          `[announcements] sweep failed: ${describeError(caught)}`,
-        );
-      })
-      .finally(() => {
-        sweeping = false;
-      });
-  }, SWEEP_SECONDS * 1000);
-
-  // Never a reason to refuse to shut down.
-  sweepTimer.unref?.();
-
-  console.info(`[announcements] scheduler started (every ${SWEEP_SECONDS}s)`);
+/**
+ * Registers the sweep with the shared scheduler.
+ *
+ * ── Why this is no longer a timer of its own ─────────────────────────────
+ * It used to be `setInterval` in every server process, and Hostinger runs
+ * seven. `lib/scheduler.ts` now owns the one timer this application has, and
+ * only the process holding the lease runs what is registered here. The claims
+ * inside the sweep are untouched and still decide who does what — the lease is
+ * a second guard, not a replacement.
+ *
+ * Re-entrancy, `unref()` and the never-throw guarantee all moved to the
+ * scheduler with it.
+ */
+export function registerAnnouncementSweep(): void {
+  registerSweep('announcements', SWEEP_SECONDS, async () => {
+    const sent = await sweepScheduledAnnouncements();
+    if (sent > 0) console.info(`[announcements] released ${String(sent)} scheduled`);
+  });
 }

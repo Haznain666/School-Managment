@@ -153,6 +153,27 @@ jobs:
         if: '!cancelled()'
         run: npm run check-branch-scope
 
+      # The scheduler and the connection pool. Every failure it catches is a
+      # silent one that costs money rather than correctness:
+      #
+      #   · `idle_timeout` shorter than a scheduler tick means the pool empties
+      #     between ticks, so each sweep buys a fresh connection — and each new
+      #     connection makes postgres-js read 446 catalogue rows before any
+      #     school's data moves. That one query was 98.6% of this database's
+      #     egress for 47 days, and nothing on any screen said so.
+      #   · `fetch_types: false` looks like the fix for that and silently turns
+      #     every array column into a string on read (proved against the live
+      #     database, 2026-09-20).
+      #   · a `setInterval` left in a sweep module is a timer that still runs
+      #     in all seven server processes.
+      #
+      # Only part one runs here. It reads source text and needs no database;
+      # parts two and three execute the lease statement and report themselves
+      # as *not exercised* without credentials, never as passed.
+      - name: Scheduler — one leader, and a pool that stays a pool
+        if: '!cancelled()'
+        run: npm run check-scheduler
+
       # Build last: it repeats type checking internally, so running it after a
       # failed typecheck would only echo errors already reported above.
       #
