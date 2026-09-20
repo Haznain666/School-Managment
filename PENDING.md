@@ -560,10 +560,32 @@ expects an array. `check-scheduler`'s R2 now fails if anybody sets it.
 - Before/after `pg_stat_statements` readings: `npm run measure-egress`, and the
   numbers are in `STATE.md` §5cl.
 
-**What is still open and belongs to whoever is next:** the after-reading is a
-*rate*, taken over hours rather than the 47.8 days the before-reading covers.
-`scripts/measure-egress.mjs --reset` restarts the window; read it again after a
-full day before quoting a headline number.
+**Measured after, the same way as before** — a five-minute `--sample` rate
+against the deployed build, no reset:
+
+| | Before | After |
+| --- | --- | --- |
+| connections | 12.37/min — 17,814/day | **0.00/min** |
+| bootstrap rows | 5,913/min | **0/min** |
+| all rows returned | 5,930/min | **153/min** |
+| bootstrap share of rows | 99.71% | **0.00%** |
+| statements (per-`queryid`) | 47.09/min | **19.9/min** |
+
+Zero new connections in five minutes of live production. Deployed as `463e44a`;
+the `sweeps` lease was claimed at 14:35:12.927Z and observed renewing **every
+30.0s for six minutes under one owner**, which is the proof the new code runs.
+
+⚠ A `--sample` taken inside the first five minutes after a deploy reported
+**120.72 statements/min** — seven processes restarting and prerendering, not a
+regression. Take this reading ten minutes after a deploy or later.
+
+**Still open, and recorded rather than left in a sprint list:** `acquired_at`
+does not move on a lease **takeover**, only on a first insert, because
+`claimSchedulerLease` omits it from the `set` so a renewal cannot move it and a
+takeover takes the same path. "How long has this leader held it" is therefore
+answerable only until the first takeover. Harmless today, and it cost one wrong
+conclusion during this session's own verification. Fix, if it ever matters: set
+`acquired_at` conditionally on `scheduler_leases.owner <> excluded.owner`.
 
 Everything that closed before this file existed is in `STATE.md` §6's own
 struck-through list, which is kept for the same reason.
