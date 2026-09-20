@@ -52,3 +52,29 @@ CREATE INDEX IF NOT EXISTS "scheduler_leases_expires_at_idx"
 
 COMMENT ON TABLE "scheduler_leases" IS
   'Which server process may run the background sweeps. Platform-level, not per-school: deliberately has no location_id. See lib/scheduler.ts.';
+
+-- ══ RLS and REVOKE, because 0050 ran before this table existed ══════════
+-- `0050_rls_lockdown` enumerated the 118 tables that were unprotected when it
+-- was written. This table is created afterwards, so without the two statements
+-- below it would be the **one table in `public` with RLS off** — the single
+-- exception in a posture whose whole value is that it has none.
+--
+-- Checked on the live database before writing this: `anon` and `authenticated`
+-- hold **no** grants here, because `0050` also revoked Supabase's default
+-- privileges and this table was created after that. So the hole is not open
+-- today. These statements are what stop it opening later: a future
+-- `GRANT ... ON ALL TABLES IN SCHEMA public`, or a default-privilege change,
+-- would reach this table and find nothing in the way.
+--
+-- RLS **and** REVOKE, exactly as `0050` argues: enabling RLS alone closes it
+-- today; revoking as well means it takes two mistakes rather than one to
+-- reopen it.
+--
+-- Safe for the application: it connects as `postgres`, which has
+-- `rolbypassrls = true` — verified, not assumed — which is also why the other
+-- 119 tables are readable with RLS on. No policy is added, so for every role
+-- that does **not** bypass RLS this table is deny-all, which is correct: no
+-- browser has any business reading which server process holds a timer.
+
+ALTER TABLE "public"."scheduler_leases" ENABLE ROW LEVEL SECURITY;--> statement-breakpoint
+REVOKE ALL ON TABLE "public"."scheduler_leases" FROM "anon", "authenticated";

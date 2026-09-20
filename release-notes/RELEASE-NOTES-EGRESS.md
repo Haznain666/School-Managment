@@ -2,7 +2,7 @@
 
 **Date:** 20 September 2026
 **Not a sprint.** A hosting bill, traced to its cause.
-**Migration:** `0050` — one new table, `scheduler_leases`. Empty, and it holds
+**Migration:** `0051` — one new table, `scheduler_leases`. Empty, and it holds
 no school's data.
 **Status:** merged and deployed.
 **Nothing a school can see has changed.** No screen, no permission, no record.

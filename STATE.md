@@ -19,7 +19,7 @@ never about the amount of data.** 98.60% of everything the database returned in
 16,041 a day, 446 catalogue rows each, none of it application data. The cause
 was `idle_timeout: 20` against sweeps that ran every 30-60 seconds in each of
 seven server processes — every tick opened a connection the pool had just
-thrown away. `idle_timeout` is now 300, migration `0050` adds a claimed
+thrown away. `idle_timeout` is now 300, migration `0051` adds a claimed
 scheduler lease so **one** process sweeps, eight `setInterval`s are gone and
 the sweeps that had returned zero rows in 47 days now run every 5-10 minutes.
 **`fetch_types: false` was investigated and rejected** — it removes the
@@ -89,7 +89,7 @@ faults — and all three are fixed.
 ✅ **Sprint 34 — Features and Roadmap in Super Admin — is built, gated, PR'd and
 browser-QA'd — §5cj.** Two reference tabs after Feedback, from one static
 content module (`lib/product-catalogue.ts`) and one shared component. **No
-migration; `0050` is still the next free number.** PR #105, CI green.
+migration; `0051` is still the next free number.** PR #105, CI green.
 ⚠ **The green-build list is now fourteen, not thirteen** —
 `check-product-catalogue` is in `CLAUDE.md` and in CI, added to both together. The
 role-access matrix is **derived from `DEFAULT_ROLE_PERMISSIONS` at render
@@ -112,7 +112,7 @@ diverged from what exists. Read `app/` and `db/schema/`, not the plan.
 history being rewritten, the receipt, the recipient picker and the substitutes
 panel. Merged as **`44a4ad50`** (PR #102) and deployed; live build
 **`44a4ad50668d`**, started 09:10:45 UTC on 2026-09-18, CDN purged and the
-smoke test green. **`0050` is the next free migration number.**
+smoke test green. **`0051` is the next free migration number.**
 
 **`0049` is applied and proved — 50 assertions, 0 failed**, through
 `scripts/verify-0049.mjs`, which applies and proves in one pass and reads
@@ -13002,7 +13002,7 @@ idle_timeout=300   after 45s the marker is 'alive'  -> SAME connection, no boots
 
 That is the whole fix, on two lines.
 
-**2. `lib/scheduler.ts` and migration `0050` — one leader.** A claimed lease,
+**2. `lib/scheduler.ts` and migration `0051` — one leader.** A claimed lease,
 in the shape CLAUDE.md already required one level down:
 
 ```sql
@@ -13085,12 +13085,12 @@ door.
 
 ### Evidence
 
-- `node scripts/apply-0050.mjs --apply` — `0050` applied, and proved by
+- `node scripts/apply-0051.mjs --apply` — `0051` applied, and proved by
   **attempt**, because a row count cannot prove it: the table is empty before
   and empty after, and would be empty if the file had created nothing. Three
   contenders, exactly one wins; the lease expired, exactly one takes over.
 - `npm run check-scheduler` — **11 ok, 0 failed, 0 not exercised**, against the
-  real schema. Before `0050` it failed with exactly `42P01` and nothing else,
+  real schema. Before `0051` it failed with exactly `42P01` and nothing else,
   which is the only acceptable pre-migration failure.
 - **The check was sabotaged to prove it can fail.** Replacing `setWhere` with a
   literal `true` turned four assertions red — 7 of 7 contenders winning the
@@ -13133,7 +13133,7 @@ evidence this problem has, and it cannot be recreated.
 ## 5cj. Sprint 34 — Features and Roadmap in Super Admin — 2026-09-19
 
 Built on `claude/super-admin-features-roadmap-716d0f`, off `main` at `44a4ad5`.
-Spec is `SPRINT-34-SPEC.md`. **No migration — `0050` is still the next free
+Spec is `SPRINT-34-SPEC.md`. **No migration — `0051` is still the next free
 number.** PR #105. Release notes:
 `release-notes/RELEASE-NOTES-SPRINT-34.md`. Test cases:
 `test-cases/TEST-CASES-SPRINT-34.md`.

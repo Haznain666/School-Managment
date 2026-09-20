@@ -58,7 +58,7 @@ import { db } from './drizzle';
  * still claims each row it touches exactly as it did before.
  *
  * ── If the table is not there ────────────────────────────────────────────
- * A deploy that lands before `0050` is applied finds no `scheduler_leases`.
+ * A deploy that lands before `0051` is applied finds no `scheduler_leases`.
  * The failure is then a choice between two behaviours, and only one of them
  * is safe: treating the error as "not the leader" would stop *every* sweep in
  * *every* process — no invite emails, no scheduled announcements, and nothing
@@ -201,7 +201,7 @@ export async function claimSchedulerLease(now: Date = new Date()): Promise<boole
       announcedDegraded = true;
       console.error(
         '[scheduler] lease unavailable, falling back to one sweeper per process — ' +
-          `apply migration 0050 — ${describeError(caught)}`,
+          `apply migration 0051 — ${describeError(caught)}`,
       );
     }
     // Wasteful and correct, rather than tidy and silently stopped.

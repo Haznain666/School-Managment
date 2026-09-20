@@ -42,7 +42,7 @@
  * wins, or that none does. Neither throws.
  *
  * So the statement runs against the real schema. The script reads whether
- * `0050` is applied rather than being told: before it, every execution must
+ * `0051` is applied rather than being told: before it, every execution must
  * fail with exactly **42P01** and any other SQLSTATE is a real defect wearing
  * a predicted failure's clothes; after it, the behaviour itself is asserted.
  *
@@ -282,7 +282,7 @@ const client = postgresJs(process.env.DATABASE_URL ?? '', {
 const db = drizzle(client, { schema });
 const { schedulerLeases } = schema;
 
-/** `0050` applied? Read it, never be told it. */
+/** `0051` applied? Read it, never be told it. */
 async function tableExists(): Promise<boolean> {
   const [row] = await client<{ present: boolean }[]>`
     select to_regclass('public.scheduler_leases') is not null as present`;
@@ -314,7 +314,7 @@ let exitCode = 0;
 
 try {
   const applied = await tableExists();
-  console.log(`\n  migration 0050: ${applied ? 'APPLIED' : 'NOT applied'}`);
+  console.log(`\n  migration 0051: ${applied ? 'APPLIED' : 'NOT applied'}`);
 
   console.log('\nPart two — the lease statement, executed against the real schema\n');
 
@@ -324,21 +324,21 @@ try {
     try {
       await claim(CONTENDERS[0] ?? 'x', LEASE, new Date(), 120);
       fail(
-        'the lease statement fails with 42P01 before 0050',
+        'the lease statement fails with 42P01 before 0051',
         'it succeeded, so scheduler_leases exists under another definition',
       );
     } catch (error) {
       const code = sqlState(error);
       assert(
-        'the lease statement fails with exactly 42P01 before 0050',
+        'the lease statement fails with exactly 42P01 before 0051',
         code === '42P01',
         `got ${code ?? '?'}: ${reason(error)}`,
       );
     }
 
-    skip('part three — mutual exclusion', 'scheduler_leases does not exist yet; apply 0050');
+    skip('part three — mutual exclusion', 'scheduler_leases does not exist yet; apply 0051');
     console.log('\n  Apply the migration, then run this again:');
-    console.log('    node scripts/apply-0050.mjs --apply\n');
+    console.log('    node scripts/apply-0051.mjs --apply\n');
   } else {
     await wipe();
 

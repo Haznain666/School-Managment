@@ -1,10 +1,10 @@
 #!/usr/bin/env node
 
 /**
- * Applies `0050` — the scheduler lease.
+ * Applies `0051` — the scheduler lease.
  *
- *   node scripts/apply-0050.mjs            # inspect only, changes nothing
- *   node scripts/apply-0050.mjs --apply    # apply and prove
+ *   node scripts/apply-0051.mjs            # inspect only, changes nothing
+ *   node scripts/apply-0051.mjs --apply    # apply and prove
  *
  * `drizzle-kit migrate` cannot be used and has not been since Sprint 18: the
  * password in `DATABASE_URL` holds an unescaped literal `@`, and drizzle-kit
@@ -14,7 +14,7 @@
  * transaction mode and will not do DDL.
  *
  * -- What has to be proved here, and why a row count cannot do it ---------
- * `0050` creates one empty table. Counting rows either side proves nothing at
+ * `0051` creates one empty table. Counting rows either side proves nothing at
  * all: the count is zero before, zero after, and would be zero if the file had
  * created nothing. CLAUDE.md is explicit that a constraint is proved by
  * *attempt*, and the same applies to a table: what matters is not that it
@@ -25,7 +25,7 @@
  *   2. drives three contenders at one test lease and requires exactly one to
  *      win — the whole mechanism, attempted rather than read;
  *   3. expires the lease and requires exactly one to take it over;
- *   4. deletes everything it wrote, under a `apply-0050:` name that no server
+ *   4. deletes everything it wrote, under a `apply-0051:` name that no server
  *      process uses.
  *
  * No tenant row is read or written. `scheduler_leases` holds no school's data
@@ -120,8 +120,8 @@ check(
 
 /* -- The mechanism, attempted ------------------------------------------- */
 
-const LEASE = 'apply-0050:probe';
-const OWNERS = ['apply-0050:a', 'apply-0050:b', 'apply-0050:c'];
+const LEASE = 'apply-0051:probe';
+const OWNERS = ['apply-0051:a', 'apply-0051:b', 'apply-0051:c'];
 
 /*
  * -- ISO strings, not Dates, and CLAUDE.md predicted this exactly ---------
@@ -156,7 +156,7 @@ async function claim(owner, now, ttlSeconds) {
   return won.length > 0;
 }
 
-await client`delete from scheduler_leases where name like 'apply-0050:%'`;
+await client`delete from scheduler_leases where name like 'apply-0051:%'`;
 
 const now = new Date();
 const first = await Promise.all(OWNERS.map(async (o) => ({ o, won: await claim(o, now, 120) })));
@@ -184,7 +184,7 @@ check(
 );
 
 const removed = await client`
-  delete from scheduler_leases where name like 'apply-0050:%' returning name`;
+  delete from scheduler_leases where name like 'apply-0051:%' returning name`;
 check('the probe rows are gone', removed.length > 0, `${removed.length} deleted`);
 
 const [live] = await client`select count(*)::int as n from scheduler_leases`;
@@ -200,4 +200,4 @@ if (failed > 0) {
   process.exit(1);
 }
 
-console.log('\n0050 applied and proved by attempt.');
+console.log('\n0051 applied and proved by attempt.');

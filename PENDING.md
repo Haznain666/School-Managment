@@ -418,7 +418,7 @@ expects an array. `check-scheduler`'s R2 now fails if anybody sets it.
 1. `idle_timeout` 20 → **300** — longer than every tick, so a working process
    keeps its connection instead of buying a new one ten times a minute.
 2. `lib/scheduler.ts` — a **claimed** lease (`INSERT … ON CONFLICT DO UPDATE …
-   WHERE … RETURNING`, migration `0050`). One process sweeps; the other six ask
+   WHERE … RETURNING`, migration `0051`). One process sweeps; the other six ask
    once a minute and are told no. The per-item claims are untouched, because a
    lease can expire mid-send and two leaders must not be able to double-send.
 3. Eight `setInterval`s deleted; every sweep registers with one timer.
@@ -430,11 +430,11 @@ expects an array. `check-scheduler`'s R2 now fails if anybody sets it.
 
 **Evidence.**
 
-- `node scripts/apply-0050.mjs --apply` — `0050` applied, and proved by
+- `node scripts/apply-0051.mjs --apply` — `0051` applied, and proved by
   *attempt* rather than by row count: three contenders, exactly one wins;
   the lease expired, exactly one takes over.
 - `npm run check-scheduler` — **11 ok, 0 failed, 0 not exercised**, against the
-  real schema. Before `0050` it failed with exactly `42P01` and nothing else.
+  real schema. Before `0051` it failed with exactly `42P01` and nothing else.
 - The check was **sabotaged to prove it can fail**: `setWhere` replaced with
   a literal `true` turned four assertions red (7 of 7 contenders winning), and was
   restored.
