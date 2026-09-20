@@ -39,6 +39,21 @@ added to CLAUDE.md and `ci.yml` together. §5cm.
 **Three schools' real data is that other 1.4%; deleting tenants could never
 have moved the bill, and nothing was deleted.**
 
+✅ **2026-09-20 — `PENDING.md` D7 is closed, and it was not what it said.**
+D7 reported seven `kpis.rate.*` keys missing from `role_permissions_permission_check`
+and asked for a migration. **They were never missing.** `0049` names all seven,
+`check-branch-scope` — which makes the same comparison against the same file — was
+green on it the whole time, and the live constraint already admits **61 keys,
+every one of the seven**. The defect was `check-sprint28`’s own regex,
+`/'([a-z]+\.[a-z]+)'/g`, which can match neither a three-segment key nor an
+underscore, so it could not see them — **and could not have seen one that was
+genuinely absent either.** No migration was written: one would have added a list
+already present and left the check red for the same reason. Instead the parse is
+fixed and scoped, an assertion now fails loudly when the pattern drops a literal,
+and **every key in `PERMISSIONS` is proved against the live CHECK by attempt**
+rather than by reading a file. ⚠ **A failing check is evidence about the check
+until its claim has been tested independently.** §5cn.
+
 **Last updated:** 2026-09-19 (**Sprint 34 — Features and Roadmap in Super
 Admin — built, gated, PR #105, browser-QA'd across three rounds; eight defects
 found and fixed. **Merged `d72aa45` and live on build `d72aa45868f0`.** No migration; a new **fourteenth** gate,
@@ -12894,6 +12909,183 @@ days, per person, with the date in hand.
    `lib/payroll-approval.ts` now has and the register does not call.
 5. **The bell's `href` is a fixed map of four routes.** A fifth portal would
    need a line in `noticeHrefFor`.
+
+---
+
+## 5cn. D7 — the seven keys that were never missing — 2026-09-20
+
+**`PENDING.md` D7, closed the day after it was opened.** Not part of any sprint.
+It was filed as a missing migration. It was a regex, and the more interesting
+half is not that the regex was wrong but that **nothing could tell the
+difference** between a key the database will refuse and a key the check cannot
+read.
+
+### What it said
+
+`npm run check-sprint28`, one line red out of forty-eight:
+
+```
+FAIL  db/migrations/0049_sprint33c_portal_work.sql names every key in PERMISSIONS
+      missing: kpis.rate.teacher, kpis.rate.coordinator, kpis.rate.vice_principal,
+      kpis.rate.hr_manager, kpis.rate.accountant, kpis.rate.marketing,
+      kpis.rate.section_head — the first school to override one of those gets a 23514
+```
+
+That is a precise, plausible and well-written failure. It names CLAUDE.md's own
+rule — *a new permission key needs a migration, not just a line in the list* —
+it names the seven keys, and it names the consequence, which is real: a school
+overriding one of those on the permissions matrix would get a `23514` on a form
+that had never failed. D7 was opened against it with a "done when" that
+specified the migration to write.
+
+### What was actually true
+
+Three readings, all taken before anything was changed, because the cost of
+writing a migration against a false premise is a migration in the tree forever.
+
+**One — the file.** `0049_sprint33c_portal_work.sql`, lines 211–214:
+
+```sql
+    'kpis.read', 'kpis.create', 'kpis.delete', 'kpis.overall',
+    'kpis.rate.teacher', 'kpis.rate.coordinator', 'kpis.rate.vice_principal',
+    'kpis.rate.hr_manager', 'kpis.rate.accountant', 'kpis.rate.marketing',
+    -- Sprint 33b.
+    'kpis.rate.section_head',
+```
+
+All seven, in the constraint the check was reading, in the file the check named.
+
+**Two — the other check.** `npm run check-branch-scope` is the script CLAUDE.md
+names as the enforcer of this exact rule, and it makes the same comparison
+against the same file:
+
+```
+PASS — 1792 assertions across the catalogue, the resolver, the listings,
+migration 0035, db/migrations/0049_sprint33c_portal_work.sql and the chat/KPI
+seniority order.
+```
+
+Two checks in the same repository, reading the same file for the same fact, had
+been disagreeing for eight sprints. One is in CI. Nobody had put them side by
+side.
+
+**Three — the database.** `pg_get_constraintdef` on the live
+`role_permissions_permission_check`: **61 keys, every one of the seven
+PRESENT**, plus `timetable.substitute`. The constraint a real administrator
+would hit already admits everything the code offers. There was never a school
+that could have got the `23514` the failure predicted.
+
+### The defect
+
+`scripts/check-sprint28.ts`, one line, unchanged since Sprint 28:
+
+```ts
+[...migration.body.matchAll(/'([a-z]+\.[a-z]+)'/g)]
+```
+
+Two segments of lowercase letters. Against `'kpis.rate.teacher'` the engine
+matches `kpis.rate`, then wants the closing quote and finds a `.`; backtracking
+offers it nothing better, so **the key does not match at all**. It is not that
+the key matched partially — it was invisible. `[a-z]` also excludes `_`, so
+`vice_principal` and `hr_manager` were unreachable twice over.
+
+And it read `migration.body` — the entire file — rather than the constraint's
+own clause, so a key named in a comment anywhere in a three-hundred-line
+migration counted as the key being in the CHECK.
+
+`check-branch-scope` has `/'([a-z_.]+)'/g`, scoped to the clause, with a comment
+recording that Sprint 32's `kpis.rate.vice_principal` and `kpis.rate.hr_manager`
+were the first keys with an underscore and that a pattern without it *"reported
+them missing from a CHECK that names them."* The fix was made there and never
+carried across. This is the second time that sentence has been written about
+this repository.
+
+### Why no migration was written
+
+The instinct — and the instruction the work started from — was to write `0052`
+dropping and re-adding the constraint with the full list. It would have been
+harmless, and it would have been wrong twice.
+
+It adds nothing: every key it would list is already listed, in the file and in
+the database. And it **does not fix the failure**, which is the decisive point.
+A pattern that cannot read `0049` cannot read `0052` either — `latestMigrationDefining`
+would have found the new file, matched the same 54 of 61 literals, and reported
+the same seven keys missing. The check would have gone red on a migration
+written specifically to satisfy it, and the next session would have written
+`0053`.
+
+**A failing check is evidence about the check until the claim it makes has been
+tested independently.** That is the general lesson, and it is the same shape as
+§5av and the 42702 story: the tool's report is not the fact.
+
+### What was done
+
+`scripts/check-sprint28.ts`, three changes.
+
+1. **The parse is scoped and widened.** `/"permission" IN \(([\s\S]*?)\)\s*\);/`
+   for the clause, `/'([a-z_.]+)'/g` inside it — the same two corrections
+   `check-branch-scope` has had since Sprint 32.
+
+2. **The class of bug is made loud.** A new assertion counts the quoted literals
+   in the clause and requires the pattern to have matched all of them. This is
+   the important one: an under-matching pattern produces a long `missing` and an
+   empty `extra`, which is *indistinguishable on screen* from a migration
+   somebody forgot to write. That is not a hypothetical — it is exactly how D7
+   came to be filed. Proved by reverting the pattern:
+
+   ```
+   FAIL  every quoted literal in the clause was parsed
+         the clause holds 61 literals and the pattern matched 54 — the pattern is
+         dropping keys, so "missing" below is about the pattern and not about the migration
+   ```
+
+3. **Every key is proved by attempt, not one.** The script already attempted
+   `fees.admission` and `fees.invent` against the live CHECK in rolled-back
+   transactions. The other fifty-nine keys rested entirely on the regex, which
+   is why a broken regex was the only thing anyone heard from. Now each key in
+   `PERMISSIONS` gets its own insert against the real constraint, rolled back,
+   with the row count read back afterwards:
+
+   ```
+   ok    fees.admission is accepted by the CHECK
+   ok    fees.invent is refused with 23514
+   ok    all 60 other keys in PERMISSIONS are accepted by the live CHECK
+   ok    nothing was written by any of those attempts
+   ```
+
+   CLAUDE.md already required this — *"prove the constraint by attempt, not by
+   reading it"* — and the reason it gives is that a dropped CHECK leaves every
+   row count identical. D7 is the second reason: a *read* can be wrong about a
+   constraint that is entirely correct, and an attempt cannot be.
+
+`npm run check-sprint28`: **PASS — 51 ok, 0 failed or not exercised.**
+
+### What is still open
+
+1. **Nothing, on the sibling scripts — they were audited rather than assumed.**
+   Four scripts compare `PERMISSIONS` against the newest CHECK, and only two of
+   them use a regex:
+
+   | Script | How it reads the list | Shape-safe? |
+   | --- | --- | --- |
+   | `check-branch-scope` | `/'([a-z_.]+)'/g`, scoped to the `IN (…)` clause | yes, since Sprint 32 |
+   | `check-sprint28` | the same, as of this work | yes, now |
+   | `check-sprint32` | a plain `.includes()` substring test, whole file | yes |
+   | `check-sprint33a` | a plain `.includes()` substring test, whole file | yes |
+
+   A substring test cannot under-match whatever the key's shape, so the two
+   `.includes()` scripts were never exposed to this. They are *unscoped* — a key
+   named only in a docblock would satisfy them — which is a weaker test than
+   `check-branch-scope`'s but not the defect D7 was. **Three of the four were
+   green on `0049` the whole time.** The disagreement was one script against
+   three, and nobody had put them side by side.
+2. **No migration was added, so nothing was applied.** The live database is
+   untouched by this work — every attempt above rolled back, and the row count
+   was read back to prove it.
+3. **`npm run check-sprint28` needs the database**, so CI does not run it. The
+   file-text half of what was fixed here would run anywhere; the by-attempt half
+   is the half that matters and it stays on a machine holding credentials. That
+   is the existing split, not a new one.
 
 ---
 

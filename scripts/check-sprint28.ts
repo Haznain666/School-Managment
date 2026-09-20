@@ -44,6 +44,17 @@
  * newest migration's CHECK, plus the four roles that must hold
  * `fees.admission` while holding no `fees.write`.
  *
+ * ── The catalogue is proved against the database, not against a regex ────
+ * Corrected 2026-09-20, `PENDING.md` D7. The file comparison here read the
+ * whole migration rather than the constraint's clause, with a pattern that
+ * could match neither a three-segment key nor an underscore — so it called all
+ * seven `kpis.rate.*` keys missing from a `0049` that names every one, and
+ * could not have seen one that was genuinely absent. It is fixed, it now fails
+ * loudly if it ever drops a literal again, and it is no longer the only
+ * evidence: **every key in `PERMISSIONS` is attempted against the live CHECK**,
+ * in a transaction that is always rolled back, because CLAUDE.md's rule is that
+ * a constraint is proved by attempt and never by reading it.
+ *
  * Reads `DATABASE_URL` from the main checkout's `.env.local`, because a
  * worktree has no env of its own.
  */
@@ -349,13 +360,65 @@ async function main(): Promise<void> {
   console.log('\nPERMISSIONS and the newest migration’s CHECK are the same set:');
 
   const migration = latestMigrationDefining('role_permissions_permission_check');
+
+  /*
+   * ── Read the CHECK's own clause, not the whole file ────────────────────
+   *
+   * Two corrections, both of which this script got wrong from Sprint 28 until
+   * 2026-09-20, and the second of which is what `PENDING.md` D7 was:
+   *
+   * 1. **Scope.** `migration.body` is the entire migration. A key named in a
+   *    docblock two hundred lines above the constraint counted as listed, so
+   *    a comment promising a key was accepted as the key being there.
+   *
+   * 2. **The pattern.** It was `/'([a-z]+\.[a-z]+)'/g` — two segments of
+   *    lowercase letters and nothing else. Every three-segment key was
+   *    invisible to it (`'kpis.rate.teacher'` matches `kpis.rate`, then the
+   *    pattern demands a closing quote and finds `.`), and so was every
+   *    underscore (`kpis.rate.vice_principal`). It therefore reported all
+   *    seven `kpis.rate.*` keys missing from `0049`, which names every one of
+   *    them — and, far worse, **could not have seen a three-segment key that
+   *    was genuinely absent**. A parse that silently drops keys is not a
+   *    weaker version of this check; it is the check reporting on a list it
+   *    never read.
+   *
+   * `check-branch-scope` has had both of these right since Sprint 32, and its
+   * comment records paying for the underscore. This script was never given the
+   * same fix, and the two disagreed about the same file for eight sprints —
+   * `check-branch-scope` green on `0049`, this one red on `0049`.
+   */
+  const checkClause = /"permission" IN \(([\s\S]*?)\)\s*\);/.exec(migration.body);
+
+  assert(
+    `${migration.path} carries a readable "permission" IN (…) clause`,
+    checkClause !== null,
+    'the constraint could not be parsed at all — every set comparison below is vacuous',
+  );
+
   const listed = new Set(
-    [...migration.body.matchAll(/'([a-z]+\.[a-z]+)'/g)].map((match) => match[1] ?? ''),
+    [...(checkClause?.[1] ?? '').matchAll(/'([a-z_.]+)'/g)].map((match) => match[1] ?? ''),
   );
 
   const missing = permissions.PERMISSIONS.filter((key) => !listed.has(key));
   const extra = [...listed].filter(
     (key) => !(permissions.PERMISSIONS as readonly string[]).includes(key),
+  );
+
+  /*
+   * The guard against this section rotting back into what it was. A pattern
+   * that under-matches makes `missing` long and `extra` empty — which reads
+   * exactly like a migration somebody forgot to write, and is why D7 was filed
+   * as a missing migration rather than as a broken regex. Counting the clause's
+   * own literals and requiring the parse to have caught all of them turns that
+   * silent failure into a named one.
+   */
+  const literals = ((checkClause?.[1] ?? '').match(/'/g) ?? []).length / 2;
+
+  assert(
+    'every quoted literal in the clause was parsed',
+    listed.size === literals,
+    `the clause holds ${String(literals)} literals and the pattern matched ${String(listed.size)} — ` +
+      'the pattern is dropping keys, so "missing" below is about the pattern and not about the migration',
   );
 
   assert(
@@ -537,10 +600,12 @@ async function main(): Promise<void> {
    * foreign key would report 23503 and prove nothing about the constraint under
    * test. Every attempt is inside a transaction that is always rolled back.
    */
-  for (const [key, mustBeAccepted] of [
-    ['fees.admission', true],
-    ['fees.invent', false],
-  ] as const) {
+  /**
+   * One attempt. Returns the SQLSTATE that refused it, or null if it was
+   * accepted — and either way writes nothing, because the transaction is
+   * always rolled back.
+   */
+  async function attempt(key: string): Promise<{ accepted: boolean; code: string | null }> {
     let accepted = false;
     let code: string | null = null;
 
@@ -556,6 +621,15 @@ async function main(): Promise<void> {
     } catch (error) {
       if (!String(error).includes('Rollback')) code = sqlState(error);
     }
+
+    return { accepted, code };
+  }
+
+  for (const [key, mustBeAccepted] of [
+    ['fees.admission', true],
+    ['fees.invent', false],
+  ] as const) {
+    const { accepted, code } = await attempt(key);
 
     if (mustBeAccepted) {
       if (applied) {
@@ -585,6 +659,47 @@ async function main(): Promise<void> {
       );
     }
   }
+
+  /*
+   * ── Every key in the catalogue, one attempt each ───────────────────────
+   *
+   * The two attempts above prove the constraint is live and that it refuses.
+   * They prove nothing about the other fifty-nine keys, and `PENDING.md` D7 is
+   * what that gap costs: for eight sprints the only thing standing behind
+   * "`PERMISSIONS` and the CHECK agree" was a regex reading a file, and when
+   * that regex turned out to be wrong nothing else in the script could say so.
+   *
+   * CLAUDE.md is explicit that a CHECK is proved **by attempt and not by
+   * reading it** — a constraint dropped and never re-added leaves every row
+   * count and every migration file identical. So each key gets an insert that
+   * reaches the constraint and a transaction that is always rolled back. A key
+   * the database will not accept is named here by its own name, whatever any
+   * migration or any pattern says about it.
+   *
+   * Reporting is aggregated because sixty-one `ok` lines is not a report; the
+   * count of attempts is printed so that a loop that silently ran over an
+   * empty list cannot pass as agreement.
+   */
+  const refused: string[] = [];
+
+  for (const key of permissions.PERMISSIONS) {
+    // Proved above, and it is the one key whose expectation depends on `0044`.
+    if (key === 'fees.admission') continue;
+
+    const { accepted, code } = await attempt(key);
+    if (!accepted) refused.push(`${key} (${code ?? 'did not execute'})`);
+  }
+
+  const attempted = permissions.PERMISSIONS.length - 1;
+
+  assert(
+    `all ${String(attempted)} other keys in PERMISSIONS are accepted by the live CHECK`,
+    refused.length === 0 && attempted > 0,
+    refused.length === 0
+      ? 'nothing was attempted — PERMISSIONS came back empty'
+      : `refused: ${refused.join(', ')} — a school overriding one of those gets a 23514 ` +
+        'on a permission matrix that had never failed',
+  );
 
   const permissionRowsAfter = rows<{ n: number }>(
     await db.execute(sql`select count(*)::int as n from role_permissions`),

@@ -9,7 +9,9 @@ and a definition of done. The two are read together. `STATE.md` says how a thing
 came to be; this file says whether it is finished.
 
 **Opened:** 2026-09-19, from a full read of `STATE.md` at `d05914d`.
-**Last reconciled:** 2026-09-20 (D5 and D6 closed, D7 added).
+**Last reconciled:** 2026-09-20 (D5, D6 and D7 closed. D7 was not what it
+said: the seven `kpis.rate.*` keys are in `0049` and in the live CHECK, and
+the defect was `check-sprint28`’s own regex).
 
 ---
 
@@ -176,34 +178,6 @@ and cannot move an egress allowance by any amount. Sizing the connection churn
 is the first measurement worth taking.
 
 </details>
-
-### D7 🔴 Seven `kpis.rate.*` permission keys are missing from the CHECK
-
-**Owner:** whichever sprint next touches KPI permissions. One migration.
-**Source:** found 2026-09-20 by `npm run check-sprint28`, which fails on it.
-
-`PERMISSIONS` in `lib/permissions.ts` carries `kpis.rate.teacher`,
-`kpis.rate.coordinator`, `kpis.rate.vice_principal`, `kpis.rate.hr_manager`,
-`kpis.rate.accountant`, `kpis.rate.marketing` and `kpis.rate.section_head`.
-The newest migration defining `role_permissions_permission_check` — `0049` —
-names none of them.
-
-This is CLAUDE.md's own rule, "a new permission key needs a migration, not just
-a line in the list", unmet. `DEFAULT_ROLE_PERMISSIONS` lives in code, so every
-one of these **works** for the roles that hold it by default and every browser
-test passes. The constraint is reached only when a school *overrides* the
-default — granting one of these to another role, or taking it away — and that
-administrator gets a `23514` on a permission matrix that had never failed.
-
-Not fixed in the egress sprint that found it: widening that CHECK is a
-permissions migration with its own blast radius, and bundling it into a
-connection-pool change would have made both harder to reason about.
-
-**Done when:** a migration drops and re-adds `role_permissions_permission_check`
-with the full list, proved by attempt the way `scripts/apply-0042.mjs` does —
-a key outside the list refused with `23514`, each new key accepted, both inside
-transactions that roll back — and `npm run check-sprint28` is green.
-
 
 ---
 
@@ -567,3 +541,95 @@ full day before quoting a headline number.
 
 Everything that closed before this file existed is in `STATE.md` §6's own
 struck-through list, which is kept for the same reason.
+
+### D7 ✅ The seven `kpis.rate.*` keys were never missing — the check could not see them
+
+**Closed 2026-09-20.** Narrative in `STATE.md` §5cn. Release notes:
+`release-notes/RELEASE-NOTES-D7-PERMISSION-CHECK.md`.
+
+**What it was filed as.** A migration that nobody wrote: `PERMISSIONS` carries
+`kpis.rate.teacher`, `kpis.rate.coordinator`, `kpis.rate.vice_principal`,
+`kpis.rate.hr_manager`, `kpis.rate.accountant`, `kpis.rate.marketing` and
+`kpis.rate.section_head`, and `npm run check-sprint28` said `0049` named none of
+them — CLAUDE.md's "a new permission key needs a migration" rule, unmet.
+
+**What it was.** `scripts/check-sprint28.ts` line 353, since Sprint 28:
+
+```ts
+[...migration.body.matchAll(/'([a-z]+\.[a-z]+)'/g)]
+```
+
+Two segments of lowercase letters, and nothing else. `'kpis.rate.teacher'`
+matches `kpis.rate`, then the pattern demands a closing quote and finds a `.`,
+so **no three-segment key matched at all** — and no underscore, so
+`vice_principal` and `hr_manager` were doubly invisible. It also read
+`migration.body`, the whole file, rather than the constraint's own clause.
+
+`0049` names all seven. So does the live database.
+
+**The three readings that settled it,** all taken before anything was changed:
+
+| Evidence | Says |
+| --- | --- |
+| `0049_sprint33c_portal_work.sql` lines 211–214, read directly | all seven are in the `IN (…)` list |
+| `npm run check-branch-scope` — the check CLAUDE.md names for this rule, whose pattern is `/'([a-z_.]+)'/g` scoped to the clause | **PASS**, 1792 assertions, on the same file and the same `PERMISSIONS` |
+| `pg_get_constraintdef` on the live `role_permissions_permission_check` | 61 keys, every one of the seven **PRESENT** |
+
+`check-branch-scope`'s own comment records paying for the underscore in Sprint
+32. `check-sprint28` was never given the same fix, so the two checks disagreed
+about the same file for eight sprints — one green, one red.
+
+**Why no migration was written.** There is nothing for it to add. A `0052`
+dropping and re-adding the constraint with the full list would have re-added the
+list that is already there, and — the part that matters — **would have left
+`check-sprint28` red**, because the pattern that could not read `0049` cannot
+read `0052` either. The failing check was the defect.
+
+**What was done instead,** `scripts/check-sprint28.ts`:
+
+1. The parse is scoped to `"permission" IN (…)` and uses `/'([a-z_.]+)'/g`, so a
+   key promised in a docblock two hundred lines above the constraint no longer
+   counts as the key being there.
+2. A new assertion counts the clause's own quoted literals and requires the
+   pattern to have matched all of them. An under-matching pattern makes
+   `missing` long and `extra` empty — which reads exactly like a forgotten
+   migration, and is why this was filed as one. It now says so by name.
+3. **Every key in `PERMISSIONS` is attempted against the live CHECK**, not one,
+   each in a transaction that is always rolled back, with the row count read
+   back. CLAUDE.md's rule is that a constraint is proved by attempt and never by
+   reading it; until now the attempt covered `fees.admission` and the other
+   sixty rested on the regex.
+
+**The evidence.** `npm run check-sprint28`:
+
+```
+PERMISSIONS and the newest migration’s CHECK are the same set:
+  ok    db/migrations/0049_sprint33c_portal_work.sql carries a readable "permission" IN (…) clause
+  ok    every quoted literal in the clause was parsed
+  ok    db/migrations/0049_sprint33c_portal_work.sql names every key in PERMISSIONS
+  ok    db/migrations/0049_sprint33c_portal_work.sql names no key the code does not
+
+The widened permission CHECK, proved by attempt:
+  ok    fees.admission is accepted by the CHECK
+  ok    fees.invent is refused with 23514
+  ok    all 60 other keys in PERMISSIONS are accepted by the live CHECK
+  ok    nothing was written by any of those attempts
+
+PASS — 51 ok, 0 failed or not exercised
+```
+
+And the guard proved by *reverting* to the old pattern, which is the only way to
+know a guard fires:
+
+```
+  FAIL  every quoted literal in the clause was parsed
+        the clause holds 61 literals and the pattern matched 54 — the pattern is
+        dropping keys, so "missing" below is about the pattern and not about the migration
+```
+
+That second line is the sentence that would have stopped D7 being opened.
+
+**What is still true from the original entry.** Nothing about the code, but the
+rule it cited stands and is unaffected: a genuinely new permission key still
+needs a migration. What changed is that `check-sprint28` can now tell the
+difference between a missing key and a key it cannot read.
