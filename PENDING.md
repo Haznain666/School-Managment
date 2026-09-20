@@ -108,6 +108,89 @@ choosing between `ownedBy` and `sharedOrOwnedBy` will read one of the two.
 **Done when:** the docblock matches the schema, or the schema changes and both
 say so.
 
+### D5 🔴 RLS is off on 118 of 119 public tables, and `anon` holds every privilege
+
+**Owner:** this session. **Opened:** 2026-09-20, from a Supabase Advisor count
+of 123 issues.
+
+Not a lint warning. Measured against the live database, then **proved by
+attempt** with `scripts/apply-0050.mjs` in its read-only mode:
+
+```
+before: 1/119 public tables carry RLS
+FAIL  anon refused SELECT on student_profiles   — got 1     (a row came back)
+FAIL  anon refused SELECT on student_guardians  — got 1
+FAIL  anon refused SELECT on fee_challans       — got 1
+FAIL  anon refused SELECT on ledger_entries     — got 1
+FAIL  anon refused SELECT on chat_messages      — got 1
+FAIL  anon refused DELETE on student_profiles   — allowed
+FAIL  anon refused TRUNCATE on attendance_records — allowed
+```
+
+`anon` holds SELECT, INSERT, UPDATE, DELETE **and TRUNCATE** on all 119 tables
+and has `rolbypassrls = false`, so RLS was the only gate and it was open. The
+credential that assumes `anon` is `NEXT_PUBLIC_SUPABASE_ANON_KEY` — inlined
+into the browser bundle by name and by design, served to every visitor of every
+tenant, signed out included.
+
+The application cannot notice: it reads as `postgres` (`rolbypassrls = true`)
+and reaches PostgREST as `service_role`. There are **zero** `.from()` calls in
+`lib`, `components` and `app`, so nothing in this product has ever used the
+door that was open.
+
+`db/migrations/0050_rls_lockdown.sql` is written and `scripts/apply-0050.mjs`
+proves it both ways. **It is not applied** — the apply was refused by this
+session's production gate, so the hole is still open as of this line.
+
+**Done when:** `node scripts/apply-0050.mjs --apply` prints `PASS`, with the
+`anon refused …` lines green and the two `proved still working` lines green
+alongside them.
+
+### D6 🔴 Seven schedulers × 60s are what is actually consuming the Supabase quota
+
+**Owner:** the next sprint allowed to touch `instrumentation.ts`.
+**Opened:** 2026-09-20.
+
+The quota is **not** disk. Measured 2026-09-20: database **35 MB** of a 500 MB
+allowance, Storage **8.1 MB** of 1 GB, 602 auth users of 50,000. Deleting a
+tenant frees 606 rows out of 23,172. Nothing on this list is close to a limit.
+
+What is large is traffic, and `pg_stat_statements` names it. Since the stats
+reset on 2026-07-24 — 58 days — the database has executed **4,542,424
+statements** and returned **345,848,182 rows**, serving three schools:
+
+| Statement | Calls | Rows returned |
+| --- | --- | --- |
+| postgres-js type bootstrap (`pg_type`, once per connection) | 765,256 | **341,022,328** |
+| `select id from academic_years where location_id = …` | 582,986 | 582,959 |
+| `UPDATE email_outbox SET status …` (claim) | 367,233 | 1,379 |
+| `UPDATE email_outbox SET status … WHERE scheduled_at < …` | 366,967 | **0** |
+| Realtime WAL poll | 292,333 | 292,333 |
+| announcements sweep | 141,257 | **2** |
+| `update late_fee_rules …` (two sweeps) | 176,831 | **0** |
+
+Two separate faults sit in that table.
+
+**Connection churn.** 341M of the 346M rows returned — 98.6% — are
+`pg_catalog.pg_type` rows that postgres-js fetches *once per new connection*.
+765,256 connections in 58 days is 13,194 a day; `pgbouncer.get_auth` confirms
+220,897 client authentications independently. That is the single largest thing
+leaving this database and not one row of it is application data.
+
+**Sweeps that never find anything.** 366,967 email-outbox expiry updates
+matched **zero** rows, ever. 176,831 late-fee updates matched **zero** rows,
+ever. 141,257 announcement sweeps found **two**. `instrumentation.ts` starts one
+scheduler per server process and production runs seven, each waking every 60
+seconds — 7.0 `academic_years` reads per minute is exactly that arithmetic, and
+it matches.
+
+**Done when:** the sweeps are driven by one claimed leader rather than seven
+racing timers, or their intervals reflect how often the work actually exists;
+and the connection churn is measured again after it.
+
+⚠ Not yet confirmed **which** Supabase quota was reported as exceeded — see
+`U8`. Everything above is measured; the attribution to egress is inference.
+
 ---
 
 ## B — Blocked on the product owner
@@ -289,6 +372,37 @@ origin.
 ⚠ **Those numbers are from the development machine, which is not where the
 answer matters.** One measurement from a Pakistani connection is worth more than
 all of them.
+
+### U8 🔴 Which Supabase quota was exceeded, and do the two test schools still go?
+
+**Opened:** 2026-09-20.
+
+Two questions, both asked because the session that would have acted on them
+found the stated reason did not hold.
+
+**Which quota.** The request was "the DB has exceeded the quota, remove the
+other two schools". Measured: database 35 MB of 500 MB, Storage 8.1 MB of 1 GB,
+602 auth users of 50,000. Removing both test tenants frees **606 rows of
+23,172** and **4.88 MB** of files — it cannot move any of those numbers, and
+the database would still read 35 MB afterwards because Postgres does not return
+freed pages to the filesystem without a `VACUUM FULL`. `D6` has what the
+traffic actually looks like. The number Supabase reported, and against which
+allowance, is still unknown here; the dashboard's Usage page answers it in one
+screen.
+
+**Do they still go.** `Lahore Grammar School` and `Beacon House School System`
+are test tenants and removing them is reasonable housekeeping on its own
+merits — but it is irreversible, this project has no point-in-time recovery on
+the free plan, and it was asked for on a premise that turns out to be false. So
+it is not being done on inference.
+
+`scripts/remove-school.mjs` is written, dry-run by default, and refuses
+`--apply` without `--i-have-a-backup`. Its dry run against both ids reports:
+606 rows across 69 tables, 11 GoTrue accounts (0 shared with Askari), 14 files
+/ 4.88 MB, and `cascade cover: 112 of 114`.
+
+**Done when:** the user says which quota, and either confirms the removal — at
+which point the script runs and prints its own proof — or says to keep them.
 
 ---
 
