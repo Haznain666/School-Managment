@@ -11,6 +11,12 @@ export interface ModuleCardProps {
   /** True when this card differs from what is saved. */
   dirty: boolean;
   disabled?: boolean;
+  /**
+   * Phase 1 — included with every school (Sprint 35, E9). Drawn as a badge
+   * where the switch would be: a switch that is always on and refuses to move
+   * invites exactly the click it then has to refuse.
+   */
+  included?: boolean;
   onChange: (enabled: boolean) => void;
 }
 
@@ -19,6 +25,7 @@ export function ModuleCard({
   enabled,
   dirty,
   disabled = false,
+  included = false,
   onChange,
 }: ModuleCardProps) {
   return (
@@ -36,13 +43,17 @@ export function ModuleCard({
         </div>
       </div>
 
-      <Toggle
-        label={module.label}
-        hideLabel
-        checked={enabled}
-        disabled={disabled}
-        onChange={onChange}
-      />
+      {included ? (
+        <Badge variant="success">Included</Badge>
+      ) : (
+        <Toggle
+          label={module.label}
+          hideLabel
+          checked={enabled}
+          disabled={disabled}
+          onChange={onChange}
+        />
+      )}
     </div>
   );
 }

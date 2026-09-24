@@ -26,11 +26,14 @@ export function SchoolTabs({ schoolId }: SchoolTabsProps) {
     { label: 'Branding', href: `${base}/branding` },
     { label: 'Branches', href: `${base}/branches` },
     { label: 'Users', href: `${base}/users` },
+    // Sprint 35, §2. Last, because it is about the school as a customer rather
+    // than the school as a product: what it pays, and whether it is open.
+    { label: 'Billing', href: `${base}/billing` },
   ];
 
   return (
     <nav aria-label="School sections" className="border-b border-line">
-      <ul className="-mb-px flex gap-1">
+      <ul className="-mb-px flex gap-1 overflow-x-auto">
         {tabs.map((tab) => {
           // Overview is the base path, so it must match exactly or every
           // sub-route would light it up too.

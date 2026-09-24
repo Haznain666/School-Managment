@@ -98,7 +98,7 @@ interface PatchBody {
 
 export async function PATCH(request: NextRequest, context: RouteContext) {
   try {
-    await requireSuperAdmin();
+    await requireSuperAdmin('schools', 'u');
 
     const { schoolId, userId } = await context.params;
     const resolved = await resolveMember(schoolId, userId);
@@ -185,7 +185,7 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
 
 export async function DELETE(_request: NextRequest, context: RouteContext) {
   try {
-    await requireSuperAdmin();
+    await requireSuperAdmin('schools', 'd');
 
     const { schoolId, userId } = await context.params;
     const resolved = await resolveMember(schoolId, userId);

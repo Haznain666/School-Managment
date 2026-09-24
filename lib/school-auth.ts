@@ -111,6 +111,9 @@ const membershipFor = cache(
         isActive: schoolUsers.isActive,
         slug: schools.slug,
         schoolIsActive: schools.isActive,
+        // Sprint 35 — read here, on the join this query already makes, so the
+        // block costs no extra round trip and no route can forget it.
+        accessBlockedAt: schools.accessBlockedAt,
       })
       .from(schoolUsers)
       .innerJoin(schools, eq(schools.locationId, schoolUsers.locationId))
@@ -167,6 +170,9 @@ function platformClaimsFor(
     schoolSlug,
     isPlatformAdmin: true,
     platformAdminEmail: typeof email === 'string' && email !== '' ? email : null,
+    // The Super Admin is never blocked (§6) — including inside a blocked
+    // school, which is exactly when they need to look.
+    accessBlocked: false,
   };
 }
 
@@ -204,6 +210,7 @@ async function resolveClaims(
     schoolSlug: membership.slug,
     isPlatformAdmin: false,
     platformAdminEmail: null,
+    accessBlocked: membership.accessBlockedAt !== null,
   };
 }
 

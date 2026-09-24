@@ -31,7 +31,7 @@ export const dynamic = 'force-dynamic';
 
 export async function GET(request: NextRequest) {
   try {
-    await requireSuperAdmin();
+    await requireSuperAdmin('feedback', 'r');
 
     const search = request.nextUrl.searchParams;
 

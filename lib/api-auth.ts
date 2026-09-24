@@ -71,6 +71,15 @@ export type WithSchoolAuthOptions =
 interface ModuleGate {
   /** Refuse unless the caller's school has this module switched on. */
   module?: PlatformModuleKey;
+  /**
+   * Answer even while the school is blocked — Sprint 35, §6.
+   *
+   * Every route refuses a blocked school by default, which is the only safe
+   * default: a route added next month must not have to remember. The handful
+   * that the suspended page needs — the school administrator downloading the
+   * invoice they have been asked to pay — opt back in here, by name.
+   */
+  allowWhenBlocked?: boolean;
 }
 
 function unauthorized(message: string): NextResponse {
@@ -126,6 +135,22 @@ export function withSchoolAuth<TContext = unknown>(
     const claims = await readSchoolSession();
     if (claims === null) {
       return unauthorized('Your session has expired. Sign in again.');
+    }
+
+    // Sprint 35, §6. Before the permission check, and in one place, so no
+    // route can forget it: `membershipFor()` has already read the block.
+    if (claims.accessBlocked && options.allowWhenBlocked !== true) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: {
+            code: 'school_suspended',
+            message:
+              'This school’s account is currently suspended. Please contact the school administration.',
+          },
+        },
+        { status: 403 },
+      );
     }
 
     if (options.permission !== undefined) {

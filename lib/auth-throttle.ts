@@ -85,6 +85,9 @@ const POLICY: Record<AuthAttemptScope, ScopePolicy> = {
   // Fewer, because there is exactly one super-admin account on a deployment
   // and nobody legitimate is coming from thirty different sessions.
   super_admin_login: { identifierLimit: 5, ipLimit: 20, countSuccesses: false },
+  // Sprint 35. The apex form reaches the super admin table first, so it gets
+  // the super admin's tighter per-origin limit rather than the school one.
+  central_login: { identifierLimit: 5, ipLimit: 20, countSuccesses: false },
   otp_request: { identifierLimit: 5, ipLimit: 30, countSuccesses: true },
   password_reset: { identifierLimit: 5, ipLimit: 30, countSuccesses: false },
   setup: { identifierLimit: 5, ipLimit: 30, countSuccesses: false },

@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 
 import { ProductGuide } from '@/components/super-admin/ProductGuide';
 import { PageHeader } from '@/components/ui/PageHeader';
+import { requireSuperAdminPage } from '@/lib/super-admin-guard';
 
 export const metadata: Metadata = {
   title: 'Features',
@@ -11,6 +12,16 @@ export const metadata: Metadata = {
 
 /**
  * What the product does, today.
+ *
+ * ── Sprint 35: it now has a `loading.tsx`, and why ───────────────────────
+ * With more than one super admin, this tab is an area — `catalogue` — that the
+ * owner can grant or withhold (§9), and the spec enforces permissions on the
+ * page as well as in the sidebar. That is one `await`, and `check-loaders`
+ * rightly asks for a loader beside any page with one. It costs no query: the
+ * layout above has already resolved the operator through the same
+ * request-memoised `readSuperAdminActor`. The paragraph below is the history
+ * of why it had none; it stays because the reasoning about static content is
+ * still right for everything *under* the guard.
  *
  * ── No data of its own, and therefore no `loading.tsx` ───────────────────
  * There is no query here, no tenant and no session: the whole page is
@@ -47,7 +58,9 @@ export const metadata: Metadata = {
  * Features tab that lists Library as shipped is one that loses a deal in the
  * room.
  */
-export default function PlatformFeaturesPage() {
+export default async function PlatformFeaturesPage() {
+  await requireSuperAdminPage('catalogue');
+
   return (
     <div className="space-y-5">
       <PageHeader

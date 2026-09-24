@@ -35,7 +35,7 @@ type RouteContext = { params: Promise<{ schoolId: string }> };
 
 export async function GET(_request: NextRequest, context: RouteContext) {
   try {
-    await requireSuperAdmin();
+    await requireSuperAdmin('schools', 'r');
 
     const { schoolId } = await context.params;
     if (!isUuid(schoolId)) {
@@ -72,7 +72,7 @@ interface UpdateSchoolBody {
 
 export async function PATCH(request: NextRequest, context: RouteContext) {
   try {
-    await requireSuperAdmin();
+    await requireSuperAdmin('schools', 'u');
 
     const { schoolId } = await context.params;
     if (!isUuid(schoolId)) {
@@ -244,7 +244,7 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
  */
 export async function DELETE(request: NextRequest, context: RouteContext) {
   try {
-    await requireSuperAdmin();
+    await requireSuperAdmin('schools', 'd');
 
     const { schoolId } = await context.params;
     if (!isUuid(schoolId)) {

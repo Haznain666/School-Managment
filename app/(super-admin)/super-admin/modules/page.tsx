@@ -5,6 +5,7 @@ import { BulkModuleManager } from '@/components/super-admin/BulkModuleManager';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { schools } from '@/db/schema';
 import { db } from '@/lib/drizzle';
+import { requireSuperAdminPage } from '@/lib/super-admin-guard';
 
 export const metadata: Metadata = {
   title: 'Modules across schools',
@@ -26,6 +27,8 @@ export const runtime = 'nodejs';
  * them at once to filter over.
  */
 export default async function BulkModulesPage() {
+  await requireSuperAdminPage('modules');
+
   const rows = await db
     .select({
       id: schools.id,

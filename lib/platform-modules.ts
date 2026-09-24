@@ -34,6 +34,28 @@ export const PLATFORM_MODULE_KEYS: readonly PlatformModuleKey[] =
   PLATFORM_MODULES.map((module) => module.key);
 
 /**
+ * Phase 1 is the product — Sprint 35, E9.
+ *
+ * Admissions, Fee Management and Academics are what every school bought when
+ * it bought SchoolHub, and none of them is priced separately. They are shown
+ * as **Included** rather than as a switch, on the per-school Modules tab and on
+ * the bulk page; the routes refuse to switch them off; `0052` switched them on
+ * for every school that existed; and `toModuleFlags` below reads them as on
+ * whatever the rows say, so a school created without its three rows is not
+ * quietly missing its fee screens.
+ *
+ * A module here can never carry a rate on the Billing tab either — an
+ * "included" module with a price beside it is a contradiction on one screen.
+ */
+export const ALWAYS_ON_MODULE_KEYS: readonly PlatformModuleKey[] = PLATFORM_MODULES.filter(
+  (module) => module.phase === 1,
+).map((module) => module.key);
+
+export function isAlwaysOnModule(key: string): boolean {
+  return (ALWAYS_ON_MODULE_KEYS as readonly string[]).includes(key);
+}
+
+/**
  * Third-party accounts a school can be connected to.
  *
  * ── Why these are neither modules nor channels ───────────────────────────
@@ -176,5 +198,7 @@ export function toModuleFlags(
       flags[row.moduleKey] = row.isEnabled;
     }
   }
+  // Phase 1 is on whatever the rows say. See `ALWAYS_ON_MODULE_KEYS`.
+  for (const key of ALWAYS_ON_MODULE_KEYS) flags[key] = true;
   return flags;
 }

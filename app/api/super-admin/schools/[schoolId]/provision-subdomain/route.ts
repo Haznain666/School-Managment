@@ -42,7 +42,7 @@ export async function POST(
   { params }: { params: Promise<{ schoolId: string }> },
 ) {
   try {
-    await requireSuperAdmin();
+    await requireSuperAdmin('schools', 'u');
 
     const { schoolId } = await params;
 

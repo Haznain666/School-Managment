@@ -11,7 +11,8 @@ came to be; this file says whether it is finished.
 **Opened:** 2026-09-19, from a full read of `STATE.md` at `d05914d`.
 **Last reconciled:** 2026-09-20 (D5, D6 and D7 closed. D7 was not what it
 said: the seven `kpis.rate.*` keys are in `0049` and in the live CHECK, and
-the defect was `check-sprint28`’s own regex).
+the defect was `check-sprint28`’s own regex). **2026-09-25:** N2 and L8–L11
+added by the Sprint 35 developer; nothing reconciled beyond them.
 
 ---
 
@@ -245,6 +246,35 @@ then.** Carries **D2**.
 4. **Acceptance:** every screen in §5cc item 3, checked on a **hard-loaded**
    page. A test that clicks its way there passes the broken build.
 
+### N2 📋 Sprint 35 — apply `0052`, seed the owner, and QA it in a browser
+
+**Owner:** the main session (devops for the migration). **Opened:** 2026-09-25
+by the Sprint 35 developer. **Source:** `STATE.md` §5co.
+
+Built and gated on `sprint35-dev`; **nothing is applied and nothing is
+deployed.** In this order:
+
+1. **Before `--apply`, confirm the hash.** `scripts/apply-0052.mjs` seeds the
+   owner `haznain666@gmail.com` with the hash from the **local**
+   `D:/School-Management-System/.env.local` (`SUPER_ADMIN_PASSWORD_HASH_B64`,
+   then `SUPER_ADMIN_PASSWORD_HASH`). If production's panel holds a different
+   hash, the owner's production password becomes the local one the moment the
+   row exists — the environment fallback stops applying once the table has a
+   row. Compare the two, or seed with production's.
+2. `node scripts/apply-0052.mjs` (inspect) then `--apply`. It proves the
+   trigger, the unique owner, three CHECKs and RLS by attempt.
+3. `npm run check-sprint35` must then report `0052 is APPLIED` and **every**
+   part-two statement executed, not predicted.
+4. **Browser QA against a real build**, at minimum: the Users column and its
+   per-role dialog; the Billing tab reproducing USD 162.00; Go Live → Generate
+   now → discount → Finalize → PDF → Email → receipt; a manual Block, then the
+   suspended page as a teacher (message only) and as the school administrator
+   (invoice, amount, bank accounts, PDF download); Unblock; a second super
+   admin with a restricted grid; the apex sign-in as super admin, as a
+   one-school user, and as a two-school user (the chooser).
+5. **Done:** all four, with the build id and `check-sprint35`'s real output
+   recorded here and in §5co.
+
 ---
 
 ## L — Known limits, hazards and gaps that are not defects
@@ -304,6 +334,43 @@ estate a school is resolved from the **host**, not from `?school=`, so
 `schoolhub.codexmill.com/api/school/emergency-login/…` answers "School not
 found" — and does so *before* spending the token, mercifully. Swap the host for
 `<slug>.schoolhub.codexmill.com` yourself. §5ck.
+
+### L8 ⚠ `public/` has never been deployed, and the SchoolHub logo lives there
+
+Sprint 35 is the first change with a `public/` directory (`public/brand/`).
+The screens draw the word mark and the bot with `next/image` from
+`/brand/*.png`, and `DEPLOYMENT.md` §1 says a standalone build only has
+`public/` if the deploy copies it. The **favicon and the PDF** do not depend on
+it — both use the copy compiled into `lib/brand-assets-data.ts` — but the apex,
+the operator sign-in and the panel's sidebar do. **Done:** open
+`https://schoolhub.codexmill.com/brand/schoolhub-logo.png` after the deploy and
+get a 200 with an image. If it 404s, copy `public/` in the build, not the
+images into code. §5co.
+
+### L9 ⚠ A carried-forward balance does not block on its own
+
+Blocking reads **finalized** invoices only (E5). When the next month's draft
+carries an unpaid balance forward, the old invoice becomes `carried_forward`
+and stops counting; the debt blocks again only once the new invoice is
+finalized and past its own grace. A school already blocked stays blocked —
+only a receipt or a super admin unblocks — so this matters only for a school
+that was never blocked in the first place. Decided in Sprint 35, recorded so it
+is not rediscovered as a bug. §5co.
+
+### L10 ⚠ The invoice email is sent inside the request
+
+`POST …/invoices/[id]/email` sends the PDF synchronously, because the outbox
+holds text and not attachments. A slow mail host holds the operator's click for
+up to the transport's ceilings (15s connect, 20s socket) and then reports the
+failure, which is logged in the send log. Everything else in billing — block,
+unblock, trial reminders — goes through the outbox. §5co.
+
+### L11 ⚠ A restricted super admin sent to the dashboard is not told why
+
+`requireSuperAdminPage` redirects an operator who lacks an area to
+`/super-admin?denied=1`; the dashboard does not read the flag yet, so the
+redirect is silent. The sidebar already hides what they cannot open, so the
+path is reached only by a typed URL or a stale bookmark. §5co.
 
 ---
 

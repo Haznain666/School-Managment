@@ -244,3 +244,15 @@ export * from './timetable-substitutions';
 // The one table here with no `location_id`: it is a lock between processes,
 // not a school's data. See the file for why that is deliberate.
 export * from './scheduler-leases';
+
+// Sprint 35 (the billing sprint, `0052`) — the platform charging its schools,
+// the operators who run it, and the apex sign-in's hand-off to a school.
+//
+// `super-admin-users` and `platform_bank_accounts` (inside `platform-billing`)
+// join `scheduler_leases` as the tables with no `location_id`: an operator and
+// the platform's own bank account belong to no school. Every other table here
+// carries the tenant key. `platform-billing` references `schools` only, and
+// `login-handoff-tokens` likewise.
+export * from './super-admin-users';
+export * from './platform-billing';
+export * from './login-handoff-tokens';

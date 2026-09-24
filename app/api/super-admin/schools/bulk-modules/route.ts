@@ -5,8 +5,10 @@ import { schoolModules, schools } from '@/db/schema';
 import { apiFailure, apiSuccess, handleApiError, readJsonBody } from '@/lib/api-response';
 import { db } from '@/lib/drizzle';
 import {
+  isAlwaysOnModule,
   isSchoolFlagKey,
   MAX_SCHOOLS_PER_APPLY,
+  moduleLabel,
   type SchoolFlagKey,
 } from '@/lib/platform-modules';
 import { requireSuperAdmin } from '@/lib/super-admin-guard';
@@ -60,7 +62,7 @@ interface FlagUpdate {
 
 export async function POST(request: NextRequest) {
   try {
-    const session = await requireSuperAdmin();
+    const session = await requireSuperAdmin('modules', 'u');
 
     const body = await readJsonBody<BulkBody>(request);
     if (body === null || !Array.isArray(body.school_ids) || !Array.isArray(body.updates)) {
@@ -101,6 +103,14 @@ export async function POST(request: NextRequest) {
       }
       if (typeof entry.is_enabled !== 'boolean') {
         return apiFailure('invalid_body', 'is_enabled must be a boolean.', 400);
+      }
+      // Sprint 35, E9 — the same refusal as the per-school route.
+      if (isAlwaysOnModule(entry.module_key) && !entry.is_enabled) {
+        return apiFailure(
+          'module_included',
+          `${moduleLabel(entry.module_key)} is included with every school and cannot be switched off.`,
+          409,
+        );
       }
       updates.push({ key: entry.module_key, enabled: entry.is_enabled });
     }
@@ -193,7 +203,7 @@ export async function POST(request: NextRequest) {
  */
 export async function GET(request: NextRequest) {
   try {
-    await requireSuperAdmin();
+    await requireSuperAdmin('modules', 'r');
 
     const url = new URL(request.url);
     const raw = url.searchParams.get('school_ids') ?? '';

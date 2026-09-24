@@ -18,7 +18,7 @@ export const dynamic = 'force-dynamic';
 
 export async function GET(request: NextRequest) {
   try {
-    await requireSuperAdmin();
+    await requireSuperAdmin('schools', 'r');
 
     return apiSuccess(
       await searchForPlatform(request.nextUrl.searchParams.get('q') ?? ''),

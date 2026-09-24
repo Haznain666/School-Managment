@@ -53,7 +53,7 @@ function buildEmergencyUrl(token: string, slug: string): string {
 
 export async function POST(_request: NextRequest, context: RouteContext) {
   try {
-    const session = await requireSuperAdmin();
+    const session = await requireSuperAdmin('schools', 'u');
 
     const { schoolId, userId } = await context.params;
     if (!isUuid(schoolId) || !isUuid(userId)) {

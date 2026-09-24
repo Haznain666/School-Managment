@@ -117,7 +117,7 @@ export async function notify(input: NotifyInput): Promise<void> {
       // before that column was populated.
       locationId: input.locationId,
       to: input.email,
-      subject: input.emailSubject ?? `${input.title} · SMS Platform`,
+      subject: input.emailSubject ?? `${input.title} · SchoolHub`,
       text: input.emailText ?? `${input.body}\n\n${absoluteLink(input.href)}\n`,
     });
   } catch (error) {

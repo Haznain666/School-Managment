@@ -5,11 +5,13 @@ import { usePathname } from 'next/navigation';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 
 import {
+  PlatformWordmark,
   SuperAdminNavTree,
   SuperAdminSidebar,
 } from '@/components/super-admin/SuperAdminSidebar';
 import { SuperAdminTopBar } from '@/components/super-admin/SuperAdminTopBar';
 import { Icon } from '@/components/ui/Icon';
+import type { SuperAdminArea } from '@/lib/super-admin-permissions';
 
 /**
  * The Super Admin frame.
@@ -29,10 +31,16 @@ import { Icon } from '@/components/ui/Icon';
  */
 export function SuperAdminShell({
   email,
+  name,
+  visibleAreas,
   unreadNotifications,
   children,
 }: {
   email: string;
+  /** Sprint 35 — the operator's own name, from `super_admin_users`. */
+  name: string;
+  /** The areas this operator may view; the navigation shows only these. */
+  visibleAreas: readonly SuperAdminArea[];
   /** Read in the layout, so the bell's badge is right in the first frame. */
   unreadNotifications?: number;
   children: ReactNode;
@@ -67,11 +75,12 @@ export function SuperAdminShell({
 
   return (
     <div className="flex h-dvh overflow-hidden bg-surface">
-      <SuperAdminSidebar />
+      <SuperAdminSidebar visibleAreas={visibleAreas} />
 
       <div className="flex min-w-0 flex-1 flex-col">
         <SuperAdminTopBar
           email={email}
+          name={name}
           onOpenNav={() => setDrawerOpen(true)}
           unreadNotifications={unreadNotifications}
         />
@@ -104,8 +113,8 @@ export function SuperAdminShell({
           >
             <div className="flex items-center justify-between gap-2 border-b border-line px-4 py-3">
               <div>
-                <p className="text-sm font-semibold text-ink">SMS Platform</p>
-                <p className="text-xs text-ink-muted">Super Admin</p>
+                <PlatformWordmark />
+                <p className="mt-1 text-xs text-ink-muted">Super Admin</p>
               </div>
               <button
                 type="button"
@@ -116,7 +125,7 @@ export function SuperAdminShell({
               </button>
             </div>
 
-            <SuperAdminNavTree />
+            <SuperAdminNavTree visibleAreas={visibleAreas} />
           </div>
         </div>
       ) : null}

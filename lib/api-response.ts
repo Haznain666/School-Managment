@@ -4,7 +4,7 @@ import { GhlApiError } from './ghl-client';
 import { GhlTokenError } from './ghl-tokens';
 import { MissingEnvError } from './env';
 import { StorageConfigError } from './storage';
-import { SuperAdminAuthError } from './super-admin-guard';
+import { SuperAdminAuthError, SuperAdminForbiddenError } from './super-admin-guard';
 
 /**
  * Uniform JSON envelopes for API routes, plus one error translator so that
@@ -45,6 +45,13 @@ export function apiFailure(
 export function handleApiError(error: unknown): NextResponse<ApiFailure> {
   if (error instanceof SuperAdminAuthError) {
     return apiFailure('unauthenticated', error.message, error.status);
+  }
+
+  // Sprint 35. A live operator without this area — not a lapsed session, so
+  // not a 401: the panel's fetch helper bounces a 401 to the sign-in page, and
+  // sending somebody who *is* signed in round that loop would be wrong.
+  if (error instanceof SuperAdminForbiddenError) {
+    return apiFailure('forbidden', error.message, error.status);
   }
 
   if (error instanceof GhlTokenError) {

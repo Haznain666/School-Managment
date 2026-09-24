@@ -27,7 +27,7 @@ type RouteContext = { params: Promise<{ schoolId: string }> };
 
 export async function GET(_request: NextRequest, context: RouteContext) {
   try {
-    await requireSuperAdmin();
+    await requireSuperAdmin('schools', 'r');
 
     const { schoolId } = await context.params;
     if (!isUuid(schoolId)) {
@@ -78,7 +78,7 @@ interface UpdateBrandingBody {
 
 export async function PATCH(request: NextRequest, context: RouteContext) {
   try {
-    await requireSuperAdmin();
+    await requireSuperAdmin('schools', 'u');
 
     const { schoolId } = await context.params;
     if (!isUuid(schoolId)) {

@@ -7,8 +7,8 @@ import './globals.css';
 
 export const metadata: Metadata = {
   title: {
-    default: 'SMS Platform',
-    template: '%s · SMS Platform',
+    default: 'SchoolHub',
+    template: '%s · SchoolHub',
   },
   description: 'School management, built for Pakistani schools.',
   robots: {

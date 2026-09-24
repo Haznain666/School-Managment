@@ -1288,6 +1288,7 @@ export const PRODUCT_FEATURES: readonly FeatureEntry[] = [
       'without nine visits.',
     capabilities: [
       'Twelve module flags per school',
+      'Admissions, Fees and Academics are included with every school and cannot be switched off',
       'Bulk apply, with a blast-radius cap',
       'Switches initialise from what the selected schools actually hold',
       'Only the switches that were moved are written',
@@ -1359,6 +1360,79 @@ export const PRODUCT_FEATURES: readonly FeatureEntry[] = [
     permissions: [],
     routes: ['/super-admin/schools/[schoolId]/integrations'],
     glossary: ['ghl', 'ghl-location-id', 'ghl-sub-account', 'contact-sync', 'tenant'],
+  },
+  /* Sprint 35 — the platform charging its schools. */
+  {
+    key: 'platform-billing',
+    pillar: 'platform',
+    name: 'Subscription billing & invoices',
+    module: null,
+    summary:
+      'Per-school rates by role and by module, a monthly invoice raised in arrears ' +
+      'with day-based proration, discounts, a PDF, receipts, and an automatic ' +
+      'suspension when a finalized invoice stays unpaid past its grace period.',
+    salesLine:
+      'Every school is billed on the 1st for the month it used, in dollars or rupees, ' +
+      'and the platform chases the money so nobody has to.',
+    capabilities: [
+      'Sandbox and Live per school — sandbox schools are never invoiced or blocked',
+      'Rates per user by role and per module, in USD or PKR, with a conversion rate',
+      'Free trial and grace period per school, with reminders before a trial ends',
+      'Invoices in arrears on the 1st, prorated by day, with the unpaid balance carried forward',
+      'Up to three discounts per invoice; a PDF emailed to the school',
+      'Receipts with the bank’s transaction ID; blocking and unblocking by hand or automatically',
+      'Up to three Pakistani bank accounts printed on every invoice',
+    ],
+    permissions: [],
+    routes: [
+      '/super-admin/billing',
+      '/super-admin/billing/bank-accounts',
+      '/super-admin/schools/[schoolId]/billing',
+    ],
+    glossary: ['super-admin', 'tenant'],
+  },
+  {
+    key: 'central-sign-in',
+    pillar: 'platform',
+    name: 'One sign-in for everybody',
+    module: null,
+    summary:
+      'A single Login ID and password on the SchoolHub home page for operators, ' +
+      'staff, parents and students, handing each person to their own school — or ' +
+      'asking which one, when they belong to several.',
+    salesLine:
+      'Nobody has to remember their school’s web address. They sign in at SchoolHub ' +
+      'and arrive at their school.',
+    capabilities: [
+      'Email, or a student ID, and a password',
+      'A person at several schools picks one by name and logo',
+      'A single-use, sixty-second hand-off to the school’s own address',
+      'Each school’s own sign-in page keeps working',
+    ],
+    permissions: [],
+    routes: ['/'],
+    glossary: ['super-admin', 'tenant'],
+  },
+  {
+    key: 'super-admin-team',
+    pillar: 'platform',
+    name: 'More than one super admin',
+    module: null,
+    summary:
+      'Operators as accounts, with Create / View / Edit / Delete per area set by the ' +
+      'owner alone, and an owner nobody can remove.',
+    salesLine:
+      'The platform can be run by a team, each person with exactly the reach they need.',
+    capabilities: [
+      'Six areas: schools, modules, billing, feedback, the catalogue, and super admins',
+      'Only the owner edits the permission grid',
+      'The owner cannot be deleted, deactivated or re-addressed — enforced in the database',
+      'Every operator changes their own password',
+      'A deactivated operator is out on their next click',
+    ],
+    permissions: [],
+    routes: ['/super-admin/admins', '/super-admin/account'],
+    glossary: ['super-admin'],
   },
   {
     key: 'feedback-queue',
@@ -1928,15 +2002,6 @@ export const ROADMAP_ITEMS: readonly RoadmapEntry[] = [
       'Every screen in the school’s chosen language, with a layout that works in ' +
       'both directions.',
     forWhom: 'Schools that do not run in English, and the parents reading a voucher.',
-  },
-  {
-    key: 'saas-billing',
-    pillar: 'platform',
-    name: 'Subscription billing',
-    summary:
-      'What each school is on, what it owes, and what happens when it stops ' +
-      'paying — handled by the platform rather than by hand.',
-    forWhom: 'The platform operator.',
   },
   {
     key: 'public-api',

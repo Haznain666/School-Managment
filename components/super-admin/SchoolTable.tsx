@@ -13,8 +13,10 @@ import {
   type DataTableSort,
 } from '@/components/ui/DataTable';
 import { Input } from '@/components/ui/Input';
+import { Modal } from '@/components/ui/Modal';
 import { describeSubdomainStatus } from '@/lib/subdomain-status';
 import { superAdminFetch, SuperAdminApiError } from '@/lib/super-admin-client';
+import { ROLE_LABELS, USER_ROLES } from '@/types/school-auth';
 
 export interface SchoolRow {
   id: string;
@@ -25,6 +27,9 @@ export interface SchoolRow {
   isActive: boolean;
   subdomainStatus?: string | null;
   subdomainError?: string | null;
+  /** Sprint 35, §1 — active, non-parent members (E2). */
+  billableUsers?: number;
+  usersByRole?: Partial<Record<string, number>>;
 }
 
 const STATUS_OPTIONS = [
@@ -73,6 +78,8 @@ export function SchoolTable() {
   /** What the last provision attempt actually did, in the server's own words. */
   const [provisionNotice, setProvisionNotice] = useState<string | null>(null);
   const [pendingId, setPendingId] = useState<string | null>(null);
+  /** The school whose per-role head count is open. */
+  const [countsFor, setCountsFor] = useState<SchoolRow | null>(null);
 
   const load = useCallback(
     async (signal?: AbortSignal) => {
@@ -315,6 +322,29 @@ export function SchoolTable() {
       },
     },
     {
+      /*
+        Sprint 35, §1. The billable head count — every active member who is not
+        a parent (E2) — as a button, because the per-role breakdown behind it
+        is what an operator setting rates actually needs. Read from the same
+        grouped query as the rest of the page, so opening it costs nothing.
+      */
+      id: 'users',
+      header: 'Users',
+      align: 'numeric',
+      cell: (school) => (
+        <button
+          type="button"
+          onClick={() => {
+            setCountsFor(school);
+          }}
+          className="rounded-control px-2 py-1 font-mono text-sm tabular-nums text-brand-primary hover:bg-surface-hover hover:underline"
+          title="Users by role"
+        >
+          {school.billableUsers ?? 0}
+        </button>
+      ),
+    },
+    {
       id: 'isActive',
       header: 'Active',
       sortable: true,
@@ -510,6 +540,33 @@ export function SchoolTable() {
         noResultTitle="No schools match those filters"
         noResultDescription="Widen the status, or clear the search."
       />
+
+      <Modal
+        open={countsFor !== null}
+        onClose={() => {
+          setCountsFor(null);
+        }}
+        title={countsFor === null ? 'Users' : `${countsFor.name} — users`}
+        description="Active members, by role. Parents are not counted."
+        size="sm"
+      >
+        {countsFor === null ? null : (
+          <dl className="divide-y divide-line text-sm">
+            {USER_ROLES.filter((role) => role !== 'parent' && (countsFor.usersByRole?.[role] ?? 0) > 0).map(
+              (role) => (
+                <div key={role} className="flex items-center justify-between py-2">
+                  <dt className="text-ink">{ROLE_LABELS[role]}</dt>
+                  <dd className="font-mono tabular-nums text-ink">{countsFor.usersByRole?.[role] ?? 0}</dd>
+                </div>
+              ),
+            )}
+            <div className="flex items-center justify-between py-2 font-semibold">
+              <dt className="text-ink">Total</dt>
+              <dd className="font-mono tabular-nums text-ink">{countsFor.billableUsers ?? 0}</dd>
+            </div>
+          </dl>
+        )}
+      </Modal>
 
       {/*
         The erasure dialog. Deliberately spells out what goes, in the school's

@@ -28,6 +28,17 @@ export interface SuperAdminSession {
   email: string;
   /** Issued-at, epoch seconds. */
   issuedAt: number;
+  /**
+   * The `super_admin_users` row this session belongs to — Sprint 35.
+   *
+   * Null for a session minted by the environment-credential fallback (the
+   * table unreachable or empty) and for every token issued before this sprint.
+   * It is an *identifier*, never an authorisation: `lib/super-admin-guard.ts`
+   * re-reads the row on every request, so a deactivated admin holding a valid
+   * token is out on their next click. Middleware runs on the Edge and cannot
+   * read the row, which is why it checks only the signature.
+   */
+  adminId: string | null;
 }
 
 function secretKey(): Uint8Array {
@@ -35,10 +46,15 @@ function secretKey(): Uint8Array {
 }
 
 /** Mints the session token stored in the httpOnly cookie. */
-export async function signSuperAdminJWT(email: string): Promise<string> {
+export async function signSuperAdminJWT(
+  email: string,
+  adminId: string | null = null,
+): Promise<string> {
   const issuedAt = Math.floor(Date.now() / 1000);
 
-  return new SignJWT({ email } satisfies JWTPayload)
+  const claims: JWTPayload = adminId === null ? { email } : { email, adminId };
+
+  return new SignJWT(claims)
     .setProtectedHeader({ alg: 'HS256' })
     .setSubject(email)
     .setIssuer(ISSUER)
@@ -66,7 +82,13 @@ export async function verifySuperAdminJWT(
     const email = payload['email'];
     if (typeof email !== 'string' || email === '') return null;
 
-    return { email, issuedAt: payload.iat ?? 0 };
+    const adminId = payload['adminId'];
+
+    return {
+      email,
+      issuedAt: payload.iat ?? 0,
+      adminId: typeof adminId === 'string' && adminId !== '' ? adminId : null,
+    };
   } catch {
     // Malformed, expired, wrong signature — all mean "not signed in".
     return null;

@@ -12,6 +12,8 @@ import { NotificationBell } from '@/components/ui/NotificationBell';
 
 export interface SuperAdminTopBarProps {
   email: string;
+  /** Sprint 35 — shown instead of the address, so two operators can tell tabs apart. */
+  name?: string;
   /** Opens the mobile navigation drawer. Owned by `SuperAdminShell`. */
   onOpenNav?: () => void;
   /** Unread platform notifications, read once in the layout. */
@@ -27,6 +29,7 @@ export interface SuperAdminTopBarProps {
  */
 export function SuperAdminTopBar({
   email,
+  name,
   onOpenNav,
   unreadNotifications,
 }: SuperAdminTopBarProps) {
@@ -108,9 +111,13 @@ export function SuperAdminTopBar({
           />
         )}
 
-        <span className="hidden max-w-[10rem] shrink truncate text-sm text-ink-muted lg:inline">
-          {email}
-        </span>
+        <Link
+          href="/super-admin/account"
+          title={email}
+          className="hidden max-w-[12rem] shrink truncate text-sm text-ink-muted hover:text-ink lg:inline"
+        >
+          {name !== undefined && name !== '' ? name : email}
+        </Link>
         <Button
           variant="ghost"
           size="sm"

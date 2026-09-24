@@ -3,6 +3,7 @@ import type { Metadata } from 'next';
 import { SchoolWizard } from '@/components/super-admin/SchoolWizard';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { publicEnv } from '@/lib/env';
+import { requireSuperAdminPage } from '@/lib/super-admin-guard';
 
 export const metadata: Metadata = {
   title: 'Add school',
@@ -10,7 +11,9 @@ export const metadata: Metadata = {
 
 export const dynamic = 'force-dynamic';
 
-export default function NewSchoolPage() {
+export default async function NewSchoolPage() {
+  await requireSuperAdminPage('schools', 'c');
+
   return (
     <div className="max-w-3xl space-y-6">
       <PageHeader

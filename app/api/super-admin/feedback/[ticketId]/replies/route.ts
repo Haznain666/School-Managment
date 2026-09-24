@@ -27,7 +27,7 @@ export async function POST(
   context: { params: Promise<{ ticketId: string }> },
 ) {
   try {
-    const session = await requireSuperAdmin();
+    const session = await requireSuperAdmin('feedback', 'u');
 
     const { ticketId } = await context.params;
 

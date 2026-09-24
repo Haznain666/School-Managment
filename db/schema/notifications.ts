@@ -71,6 +71,11 @@ export const NOTIFICATION_KINDS = [
    * through `notify()` — chat already owns its own email.
    */
   'chat_message',
+  /*
+   * Sprint 35. A Live school's free trial ending in five days, or in one —
+   * platform audience only. Free-form like the rest; no migration.
+   */
+  'billing_trial',
 ] as const;
 export type NotificationKind = (typeof NOTIFICATION_KINDS)[number];
 

@@ -1,16 +1,24 @@
 'use client';
 
+import Image from 'next/image';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 
 import { NAV_ICONS, type NavIconName } from '@/components/school/nav-icons';
 import { Icon } from '@/components/ui/Icon';
+import type { SuperAdminArea } from '@/lib/super-admin-permissions';
 import { cn } from '@/lib/utils';
 
 interface NavEntry {
   label: string;
   href: string;
   icon: NavIconName;
+  /**
+   * Sprint 35 — the area an operator must be able to view for this entry to
+   * be drawn. Absent means every operator sees it. Navigation only: the page
+   * and its routes check again.
+   */
+  area?: SuperAdminArea;
   /** Nested links shown underneath, e.g. All Schools / Add School. */
   children?: readonly NavEntry[];
 }
@@ -29,6 +37,7 @@ const NAV: readonly NavEntry[] = [
     label: 'Schools',
     href: '/super-admin/schools',
     icon: 'schools',
+    area: 'schools',
     children: [
       { label: 'All Schools', href: '/super-admin/schools', icon: 'schools' },
       { label: 'Add School', href: '/super-admin/schools/new', icon: 'enroll' },
@@ -36,10 +45,25 @@ const NAV: readonly NavEntry[] = [
   },
   // Cross-school rather than per-school, so it sits beside Schools rather than
   // under it — it is not a view of one tenant.
-  { label: 'Modules', href: '/super-admin/modules', icon: 'modules' },
+  { label: 'Modules', href: '/super-admin/modules', icon: 'modules', area: 'modules' },
+  /*
+   * Sprint 35. Cross-school like Modules: every invoice from every school, and
+   * the platform's own bank accounts. A school's rates and its access live on
+   * that school's Billing tab.
+   */
+  {
+    label: 'Billing',
+    href: '/super-admin/billing',
+    icon: 'finance',
+    area: 'billing',
+    children: [
+      { label: 'Invoices', href: '/super-admin/billing', icon: 'finance' },
+      { label: 'Bank accounts', href: '/super-admin/billing/bank-accounts', icon: 'finance' },
+    ],
+  },
   // Sprint 16. Cross-school, like Modules: the queue is one queue, and reading
   // it per tenant would be reading it in four places and answering none of them.
-  { label: 'Feedback', href: '/super-admin/feedback', icon: 'feedback' },
+  { label: 'Feedback', href: '/super-admin/feedback', icon: 'feedback', area: 'feedback' },
   /*
    * Sprint 34. Reference rather than operation, which is why they sit last:
    * nothing above them is optional on any given day, and these two are opened
@@ -50,8 +74,11 @@ const NAV: readonly NavEntry[] = [
    * built from `lib/product-catalogue.ts`; neither reads the database, so
    * neither costs a query to open.
    */
-  { label: 'Features', href: '/super-admin/features', icon: 'features' },
-  { label: 'Roadmap', href: '/super-admin/roadmap', icon: 'roadmap' },
+  { label: 'Features', href: '/super-admin/features', icon: 'features', area: 'catalogue' },
+  { label: 'Roadmap', href: '/super-admin/roadmap', icon: 'roadmap', area: 'catalogue' },
+  // Sprint 35, section 9. Last: who operates the platform, and your own account.
+  { label: 'Super admins', href: '/super-admin/admins', icon: 'users', area: 'super_admins' },
+  { label: 'My account', href: '/super-admin/account', icon: 'settings' },
 ];
 
 function isActive(pathname: string, href: string): boolean {
@@ -76,19 +103,37 @@ function isActive(pathname: string, href: string): boolean {
  * `text-slate-500` throughout, which happened to look the same but could never
  * respond to anything.
  */
-export function SuperAdminSidebar() {
+export function SuperAdminSidebar({ visibleAreas }: { visibleAreas: readonly SuperAdminArea[] }) {
   return (
     <nav
       aria-label="Super Admin navigation"
       className="hidden h-full w-60 shrink-0 flex-col border-r border-line bg-surface-raised md:flex"
     >
       <div className="border-b border-line px-4 py-4">
-        <p className="text-sm font-semibold text-ink">SMS Platform</p>
-        <p className="text-xs text-ink-muted">Super Admin</p>
+        <PlatformWordmark />
+        <p className="mt-1 text-xs text-ink-muted">Super Admin</p>
       </div>
 
-      <SuperAdminNavTree />
+      <SuperAdminNavTree visibleAreas={visibleAreas} />
     </nav>
+  );
+}
+
+/**
+ * The SchoolHub word mark — Sprint 35, section 8. The platform's brand, never a
+ * school's: this surface is deliberately unpainted (see above), and the mark is
+ * what says which product the operator is in.
+ */
+export function PlatformWordmark() {
+  return (
+    <Image
+      src="/brand/schoolhub-logo.png"
+      alt="SchoolHub"
+      width={1774}
+      height={319}
+      priority
+      className="h-7 w-auto"
+    />
   );
 }
 
@@ -96,12 +141,13 @@ export function SuperAdminSidebar() {
  * The link tree itself, so the desktop sidebar and the mobile drawer render one
  * definition rather than two that drift.
  */
-export function SuperAdminNavTree() {
+export function SuperAdminNavTree({ visibleAreas }: { visibleAreas: readonly SuperAdminArea[] }) {
   const pathname = usePathname();
+  const entries = NAV.filter((entry) => entry.area === undefined || visibleAreas.includes(entry.area));
 
   return (
     <ul className="flex-1 space-y-1 overflow-y-auto p-3">
-        {NAV.map((entry) => {
+        {entries.map((entry) => {
           const active = isActive(pathname, entry.href);
 
           return (

@@ -7,6 +7,7 @@ import { SchoolTabs } from '@/components/super-admin/SchoolTabs';
 import { Badge } from '@/components/ui/Badge';
 import { db } from '@/lib/drizzle';
 import { publicEnv } from '@/lib/env';
+import { requireSuperAdminPage } from '@/lib/super-admin-guard';
 import { isUuid } from '@/lib/validation';
 
 /**
@@ -22,6 +23,10 @@ export default async function SchoolDetailLayout({
   children: ReactNode;
   params: Promise<{ schoolId: string }>;
 }) {
+  // Sprint 35, §9 — every tab under a school is the `schools` area. The
+  // Billing tab asks for `billing` on top, on its own page.
+  await requireSuperAdminPage('schools');
+
   const { schoolId } = await params;
 
   // A malformed uuid would make Postgres raise rather than return no rows.
@@ -34,6 +39,7 @@ export default async function SchoolDetailLayout({
       slug: schools.slug,
       city: schools.city,
       isActive: schools.isActive,
+      accessBlockedAt: schools.accessBlockedAt,
     })
     .from(schools)
     .where(eq(schools.id, schoolId))
@@ -51,6 +57,7 @@ export default async function SchoolDetailLayout({
             <Badge variant={school.isActive ? 'success' : 'danger'}>
               {school.isActive ? 'Active' : 'Inactive'}
             </Badge>
+            {school.accessBlockedAt !== null ? <Badge variant="danger">Blocked</Badge> : null}
           </div>
           <p className="mt-1 text-sm text-ink-muted">
             {school.city} ·{' '}

@@ -7,7 +7,7 @@ import {
   listFeedbackSchools,
   listPlatformFeedback,
 } from '@/lib/feedback-queries';
-import { requireSuperAdmin } from '@/lib/super-admin-guard';
+import { requireSuperAdminPage } from '@/lib/super-admin-guard';
 
 export const metadata: Metadata = {
   title: 'Feedback',
@@ -32,7 +32,7 @@ export const runtime = 'nodejs';
  * (§5aq) that is the difference between a queue and a wait.
  */
 export default async function PlatformFeedbackPage() {
-  await requireSuperAdmin();
+  await requireSuperAdminPage('feedback');
 
   const [page, counts, schools] = await Promise.all([
     listPlatformFeedback({

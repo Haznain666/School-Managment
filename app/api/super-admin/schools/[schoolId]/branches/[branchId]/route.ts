@@ -45,7 +45,7 @@ async function resolveContext(
 
 export async function GET(_request: NextRequest, context: RouteContext) {
   try {
-    await requireSuperAdmin();
+    await requireSuperAdmin('schools', 'r');
 
     const resolved = await resolveContext(context);
     if (resolved === null) return apiFailure('not_found', 'Branch not found.', 404);
@@ -89,7 +89,7 @@ interface UpdateBranchBody {
 
 export async function PATCH(request: NextRequest, context: RouteContext) {
   try {
-    await requireSuperAdmin();
+    await requireSuperAdmin('schools', 'u');
 
     const resolved = await resolveContext(context);
     if (resolved === null) return apiFailure('not_found', 'Branch not found.', 404);
@@ -292,7 +292,7 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
  */
 export async function DELETE(request: NextRequest, context: RouteContext) {
   try {
-    await requireSuperAdmin();
+    await requireSuperAdmin('schools', 'd');
 
     const resolved = await resolveContext(context);
     if (resolved === null) return apiFailure('not_found', 'Branch not found.', 404);

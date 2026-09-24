@@ -42,7 +42,9 @@ export async function GET(): Promise<NextResponse> {
       ? null
       : await getSchoolBranding(locationId).catch(() => null);
 
-  const name = branding?.name ?? 'School Portal';
+  // Sprint 35: with no school behind the host — the apex — the app is the
+  // platform itself, and is called what the platform is called.
+  const name = branding?.name ?? 'SchoolHub';
 
   // The theme colour is the school's primary, read through the same derivation
   // the portals paint with — so the Android title bar and the app's own header

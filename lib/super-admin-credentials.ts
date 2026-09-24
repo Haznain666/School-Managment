@@ -3,6 +3,12 @@ import 'server-only';
 import { compare } from 'bcryptjs';
 
 import { requireServerEnv } from './env';
+import {
+  findSuperAdminByEmail,
+  seedOwnerFromEnvironment,
+  superAdminTableState,
+} from './super-admin-accounts';
+import { PLATFORM_OWNER_EMAIL } from './super-admin-permissions';
 import { describeHashShape, readConfiguredHash } from './super-admin-hash-shape';
 
 /**
@@ -16,8 +22,98 @@ import { describeHashShape, readConfiguredHash } from './super-admin-hash-shape'
  */
 
 export type CredentialCheck =
-  | { ok: true; email: string }
+  /** `adminId` is null only on the environment-credential fallback. */
+  | { ok: true; email: string; adminId: string | null }
   | { ok: false; reason: 'misconfigured' | 'invalid' };
+
+/**
+ * A real bcrypt hash of nothing anybody will type, compared against when there
+ * is no row to compare with — so an unknown address costs the same ~250ms as a
+ * known one with the wrong password. Cost 12, like every real hash here.
+ */
+const TIMING_DECOY_HASH = '$2b$12$E9Z/oififz78/Qxj7U5gAekqJ19ZbMTghCZokrFXvLDZdHyBiNgi.';
+
+/**
+ * Sprint 35 — the operators are rows now, and the environment is the fallback.
+ *
+ * In this order:
+ *
+ *   1. A `super_admin_users` row with this address: its hash decides, and an
+ *      inactive row is refused exactly as a wrong password is.
+ *   2. No row, and the table is **empty or unreachable**: the environment
+ *      credential, which can only ever be the owner. This is the deploy that
+ *      landed before `0052`, or after it and before the owner was seeded — the
+ *      owner must never be locked out by the order two steps ran in.
+ *   3. No row, and the table holds people: refused. The environment
+ *      credential is **not** consulted once the table is live, so rotating the
+ *      owner's password on "My account" is not undone by a stale hash in a
+ *      panel somebody forgot.
+ *
+ * The bcrypt comparison runs on every path, including the refusal, so the
+ * response time never says which of the three applied.
+ */
+export async function verifySuperAdminCredentials(
+  email: unknown,
+  password: unknown,
+): Promise<CredentialCheck> {
+  try {
+    requireServerEnv('SUPER_ADMIN_JWT_SECRET');
+  } catch (error) {
+    console.error('[super-admin] configuration error:', error);
+    return { ok: false, reason: 'misconfigured' };
+  }
+
+  const submittedEmail = typeof email === 'string' ? email.trim().toLowerCase() : '';
+  const submittedPassword = typeof password === 'string' ? password : '';
+
+  if (submittedEmail === '' || submittedPassword === '') {
+    return { ok: false, reason: 'invalid' };
+  }
+
+  let row: Awaited<ReturnType<typeof findSuperAdminByEmail>> = null;
+  let tableUsable = true;
+
+  try {
+    row = await findSuperAdminByEmail(submittedEmail);
+  } catch (error) {
+    console.error('[super-admin] super_admin_users lookup failed; environment fallback:', error);
+    tableUsable = false;
+  }
+
+  if (row !== null) {
+    const matches = await compare(submittedPassword, row.passwordHash);
+    if (!matches || !row.isActive) {
+      console.warn(
+        `[super-admin] sign-in refused for a known operator. password matched: ${String(matches)}; active: ${String(row.isActive)}.`,
+      );
+      return { ok: false, reason: 'invalid' };
+    }
+    return { ok: true, email: row.email, adminId: row.id };
+  }
+
+  const state = tableUsable ? await superAdminTableState() : 'unreachable';
+
+  if (state === 'rows') {
+    await compare(submittedPassword, TIMING_DECOY_HASH);
+    return { ok: false, reason: 'invalid' };
+  }
+
+  const fallback = await verifyEnvironmentCredentials(submittedEmail, submittedPassword);
+  if (!fallback.ok) return fallback;
+
+  // The table exists and is empty: the first owner sign-in after `0052` seeds
+  // the owner's row with the hash this deployment just accepted. Failing to
+  // seed is logged and the sign-in still succeeds on the fallback.
+  if (state === 'empty' && fallback.email === PLATFORM_OWNER_EMAIL) {
+    try {
+      const owner = await seedOwnerFromEnvironment(fallback.email, fallback.passwordHash);
+      if (owner !== null) return { ok: true, email: owner.email, adminId: owner.id };
+    } catch (error) {
+      console.error('[super-admin] seeding the owner row failed; environment fallback:', error);
+    }
+  }
+  return { ok: true, email: fallback.email, adminId: null };
+}
 
 /**
  * Verifies an email and password against `SUPER_ADMIN_EMAIL` and
@@ -27,10 +123,12 @@ export type CredentialCheck =
  * operator account set up, so callers can answer 500 instead of leaking a
  * stack trace.
  */
-export async function verifySuperAdminCredentials(
+async function verifyEnvironmentCredentials(
   email: unknown,
   password: unknown,
-): Promise<CredentialCheck> {
+): Promise<
+  { ok: true; email: string; passwordHash: string } | { ok: false; reason: 'misconfigured' | 'invalid' }
+> {
   let expectedEmail: string;
   let passwordHash: string;
 
@@ -86,7 +184,7 @@ export async function verifySuperAdminCredentials(
     return { ok: false, reason: 'invalid' };
   }
 
-  return { ok: true, email: expectedEmail };
+  return { ok: true, email: expectedEmail, passwordHash };
 }
 
 /**

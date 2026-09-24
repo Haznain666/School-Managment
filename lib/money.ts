@@ -71,6 +71,28 @@ export function formatAmount(value: MoneyInput): string {
   return PKR_FORMATTER.format(fromPaise(toPaise(value)));
 }
 
+const USD_FORMATTER = new Intl.NumberFormat('en-US', {
+  minimumFractionDigits: 2,
+  maximumFractionDigits: 2,
+});
+
+/**
+ * Minor units in either platform-billing currency — Sprint 35.
+ *
+ * `16200, 'USD'` → `USD 162.00`; `1250050, 'PKR'` → `PKR 12,500.5`. Here
+ * rather than beside the billing code because this file is the one place money
+ * reaches a person (`check-currency`), and a dollar amount is no exception.
+ *
+ * Dollars keep both decimals — `USD 162` reads as a rounded figure on an
+ * invoice, and the spec's own example is `USD 162.00`. Rupees follow
+ * `formatPkr` exactly, so a PKR invoice looks like every other rupee figure in
+ * the product.
+ */
+export function formatMoneyMinor(minor: number, currency: 'USD' | 'PKR'): string {
+  if (currency === 'PKR') return `PKR ${PKR_FORMATTER.format(fromPaise(minor))}`;
+  return `USD ${USD_FORMATTER.format(fromPaise(minor))}`;
+}
+
 const ONES: readonly string[] = [
   '',
   'One',

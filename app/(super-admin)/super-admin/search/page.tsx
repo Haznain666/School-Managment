@@ -3,7 +3,7 @@ import type { Metadata } from 'next';
 import { SearchResultsView } from '@/components/search/SearchResultsView';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { searchForPlatform } from '@/lib/portal-search';
-import { requireSuperAdmin } from '@/lib/super-admin-guard';
+import { requireSuperAdminPage } from '@/lib/super-admin-guard';
 
 export const metadata: Metadata = {
   title: 'Search',
@@ -29,7 +29,7 @@ export default async function PlatformSearchPage({
 }: {
   searchParams: Promise<{ q?: string }>;
 }) {
-  await requireSuperAdmin();
+  await requireSuperAdminPage('schools');
 
   const { q } = await searchParams;
   const query = q ?? '';

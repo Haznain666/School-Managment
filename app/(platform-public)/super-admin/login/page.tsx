@@ -1,4 +1,6 @@
 import type { Metadata } from 'next';
+import Image from 'next/image';
+import Link from 'next/link';
 import { Suspense } from 'react';
 
 import { SuperAdminLoginForm } from './SuperAdminLoginForm';
@@ -50,9 +52,19 @@ export default function SuperAdminLoginPage() {
   return (
     <main className="flex min-h-screen items-center justify-center bg-surface-sunken px-4 py-12">
       <div className="w-full max-w-sm">
-        <div className="mb-8 text-center">
-          <h1 className="text-2xl font-bold text-ink">SMS Platform</h1>
-          <p className="mt-1 text-sm text-ink-muted">Super Admin sign in</p>
+        <div className="mb-8 flex flex-col items-center text-center">
+          {/* Sprint 35, section 8: the SchoolHub word mark, not a typed name. */}
+          <h1>
+            <Image
+              src="/brand/schoolhub-logo.png"
+              alt="SchoolHub"
+              width={1774}
+              height={319}
+              priority
+              className="h-10 w-auto"
+            />
+          </h1>
+          <p className="mt-3 text-sm text-ink-muted">Super Admin sign in</p>
         </div>
 
         {/*
@@ -66,7 +78,11 @@ export default function SuperAdminLoginPage() {
         </Suspense>
 
         <p className="mt-6 text-center text-xs text-ink-muted">
-          This panel manages every school on the platform.
+          This panel manages every school on the platform. You can also sign in from the{' '}
+          <Link href="/" className="font-medium text-brand-primary hover:underline">
+            SchoolHub home page
+          </Link>
+          .
         </p>
       </div>
     </main>

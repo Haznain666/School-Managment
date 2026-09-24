@@ -150,6 +150,23 @@ export const schools = pgTable(
     logoUrl: text('logo_url'),
     /** Soft delete: deactivated schools keep their data but cannot be reached. */
     isActive: boolean('is_active').notNull().default(true),
+    /**
+     * Sprint 35 — set while the school is blocked for an unpaid platform
+     * invoice, or blocked by hand. Null means open.
+     *
+     * Deliberately not `is_active`. A deactivated school is *closed*: every
+     * request to it is a not-found, and that is right for a tenant the operator
+     * has retired. A blocked school is a customer who has not paid, and three
+     * things must still work for them that do not work for a closed school —
+     * the sign-in, the suspended page, and the school administrator's view of
+     * what is owed and where to pay it. Overloading one boolean with both
+     * meanings would make that impossible to express.
+     *
+     * Read on every school request, in `membershipFor()` in `lib/school-auth.ts`,
+     * which already joins `schools` — so it costs no extra query, and no route
+     * can forget it.
+     */
+    accessBlockedAt: timestamp('access_blocked_at', { withTimezone: true }),
 
     /**
      * State of `<slug>.<PLATFORM_BASE_DOMAIN>` at the hosting provider.
