@@ -5,8 +5,10 @@ import { compare } from 'bcryptjs';
 import { requireServerEnv } from './env';
 import {
   findSuperAdminByEmail,
+  seedOwnerFromEnvironment,
   superAdminTableState,
 } from './super-admin-accounts';
+import { PLATFORM_OWNER_EMAIL } from './super-admin-permissions';
 import { describeHashShape, readConfiguredHash } from './super-admin-hash-shape';
 
 /**
@@ -97,7 +99,20 @@ export async function verifySuperAdminCredentials(
   }
 
   const fallback = await verifyEnvironmentCredentials(submittedEmail, submittedPassword);
-  return fallback.ok ? { ok: true, email: fallback.email, adminId: null } : fallback;
+  if (!fallback.ok) return fallback;
+
+  // The table exists and is empty: the first owner sign-in after `0052` seeds
+  // the owner's row with the hash this deployment just accepted. Failing to
+  // seed is logged and the sign-in still succeeds on the fallback.
+  if (state === 'empty' && fallback.email === PLATFORM_OWNER_EMAIL) {
+    try {
+      const owner = await seedOwnerFromEnvironment(fallback.email, fallback.passwordHash);
+      if (owner !== null) return { ok: true, email: owner.email, adminId: owner.id };
+    } catch (error) {
+      console.error('[super-admin] seeding the owner row failed; environment fallback:', error);
+    }
+  }
+  return { ok: true, email: fallback.email, adminId: null };
 }
 
 /**
@@ -111,7 +126,9 @@ export async function verifySuperAdminCredentials(
 async function verifyEnvironmentCredentials(
   email: unknown,
   password: unknown,
-): Promise<{ ok: true; email: string } | { ok: false; reason: 'misconfigured' | 'invalid' }> {
+): Promise<
+  { ok: true; email: string; passwordHash: string } | { ok: false; reason: 'misconfigured' | 'invalid' }
+> {
   let expectedEmail: string;
   let passwordHash: string;
 
@@ -167,7 +184,7 @@ async function verifyEnvironmentCredentials(
     return { ok: false, reason: 'invalid' };
   }
 
-  return { ok: true, email: expectedEmail };
+  return { ok: true, email: expectedEmail, passwordHash };
 }
 
 /**

@@ -51,10 +51,19 @@ export function environmentOwnerEmail(): string | null {
   return value === '' ? null : value;
 }
 
-/** Can the table be read, and does it hold anybody? */
+/**
+ * Can the table be read, and does it hold the **owner**?
+ *
+ * Keyed on the owner row rather than on any row: the environment fallback must
+ * hold until the owner's own row exists, whatever else the table contains, or
+ * a table holding only other operators would lock the owner out.
+ */
 export async function superAdminTableState(): Promise<TableState> {
   try {
-    const rows = await db.select({ value: count() }).from(superAdminUsers);
+    const rows = await db
+      .select({ value: count() })
+      .from(superAdminUsers)
+      .where(eq(superAdminUsers.isOwner, true));
     return (rows[0]?.value ?? 0) > 0 ? 'rows' : 'empty';
   } catch (error) {
     console.error('[super-admin] super_admin_users could not be read:', error);
@@ -73,6 +82,36 @@ export async function findSuperAdminByEmail(email: string): Promise<SuperAdminUs
     .where(eq(superAdminUsers.email, normaliseAdminEmail(email)))
     .limit(1);
   return rows[0] ?? null;
+}
+
+/**
+ * Seeds the owner's row from the environment credential that just verified.
+ *
+ * The owner is seeded here, on their first sign-in after `0052`, rather than by
+ * `apply-0052.mjs`: the script can only read the *local* `.env.local`, and a
+ * production hash that differed from it would have silently become the local
+ * password. The hash written here is the one the running deployment accepted,
+ * so the owner's password is exactly what it was the moment before.
+ *
+ * Claimed, not checked: the partial unique index on `is_owner` lets exactly one
+ * of any concurrent callers insert. Returns the owner row either way.
+ */
+export async function seedOwnerFromEnvironment(
+  email: string,
+  passwordHash: string,
+): Promise<SuperAdminUser | null> {
+  await db
+    .insert(superAdminUsers)
+    .values({
+      email: normaliseAdminEmail(email),
+      name: 'Platform owner',
+      passwordHash,
+      isOwner: true,
+      permissions: {},
+      isActive: true,
+    })
+    .onConflictDoNothing();
+  return findSuperAdminByEmail(email);
 }
 
 export async function findSuperAdminById(id: string): Promise<SuperAdminUser | null> {

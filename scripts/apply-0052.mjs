@@ -4,7 +4,7 @@
  * Applies `0052` — Sprint 35: platform billing, the operators, the hand-off.
  *
  *   node scripts/apply-0052.mjs            # inspect only, changes nothing
- *   node scripts/apply-0052.mjs --apply    # apply, seed the owner, and prove
+ *   node scripts/apply-0052.mjs --apply    # apply and prove (owner seeded on first sign-in)
  *
  * `drizzle-kit migrate` cannot be used and has not been since Sprint 18: the
  * password in `DATABASE_URL` holds an unescaped literal `@`, and drizzle-kit
@@ -169,51 +169,73 @@ check('the bookkeeping moved', after.book > before.book || before.tables === TAB
 
 /* -- The owner ---------------------------------------------------------- */
 
+// Not seeded by default. This script reads the LOCAL .env.local, and a
+// production hash that differed from it would silently become the owner's
+// password. The owner's row is seeded by the running deployment instead, on
+// the owner's first sign-in after 0052 (seedOwnerFromEnvironment in
+// lib/super-admin-accounts.ts), with the hash that deployment accepted.
+// --seed-owner keeps the old behaviour for a local database.
 console.log('\nThe owner:');
-const hash = configuredHash();
-if (hash === undefined || hash.length !== 60 || !hash.startsWith('$2')) {
-  console.warn(
-    '  WARN  no well-formed SUPER_ADMIN_PASSWORD_HASH(_B64) in .env.local — the owner is NOT seeded.\n' +
-      '        Sign-in keeps falling back to the environment credential until they are.',
-  );
+if (process.argv.includes('--seed-owner')) {
+  const hash = configuredHash();
+  if (hash === undefined || hash.length !== 60 || !hash.startsWith('$2')) {
+    console.warn('  WARN  no well-formed SUPER_ADMIN_PASSWORD_HASH(_B64) in .env.local — not seeded.');
+  } else {
+    const seeded = await client`
+      insert into super_admin_users (email, name, password_hash, is_owner, permissions, is_active)
+      values (${OWNER_EMAIL}, 'Platform owner', ${hash}, true, '{}'::jsonb, true)
+      on conflict (email) do nothing
+      returning id`;
+    console.log(`  --    ${seeded.length === 1 ? 'seeded' : 'already present'}: ${OWNER_EMAIL}`);
+  }
 } else {
-  const seeded = await client`
-    insert into super_admin_users (email, name, password_hash, is_owner, permissions, is_active)
-    values (${OWNER_EMAIL}, 'Platform owner', ${hash}, true, '{}'::jsonb, true)
-    on conflict (email) do nothing
-    returning id`;
-  console.log(`  --    ${seeded.length === 1 ? 'seeded' : 'already present'}: ${OWNER_EMAIL}`);
+  console.log('  --    not seeded here: the first owner sign-in on the deployment seeds it.');
 }
 
 const [owner] = await client`
   select id, email, is_owner, is_active from super_admin_users where is_owner`;
-check('exactly one owner row, active, with the owner’s address', owner?.email === OWNER_EMAIL && owner.is_active === true, owner?.email ?? '(none)');
+check(
+  'at most one owner row, and if present it is active with the owner’s address',
+  owner === undefined || (owner.email === OWNER_EMAIL && owner.is_active === true),
+  owner?.email ?? '(none yet)',
+);
 
 /* -- Proved by attempt -------------------------------------------------- */
 
 console.log('\nProved by attempt (every one rolled back):');
 
-if (owner !== undefined) {
-  check(
-    'deleting the owner is refused by the trigger',
-    (await attempt((tx) => tx`delete from super_admin_users where id = ${owner.id}`)) === 'P0001',
-  );
-  check(
-    'deactivating the owner is refused by the trigger',
-    (await attempt((tx) => tx`update super_admin_users set is_active = false where id = ${owner.id}`)) === 'P0001',
-  );
-  check(
-    'changing the owner’s email is refused by the trigger',
-    (await attempt((tx) => tx`update super_admin_users set email = 'someone@else.test' where id = ${owner.id}`)) === 'P0001',
-  );
-  check(
-    'a second owner is refused by the unique index',
-    (await attempt(
-      (tx) => tx`insert into super_admin_users (email, name, password_hash, is_owner)
-                 values ('apply-0052-probe@sprint35.invalid', 'probe', 'not-a-hash', true)`,
-    )) === '23505',
-  );
-}
+// Against the real owner when there is one, otherwise against a probe owner
+// inserted inside the same rolled-back transaction.
+const PROBE = 'apply-0052-owner-probe@sprint35.invalid';
+const withOwner = (act) => async (tx) => {
+  let id = owner?.id;
+  if (id === undefined) {
+    const [row] = await tx`insert into super_admin_users (email, name, password_hash, is_owner)
+                           values (${PROBE}, 'probe', 'not-a-hash', true) returning id`;
+    id = row.id;
+  }
+  await act(tx, id);
+};
+
+check(
+  'deleting the owner is refused by the trigger',
+  (await attempt(withOwner((tx, id) => tx`delete from super_admin_users where id = ${id}`))) === 'P0001',
+);
+check(
+  'deactivating the owner is refused by the trigger',
+  (await attempt(withOwner((tx, id) => tx`update super_admin_users set is_active = false where id = ${id}`))) === 'P0001',
+);
+check(
+  'changing the owner’s email is refused by the trigger',
+  (await attempt(withOwner((tx, id) => tx`update super_admin_users set email = 'someone@else.test' where id = ${id}`))) === 'P0001',
+);
+check(
+  'a second owner is refused by the unique index',
+  (await attempt(
+    withOwner((tx) => tx`insert into super_admin_users (email, name, password_hash, is_owner)
+                         values ('apply-0052-probe@sprint35.invalid', 'probe', 'not-a-hash', true)`),
+  )) === '23505',
+);
 
 check(
   'a non-Pakistani IBAN is refused',
