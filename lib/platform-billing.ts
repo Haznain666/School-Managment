@@ -368,6 +368,14 @@ export function applyDiscounts(
   return { amounts, totalDiscount, total: Math.max(0, subtotalMinor) - totalDiscount };
 }
 
+/** Basis points as a person reads them: `1250` → `12.5%`. */
+export function formatBasisPoints(basisPoints: number): string {
+  const whole = Math.trunc(basisPoints / 100);
+  const fraction = Math.abs(basisPoints % 100);
+  if (fraction === 0) return `${String(whole)}%`;
+  return `${String(whole)}.${String(fraction).padStart(2, '0').replace(/0$/, '')}%`;
+}
+
 /** A discount as it is typed: a problem sentence, or null. */
 export function discountProblem(kind: unknown, value: unknown, description: unknown): string | null {
   if (kind !== 'percent' && kind !== 'fixed') return 'Choose a percentage or a fixed amount.';

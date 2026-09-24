@@ -12,6 +12,7 @@ import { Modal } from '@/components/ui/Modal';
 import { Select } from '@/components/ui/Select';
 import { formatMoneyMinor } from '@/lib/money';
 import {
+  formatBasisPoints,
   MAX_DISCOUNTS_PER_INVOICE,
   monthLabel,
   shortDate,
@@ -300,7 +301,7 @@ export function InvoiceDetailPanel({ initial, bankAccounts, canEdit, canRecord }
                 <dt className="text-ink-muted">
                   {discount.description}
                   {discount.kind === 'percent' && discount.percentBasisPoints !== null
-                    ? ` (${String(discount.percentBasisPoints / 100)}%)`
+                    ? ` (${formatBasisPoints(discount.percentBasisPoints)})`
                     : ''}
                 </dt>
                 <dd className="font-mono tabular-nums">−{money(discount.amountMinor)}</dd>
@@ -375,7 +376,7 @@ export function InvoiceDetailPanel({ initial, bankAccounts, canEdit, canRecord }
                     <span>
                       {discount.description} ·{' '}
                       {discount.kind === 'percent' && discount.percentBasisPoints !== null
-                        ? `${String(discount.percentBasisPoints / 100)}%`
+                        ? formatBasisPoints(discount.percentBasisPoints)
                         : money(discount.fixedMinor ?? 0)}
                     </span>
                     <Button

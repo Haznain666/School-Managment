@@ -204,7 +204,19 @@ export async function billableUserCounts(
   const result = new Map<string, RoleCounts>();
   if (locationIds.length === 0) return result;
 
-  const rows = await db
+  const rows = await billableUserCountsQuery(locationIds);
+
+  for (const row of rows) {
+    const entry = result.get(row.locationId) ?? {};
+    entry[row.role] = Number(row.users);
+    result.set(row.locationId, entry);
+  }
+
+  return result;
+}
+
+function billableUserCountsQuery(locationIds: readonly string[]) {
+  return db
     .select({
       locationId: schoolUsers.locationId,
       role: schoolUsers.role,
@@ -219,14 +231,11 @@ export async function billableUserCounts(
       ),
     )
     .groupBy(schoolUsers.locationId, schoolUsers.role);
+}
 
-  for (const row of rows) {
-    const entry = result.get(row.locationId) ?? {};
-    entry[row.role] = Number(row.users);
-    result.set(row.locationId, entry);
-  }
-
-  return result;
+/** The E2 statement as SQL, for `check-sprint35` to read the predicate from. */
+export function billableUserCountsSql(locationIds: readonly string[]): { sql: string; params: unknown[] } {
+  return billableUserCountsQuery(locationIds).toSQL();
 }
 
 export function totalUsers(counts: RoleCounts | undefined): number {
@@ -1644,17 +1653,18 @@ export async function unblockSchool(
 /* ═══════════════════════════════════════════════════════════ the sweeps */
 
 /**
- * Raises last month's draft for every Live school that has none (§5).
- *
- * Runs on every tick rather than only on the 1st: "on the 1st and on every
- * later tick that finds one missing", so a process that was down over
- * midnight on the 1st still bills the month. The read is one statement over
- * Live schools; the work, when there is any, is claimed per school by the
- * unique index.
+ * The sweeps are split into a **read** that finds the work and a loop that does
+ * it, one claimed item at a time. The reads are exported so `check-sprint35`
+ * can execute each against the real schema — each is a join of two or three
+ * tables, which is the shape that has shipped 42702 three times — without
+ * executing the writes that follow them.
  */
-export async function sweepInvoiceGeneration(now: Date = new Date()): Promise<number> {
-  const period = billedMonthFor(now);
 
+/** Live schools with at least one day in `period` and no invoice for it yet. */
+export async function invoiceGenerationCandidates(period: {
+  start: string;
+  end: string;
+}): Promise<string[]> {
   const live = await db
     .select({ locationId: schoolBillingSettings.locationId })
     .from(schoolBillingSettings)
@@ -1668,7 +1678,7 @@ export async function sweepInvoiceGeneration(now: Date = new Date()): Promise<nu
       ),
     );
 
-  if (live.length === 0) return 0;
+  if (live.length === 0) return [];
 
   const billed = await db
     .select({ locationId: platformInvoices.locationId })
@@ -1684,29 +1694,44 @@ export async function sweepInvoiceGeneration(now: Date = new Date()): Promise<nu
     );
 
   const done = new Set(billed.map((row) => row.locationId));
+  return live.map((row) => row.locationId).filter((locationId) => !done.has(locationId));
+}
+
+/**
+ * Raises last month's draft for every Live school that has none (§5).
+ *
+ * Runs on every tick rather than only on the 1st: "on the 1st and on every
+ * later tick that finds one missing", so a process that was down over
+ * midnight on the 1st still bills the month. The work, when there is any, is
+ * claimed per school by the (school, month) unique index.
+ */
+export async function sweepInvoiceGeneration(now: Date = new Date()): Promise<number> {
+  const period = billedMonthFor(now);
   let created = 0;
 
-  for (const row of live) {
-    if (done.has(row.locationId)) continue;
+  for (const locationId of await invoiceGenerationCandidates(period)) {
     try {
-      const outcome = await generateInvoiceForSchool(row.locationId, period.start, 'sweep');
+      const outcome = await generateInvoiceForSchool(locationId, period.start, 'sweep');
       if (outcome.status === 'created') created += 1;
       else if (outcome.status === 'missing_rate') {
-        console.warn(`[billing] ${row.locationId}: no USD→PKR rate, invoice not raised`);
+        console.warn(`[billing] ${locationId}: no USD→PKR rate, invoice not raised`);
       }
     } catch (error) {
-      console.error(`[billing] invoice generation failed for ${row.locationId}:`, error);
+      console.error(`[billing] invoice generation failed for ${locationId}:`, error);
     }
   }
 
   return created;
 }
 
-/** Blocks every Live school holding a finalized invoice past grace (§6). */
-export async function sweepOverdueBlocking(now: Date = new Date()): Promise<number> {
-  const today = karachiToday(now);
-
-  const candidates = await db
+/**
+ * Finalized invoices past their due date at open Live schools. The grace is
+ * applied by the caller, per school, because it is a per-school setting.
+ */
+export async function overdueBlockingCandidates(today: string): Promise<
+  { locationId: string; invoiceId: string; dueDate: string; graceDays: number }[]
+> {
+  return db
     .select({
       locationId: platformInvoices.locationId,
       invoiceId: platformInvoices.id,
@@ -1725,11 +1750,15 @@ export async function sweepOverdueBlocking(now: Date = new Date()): Promise<numb
         eq(schools.isActive, true),
       ),
     );
+}
 
+/** Blocks every Live school holding a finalized invoice past grace (§6). */
+export async function sweepOverdueBlocking(now: Date = new Date()): Promise<number> {
+  const today = karachiToday(now);
   let blocked = 0;
   const seen = new Set<string>();
 
-  for (const row of candidates) {
+  for (const row of await overdueBlockingCandidates(today)) {
     if (seen.has(row.locationId)) continue;
     const lastBlockingDueDate = addDays(today, -(Math.max(0, row.graceDays) + 1));
     if (compareDates(row.dueDate, lastBlockingDueDate) > 0) continue;
@@ -1745,22 +1774,11 @@ export async function sweepOverdueBlocking(now: Date = new Date()): Promise<numb
   return blocked;
 }
 
-/**
- * Trial reminders, five days and one day before the trial ends (§4).
- *
- * Each is claimed with `INSERT … ON CONFLICT DO NOTHING RETURNING` on
- * (school, kind, trial end) before anything is sent, so seven processes — or a
- * lease that changed hands mid-tick — send it once. A window rather than an
- * exact day, so a tick missed on the day still sends it the day after; the
- * message states the real number of days left.
- */
-export async function sweepTrialReminders(
-  now: Date,
-  send: (reminder: TrialReminder) => Promise<void>,
-): Promise<number> {
-  const today = karachiToday(now);
-
-  const live = await db
+/** Live, open schools that have a trial at all. */
+export async function trialReminderCandidates(): Promise<
+  { locationId: string; liveSince: string | null; trialDays: number; schoolId: string; schoolName: string }[]
+> {
+  return db
     .select({
       locationId: schoolBillingSettings.locationId,
       liveSince: schoolBillingSettings.liveSince,
@@ -1778,16 +1796,39 @@ export async function sweepTrialReminders(
         eq(schools.isActive, true),
       ),
     );
+}
 
+/** Which reminder, if any, is due `daysLeft` days before the trial ends. */
+export function trialReminderKind(daysLeft: number): 'trial_5d' | 'trial_1d' | null {
+  if (daysLeft >= 0 && daysLeft <= 1) return 'trial_1d';
+  if (daysLeft >= 2 && daysLeft <= 5) return 'trial_5d';
+  return null;
+}
+
+/**
+ * Trial reminders, five days and one day before the trial ends (§4).
+ *
+ * Each is claimed with `INSERT … ON CONFLICT DO NOTHING RETURNING` on
+ * (school, kind, trial end) before anything is sent, so seven processes — or a
+ * lease that changed hands mid-tick — send it once. A window rather than an
+ * exact day, so a tick missed on the day still sends it the day after; the
+ * message states the real number of days left. A failed send hands the claim
+ * back, so the next tick tries again rather than the platform believing a
+ * reminder went out that nobody received.
+ */
+export async function sweepTrialReminders(
+  now: Date,
+  send: (reminder: TrialReminder) => Promise<void>,
+): Promise<number> {
+  const today = karachiToday(now);
   let sent = 0;
 
-  for (const school of live) {
+  for (const school of await trialReminderCandidates()) {
     const end = trialEndsOn(school.liveSince, school.trialDays);
     if (end === null) continue;
 
     const daysLeft = daysInclusive(today, end) - 1;
-    const kind: TrialReminder['kind'] | null =
-      daysLeft >= 0 && daysLeft <= 1 ? 'trial_1d' : daysLeft >= 2 && daysLeft <= 5 ? 'trial_5d' : null;
+    const kind = trialReminderKind(daysLeft);
     if (kind === null) continue;
 
     const claimed = await db
@@ -1796,7 +1837,8 @@ export async function sweepTrialReminders(
       .onConflictDoNothing()
       .returning({ id: billingReminders.id });
 
-    if (claimed.length === 0) continue;
+    const claim = claimed[0];
+    if (claim === undefined) continue;
 
     try {
       await send({
@@ -1809,11 +1851,7 @@ export async function sweepTrialReminders(
       });
       sent += 1;
     } catch (error) {
-      // Hand the claim back, so the next tick tries again rather than the
-      // school believing a reminder went out that nobody received.
-      await db
-        .delete(billingReminders)
-        .where(eq(billingReminders.id, claimed[0]?.id ?? ''));
+      await db.delete(billingReminders).where(eq(billingReminders.id, claim.id));
       console.error(`[billing] trial reminder for ${school.schoolName} failed:`, error);
     }
   }
@@ -1829,7 +1867,6 @@ export interface TrialReminder {
   trialEndsOn: string;
   daysLeft: number;
 }
-
 
 /* ═══════════════════════════════════════════════════════════ the suspended page */
 

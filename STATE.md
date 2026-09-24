@@ -44,6 +44,15 @@ owner, renewing every 30.0s — is the proof it is running.
 **Three schools' real data is that other 1.4%; deleting tenants could never
 have moved the bill, and nothing was deleted.**
 
+🛠 **2026-09-25 — Sprint 35 (super admin invoicing, the central sign-in, more
+than one operator) is built and gated on `sprint35-dev`, migration `0052`
+written and NOT applied.** Every source gate green, `check-sprint35` 105/0 with
+the new statements failing exactly as predicted before `0052`, `npm run build`
+green with `/` still static. **Not applied, not deployed, not browser-QA'd** —
+`PENDING.md` N2 is the order to finish it in, and its step 1 (the owner's
+seed hash comes from the *local* `.env.local`) must be read before `--apply`.
+§5co.
+
 ✅ **2026-09-20 — `PENDING.md` D7 is closed, and it was not what it said.**
 D7 reported seven `kpis.rate.*` keys missing from `role_permissions_permission_check`
 and asked for a migration. **They were never missing.** `0049` names all seven,
@@ -12914,6 +12923,117 @@ days, per person, with the date in hand.
    `lib/payroll-approval.ts` now has and the register does not call.
 5. **The bell's `href` is a fixed map of four routes.** A fifth portal would
    need a line in `noticeHrefFor`.
+
+---
+
+## 5co. Sprint 35 — super admin invoicing, the central sign-in, more than one operator — 2026-09-25
+
+**Spec:** `SPRINT-35-SPEC.md` (§0 holds the four product-owner decisions and
+the twelve engineering ones, E1–E12 — read them before touching any of this).
+**Branch:** `sprint35-dev` (built by the sprint-developer agent in its own
+worktree). **Migration:** `0052_sprint35_billing` — **written, not applied.**
+**Status:** built and gated; **not applied, not deployed, not browser-QA'd.**
+`PENDING.md` N2 is the order to finish it in.
+
+### What was built
+
+| Area | Where |
+| --- | --- |
+| The arithmetic — proration, due date, grace, discounts, conversion, IBAN, the estimate | `lib/platform-billing.ts` (pure, browser-safe) |
+| The clearing rule (E6) | `lib/platform-invoice-clearing.ts` — **`server-only`, on purpose** |
+| Reads, writes and the three sweeps | `lib/platform-billing-queries.ts`, `lib/platform-billing-sweeps.ts` |
+| The PDF (E12) | `lib/platform-invoice-pdf.ts` (pdf-lib), `lib/platform-invoice-documents.ts` |
+| Users column + per-role dialog (§1) | `SchoolTable`, one grouped query in `GET /api/super-admin/schools` |
+| Billing tab (§2) | `/super-admin/schools/[id]/billing`, `BillingSettingsPanel` |
+| Phase 1 "Included" (§3, E9) | `ALWAYS_ON_MODULE_KEYS` in `lib/platform-modules.ts`; both module routes refuse `off` |
+| Invoices, discounts, finalize, PDF, email, receipts (§5) | `/super-admin/billing`, `/super-admin/billing/invoices/[id]`, `app/api/super-admin/billing/**` |
+| Bank accounts (≤3, PK IBAN) | `/super-admin/billing/bank-accounts` |
+| Blocking (§6) | `schools.access_blocked_at`, read in `membershipFor()`; `withSchoolAuth` → 403 `school_suspended`; `requireSchoolRole`/`requireSchoolPermission` → `/suspended` |
+| Suspended page | `app/(public)/suspended` — admin sees invoices, amount due, banks, PDF |
+| Central sign-in (§7) | `app/page.tsx` (still ○ static), `/api/platform/sign-in`, `/api/platform/handoff`, `/handoff/[token]`, `lib/central-signin.ts` |
+| Brand (§8) | `public/brand/*`, `lib/brand-assets-data.ts` (generated), platform favicon in `app/icon/[size]` |
+| Operators (§9) | `super_admin_users`, `lib/super-admin-accounts.ts`, `lib/super-admin-guard.ts`, `/super-admin/admins`, `/super-admin/account` |
+| Gates | `scripts/check-sprint35.ts` (`npm run check-sprint35`), `scripts/apply-0052.mjs` |
+
+### Decisions that should not be re-litigated
+
+1. **Eleven days, not ten.** A trial whose last free day is 20 Oct bills 21–31
+   Oct: both ends count. `check-sprint35` asserts it (E3).
+2. **The due date is derived from the period, not the clock** — the 10th of the
+   month after the billed month. "Generate now" pressed late gives the same due
+   date the sweep would have; two operators cannot produce two answers.
+3. **The 80% rule lives in one `server-only` file** and is asserted absent from
+   every billing screen, route, PDF and email builder. The UI says Received and
+   "Balance carried to next invoice". Do not return it in an API response,
+   including as a boolean named after it.
+4. **Only `finalized` invoices block.** A draft was never sent; a carried-forward
+   invoice's debt now lives on the next one; `paid` is cleared. Consequence in
+   `PENDING.md` L9.
+5. **Cleared (≥ threshold) moves the status to `paid`.** The remainder is still
+   owed and is carried by the next generation, which marks the old invoice
+   `carried_forward` — which is why a receipt can be recorded against a `paid`
+   invoice but not a `carried_forward` one (E7).
+6. **A receipt larger than the balance is refused**, not stored as credit.
+7. **A zero-value invoice is settled on finalize**, so it can never block.
+8. **The invoice number is derived** (`INV-YYYYMM-SLUG`), not sequenced: the
+   (school, month) unique index already names one invoice.
+9. **The invoice email is sent synchronously with the PDF attached** — the
+   outbox holds text only. Block/unblock and trial reminders use the outbox.
+10. **`live_since` is stamped by the save that moves Sandbox → Live** (today,
+    Karachi) and cleared by the save back. Re-saving a Live school never
+    restarts its trial.
+11. **The Users count is every active non-parent `school_users` row** — pupils
+    included, because they have rows.
+12. **The Super Admin is never blocked**, including inside a blocked school
+    through "Login as Admin" (`platformClaimsFor` sets `accessBlocked: false`).
+13. **A blocked school's users can still sign in** — at the school or at the
+    apex — and land on `/suspended`. Refusing the password would say the wrong
+    thing to the one person (the administrator) who can fix it.
+14. **Every `/api/school/**` route refuses a blocked school by default**; the
+    one exception opts in by name (`allowWhenBlocked`, the school-side PDF).
+15. **The apex checks the Supabase password with a throwaway, cookie-less
+    client** and mints the session on the school's host through a single-use,
+    sixty-second, hash-stored hand-off row claimed by a conditional UPDATE.
+    The operator's own JWT hand-off is unchanged.
+16. **A student ID is matched against `<id>@students.<slug>.invalid`** across
+    schools (at most three candidates, each tried).
+17. **The owner is seeded by the apply script, not the migration** — the hash
+    is in the environment and the repo is public. The environment credential
+    stays as the owner's fallback **only while the table is empty or
+    unreachable**; once a row exists, the table decides (so a password changed
+    on My account is not undone by a stale panel value).
+18. **Only the owner edits permissions** — a non-owner sending a grid gets 403
+    rather than a silent drop. Nobody deactivates or deletes themselves.
+19. **Every existing `/api/super-admin` route now names its area and action**;
+    diagnostics and notifications need only an active operator. The catalogue
+    tabs gained a permission check and therefore a `loading.tsx` — see their
+    docblocks.
+20. **Brand bytes are compiled in** (`lib/brand-assets-data.ts`, regenerated by
+    `scripts/generate-brand-assets.mjs`) for the PDF and the favicon, because a
+    standalone deploy has `public/` only if somebody copies it. Screens use
+    `next/image` from `/brand/…` — see `PENDING.md` L8.
+21. **`pdf-lib` is the only PDF library in the product**, and only because
+    this document must be attached to an email. Every school document stays a
+    `PrintSheet`.
+
+### Gates run on `sprint35-dev`
+
+`typecheck` 0 errors · `lint` 0 warnings · `check-loaders` PASS (345) ·
+`check-import-sample` PASS · `check-product-catalogue` PASS (18) ·
+`check-forms` PASS (98) · `check-address-phone` PASS · `check-cnic` PASS ·
+`check-currency` PASS · `check-theme` PASS · `check-sprint-periods` PASS ·
+`check-accounting` PASS · `check-branch-scope` PASS · `check-scheduler` 11 ok ·
+`check-sprint35` **PASS — 105 passed, 0 failed**, with `0052` **not applied**:
+every new-table statement failed with exactly the predicted `42P01`, and the
+widened `membershipFor` with exactly `42703`. `npm run build` passed; `/` is
+still `○` static.
+
+### What is still open
+
+Everything in `PENDING.md` **N2** (apply, seed, QA) and **L8–L11**. In short:
+the migration is unapplied, the owner's seed hash comes from the local
+`.env.local`, `public/` has never been deployed, and no screen from this sprint
+has been opened in a browser.
 
 ---
 
