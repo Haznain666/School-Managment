@@ -135,8 +135,14 @@ export function buildHandoffUrl(
   schoolSlug: string,
   requestHost: string,
   protocol: string,
+  /**
+   * Sprint 35: the apex sign-in hands off to `/handoff/<token>`, the operator
+   * to `/platform-login/<token>`. One builder for both, so the two cannot
+   * disagree about how a school's address is formed.
+   */
+  route: 'platform-login' | 'handoff' = 'platform-login',
 ): string {
-  const path = `/platform-login/${encodeURIComponent(token)}`;
+  const path = `/${route}/${encodeURIComponent(token)}`;
   const baseDomain = serverEnv('PLATFORM_BASE_DOMAIN', publicEnv.appDomain);
 
   // Already on `<something>.<apex>`? Then the platform has a wildcard domain

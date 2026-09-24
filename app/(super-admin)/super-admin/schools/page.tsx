@@ -5,6 +5,7 @@ import { SchoolTable } from '@/components/super-admin/SchoolTable';
 import { SubdomainProvisioningNotice } from '@/components/super-admin/SubdomainProvisioningNotice';
 import { Button } from '@/components/ui/Button';
 import { PageHeader } from '@/components/ui/PageHeader';
+import { requireSuperAdminPage } from '@/lib/super-admin-guard';
 
 export const metadata: Metadata = {
   title: 'Schools',
@@ -12,7 +13,9 @@ export const metadata: Metadata = {
 
 export const dynamic = 'force-dynamic';
 
-export default function SchoolsPage() {
+export default async function SchoolsPage() {
+  await requireSuperAdminPage('schools');
+
   return (
     <div className="space-y-6">
       <PageHeader

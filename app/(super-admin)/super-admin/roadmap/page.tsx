@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 
 import { ProductGuide } from '@/components/super-admin/ProductGuide';
 import { PageHeader } from '@/components/ui/PageHeader';
+import { requireSuperAdminPage } from '@/lib/super-admin-guard';
 
 export const metadata: Metadata = {
   title: 'Roadmap',
@@ -24,11 +25,13 @@ export const metadata: Metadata = {
  * whole of what exists: there is no screen behind any of them. Those entries
  * say so on the card rather than letting the toggle imply a product.
  *
- * No data of its own, so no `loading.tsx` — and served dynamically anyway,
- * because the group layout is `force-dynamic`. See the Features page for the
- * whole of that reasoning.
+ * No data of its own. Since Sprint 35 it does carry a `loading.tsx`: the
+ * `catalogue` area is checked here (§9), which is one memoised `await` — see
+ * the Features page for the whole of that reasoning.
  */
-export default function PlatformRoadmapPage() {
+export default async function PlatformRoadmapPage() {
+  await requireSuperAdminPage('catalogue');
+
   return (
     <div className="space-y-5">
       <PageHeader

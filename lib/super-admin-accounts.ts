@@ -172,6 +172,122 @@ export function superAdminPasswordProblem(password: unknown): string | null {
   return null;
 }
 
+/* ═══════════════════════════════════════════════════════════ writes */
+
+/** The SQLSTATE of a driver error, which Drizzle hangs off `cause`. */
+export function sqlStateOf(error: unknown): string | null {
+  let current: unknown = error;
+  for (let depth = 0; depth < 6 && current != null; depth += 1) {
+    const code = (current as { code?: unknown }).code;
+    if (typeof code === 'string' && /^[0-9A-Z]{5}$/.test(code)) return code;
+    current = (current as { cause?: unknown }).cause;
+  }
+  return null;
+}
+
+export type AdminWriteOutcome =
+  | { ok: true }
+  | { ok: false; status: number; code: string; message: string };
+
+/**
+ * Translates the two database refusals an admin write can meet into sentences:
+ * a duplicate address (`23505`) and the owner-protection trigger (`P0001`).
+ * Anything else is rethrown — it is a real fault, not a rule.
+ */
+function refusal(error: unknown): AdminWriteOutcome {
+  const state = sqlStateOf(error);
+  if (state === '23505') {
+    return {
+      ok: false,
+      status: 409,
+      code: 'duplicate_email',
+      message: 'A super admin with that email already exists.',
+    };
+  }
+  if (state === 'P0001') {
+    return {
+      ok: false,
+      status: 409,
+      code: 'owner_protected',
+      message: 'The platform owner cannot be deleted, deactivated, demoted or re-addressed.',
+    };
+  }
+  throw error;
+}
+
+export async function createSuperAdmin(input: {
+  email: string;
+  name: string;
+  password: string;
+  permissions: SuperAdminPermissions;
+  createdBy: string;
+}): Promise<AdminWriteOutcome> {
+  try {
+    await db.insert(superAdminUsers).values({
+      email: normaliseAdminEmail(input.email),
+      name: input.name.trim(),
+      passwordHash: await hashSuperAdminPassword(input.password),
+      isOwner: false,
+      permissions: input.permissions,
+      isActive: true,
+      createdBy: input.createdBy,
+    });
+    return { ok: true };
+  } catch (error) {
+    return refusal(error);
+  }
+}
+
+export interface SuperAdminPatch {
+  name?: string;
+  email?: string;
+  isActive?: boolean;
+  password?: string;
+  permissions?: SuperAdminPermissions;
+}
+
+export async function updateSuperAdmin(
+  id: string,
+  patch: SuperAdminPatch,
+): Promise<AdminWriteOutcome> {
+  const set: Partial<typeof superAdminUsers.$inferInsert> = { updatedAt: new Date() };
+  if (patch.name !== undefined) set.name = patch.name.trim();
+  if (patch.email !== undefined) set.email = normaliseAdminEmail(patch.email);
+  if (patch.isActive !== undefined) set.isActive = patch.isActive;
+  if (patch.permissions !== undefined) set.permissions = patch.permissions;
+  if (patch.password !== undefined) {
+    set.passwordHash = await hashSuperAdminPassword(patch.password);
+    set.passwordChangedAt = new Date();
+  }
+
+  try {
+    const updated = await db
+      .update(superAdminUsers)
+      .set(set)
+      .where(eq(superAdminUsers.id, id))
+      .returning({ id: superAdminUsers.id });
+    return updated.length > 0
+      ? { ok: true }
+      : { ok: false, status: 404, code: 'not_found', message: 'Super admin not found.' };
+  } catch (error) {
+    return refusal(error);
+  }
+}
+
+export async function deleteSuperAdmin(id: string): Promise<AdminWriteOutcome> {
+  try {
+    const removed = await db
+      .delete(superAdminUsers)
+      .where(eq(superAdminUsers.id, id))
+      .returning({ id: superAdminUsers.id });
+    return removed.length > 0
+      ? { ok: true }
+      : { ok: false, status: 404, code: 'not_found', message: 'Super admin not found.' };
+  } catch (error) {
+    return refusal(error);
+  }
+}
+
 /** Stamped on sign-in. Best effort: a failed stamp never fails a sign-in. */
 export async function recordSuperAdminSignIn(adminId: string): Promise<void> {
   try {

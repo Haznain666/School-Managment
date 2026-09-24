@@ -47,7 +47,7 @@ export async function BrandedLoginLayout({
           )}
 
           <h1 className="text-2xl font-bold text-ink">
-            {school?.name ?? 'SMS Platform'}
+            {school?.name ?? 'SchoolHub'}
           </h1>
           {subtitle !== undefined ? (
             <p className="mt-1 text-sm text-ink-muted">{subtitle}</p>

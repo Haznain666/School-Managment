@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { headers } from 'next/headers';
 import sharp from 'sharp';
 
+import { SCHOOLHUB_MARK_PNG_BASE64 } from '@/lib/brand-assets-data';
 import { paletteToCSSVars } from '@/lib/branding';
 import { readableForeground } from '@/lib/color-contrast';
 import { SCHOOL_LOCATION_HEADER } from '@/lib/school-context';
@@ -49,6 +50,36 @@ export async function GET(
   const px = Number.parseInt(size, 10);
   const headerList = await headers();
   const locationId = headerList.get(SCHOOL_LOCATION_HEADER);
+
+  /*
+   * Sprint 35, section 8 — no school behind this host means the apex, the
+   * Super Admin panel or anything else that is the *platform*, and the
+   * platform's icon is the SchoolHub mark rather than a pair of initials.
+   * Compiled in (`lib/brand-assets-data.ts`) rather than read from `public/`,
+   * which a standalone deploy only has if somebody remembered to copy it.
+   * School hosts are unchanged: each school stays an app in its own colours.
+   */
+  if (locationId === null || locationId === '') {
+    const inner = Math.round(px * 0.78);
+    const mark = await sharp(Buffer.from(SCHOOLHUB_MARK_PNG_BASE64, 'base64'))
+      .resize({ width: inner, height: inner, fit: 'contain', background: { r: 255, g: 255, b: 255, alpha: 0 } })
+      .png()
+      .toBuffer();
+    const platformIcon = await sharp({
+      create: { width: px, height: px, channels: 4, background: { r: 255, g: 255, b: 255, alpha: 1 } },
+    })
+      .composite([{ input: mark, gravity: 'centre' }])
+      .png()
+      .toBuffer();
+
+    return new NextResponse(new Uint8Array(platformIcon), {
+      headers: {
+        'Content-Type': 'image/png',
+        'Cache-Control': 'public, max-age=86400',
+        Vary: 'Host',
+      },
+    });
+  }
 
   const branding =
     locationId === null || locationId === ''
