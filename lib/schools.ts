@@ -9,7 +9,7 @@ import {
 } from '@/db/schema';
 
 import { db } from './drizzle';
-import { emptyModuleFlags, toModuleFlags, type SchoolModuleFlags } from './platform-modules';
+import { toModuleFlags, type SchoolModuleFlags } from './platform-modules';
 import { isValidSlug } from './slug';
 
 /**
@@ -103,7 +103,9 @@ async function hydrate(school: typeof schools.$inferSelect): Promise<SchoolRecor
     schoolName: school.name,
     city: school.city,
     isActive: school.isActive,
-    moduleFlags: moduleRows.length === 0 ? emptyModuleFlags() : toModuleFlags(moduleRows),
+    // Always through `toModuleFlags`, even with no rows: Phase 1 is on for
+    // every school whatever the table holds (Sprint 35, E9).
+    moduleFlags: toModuleFlags(moduleRows),
     colorPalette: branding === undefined ? null : selectedPaletteOf(branding),
     logoUrl: branding?.logoUrl ?? school.logoUrl,
   };

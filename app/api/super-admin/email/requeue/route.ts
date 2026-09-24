@@ -26,7 +26,7 @@ export const dynamic = 'force-dynamic';
 
 export async function POST() {
   try {
-    await requireSuperAdmin();
+    await requireSuperAdmin('schools', 'u');
 
     // Checked before anything is requeued. Requeuing into a transport that does
     // not exist would burn every message's attempts again and leave the queue

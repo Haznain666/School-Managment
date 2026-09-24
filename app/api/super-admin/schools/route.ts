@@ -18,6 +18,11 @@ import {
 } from '@/lib/profile-fields';
 import { isProvisionSetback, provisionSchoolSubdomain } from '@/lib/hostinger';
 import {
+  billableUserCounts,
+  seedSchoolBillingDefaults,
+  totalUsers,
+} from '@/lib/platform-billing-queries';
+import {
   createFirstSchoolAdmin,
   seedDefaultFeeTypes,
   seedResultSubcategories,
@@ -43,7 +48,7 @@ export const dynamic = 'force-dynamic';
 
 export async function GET(request: NextRequest) {
   try {
-    await requireSuperAdmin();
+    await requireSuperAdmin('schools', 'r');
 
     const url = new URL(request.url);
     const search = readString(url.searchParams.get('search'));
@@ -99,8 +104,19 @@ export async function GET(request: NextRequest) {
       db.select({ value: count() }).from(schools).where(where),
     ]);
 
+    /*
+     * Sprint 35, §1 — billable users per school, per role, for the page in hand.
+     * **One grouped query for the whole page**, never one per row: the Users
+     * column and its per-role popover both read from this.
+     */
+    const counts = await billableUserCounts(rows.map((row) => row.locationId));
+
     return apiSuccess({
-      schools: rows,
+      schools: rows.map((row) => ({
+        ...row,
+        billableUsers: totalUsers(counts.get(row.locationId)),
+        usersByRole: counts.get(row.locationId) ?? {},
+      })),
       total: totals[0]?.value ?? 0,
       page: list.page,
       limit: list.limit,
@@ -131,7 +147,7 @@ interface CreateSchoolBody {
 export async function POST(request: NextRequest) {
   try {
     // Captured so the administrator's setup token records who issued it.
-    const session = await requireSuperAdmin();
+    const session = await requireSuperAdmin('schools', 'c');
 
     const body = await readJsonBody<CreateSchoolBody>(request);
     if (body === null) {
@@ -247,6 +263,19 @@ export async function POST(request: NextRequest) {
      * to one provisioned before. Logged rather than swallowed — a school whose
      * descriptor picker is quietly empty is a state nobody would go looking for.
      */
+    /*
+     * Sprint 35. Sandbox billing and the three Phase 1 modules — the state
+     * `0052` gave every school that existed when it ran (E8, E9). Logged rather
+     * than failed, on the same terms as the seeds around it: an absent settings
+     * row already reads as sandbox, and `toModuleFlags` already reads Phase 1
+     * as on, so a failure here degrades nothing a school can see.
+     */
+    try {
+      await seedSchoolBillingDefaults(school.locationId);
+    } catch (error) {
+      console.error('[super-admin] billing defaults could not be seeded:', error);
+    }
+
     try {
       await seedResultSubcategories(school.locationId);
     } catch (error) {

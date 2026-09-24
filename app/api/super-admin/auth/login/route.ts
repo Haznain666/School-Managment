@@ -12,6 +12,7 @@ import {
   sessionCookieOptions,
   signSuperAdminJWT,
 } from '@/lib/super-admin-auth';
+import { recordSuperAdminSignIn } from '@/lib/super-admin-accounts';
 import { verifySuperAdminCredentials } from '@/lib/super-admin-credentials';
 
 /**
@@ -97,7 +98,10 @@ export async function POST(request: NextRequest) {
 
     await recordAttempt('super_admin_login', check.email, ipHash, true);
 
-    const token = await signSuperAdminJWT(check.email);
+    // Sprint 35: the row's id rides in the token so the per-request guard can
+    // find it without trusting the address; null on the environment fallback.
+    const token = await signSuperAdminJWT(check.email, check.adminId);
+    if (check.adminId !== null) await recordSuperAdminSignIn(check.adminId);
 
     const response = apiSuccess({ email: check.email });
     response.cookies.set({

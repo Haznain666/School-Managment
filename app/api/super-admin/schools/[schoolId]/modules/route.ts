@@ -5,7 +5,9 @@ import { schoolModules } from '@/db/schema';
 import { apiFailure, apiSuccess, handleApiError, readJsonBody } from '@/lib/api-response';
 import { db } from '@/lib/drizzle';
 import {
+  isAlwaysOnModule,
   isSchoolFlagKey,
+  moduleLabel,
   toModuleFlags,
   type SchoolFlagKey,
 } from '@/lib/platform-modules';
@@ -45,7 +47,7 @@ function sqlExcluded(column: string) {
 
 export async function GET(_request: NextRequest, context: RouteContext) {
   try {
-    await requireSuperAdmin();
+    await requireSuperAdmin('modules', 'r');
 
     const { schoolId } = await context.params;
     if (!isUuid(schoolId)) {
@@ -87,7 +89,7 @@ interface UpdateModulesBody {
 
 export async function PATCH(request: NextRequest, context: RouteContext) {
   try {
-    const session = await requireSuperAdmin();
+    const session = await requireSuperAdmin('modules', 'u');
 
     const { schoolId } = await context.params;
     if (!isUuid(schoolId)) {
@@ -118,6 +120,15 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
       }
       if (typeof entry.is_enabled !== 'boolean') {
         return apiFailure('invalid_body', 'is_enabled must be a boolean.', 400);
+      }
+      // Sprint 35, E9. Phase 1 is included with SchoolHub and has no switch;
+      // the screen shows "Included", and this is the rule behind it.
+      if (isAlwaysOnModule(entry.module_key) && !entry.is_enabled) {
+        return apiFailure(
+          'module_included',
+          `${moduleLabel(entry.module_key)} is included with every school and cannot be switched off.`,
+          409,
+        );
       }
       updates.push({ key: entry.module_key, enabled: entry.is_enabled });
     }

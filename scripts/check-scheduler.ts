@@ -230,6 +230,8 @@ const SWEEP_MODULES = [
   'lib/chat-digest.ts',
   'lib/holiday-notifier.ts',
   'lib/probation-notifier.ts',
+  // Sprint 35 — invoices, blocking and trial reminders, one registrar.
+  'lib/platform-billing-sweeps.ts',
 ];
 
 const stillTiming = SWEEP_MODULES.filter((path) => /setInterval\s*\(/.test(code(path)));

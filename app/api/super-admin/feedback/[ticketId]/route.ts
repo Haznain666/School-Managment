@@ -36,7 +36,7 @@ export async function PATCH(
   context: { params: Promise<{ ticketId: string }> },
 ) {
   try {
-    await requireSuperAdmin();
+    await requireSuperAdmin('feedback', 'u');
 
     const { ticketId } = await context.params;
     const payload = await readJsonBody<PatchBody>(request);
@@ -108,7 +108,7 @@ export async function DELETE(
   context: { params: Promise<{ ticketId: string }> },
 ) {
   try {
-    await requireSuperAdmin();
+    await requireSuperAdmin('feedback', 'd');
 
     const { ticketId } = await context.params;
 

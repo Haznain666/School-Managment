@@ -62,6 +62,22 @@ export async function GET(
     );
   }
 
+  // Sprint 35, §6 — the same refusal `withSchoolAuth` makes, because this is
+  // the one school route that does its own session check.
+  if (claims.accessBlocked) {
+    return NextResponse.json(
+      {
+        ok: false,
+        error: {
+          code: 'school_suspended',
+          message:
+            'This school’s account is currently suspended. Please contact the school administration.',
+        },
+      },
+      { status: 403 },
+    );
+  }
+
   const permitted = await hasPermission(
     // Tenant from verified claims, never from the request.
     claims.locationId,

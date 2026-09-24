@@ -38,7 +38,7 @@ interface BulkDeleteBody {
 
 export async function POST(request: NextRequest, context: RouteContext) {
   try {
-    await requireSuperAdmin();
+    await requireSuperAdmin('schools', 'd');
 
     const { schoolId } = await context.params;
     if (!isUuid(schoolId)) return apiFailure('not_found', 'School not found.', 404);

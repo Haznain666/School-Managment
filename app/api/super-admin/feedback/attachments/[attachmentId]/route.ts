@@ -24,7 +24,7 @@ export async function GET(
   context: { params: Promise<{ attachmentId: string }> },
 ) {
   try {
-    await requireSuperAdmin();
+    await requireSuperAdmin('feedback', 'r');
 
     const { attachmentId } = await context.params;
 

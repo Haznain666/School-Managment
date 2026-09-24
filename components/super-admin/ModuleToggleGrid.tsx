@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
 import {
   emptyModuleFlags,
+  isAlwaysOnModule,
   modulesInPhase,
   PLATFORM_MODULE_PHASES,
   type PlatformModuleKey,
@@ -135,6 +136,9 @@ export function ModuleToggleGrid({ schoolId }: ModuleToggleGridProps) {
       {PLATFORM_MODULE_PHASES.map((phase) => {
         const modules = modulesInPhase(phase);
         const allOn = modules.every((module) => draft[module.key]);
+        // Sprint 35, E9: a phase that is wholly included has nothing to switch,
+        // so it offers no "Enable all" / "Disable all" either.
+        const allIncluded = modules.every((module) => isAlwaysOnModule(module.key));
 
         return (
           <section key={phase} className="space-y-3">
@@ -142,6 +146,9 @@ export function ModuleToggleGrid({ schoolId }: ModuleToggleGridProps) {
               <h3 className="text-sm font-semibold uppercase tracking-wide text-ink-muted">
                 Phase {phase}
               </h3>
+              {allIncluded ? (
+                <p className="text-xs text-ink-muted">Included with every school</p>
+              ) : (
               <div className="flex gap-2">
                 <Button
                   variant="ghost"
@@ -164,6 +171,7 @@ export function ModuleToggleGrid({ schoolId }: ModuleToggleGridProps) {
                   Disable all
                 </Button>
               </div>
+              )}
             </div>
 
             <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
@@ -174,6 +182,7 @@ export function ModuleToggleGrid({ schoolId }: ModuleToggleGridProps) {
                   enabled={draft[module.key]}
                   dirty={draft[module.key] !== saved[module.key]}
                   disabled={isSaving}
+                  included={isAlwaysOnModule(module.key)}
                   onChange={(enabled) => {
                     setModule(module.key, enabled);
                   }}

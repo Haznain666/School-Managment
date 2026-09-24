@@ -11,6 +11,7 @@ import { Button } from '@/components/ui/Button';
 import { Card, CardTitle } from '@/components/ui/Card';
 import { cn } from '@/lib/utils';
 import {
+  isAlwaysOnModule,
   MAX_SCHOOLS_PER_APPLY,
   modulesInPhase,
   PLATFORM_INTEGRATIONS,
@@ -346,14 +347,24 @@ export function BulkModuleManager({ schools }: BulkModuleManagerProps) {
             )}
           </div>
 
-          <FlagSwitch
-            value={position.value}
-            changed={position.changed}
-            disabled={isApplying}
-            onChange={(choice) => {
-              setChoice(entry.key, choice);
-            }}
-          />
+          {/*
+            Sprint 35, E9: Phase 1 is included with every school, so the row
+            says so instead of offering a switch the route would refuse.
+          */}
+          {isAlwaysOnModule(entry.key) ? (
+            <span className="rounded-full bg-status-success-subtle px-3 py-1 text-xs font-medium text-status-success-onSubtle">
+              Included
+            </span>
+          ) : (
+            <FlagSwitch
+              value={position.value}
+              changed={position.changed}
+              disabled={isApplying}
+              onChange={(choice) => {
+                setChoice(entry.key, choice);
+              }}
+            />
+          )}
         </div>
       );
     });

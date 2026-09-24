@@ -20,7 +20,7 @@ export const dynamic = 'force-dynamic';
 
 export async function GET(request: NextRequest) {
   try {
-    await requireSuperAdmin();
+    await requireSuperAdmin('schools', 'r');
 
     const url = new URL(request.url);
     const slug = readString(url.searchParams.get('slug')).toLowerCase();

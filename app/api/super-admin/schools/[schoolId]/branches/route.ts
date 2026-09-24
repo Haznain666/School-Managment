@@ -39,7 +39,7 @@ type RouteContext = { params: Promise<{ schoolId: string }> };
 
 export async function GET(_request: NextRequest, context: RouteContext) {
   try {
-    await requireSuperAdmin();
+    await requireSuperAdmin('schools', 'r');
 
     const { schoolId } = await context.params;
     if (!isUuid(schoolId)) {
@@ -94,7 +94,7 @@ interface CreateBranchBody {
 export async function POST(request: NextRequest, context: RouteContext) {
   try {
     // Captured so any setup token issued below records who asked for it.
-    const session = await requireSuperAdmin();
+    const session = await requireSuperAdmin('schools', 'u');
 
     const { schoolId } = await context.params;
     if (!isUuid(schoolId)) {

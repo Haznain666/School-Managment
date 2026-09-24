@@ -69,7 +69,7 @@ type RouteContext = { params: Promise<{ schoolId: string; userId: string }> };
 export async function POST(_request: NextRequest, context: RouteContext) {
   try {
     // Captured so the issued token records who asked for it.
-    const session = await requireSuperAdmin();
+    const session = await requireSuperAdmin('schools', 'u');
 
     const { schoolId, userId } = await context.params;
     if (!isUuid(schoolId) || !isUuid(userId)) {

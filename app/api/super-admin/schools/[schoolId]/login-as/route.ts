@@ -36,7 +36,7 @@ interface LoginAsBody {
 
 export async function POST(request: NextRequest, context: RouteContext) {
   try {
-    const session = await requireSuperAdmin();
+    const session = await requireSuperAdmin('schools', 'u');
     const { schoolId } = await context.params;
 
     const body = await readJsonBody<LoginAsBody>(request);

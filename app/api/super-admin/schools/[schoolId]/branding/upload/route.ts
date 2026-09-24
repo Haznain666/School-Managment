@@ -44,7 +44,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
     // on the object — Supabase Storage has no equivalent of GCS custom
     // metadata on this endpoint, and inventing a side table to hold one string
     // would be more machinery than the audit trail is worth.
-    await requireSuperAdmin();
+    await requireSuperAdmin('schools', 'u');
 
     const { schoolId } = await context.params;
     if (!isUuid(schoolId)) {

@@ -43,6 +43,11 @@ export const AUTH_ATTEMPT_SCOPES = [
   'password_reset',
   'setup',
   'super_admin_login',
+  // Sprint 35. The apex sign-in answers for super admins *and* every school
+  // user, so it is its own counter rather than borrowing either of the two
+  // above: a spray against it must not lock somebody out of their own school's
+  // sign-in page, and vice versa. `0052` widens the CHECK.
+  'central_login',
 ] as const;
 
 export type AuthAttemptScope = (typeof AUTH_ATTEMPT_SCOPES)[number];
@@ -76,7 +81,7 @@ export const authAttempts = pgTable(
     index('auth_attempts_scope_ip_idx').on(table.scope, table.ipHash, table.createdAt),
     check(
       'auth_attempts_scope_check',
-      sql`scope IN ('login', 'otp_request', 'password_reset', 'setup', 'super_admin_login')`,
+      sql`scope IN ('login', 'otp_request', 'password_reset', 'setup', 'super_admin_login', 'central_login')`,
     ),
   ],
 );

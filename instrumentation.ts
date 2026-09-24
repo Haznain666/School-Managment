@@ -114,6 +114,14 @@ export async function register(): Promise<void> {
     const { registerProbationSweep } = await import('./lib/probation-notifier');
     registerProbationSweep();
 
+    // Sprint 35. Platform billing: last month's draft invoices, the block for
+    // an invoice past its grace, and the trial reminders. Every unit of work is
+    // claimed per item — a unique (school, month) index, a conditional UPDATE
+    // on `access_blocked_at`, and an `INSERT ... ON CONFLICT DO NOTHING` per
+    // reminder — so a lease changing hands mid-tick still cannot double any.
+    const { registerPlatformBillingSweeps } = await import('./lib/platform-billing-sweeps');
+    registerPlatformBillingSweeps();
+
     // Last, and only once everything above is registered: `startScheduler()`
     // logs the list it is about to run, and a sweep registered after it would
     // run without ever appearing in that line.

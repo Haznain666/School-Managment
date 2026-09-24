@@ -75,6 +75,18 @@ export interface SchoolSessionClaims {
   isPlatformAdmin: boolean;
   /** The operator's address when `isPlatformAdmin`, otherwise null. */
   platformAdminEmail: string | null;
+  /**
+   * Sprint 35 — the school is blocked for an unpaid platform invoice, or by
+   * hand. Read from `schools.access_blocked_at` on every request, in the same
+   * query that reads the membership, so it can never be stale by more than one
+   * request and no route can skip it.
+   *
+   * The session is still *valid* while this is true — that is the point. The
+   * guards send everybody to `/suspended` instead of the portal, and the school
+   * administrator is shown what is owed there. It is always false for the
+   * platform operator's own session: the Super Admin is never blocked (§6).
+   */
+  accessBlocked: boolean;
 }
 
 /**
@@ -88,7 +100,7 @@ export interface SchoolSessionClaims {
  */
 export type SchoolCustomClaims = Omit<
   SchoolSessionClaims,
-  'uid' | 'isPlatformAdmin' | 'platformAdminEmail'
+  'uid' | 'isPlatformAdmin' | 'platformAdminEmail' | 'accessBlocked'
 >;
 
 /** Where each role lands after signing in. */
@@ -246,6 +258,8 @@ export function parseSchoolClaims(
       platformAdmin === true && typeof platformAdminEmail === 'string'
         ? platformAdminEmail
         : null,
+    // A token carries no billing state; the per-request read decides it.
+    accessBlocked: false,
   };
 }
 

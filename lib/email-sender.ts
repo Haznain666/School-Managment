@@ -105,16 +105,41 @@ export async function verifySmtp(): Promise<void> {
   await createTransport().verify();
 }
 
+/** A file carried by a message. Sprint 35: the invoice PDF, and only that. */
+export interface EmailAttachment {
+  filename: string;
+  content: Uint8Array;
+  contentType: string;
+}
+
+/**
+ * Sends one message now.
+ *
+ * `attachments` is Sprint 35's, for the platform invoice. It is deliberately
+ * not a field on the outbox: a queued row would have to hold the PDF's bytes,
+ * and the one message that needs a file is sent by an operator who is watching
+ * the button and wants to know, there and then, whether it went.
+ */
 export async function sendEmail(
   to: string,
   subject: string,
   text: string,
+  attachments: readonly EmailAttachment[] = [],
 ): Promise<void> {
   await createTransport().sendMail({
     from: serverEnv('SMTP_FROM', ''),
     to,
     subject,
     text,
+    ...(attachments.length === 0
+      ? {}
+      : {
+          attachments: attachments.map((file) => ({
+            filename: file.filename,
+            content: Buffer.from(file.content),
+            contentType: file.contentType,
+          })),
+        }),
   });
 }
 

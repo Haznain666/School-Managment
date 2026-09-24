@@ -24,6 +24,12 @@ import { readSchoolSession } from './school-auth';
  *      their own home route rather than shown someone else's portal
  */
 
+/**
+ * Where everybody at a blocked school lands — Sprint 35, §6. The page itself
+ * decides what the school administrator sees there.
+ */
+export const SUSPENDED_PATH = '/suspended';
+
 export interface GuardResult {
   claims: SchoolSessionClaims;
   locationId: string;
@@ -57,6 +63,12 @@ export async function requireSchoolRole(
   // both live in the same Firebase project.
   if (claims.locationId !== locationId) {
     loginRedirect(slug);
+  }
+
+  // Sprint 35. Before the role check, so a blocked school's teacher lands on
+  // the suspended notice rather than being bounced between portals.
+  if (claims.accessBlocked) {
+    redirect(SUSPENDED_PATH);
   }
 
   if (!allowedRoles.includes(claims.role)) {
@@ -97,6 +109,10 @@ export async function requireSchoolPermission(
 
   if (claims.locationId !== locationId) {
     loginRedirect(slug);
+  }
+
+  if (claims.accessBlocked) {
+    redirect(SUSPENDED_PATH);
   }
 
   const permissions = await permissionsForRole(locationId, claims.role);

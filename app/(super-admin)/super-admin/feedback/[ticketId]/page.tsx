@@ -10,7 +10,7 @@ import { PageHeader } from '@/components/ui/PageHeader';
 import { FEEDBACK_NATURE_LABELS, FEEDBACK_STATUS_LABELS } from '@/db/schema';
 import { natureBadgeVariant, statusBadgeVariant } from '@/lib/feedback';
 import { getFeedbackTicket, markFeedbackRead } from '@/lib/feedback-queries';
-import { requireSuperAdmin } from '@/lib/super-admin-guard';
+import { requireSuperAdminPage } from '@/lib/super-admin-guard';
 import { isUuid } from '@/lib/validation';
 
 export const metadata: Metadata = {
@@ -45,7 +45,7 @@ export default async function PlatformFeedbackDetailPage({
 }: {
   params: Promise<{ ticketId: string }>;
 }) {
-  await requireSuperAdmin();
+  await requireSuperAdminPage('feedback');
 
   const { ticketId } = await params;
   if (!isUuid(ticketId)) notFound();
