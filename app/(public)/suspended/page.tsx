@@ -7,6 +7,7 @@ import { Card } from '@/components/ui/Card';
 import { paletteToCSSVars } from '@/lib/branding';
 import { formatMoneyMinor } from '@/lib/money';
 import { getSuspendedView } from '@/lib/platform-billing-queries';
+import { PLATFORM_SUPPORT_EMAIL } from '@/lib/platform-contact';
 import { readSchoolSession } from '@/lib/school-auth';
 import { getCurrentSchoolBranding, getSchoolHeaders } from '@/lib/school-tenant';
 import { ROLE_HOME_ROUTES } from '@/types/school-auth';
@@ -84,7 +85,11 @@ export default async function SuspendedPage() {
 
                 {view.invoices.length === 0 ? (
                   <p className="text-sm text-ink-muted">
-                    There is no unpaid invoice on file. Contact SchoolHub to restore access.
+                    There is no unpaid invoice on file. Contact SchoolHub at{' '}
+                    <a className="font-medium text-ink underline" href={`mailto:${PLATFORM_SUPPORT_EMAIL}`}>
+                      {PLATFORM_SUPPORT_EMAIL}
+                    </a>{' '}
+                    to restore access.
                   </p>
                 ) : (
                   <ul className="divide-y divide-line">
@@ -123,7 +128,13 @@ export default async function SuspendedPage() {
               <div className="space-y-3">
                 <h2 className="text-base font-semibold text-ink">Pay by bank transfer</h2>
                 {view.bankAccounts.length === 0 ? (
-                  <p className="text-sm text-ink-muted">Contact SchoolHub for payment details.</p>
+                  <p className="text-sm text-ink-muted">
+                    Contact SchoolHub at{' '}
+                    <a className="font-medium text-ink underline" href={`mailto:${PLATFORM_SUPPORT_EMAIL}`}>
+                      {PLATFORM_SUPPORT_EMAIL}
+                    </a>{' '}
+                    for payment details.
+                  </p>
                 ) : (
                   <div className="grid gap-4 sm:grid-cols-2">
                     {view.bankAccounts.map((account) => (

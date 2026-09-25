@@ -276,7 +276,7 @@ assertions, no network). The boot log now says which state it is in:
 ### Asking the deployed process what password it actually holds
 
 ```bash
-curl -sX POST https://schoolhub.codexmill.com/api/internal/smtp-check \
+curl -sX POST https://app.getschoolhub.com/api/internal/smtp-check \
   -H "x-diagnostics-secret: $SUPER_ADMIN_DIAGNOSTICS_SECRET" \
   -H 'content-type: application/json' \
   -d '{"verify":true}'
@@ -434,7 +434,7 @@ sha**, so this is an exact answer rather than the random string Next would
 otherwise emit:
 
 ```bash
-curl -s https://schoolhub.codexmill.com/api/internal/build
+curl -s https://app.getschoolhub.com/api/internal/build
 # {"buildId":"cac72f9a7fb8","startedAt":"..."}
 ```
 
@@ -460,7 +460,7 @@ in that page — never into a chat, an issue, or a commit.
 
 | Secret | What it is |
 | --- | --- |
-| `PRODUCTION_URL` | required — e.g. `https://schoolhub.codexmill.com`. Everything here reads it |
+| `PRODUCTION_URL` | required — e.g. `https://app.getschoolhub.com`. Everything here reads it |
 | `HOSTINGER_API_TOKEN` | purges the cache after a deploy. Without it, prerendered pages stay stale until you clear them in hPanel |
 | `HOSTINGER_USER` | the hosting account username, for the purge endpoint |
 | `NEXT_PUBLIC_APP_DOMAIN` | the site's domain, for the purge endpoint |
@@ -485,7 +485,7 @@ that never worked and can be deleted.
 ## 5c. Smoke test
 
 ```bash
-npm run smoke-test https://schoolhub.codexmill.com
+npm run smoke-test https://app.getschoolhub.com
 ```
 
 Exits non-zero when the deployment is not healthy. It checks reachability, that

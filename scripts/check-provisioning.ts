@@ -134,6 +134,31 @@ assert(
 );
 
 /*
+ * THE LIVE PLATFORM SINCE 2026-09-26: `app.getschoolhub.com`.
+ *
+ * Unlike `schoolhub.codexmill.com`, it is NOT its own zone — `app` and `*.app`
+ * are plain records inside `getschoolhub.com`, read from the Hostinger DNS API
+ * on the day of the move. So `resolveDnsZone()`'s probe of the base domain
+ * finds no zone, falls back to the registrable domain, and a tenant's record
+ * is written as `<slug>.app`. These pin that fallback for the real host.
+ */
+assert(
+  'the new platform host falls back to its registrable domain',
+  registrableDomain('app.getschoolhub.com'),
+  'getschoolhub.com',
+);
+assert(
+  'the new platform: zone is the registrable domain, name is <slug>.app',
+  recordNameWithinZone('abc-demo.app.getschoolhub.com', 'getschoolhub.com'),
+  'abc-demo.app',
+);
+assert(
+  'the new platform, if app.getschoolhub.com is ever made its own zone',
+  recordNameWithinZone('abc-demo.app.getschoolhub.com', 'app.getschoolhub.com'),
+  'abc-demo',
+);
+
+/*
  * The refusals. Each of these, if it returned a string instead of null, would
  * write a record somewhere it does not belong.
  */

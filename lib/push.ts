@@ -12,6 +12,7 @@ import { schoolUsers } from '@/db/schema/school-users';
 import { inQuietHours } from './chat-permissions';
 import { db } from './drizzle';
 import { filterByPushPreference } from './notification-preferences';
+import { PLATFORM_SUPPORT_EMAIL } from './platform-contact';
 
 /**
  * Web Push — the thing that reaches a parent who has closed the portal.
@@ -66,7 +67,7 @@ function configure(): boolean {
     // A contact the push service can reach about a misbehaving sender. `mailto:`
     // is what the spec asks for; the address need not receive mail for the
     // subscription to work, and this one does.
-    `mailto:${process.env.SMTP_FROM ?? 'noreply@codexmill.com'}`,
+    `mailto:${process.env.SMTP_FROM ?? PLATFORM_SUPPORT_EMAIL}`,
     (process.env.VAPID_PUBLIC_KEY ?? '').trim(),
     (process.env.VAPID_PRIVATE_KEY ?? '').trim(),
   );

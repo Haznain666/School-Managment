@@ -3,7 +3,7 @@
 /**
  * Post-deploy verification against a LIVE origin.
  *
- *   node scripts/smoke-test-live.mjs https://schoolhub.codexmill.com
+ *   node scripts/smoke-test-live.mjs https://app.getschoolhub.com
  *
  * Exits non-zero if the deployment is not healthy, so CI fails loudly rather
  * than reporting a green deploy of a broken site.
