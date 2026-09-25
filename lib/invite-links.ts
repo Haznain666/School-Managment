@@ -14,7 +14,7 @@ import { serverEnv } from './env';
  * `NODE_ENV` is development, but `INVITE_LINK_BASE_URL` points at the real
  * domain, so the dev server emailed people
  *
- *   https://schoolhub.codexmill.com/login?school=sample-test-school
+ *   https://app.getschoolhub.com/login?school=sample-test-school
  *
  * — a production origin carrying a development parameter. That URL cannot
  * work anywhere. `middleware.ts` deliberately ignores `?school=` on the

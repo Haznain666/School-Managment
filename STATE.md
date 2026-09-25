@@ -44,6 +44,12 @@ owner, renewing every 30.0s — is the proof it is running.
 **Three schools' real data is that other 1.4%; deleting tenants could never
 have moved the bill, and nothing was deleted.**
 
+🔴 **2026-09-26 — moving to `app.getschoolhub.com`; the new host answers 503.**
+Code audited and the few hard-coded spots changed (support address is now
+`support@getschoolhub.com` in `lib/platform-contact.ts`). The 503 is the new
+Hostinger site crash-looping at boot, not the code — most likely the plan's
+resource limit with two copies running. `PENDING.md` U10 and U11. §5cp.
+
 ✅ **2026-09-25 — Sprint 35 (super admin invoicing, the central sign-in, more
 than one operator) is live.** `0052` applied and proved; merged as PR #116
 (`21f1d7c`) and QA round 1's nine fixes as PR #117 (`5a95808`) plus a follow-up
@@ -12924,6 +12930,50 @@ days, per person, with the date in hand.
    `lib/payroll-approval.ts` now has and the register does not call.
 5. **The bell's `href` is a fixed map of four routes.** A fifth portal would
    need a line in `noticeHrefFor`.
+
+---
+
+## 5cp. The move to app.getschoolhub.com — 2026-09-26
+
+The platform moves from `schoolhub.codexmill.com` to **`app.getschoolhub.com`**,
+and the platform's contact address from `contact@codexmill.com` to
+**`support@getschoolhub.com`**. The user set `NEXT_PUBLIC_APP_DOMAIN`,
+`PLATFORM_BASE_DOMAIN` (`app.getschoolhub.com`) and `INVITE_LINK_BASE_URL`
+(`https://app.getschoolhub.com/`) on the new Hostinger site themselves.
+
+**The audit.** Every host the code builds — tenant subdomains, invite and
+sign-in links, the invoice email's links, the apex check in `middleware.ts` —
+comes from those three variables. Nothing in `app/`, `components/` or `lib/`
+hard-coded the old domain as behaviour. `contact@codexmill.com` appeared
+**nowhere** in the repository; it can only have lived in `SMTP_FROM` /
+`SUPER_ADMIN_EMAIL` in the panel. Changed in code:
+
+| File | Change |
+| --- | --- |
+| `lib/platform-contact.ts` (new) | `PLATFORM_SUPPORT_EMAIL = 'support@getschoolhub.com'` |
+| `app/(public)/suspended/page.tsx` | the two "Contact SchoolHub" lines now give the address, as a `mailto:` |
+| `lib/platform-invoice-pdf.ts` | the invoice's no-bank-account line gives the address |
+| `lib/push.ts` | the VAPID `mailto:` fallback was `noreply@codexmill.com` |
+| `scripts/check-provisioning.ts` | three assertions for the new host's shape (below) |
+| `DEPLOYMENT.md`, `.env.example`, `smoke-test-live.mjs`, `invite-links.ts` | example URLs; historical "verified on" lines left as history |
+
+**The new host is shaped differently, and the code already handles it.**
+`schoolhub.codexmill.com` was its own DNS zone. `app.getschoolhub.com` is not:
+the Hostinger DNS API shows `app` and `*.app` as plain A records inside
+`getschoolhub.com`. `resolveDnsZone()` probes the base domain, finds no zone,
+and falls back to the registrable domain, so a tenant is written as
+`<slug>.app` in `getschoolhub.com`. `check-provisioning` now pins exactly that.
+⚠ The zone holds a `*.app` wildcard, but on 2026-09-26 `demo.app.getschoolhub.com`
+was NXDOMAIN at 8.8.8.8. If it starts resolving, `zoneAnswersEveryName` is what
+stops `ensureDnsRecord` from mistaking it for per-school provisioning.
+
+**The 503 is not the code — `PENDING.md` U10.** The new site built `78374c6`
+cleanly and SSL is active, but it crash-loops at boot: `✓ Starting...` about
+once a second, never `✓ Ready`, never the `[smtp]` line, unchanged by an API
+restart. The same commit on the old site logs `Ready in 303ms`. The leading
+suspect is the plan's resource limit, with two full copies of the platform
+now running on one account. What the user must do outside the repository is
+`PENDING.md` U11.
 
 ---
 

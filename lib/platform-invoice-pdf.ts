@@ -3,6 +3,7 @@ import 'server-only';
 import { PDFDocument, StandardFonts, rgb, type PDFFont, type PDFPage } from 'pdf-lib';
 
 import { SCHOOLHUB_LOGO_PNG_BASE64, SCHOOLHUB_LOGO_SIZE } from './brand-assets-data';
+import { PLATFORM_SUPPORT_EMAIL } from './platform-contact';
 
 /**
  * The platform invoice as a PDF — Sprint 35, E12.
@@ -306,7 +307,7 @@ export async function renderInvoicePdf(data: InvoicePdfData): Promise<Uint8Array
   pen.y -= 14;
 
   if (data.bankAccounts.length === 0) {
-    text('Contact SchoolHub for payment details.', MARGIN, { size: 10, color: MUTED });
+    text(`Contact SchoolHub at ${PLATFORM_SUPPORT_EMAIL} for payment details.`, MARGIN, { size: 10, color: MUTED });
     pen.y -= 14;
   } else {
     text(
