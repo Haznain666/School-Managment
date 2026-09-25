@@ -44,11 +44,13 @@ owner, renewing every 30.0s — is the proof it is running.
 **Three schools' real data is that other 1.4%; deleting tenants could never
 have moved the bill, and nothing was deleted.**
 
-🔴 **2026-09-26 — moving to `app.getschoolhub.com`; the new host answers 503.**
-Code audited and the few hard-coded spots changed (support address is now
-`support@getschoolhub.com` in `lib/platform-contact.ts`). The 503 is the new
-Hostinger site crash-looping at boot, not the code — most likely the plan's
-resource limit with two copies running. `PENDING.md` U10 and U11. §5cp.
+✅ **2026-09-26 — the platform is live on `app.getschoolhub.com`** (build
+`6d1ba0d71885`, PR #119). Support address `support@getschoolhub.com`, in
+`lib/platform-contact.ts`. The first deploy of the new site crash-looped with
+a 503, and a redeploy fixed it. **Still open: `PENDING.md` U11** — mail
+settings, the GitHub secret, Mapbox, re-provisioning each school, and a 301 on
+the old site. Until the 301 is in place, emails can still carry old-domain
+links. §5cp.
 
 ✅ **2026-09-25 — Sprint 35 (super admin invoicing, the central sign-in, more
 than one operator) is live.** `0052` applied and proved; merged as PR #116
@@ -12970,10 +12972,14 @@ stops `ensureDnsRecord` from mistaking it for per-school provisioning.
 **The 503 is not the code — `PENDING.md` U10.** The new site built `78374c6`
 cleanly and SSL is active, but it crash-loops at boot: `✓ Starting...` about
 once a second, never `✓ Ready`, never the `[smtp]` line, unchanged by an API
-restart. The same commit on the old site logs `Ready in 303ms`. The leading
-suspect is the plan's resource limit, with two full copies of the platform
-now running on one account. What the user must do outside the repository is
-`PENDING.md` U11.
+restart. The same commit on the old site logs `Ready in 303ms`. A resource
+limit was suspected and was **wrong**: the next deploy, `6d1ba0d` (PR #119),
+came up first time (`[scheduler] started` at 21:15:47Z,
+`/api/internal/build` → `6d1ba0d71885`) with the old site still running beside
+it. U10 is closed. What the user must do outside the repository is
+`PENDING.md` U11. ⚠ **Until the old site redirects, both sites contend for
+the one scheduler lease**, and the holder builds links from its own
+`INVITE_LINK_BASE_URL`.
 
 ---
 
