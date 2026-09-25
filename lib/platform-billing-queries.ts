@@ -742,7 +742,10 @@ export async function generateInvoiceForSchool(
         total: paiseToNumeric(subtotal),
         receivedTotal: '0.00',
         status: 'draft',
-        dueDate: dueDateForPeriod(period.start),
+        // Ten days from the day it is raised (the 1st → the 10th). An invoice
+        // raised late — "Generate now" after the 10th — still gets its ten days
+        // rather than being overdue, and blockable, the day it is issued.
+        dueDate: laterDate(dueDateForPeriod(period.start), addDays(karachiToday(new Date()), 9)),
         generatedBy,
       })
       .onConflictDoNothing()
@@ -779,6 +782,10 @@ export async function generateInvoiceForSchool(
 
     return { status: 'created', invoiceId: invoice.id, invoiceNumber: invoice.invoiceNumber } as const;
   });
+}
+
+function laterDate(a: string, b: string): string {
+  return compareDates(a, b) >= 0 ? a : b;
 }
 
 /** The month the sweep and the button both bill: the one before today's. */

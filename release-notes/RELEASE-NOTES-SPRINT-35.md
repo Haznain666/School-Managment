@@ -2,7 +2,7 @@
 
 **Date:** 25 September 2026
 **Migration:** `0052` (thirteen new tables, one new column on `schools`).
-**Status:** built and gated. **Not yet applied or deployed** — see `PENDING.md` N2.
+**Status:** live. Migration applied, deployed, and QA'd against the live site. Every existing school is in **Sandbox**, so nothing is invoiced or blocked until you switch a school to Live.
 
 ## New for the platform operator
 
@@ -84,3 +84,37 @@ Each school's own sign-in page still works exactly as before.
 The new SchoolHub logo on the home page, the operator sign-in and the panel; the
 SchoolHub mark as the platform's icon; and a small, quiet robot beside the
 sign-in form on larger screens. Schools keep their own logo and colours.
+
+## Fixed during QA
+
+- A balance left on an **unpaid** invoice is no longer moved onto next month's
+  draft. Only an invoice that has been paid carries its remainder forward; an
+  unpaid one stays open, payable, and keeps the school suspended.
+- **Unblock** now holds. Before, the automatic check re-suspended the school
+  within fifteen minutes.
+- Changing or resetting a super admin's password now signs that account out
+  everywhere else.
+- A super admin with no access to Schools no longer sees school data on the
+  dashboard, and anyone sent back to the dashboard is told why.
+- A super admin who can manage other admins can no longer change anything for
+  an admin who holds more rights than they do.
+- Trial reminders are never sent twice.
+- Invoice amounts always show both paisa digits (`PKR 190.40`, not `PKR 190.4`).
+- An invoice raised after the 10th now gets ten days to pay instead of being
+  overdue on the day it is issued.
+- Long discount descriptions on the PDF end in "…" instead of being cut off.
+
+## Worth knowing
+
+- **Proration counts both ends.** A trial whose last free day is 20 October
+  bills 21–31 October, which is **11 days**, not the 10 in the original brief.
+- **Add your bank accounts** under Billing → Bank accounts. Until you do, every
+  invoice says "Contact SchoolHub for payment details".
+- **Your owner account** was created automatically the first time you signed in
+  after this release, with your existing password.
+- The invoice email waits for the mail server, so the Email button can take a
+  few seconds.
+- The panel screens you see after signing in haven't been opened in a browser
+  yet, because no automated tester may type your password. Everything behind
+  them was tested against the live database. Please look them over once and
+  report anything that seems wrong.

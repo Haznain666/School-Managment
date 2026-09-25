@@ -44,14 +44,15 @@ owner, renewing every 30.0s — is the proof it is running.
 **Three schools' real data is that other 1.4%; deleting tenants could never
 have moved the bill, and nothing was deleted.**
 
-🛠 **2026-09-25 — Sprint 35 (super admin invoicing, the central sign-in, more
-than one operator) is built and gated on `sprint35-dev`, migration `0052`
-written and NOT applied.** Every source gate green, `check-sprint35` 105/0 with
-the new statements failing exactly as predicted before `0052`, `npm run build`
-green with `/` still static. **Not applied, not deployed, not browser-QA'd** —
-`PENDING.md` N2 is the order to finish it in, and its step 1 (the owner's
-seed hash comes from the *local* `.env.local`) must be read before `--apply`.
-§5co.
+✅ **2026-09-25 — Sprint 35 (super admin invoicing, the central sign-in, more
+than one operator) is live.** `0052` applied and proved; merged as PR #116
+(`21f1d7c`) and QA round 1's nine fixes as PR #117 (`5a95808`) plus a follow-up
+(D15–D16). **Every existing school is Sandbox** — nothing is invoiced or
+blocked until an operator switches a school to Live. The owner row was seeded
+by the deployment from production's own hash on the owner's first sign-in, not
+from the local `.env.local`. The billing flow ran end to end against the live
+database, 30/30, and was cleaned up. **Still open: `PENDING.md` U9** — nobody
+has opened the signed-in panel screens in a browser. §5co.
 
 ✅ **2026-09-20 — `PENDING.md` D7 is closed, and it was not what it said.**
 D7 reported seven `kpis.rate.*` keys missing from `role_permissions_permission_check`
@@ -13028,12 +13029,65 @@ every new-table statement failed with exactly the predicted `42P01`, and the
 widened `membershipFor` with exactly `42703`. `npm run build` passed; `/` is
 still `○` static.
 
+### Deploy and QA round 1 — 2026-09-25 (main session)
+
+**Order mattered and was kept:** the new code reads `schools.access_blocked_at`
+on every school request, so `0052` went live *before* the merge.
+
+1. **The owner seed was moved out of the apply script.** `apply-0052.mjs` read
+   the **local** `.env.local`; a production hash that differed would silently
+   have become the owner's password. Now `seedOwnerFromEnvironment` writes the
+   owner row on the owner's first sign-in with the hash the deployment itself
+   accepted, and the environment fallback holds until an **owner** row exists
+   (not any row — a table holding only other operators would otherwise lock
+   the owner out). `--seed-owner` keeps the old path for a local database.
+   Commit `a9ab32b`. The row appeared within the hour, seeded in production.
+2. **DevOps:** `0052` applied, 13/13 tables, bookkeeping 53 → 54, every proof
+   `ok`; the migrations row's hash equals the file's sha256. `postbuild` now
+   copies `public/` and `.next/static` into the standalone output (L8). PR #116
+   green, merged `21f1d7c`, live as `21f1d7cfea4e`; logo, mark, bot and
+   `/icon/192` all 200.
+3. **QA agent:** could not sign in — its rules forbid typing a password into
+   a form — nor write to production. It reviewed every numbered item in code
+   and found seven defects (D8–D14 in `PENDING.md`), the two worst being that
+   carry-forward moved an *unpaid* invoice onto an unpayable draft, and that a
+   manual Unblock was undone by the next sweep. All seven fixed, PR #117,
+   live as `5a9580835fc6`.
+4. **End-to-end against the live database**, on Beacon House, through the real
+   library functions (a throwaway script, not committed): Live, USD billing /
+   PKR invoice at 280, USD 1 per role, Chat USD 50, backdated to 11 Aug →
+   August raised at **21/31 days, Rs 10,054.80**; three discounts →
+   **Rs 8,046.58**, a fourth refused; receipt on a draft refused; finalize;
+   PDF 37 KB; blocked by the sweep; manual Unblock **survived** the sweep
+   (D9); receipt at 50% stayed blocked; one above the balance refused; the
+   receipt reaching exactly 80.0% **unblocked**; September raised a full
+   month with a **Rs 1,609.31** carry line and August `carried_forward`; a
+   receipt on it refused. **30/30.** The PDF text showed D15 (`PKR 190.4`)
+   and the run showed D16 (an invoice raised after the 10th is born overdue);
+   both fixed in the follow-up.
+5. **In the in-app browser:** the apex sign-in with the new logo; the bot
+   faint in the corner at 1366px and absent at 375px. The central sign-in
+   API: a wrong password and an unknown ID give the same sentence; a
+   two-school QA user got the chooser (both logos and names); the hand-off
+   link, opened in the browser, landed signed in on Beacon House's dashboard.
+   With Beacon House blocked, a staff member saw only the suspended notice;
+   the school administrator (emergency link) saw the unpaid invoice, due
+   date, bank section and a working PDF download; `/api/school/*` answered
+   403 `school_suspended`.
+6. **Cleaned up:** both invoices, the access events, rates and settings (back
+   to Sandbox, unblocked); the QA super admin and the QA school user (auth
+   account deleted). Only the owner remains in `super_admin_users`.
+
+⚠ **Not opened in a browser:** the signed-in panel screens (Billing tab,
+Invoices, Bank accounts, Super admins, My account). Everything behind them
+executed; the screens themselves are `PENDING.md` **U9**. No agent may type
+the owner's password, and there is no emergency link for the panel.
+
 ### What is still open
 
-Everything in `PENDING.md` **N2** (apply, seed, QA) and **L8–L11**. In short:
-the migration is unapplied, the owner's seed hash comes from the local
-`.env.local`, `public/` has never been deployed, and no screen from this sprint
-has been opened in a browser.
+`PENDING.md` **U9** (the signed-in panel screens) and **L10** (the invoice email
+is sent inside the request). **Bank accounts are empty**: every invoice prints
+"Contact SchoolHub for payment details" until one is entered.
 
 ---
 
