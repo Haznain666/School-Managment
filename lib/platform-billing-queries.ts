@@ -12,6 +12,7 @@ import {
   isNull,
   lt,
   lte,
+  max,
   ne,
   type SQL,
 } from 'drizzle-orm';
@@ -519,6 +520,80 @@ interface DraftLine {
  *      somebody else already raised it, and nothing else is written;
  *   4. insert the lines, and mark the carried invoices `carried_forward`.
  */
+/**
+ * The remainders of earlier **cleared** invoices, as carry-forward lines (E7).
+ *
+ * Only `paid` invoices carry. An invoice that has not been cleared stays open
+ * on its own: it is still the thing the school pays against, it is still what
+ * blocks the school past grace, and it is still what the suspended page shows.
+ * Carrying an uncleared invoice would move the debt onto a draft nobody can pay
+ * and leave a blocked school with no invoice to settle.
+ *
+ * Locks the rows it returns, so a concurrent generation or finalize waits.
+ */
+async function carryableBalances(
+  tx: Tx,
+  locationId: string,
+  beforePeriodStart: string,
+  settings: { invoiceCurrency: string; usdToPkrRate: string | number | null },
+): Promise<{ lines: DraftLine[]; carried: string[] } | 'missing_rate'> {
+  const rateUnits = rateToUnits(settings.usdToPkrRate);
+  const earlier = await tx
+    .select({
+      id: platformInvoices.id,
+      invoiceNumber: platformInvoices.invoiceNumber,
+      total: platformInvoices.total,
+      receivedTotal: platformInvoices.receivedTotal,
+      invoiceCurrency: platformInvoices.invoiceCurrency,
+    })
+    .from(platformInvoices)
+    .where(
+      and(
+        eq(platformInvoices.locationId, locationId),
+        eq(platformInvoices.status, 'paid'),
+        isNull(platformInvoices.carriedForwardTo),
+        lt(platformInvoices.periodStart, beforePeriodStart),
+      ),
+    )
+    .orderBy(asc(platformInvoices.periodStart))
+    .for('update');
+
+  const lines: DraftLine[] = [];
+  const carried: string[] = [];
+  for (const invoice of earlier) {
+    const balance = toPaise(invoice.total) - toPaise(invoice.receivedTotal);
+    if (balance <= 0) continue;
+
+    const from = isBillingCurrency(invoice.invoiceCurrency) ? invoice.invoiceCurrency : 'USD';
+    const to = isBillingCurrency(settings.invoiceCurrency) ? settings.invoiceCurrency : 'USD';
+    let amountMinor = balance;
+    let description = `Previous balance (${invoice.invoiceNumber})`;
+
+    if (from !== to) {
+      if (rateUnits === null) return 'missing_rate';
+      amountMinor = convertMinor(balance, from, to, rateUnits);
+      description += `, converted from ${formatMoneyMinor(balance, from)} at ${String(
+        settings.usdToPkrRate,
+      )} PKR per USD`;
+    }
+
+    carried.push(invoice.id);
+    lines.push({
+      kind: 'carry_forward',
+      description,
+      role: null,
+      moduleKey: null,
+      quantity: 1,
+      unitRateMinor: 0,
+      billingAmountMinor: amountMinor,
+      amountMinor,
+      sourceInvoiceId: invoice.id,
+    });
+  }
+
+  return { lines, carried };
+}
+
 export async function generateInvoiceForSchool(
   locationId: string,
   periodStart: string,
@@ -641,56 +716,10 @@ export async function generateInvoiceForSchool(
     }
 
     /* Carry-forward (E7). Locked, so a concurrent generation waits here. */
-    const earlier = await tx
-      .select({
-        id: platformInvoices.id,
-        invoiceNumber: platformInvoices.invoiceNumber,
-        total: platformInvoices.total,
-        receivedTotal: platformInvoices.receivedTotal,
-        invoiceCurrency: platformInvoices.invoiceCurrency,
-      })
-      .from(platformInvoices)
-      .where(
-        and(
-          eq(platformInvoices.locationId, locationId),
-          inArray(platformInvoices.status, ['finalized', 'paid']),
-          isNull(platformInvoices.carriedForwardTo),
-          lt(platformInvoices.periodStart, period.start),
-        ),
-      )
-      .orderBy(asc(platformInvoices.periodStart))
-      .for('update');
-
-    const carried: string[] = [];
-    for (const invoice of earlier) {
-      const balance = toPaise(invoice.total) - toPaise(invoice.receivedTotal);
-      if (balance <= 0) continue;
-
-      const from = isBillingCurrency(invoice.invoiceCurrency) ? invoice.invoiceCurrency : 'USD';
-      let amountMinor = balance;
-      let description = `Previous balance (${invoice.invoiceNumber})`;
-
-      if (from !== settings.invoiceCurrency) {
-        if (rateUnits === null) return { status: 'missing_rate' } as const;
-        amountMinor = convertMinor(balance, from, settings.invoiceCurrency, rateUnits);
-        description += `, converted from ${formatMoneyMinor(balance, from)} at ${String(
-          settings.usdToPkrRate,
-        )} PKR per USD`;
-      }
-
-      carried.push(invoice.id);
-      lines.push({
-        kind: 'carry_forward',
-        description,
-        role: null,
-        moduleKey: null,
-        quantity: 1,
-        unitRateMinor: 0,
-        billingAmountMinor: amountMinor,
-        amountMinor,
-        sourceInvoiceId: invoice.id,
-      });
-    }
+    const carry = await carryableBalances(tx, locationId, period.start, settings);
+    if (carry === 'missing_rate') return { status: 'missing_rate' } as const;
+    lines.push(...carry.lines);
+    const carried = carry.carried;
 
     const subtotal = lines.reduce((sum, line) => sum + line.amountMinor, 0);
 
@@ -1196,35 +1225,113 @@ export async function finalizeInvoice(
   invoiceId: string,
   actorEmail: string,
 ): Promise<InvoiceWriteOutcome> {
-  const rows = await db
-    .select({ total: platformInvoices.total })
-    .from(platformInvoices)
-    .where(eq(platformInvoices.id, invoiceId))
-    .limit(1);
+  return db.transaction(async (tx) => {
+    const rows = await tx
+      .select({
+        status: platformInvoices.status,
+        locationId: platformInvoices.locationId,
+        periodStart: platformInvoices.periodStart,
+        invoiceCurrency: platformInvoices.invoiceCurrency,
+        subtotal: platformInvoices.subtotal,
+      })
+      .from(platformInvoices)
+      .where(eq(platformInvoices.id, invoiceId))
+      .limit(1)
+      .for('update');
 
-  const invoice = rows[0];
-  if (invoice === undefined) return { ok: false, code: 'not_found', message: 'Invoice not found.' };
+    const invoice = rows[0];
+    if (invoice === undefined) {
+      return { ok: false, code: 'not_found', message: 'Invoice not found.' } as const;
+    }
+    if (invoice.status !== 'draft') {
+      return { ok: false, code: 'not_draft', message: 'This invoice has already been finalized.' } as const;
+    }
 
-  const now = new Date();
-  const settledNow = isInvoiceCleared(0, toPaise(invoice.total));
+    // Anything an earlier invoice left over since this draft was raised — a
+    // receipt that cleared it after the 1st — joins this invoice now, so it is
+    // on the document the school is actually sent.
+    const settingsRows = await tx
+      .select()
+      .from(schoolBillingSettings)
+      .where(eq(schoolBillingSettings.locationId, invoice.locationId))
+      .limit(1);
+    const settings = settingsFromRow(invoice.locationId, settingsRows[0]);
+    const carry = await carryableBalances(tx, invoice.locationId, invoice.periodStart, {
+      invoiceCurrency: invoice.invoiceCurrency,
+      usdToPkrRate: settings.usdToPkrRate,
+    });
+    if (carry === 'missing_rate') {
+      return {
+        ok: false,
+        code: 'not_payable',
+        message: 'Set the USD → PKR rate on the school’s Billing tab before finalizing.',
+      } as const;
+    }
 
-  const claimed = await db
-    .update(platformInvoices)
-    .set({
-      status: settledNow ? 'paid' : 'finalized',
-      finalizedAt: now,
-      finalizedBy: actorEmail,
-      clearedAt: settledNow ? now : null,
-      updatedAt: now,
-    })
-    .where(and(eq(platformInvoices.id, invoiceId), eq(platformInvoices.status, 'draft')))
-    .returning({ id: platformInvoices.id });
+    if (carry.lines.length > 0) {
+      const existing = await tx
+        .select({ value: count() })
+        .from(platformInvoiceLines)
+        .where(eq(platformInvoiceLines.invoiceId, invoiceId));
+      const offset = Number(existing[0]?.value ?? 0);
 
-  if (claimed.length === 0) {
-    return { ok: false, code: 'not_draft', message: 'This invoice has already been finalized.' };
-  }
+      await tx.insert(platformInvoiceLines).values(
+        carry.lines.map((line, index) => ({
+          invoiceId,
+          locationId: invoice.locationId,
+          kind: line.kind,
+          description: line.description,
+          role: line.role,
+          moduleKey: line.moduleKey,
+          quantity: line.quantity,
+          unitRate: paiseToNumeric(line.unitRateMinor),
+          billingAmount: paiseToNumeric(line.billingAmountMinor),
+          amount: paiseToNumeric(line.amountMinor),
+          sourceInvoiceId: line.sourceInvoiceId,
+          sortOrder: offset + index,
+        })),
+      );
+      const added = carry.lines.reduce((sum, line) => sum + line.amountMinor, 0);
+      await tx
+        .update(platformInvoices)
+        .set({ subtotal: paiseToNumeric(toPaise(invoice.subtotal) + added) })
+        .where(eq(platformInvoices.id, invoiceId));
+      await tx
+        .update(platformInvoices)
+        .set({ status: 'carried_forward', carriedForwardTo: invoiceId, updatedAt: new Date() })
+        .where(and(inArray(platformInvoices.id, carry.carried), isNull(platformInvoices.carriedForwardTo)));
+    }
 
-  return { ok: true };
+    // Discounts are a share of the subtotal, so re-price them on the final one.
+    await repriceDiscounts(tx, invoiceId);
+
+    const totals = await tx
+      .select({ total: platformInvoices.total })
+      .from(platformInvoices)
+      .where(eq(platformInvoices.id, invoiceId))
+      .limit(1);
+
+    const now = new Date();
+    const settledNow = isInvoiceCleared(0, toPaise(totals[0]?.total));
+
+    const claimed = await tx
+      .update(platformInvoices)
+      .set({
+        status: settledNow ? 'paid' : 'finalized',
+        finalizedAt: now,
+        finalizedBy: actorEmail,
+        clearedAt: settledNow ? now : null,
+        updatedAt: now,
+      })
+      .where(and(eq(platformInvoices.id, invoiceId), eq(platformInvoices.status, 'draft')))
+      .returning({ id: platformInvoices.id });
+
+    if (claimed.length === 0) {
+      return { ok: false, code: 'not_draft', message: 'This invoice has already been finalized.' } as const;
+    }
+
+    return { ok: true } as const;
+  });
 }
 
 /* ═══════════════════════════════════════════════════════════ receipts */
@@ -1752,16 +1859,53 @@ export async function overdueBlockingCandidates(today: string): Promise<
     );
 }
 
+/** The latest manual Unblock per school, for the schools given. */
+export async function lastManualUnblocks(locationIds: readonly string[]): Promise<Map<string, Date>> {
+  if (locationIds.length === 0) return new Map();
+
+  const rows = await db
+    .select({
+      locationId: schoolAccessEvents.locationId,
+      at: max(schoolAccessEvents.createdAt),
+    })
+    .from(schoolAccessEvents)
+    .where(
+      and(
+        inArray(schoolAccessEvents.locationId, [...new Set(locationIds)]),
+        eq(schoolAccessEvents.action, 'unblocked'),
+        eq(schoolAccessEvents.reason, 'manual'),
+      ),
+    )
+    .groupBy(schoolAccessEvents.locationId);
+
+  const result = new Map<string, Date>();
+  for (const row of rows) if (row.at !== null) result.set(row.locationId, new Date(row.at));
+  return result;
+}
+
 /** Blocks every Live school holding a finalized invoice past grace (§6). */
 export async function sweepOverdueBlocking(now: Date = new Date()): Promise<number> {
   const today = karachiToday(now);
   let blocked = 0;
   const seen = new Set<string>();
 
-  for (const row of await overdueBlockingCandidates(today)) {
+  const candidates = await overdueBlockingCandidates(today);
+  const forgiven = await lastManualUnblocks(candidates.map((row) => row.locationId));
+
+  for (const row of candidates) {
     if (seen.has(row.locationId)) continue;
     const lastBlockingDueDate = addDays(today, -(Math.max(0, row.graceDays) + 1));
     if (compareDates(row.dueDate, lastBlockingDueDate) > 0) continue;
+
+    // A manual Unblock made after this invoice became blockable is the
+    // operator's decision about *this* debt, and the sweep must not undo it on
+    // its next tick. It forgives only what was already past grace: the next
+    // invoice to run out of grace blocks as usual.
+    const manual = forgiven.get(row.locationId);
+    const blockableFrom = new Date(
+      `${addDays(row.dueDate, Math.max(0, row.graceDays) + 1)}T00:00:00+05:00`,
+    );
+    if (manual !== undefined && manual.getTime() >= blockableFrom.getTime()) continue;
 
     seen.add(row.locationId);
     try {

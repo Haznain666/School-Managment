@@ -95,7 +95,16 @@ export const readSuperAdminActor = cache(async (): Promise<SuperAdminActor | nul
         : await findSuperAdminByEmail(session.email);
 
     if (row !== null) {
-      return row.isActive ? actorFromRow(row, session.issuedAt) : null;
+      if (!row.isActive) return null;
+      // A password change or reset ends every session issued before it: the
+      // point of resetting a password is that whoever held the old one is out.
+      if (
+        row.passwordChangedAt !== null &&
+        session.issuedAt < Math.floor(row.passwordChangedAt.getTime() / 1000)
+      ) {
+        return null;
+      }
+      return actorFromRow(row, session.issuedAt);
     }
   } catch (error) {
     console.error('[super-admin] could not re-read the operator; fallback considered:', error);

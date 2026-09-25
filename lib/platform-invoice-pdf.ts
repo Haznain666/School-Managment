@@ -281,7 +281,17 @@ export async function renderInvoicePdf(data: InvoicePdfData): Promise<Uint8Array
 
   totalRow('Subtotal', data.subtotal);
   for (const discount of data.discounts) {
-    const label = wrap(`Discount: ${discount.description}`, regular, 10, rateRight - totalLabelX)[0] ?? '';
+    // One line in the totals column; a description that does not fit ends in an
+    // ellipsis rather than stopping mid-sentence as if that were all of it.
+    const width = rateRight - totalLabelX;
+    const lines = wrap(`Discount: ${discount.description}`, regular, 10, width);
+    let label = lines[0] ?? '';
+    if (lines.length > 1) {
+      while (label.length > 0 && regular.widthOfTextAtSize(`${label}…`, 10) > width) {
+        label = label.slice(0, -1);
+      }
+      label = `${label.trimEnd()}…`;
+    }
     totalRow(label, `-${discount.amount}`);
   }
   totalRow('Total', data.total, true);

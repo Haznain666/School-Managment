@@ -7,6 +7,11 @@ import {
   superAdminPasswordProblem,
   updateSuperAdmin,
 } from '@/lib/super-admin-accounts';
+import {
+  SUPER_ADMIN_SESSION_SECONDS,
+  sessionCookieOptions,
+  signSuperAdminJWT,
+} from '@/lib/super-admin-auth';
 import { requireSuperAdmin } from '@/lib/super-admin-guard';
 
 /**
@@ -62,7 +67,15 @@ export async function PATCH(request: NextRequest) {
     const outcome = await updateSuperAdmin(actor.adminId, { password: next });
     if (!outcome.ok) return apiFailure(outcome.code, outcome.message, outcome.status);
 
-    return apiSuccess({ changed: true });
+    // Changing the password ends every other session of this account (the
+    // guard refuses a token issued before `password_changed_at`), so this
+    // browser gets a fresh one rather than being signed out with the rest.
+    const response = apiSuccess({ changed: true });
+    response.cookies.set({
+      ...sessionCookieOptions(SUPER_ADMIN_SESSION_SECONDS),
+      value: await signSuperAdminJWT(row.email, row.id),
+    });
+    return response;
   } catch (error) {
     return handleApiError(error);
   }
