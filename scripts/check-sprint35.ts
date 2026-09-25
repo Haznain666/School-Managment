@@ -165,6 +165,24 @@ async function main(): Promise<void> {
   const perms = await import('../lib/super-admin-permissions');
   const modules = await import('../lib/platform-modules');
 
+  console.log('\n§9 — who may manage whom:');
+  {
+    const full = { isOwner: false, permissions: perms.fullSuperAdminPermissions() };
+    const none = { isOwner: false, permissions: perms.emptySuperAdminPermissions() };
+    const owner = { isOwner: true, permissions: perms.emptySuperAdminPermissions() };
+    const adminsOnly = perms.emptySuperAdminPermissions();
+    adminsOnly.super_admins = { c: true, r: true, u: true, d: true };
+    const editor = { isOwner: false, permissions: adminsOnly };
+    assert('the owner may manage anyone', perms.canManageSuperAdmin(owner, full));
+    assert('nobody else may manage the owner', !perms.canManageSuperAdmin(full, owner));
+    assert('an admin-editor may manage an admin with less', perms.canManageSuperAdmin(editor, none));
+    assert(
+      'an admin-editor may NOT manage (reset the password of) a broader admin',
+      !perms.canManageSuperAdmin(editor, full),
+    );
+    assert('a full admin may manage an admin-editor', perms.canManageSuperAdmin(full, editor));
+  }
+
   console.log('\nE4 — the trial’s last free day:');
   equal('20 days from 1 Oct ends on 20 Oct', billing.trialEndsOn('2026-10-01', 20), '2026-10-20');
   equal('no trial is null, not the day before', billing.trialEndsOn('2026-10-01', 0), null);
@@ -461,6 +479,10 @@ async function main(): Promise<void> {
     queries.invoiceGenerationCandidates({ start: '2026-10-01', end: '2026-10-31' }),
   );
   await newTable('trialReminderCandidates — settings ⋈ schools', () => queries.trialReminderCandidates());
+  await newTable('lastManualUnblocks — the manual Unblock the sweep must respect', () =>
+    queries.lastManualUnblocks([TENANT]),
+  );
+  await newTable('superAdminTableState — keyed on the owner row', () => accounts.superAdminTableState());
   await newTable('getSuspendedView — the administrator’s unpaid invoices and the banks', () => queries.getSuspendedView(TENANT));
   await newTable('invoiceBelongsTo — the school-side PDF’s tenancy test', () => queries.invoiceBelongsTo(NOBODY, TENANT));
   await newTable('listSuperAdmins', () => accounts.listSuperAdmins());

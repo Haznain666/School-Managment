@@ -89,13 +89,20 @@ async function sendTrialReminder(reminder: TrialReminder): Promise<void> {
     });
 
   const base = serverEnv('INVITE_LINK_BASE_URL', '').trim().replace(/\/+$/, '');
+  // Past the bell, nothing throws: a throw hands the claim back and the next
+  // tick would repeat the bell and every email already queued. The outbox
+  // retries its own deliveries; a failure to *queue* one is logged.
   for (const to of await superAdminAddresses()) {
-    await enqueueEmail({
-      locationId: reminder.locationId,
-      to,
-      subject: `${title} · SchoolHub`,
-      text: `${body}\n\n${base === '' ? href : `${base}${href}`}\n`,
-    });
+    try {
+      await enqueueEmail({
+        locationId: reminder.locationId,
+        to,
+        subject: `${title} · SchoolHub`,
+        text: `${body}\n\n${base === '' ? href : `${base}${href}`}\n`,
+      });
+    } catch (error) {
+      console.error(`[billing] could not queue the trial reminder for ${to}:`, error);
+    }
   }
 }
 

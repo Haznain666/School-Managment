@@ -114,9 +114,29 @@ export function superAdminCan(
   return actor.permissions[area][action];
 }
 
+/**
+ * May `actor` manage `target` — edit, reset the password of, or delete them?
+ *
+ * The owner may manage anyone. Anybody else only an admin whose every right
+ * they hold themselves: otherwise resetting a broader admin's password and
+ * signing in as them would be a way to acquire rights the owner never gave.
+ */
+export function canManageSuperAdmin(
+  actor: SuperAdminCapability,
+  target: SuperAdminCapability,
+): boolean {
+  if (actor.isOwner) return true;
+  if (target.isOwner) return false;
+  return SUPER_ADMIN_AREAS.every((area) =>
+    SUPER_ADMIN_ACTIONS.every(
+      (action) => !target.permissions[area][action] || actor.permissions[area][action],
+    ),
+  );
+}
+
 export function isSuperAdminArea(value: unknown): value is SuperAdminArea {
   return typeof value === 'string' && (SUPER_ADMIN_AREAS as readonly string[]).includes(value);
 }
 
-/** The owner's address. Seeded by `scripts/apply-0052.mjs`; see §9. */
+/** The owner's address. Seeded on the owner's first sign-in after `0052`; see §9. */
 export const PLATFORM_OWNER_EMAIL = 'haznain666@gmail.com';

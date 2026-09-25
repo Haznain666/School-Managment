@@ -32,6 +32,14 @@ import {
   listTenantsNeedingAttention,
 } from '@/lib/platform-dashboard';
 import { describeSubdomainStatus } from '@/lib/subdomain-status';
+import { requireSuperAdminPage } from '@/lib/super-admin-guard';
+import {
+  SUPER_ADMIN_AREA_DESCRIPTIONS,
+  SUPER_ADMIN_AREA_LABELS,
+  SUPER_ADMIN_AREAS,
+  superAdminCan,
+  type SuperAdminArea,
+} from '@/lib/super-admin-permissions';
 
 export const metadata: Metadata = {
   title: 'Dashboard',
@@ -73,7 +81,62 @@ const PLATFORM = 'platform';
  * time or it is not a dashboard — see the docblock on `settle` for the outage
  * that taught this.
  */
-export default async function SuperAdminDashboardPage() {
+const AREA_HOME: Record<SuperAdminArea, string> = {
+  schools: '/super-admin/schools',
+  modules: '/super-admin/modules',
+  billing: '/super-admin/billing',
+  feedback: '/super-admin/feedback',
+  catalogue: '/super-admin/features',
+  super_admins: '/super-admin/admins',
+};
+
+export default async function SuperAdminDashboardPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ denied?: string }>;
+}) {
+  const actor = await requireSuperAdminPage();
+  const denied = (await searchParams).denied === '1';
+
+  // Everything below is school data, so it belongs to the Schools area. An
+  // operator without View on it gets the areas they do hold instead — and,
+  // when they were sent here from a screen they cannot open, the reason.
+  if (!superAdminCan(actor, 'schools', 'r')) {
+    const areas = SUPER_ADMIN_AREAS.filter(
+      (area) => area !== 'schools' && superAdminCan(actor, area, 'r'),
+    );
+    return (
+      <div className="space-y-6">
+        {denied ? (
+          <Card>
+            <p className="text-sm text-ink">
+              You do not have access to that screen. Ask the platform owner if you need it.
+            </p>
+          </Card>
+        ) : null}
+        <Card>
+          <CardTitle title={`Welcome, ${actor.name}`} />
+          {areas.length === 0 ? (
+            <p className="mt-2 text-sm text-ink-muted">
+              Your account has not been given access to any area yet. Ask the platform owner.
+            </p>
+          ) : (
+            <ul className="mt-3 space-y-2">
+              {areas.map((area) => (
+                <li key={area}>
+                  <Link className="font-medium text-brand-primary hover:underline" href={AREA_HOME[area]}>
+                    {SUPER_ADMIN_AREA_LABELS[area]}
+                  </Link>
+                  <span className="text-sm text-ink-muted"> — {SUPER_ADMIN_AREA_DESCRIPTIONS[area]}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </Card>
+      </div>
+    );
+  }
+
   const [
     activeSchools,
     platformStudents,
@@ -109,6 +172,13 @@ export default async function SuperAdminDashboardPage() {
 
   return (
     <div className="space-y-6">
+      {denied ? (
+        <Card>
+          <p className="text-sm text-ink">
+            You do not have access to that screen. Ask the platform owner if you need it.
+          </p>
+        </Card>
+      ) : null}
       {/*
         Shortcuts as chips, at the top. The same move the school-admin dashboard
         got: an operator opening this screen is usually here to add a school or
