@@ -13,7 +13,7 @@ came to be; this file says whether it is finished.
 said: the seven `kpis.rate.*` keys are in `0049` and in the live CHECK, and
 the defect was `check-sprint28`’s own regex). **2026-09-25:** Sprint 35 —
 N2, L8, L9 and L11 closed; D8–D16 opened and closed by QA round 1; U9 opened.
-**2026-09-26:** domain move to `app.getschoolhub.com` — U10 and U11 opened.
+**2026-09-26:** domain move to `app.getschoolhub.com` — U10 opened and closed (a redeploy fixed the 503), U11 opened.
 
 ---
 
@@ -396,30 +396,6 @@ Billing → Invoices, Billing → Bank accounts (add the real accounts — every
 invoice prints "Contact SchoolHub for payment details" until one exists), Super
 admins and My account, and report anything that looks wrong.
 
-### U10 🔴 `app.getschoolhub.com` answers 503 — the app crash-loops at boot
-
-**Owner:** the user (hPanel), then whichever session follows.
-**Source:** the domain move, 2026-09-26 — `STATE.md` §5cp.
-
-The Hostinger site `app.getschoolhub.com` built `78374c6` cleanly (build
-`01a0da53…`, postbuild copied `public/` and `.next/static`), SSL is active, and
-the env var **keys** match `schoolhub.codexmill.com` one for one. But its runtime
-log is nothing except `▲ Next.js 15.5.22 … ✓ Starting...`, repeated about once a
-second, **never** `✓ Ready` and never the `[smtp]` line `instrumentation.ts`
-prints first. A restart through the API changed nothing. The old site, same
-commit and same `.htaccess` shape, logs `✓ Ready in 303ms`.
-
-So the process dies before `register()` runs, and the runtime-log API drops the
-non-JSON stderr that would say why. **The leading hypothesis is the plan's
-resource limit**: two full copies of the platform now run on one hosting
-account, and the old one alone keeps ~7 Node processes. hPanel → Resource Usage
-is the only place that shows it. Second suspect: a malformed **value** in the
-new site's env (the API shows keys only).
-
-**Done when:** `curl https://app.getschoolhub.com/api/internal/build` returns
-200 with the pushed sha, and the runtime log shows `✓ Ready` and the
-`[scheduler] started` line.
-
 ### U11 Finish the move to `app.getschoolhub.com` outside the repository
 
 **Owner:** the user. **Source:** `STATE.md` §5cp.
@@ -432,6 +408,12 @@ zone's MX); `SUPER_ADMIN_EMAIL` if it was the old address; the GitHub secret
 `PRODUCTION_URL`; the Mapbox token's URL allow-list; re-provisioning each
 school's `<slug>.app.getschoolhub.com` from Super Admin; and, once the new site
 serves, a 301 from `schoolhub.codexmill.com` so only one copy runs.
+
+⚠ **Until the 301 is in place, both sites run the scheduler against one
+database.** The `0051` lease keeps it to one process across both, so nothing is
+sent twice. But whichever site holds the lease builds links from **its own**
+`INVITE_LINK_BASE_URL`, so an invoice email or digest can still carry
+`schoolhub.codexmill.com` links. Retire the old site promptly.
 
 **Done when:** every item above is done and a school subdomain on the new host
 opens its sign-in page.
@@ -489,6 +471,19 @@ state — but none of them has had a server behind it. §5cg, §5ci.
 
 Closed items move here with their evidence — a commit, a build id, a check
 script's real output — and are never deleted.
+
+### ✅ U10 — `app.getschoolhub.com` 503 — closed 2026-09-26
+
+The first Hostinger deploy of the new site (`78374c6`, build `01a0da53…`)
+crash-looped at boot (`✓ Starting...` about once a second, never `✓ Ready`),
+and an API restart did not help. **The next deploy, `6d1ba0d` (PR #119), came
+up first time**: `[smtp]` and `[scheduler] started` logged at 21:15:47Z,
+`/api/internal/build` → `{"buildId":"6d1ba0d71885"}`, `/login` and
+`/super-admin/login` 200 on repeated requests. The resource-limit guess in
+§5cp was wrong: both sites now run together without trouble. The cause of
+the first boot failure was never visible, because the runtime-log API drops
+non-JSON stderr. **If a fresh Hostinger Node site answers 503, redeploy it
+before debugging anything.**
 
 ### ✅ N2 — Sprint 35 applied, deployed and QA'd — closed 2026-09-25
 

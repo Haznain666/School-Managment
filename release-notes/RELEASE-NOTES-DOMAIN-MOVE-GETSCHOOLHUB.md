@@ -15,7 +15,7 @@
 - Each school's own address becomes `<school>.app.getschoolhub.com`. The school
   subdomain check now covers the new domain.
 
-## Not yet live
+## Live
 
-The new site currently answers "503 Service Unavailable". It is a hosting
-issue, not the release, and is tracked as `PENDING.md` U10.
+Serving on https://app.getschoolhub.com as build `6d1ba0d71885`. The first
+deploy of the new site answered 503, and a redeploy fixed it.
