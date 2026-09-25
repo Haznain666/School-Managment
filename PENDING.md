@@ -415,6 +415,17 @@ sent twice. But whichever site holds the lease builds links from **its own**
 `INVITE_LINK_BASE_URL`, so an invoice email or digest can still carry
 `schoolhub.codexmill.com` links. Retire the old site promptly.
 
+**It happened, and it is fixed — 2026-09-26.** After the 301 was added, mail
+still came from codexmill. A redirect does not stop the Node process behind
+it: the old site logged `[scheduler] lease taken` at 22:14:59Z and
+`[email-outbox] drained 1/1` at 22:25 and 22:32Z, sending mail queued on the new
+site with its own codexmill `SMTP_*`. The user removed the old site's
+`DATABASE_URL`, `SUPABASE_URL` and `SMTP_*` and restarted it at 22:52Z. Since
+then the old site has logged no drain and no scheduler start, and the new site
+took the lease at 22:54:02Z. This session's audit also missed the **Supabase
+dashboard SMTP** (GoTrue's own mail, `.env.example` line 15). The user updated
+it.
+
 **Done when:** every item above is done and a school subdomain on the new host
 opens its sign-in page.
 
