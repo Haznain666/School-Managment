@@ -71,6 +71,11 @@ export function formatAmount(value: MoneyInput): string {
   return PKR_FORMATTER.format(fromPaise(toPaise(value)));
 }
 
+const PKR_PAISA_FORMATTER = new Intl.NumberFormat('en-PK', {
+  minimumFractionDigits: 2,
+  maximumFractionDigits: 2,
+});
+
 const USD_FORMATTER = new Intl.NumberFormat('en-US', {
   minimumFractionDigits: 2,
   maximumFractionDigits: 2,
@@ -89,7 +94,11 @@ const USD_FORMATTER = new Intl.NumberFormat('en-US', {
  * the product.
  */
 export function formatMoneyMinor(minor: number, currency: 'USD' | 'PKR'): string {
-  if (currency === 'PKR') return `PKR ${PKR_FORMATTER.format(fromPaise(minor))}`;
+  // Whole rupees print as the fee module prints them (`PKR 500`); anything with
+  // paisa prints both digits (`PKR 190.40`), never the trimmed `PKR 190.4`.
+  if (currency === 'PKR') {
+    return `PKR ${(minor % 100 === 0 ? PKR_FORMATTER : PKR_PAISA_FORMATTER).format(fromPaise(minor))}`;
+  }
   return `USD ${USD_FORMATTER.format(fromPaise(minor))}`;
 }
 

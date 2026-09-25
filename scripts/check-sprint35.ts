@@ -315,7 +315,7 @@ async function main(): Promise<void> {
     [{ key: 'chat', label: 'Chat', rateMinor: 5_000 }],
   );
   equal('1 + 1 + 2 + 8 + 100 users at USD 1 and Chat at USD 50', money.formatMoneyMinor(estimate.totalMinor, 'USD'), 'USD 162.00');
-  equal('PKR is formatted the way every rupee is', money.formatMoneyMinor(1_250_050, 'PKR'), 'PKR 12,500.5');
+  equal('PKR is formatted the way every rupee is', money.formatMoneyMinor(1_250_050, 'PKR'), 'PKR 12,500.50');
 
   console.log('\nCurrency (E1):');
   const rate = billing.rateToUnits('280.5');
